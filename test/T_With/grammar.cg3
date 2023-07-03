@@ -1,0 +1,24 @@
+DELIMITERS = "<.>" ;
+
+LIST @det = @det ;
+
+WITH (det def) IF (1X (n)) {
+  REMOVE (skip) ;
+  MAP @det (*) ;
+  SETPARENT (*) TO (1 _MARK_) ;
+  SETCHILD _C1_ TO (-1* (predet)) ;
+} ;
+
+WITH (det def) IF (1* (n)) {
+  SETPARENT (*) (0 (sp)) TO (1* _C1_) ;
+  SETPARENT (*) (0 (pl)) TO (-1* (n)) ;
+} ;
+
+WITH (sent) IF (-1* (det def) LINK p (*)) {
+  SETPARENT (*) TO (jC1 (*)) ;
+} ;
+
+WITH (vbser) IF (1*w (n pl) LINK -1 (det def)) {
+  SETPARENT (*) TO (jC1 (*)) ;
+  SUBSTITUTE REPEAT (/snip\\d/r) (*) (*) ;
+} ;
