@@ -1,7 +1,4 @@
-use std::{
-    ffi::c_void,
-    str,
-};
+use std::{ffi::c_void, str};
 
 extern "C" {
     fn cg3_run(
