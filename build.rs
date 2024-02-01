@@ -1,8 +1,8 @@
 fn main() {
     let dst = cmake::Config::new("cg3")
         .define("BUILD_SHARED_LIBS", "off")
+        .define("CMAKE_SYSTEM_PROCESSOR", "armv7-a")
         .build();
-
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
 
     let icu = pkg_config::Config::new()
@@ -23,6 +23,7 @@ fn main() {
         .file("wrapper/wrapper.cpp")
         .include(dst.join("include"))
         .include(dst.join("include").join("cg3"))
+        .include(dst)
         .static_flag(true)
         .cpp(true)
         .flag("-std=c++11")

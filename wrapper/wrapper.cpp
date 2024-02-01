@@ -27,9 +27,13 @@ private:
 };
 
 extern "C" std::stringstream *
-cg3_run(const uint8_t *grammar_data, size_t grammar_size, const uint8_t *input_data, size_t input_size,
-        size_t *output_size)
-{
+cg3_run(
+    const uint8_t *grammar_data,
+    size_t grammar_size,
+    const uint8_t *input_data,
+    size_t input_size,
+    size_t *output_size
+) {
     if (!cg3_init(stdin, stdout, stderr)) {
         return nullptr;
     }
@@ -68,4 +72,24 @@ extern "C" void cg3_copy_output(std::stringstream *stream, char *output, size_t 
 {
     stream->seekg(0, stream->beg);
     stream->read(output, size);
+}
+
+extern "C" std::stringstream*
+cg3_mwesplit(
+    const uint8_t *input_data,
+    size_t input_size,
+    size_t *output_size
+) {
+    memstream input_stream(input_data, input_size);
+    auto applicator = cg3_mwesplitapplicator_create();
+
+    auto output = new std::stringstream(std::ios::in | std::ios::out | std::ios::binary);
+
+    cg3_run_grammar_on_text(applicator, &input_stream, output);
+    cg3_applicator_free(applicator);
+    
+    output->seekg(0, output->end);
+    *output_size = output->tellg();
+
+    return output;
 }
