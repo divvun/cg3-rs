@@ -1,53 +1,101 @@
-use std::{ffi::c_void, str};
+use std::sync::Once;
+use std::{ffi::c_void, path::Path, str};
+
+static START: Once = Once::new();
 
 extern "C" {
-    fn cg3_run(
+    fn cg3_rs_init();
+    fn cg3_applicator_new(
         grammar_data: *const u8,
         grammar_size: usize,
+        grammar_ptr: *mut c_void,
+    ) -> *mut c_void;
+    fn cg3_applicator_delete(applicator: *mut c_void, grammar: *mut c_void);
+    fn cg3_applicator_run(
+        applicator: *mut c_void,
         input_data: *const u8,
         input_size: usize,
         output_size: *mut usize,
-    ) -> *const c_void;
-
-    fn cg3_free(stream: *const c_void);
-    fn cg3_copy_output(stream: *const c_void, output: *mut u8, size: usize);
+    ) -> *const u8;
+    fn cg3_free(ptr: *const c_void);
+    fn cg3_mwesplit_new() -> *mut c_void;
+    fn cg3_mwesplit_delete(mwesplit: *mut c_void);
+    fn cg3_mwesplit_run(
+        mwesplit: *mut c_void,
+        input_data: *const u8,
+        input_size: usize,
+        output_size: *mut usize,
+    ) -> *const u8;
 }
 
-pub fn run(grammar: &[u8], input: &str) -> String {
-    let mut output_size: usize = 0;
-
-    let stream = unsafe {
-        cg3_run(
-            grammar.as_ptr(),
-            grammar.len(),
-            input.as_ptr(),
-            input.len(),
-            &mut output_size,
-        )
-    };
-
-    let mut output = vec![0u8; output_size];
-    unsafe {
-        cg3_copy_output(stream, output.as_mut_ptr(), output_size);
-    }
-
-    unsafe {
-        cg3_free(stream);
-    }
-
-    String::from_utf8(output).unwrap()
+pub struct Applicator {
+    applicator: *mut c_void,
+    grammar: *mut c_void,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl Applicator {
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        let buf = std::fs::read(path).unwrap();
 
-    #[test]
-    fn smoke() {
-        let grammar = std::fs::read("./smj/grammarchecker-release.bin").unwrap();
-        let input = "test input goes here";
+        START.call_once(|| unsafe { cg3_rs_init() });
+        let grammar = std::ptr::null_mut();
 
-        println!("WAT");
-        println!("{}", run(&grammar, input));
+        let applicator = unsafe { cg3_applicator_new(buf.as_ptr(), buf.len(), grammar) };
+        Self {
+            applicator,
+            grammar,
+        }
+    }
+
+    pub fn run(&self, input: &str) -> Option<String> {
+        let mut output_size = 0usize;
+        let output = unsafe {
+            cg3_applicator_run(
+                self.applicator,
+                input.as_ptr(),
+                input.len(),
+                &mut output_size,
+            )
+        };
+        let slice = unsafe { std::slice::from_raw_parts(output, output_size) };
+        let out = std::str::from_utf8(slice).ok().map(|s| s.to_string());
+        unsafe { cg3_free(output as _) };
+        out
+    }
+}
+
+impl Drop for Applicator {
+    fn drop(&mut self) {
+        unsafe { cg3_applicator_delete(self.applicator, self.grammar) };
+    }
+}
+
+pub struct MweSplit {
+    mwesplit: *mut c_void,
+}
+
+impl MweSplit {
+    pub fn new() -> Self {
+        START.call_once(|| unsafe { cg3_rs_init() });
+
+        let mwesplit = unsafe { cg3_mwesplit_new() };
+        Self { mwesplit }
+    }
+
+    pub fn run(&self, input: &str) -> Option<String> {
+        let mut output_size = 0usize;
+        let output = unsafe {
+            cg3_mwesplit_run(self.mwesplit, input.as_ptr(), input.len(), &mut output_size)
+        };
+        let slice = unsafe { std::slice::from_raw_parts(output, output_size) };
+        let out = std::str::from_utf8(slice).ok().map(|s| s.to_string());
+        unsafe { cg3_free(output as _) };
+        out
+    }
+}
+
+impl Drop for MweSplit {
+    fn drop(&mut self) {
+        unsafe { cg3_mwesplit_delete(self.mwesplit) };
     }
 }

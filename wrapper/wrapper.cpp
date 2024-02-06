@@ -26,70 +26,93 @@ private:
     membuf _buffer;
 };
 
-extern "C" std::stringstream *
-cg3_run(
+extern "C" int cg3_rs_init()
+{
+    if (!cg3_init(stdin, stdout, stderr))
+    {
+        return 0;
+    }
+    return 1;
+}
+
+extern "C" const cg3_applicator *cg3_applicator_new(
     const uint8_t *grammar_data,
     size_t grammar_size,
-    const uint8_t *input_data,
-    size_t input_size,
-    size_t *output_size
-) {
-    if (!cg3_init(stdin, stdout, stderr)) {
+    cg3_grammar *grammar_ptr)
+{
+    grammar_ptr = cg3_grammar_load_buffer((const char *)grammar_data, grammar_size);
+
+    if (!grammar_ptr)
+    {
         return nullptr;
     }
 
-    auto grammar = cg3_grammar_load_buffer((const char *)grammar_data, grammar_size);
-
-    if (!grammar) {
-        return nullptr;
-    }
-
-    auto applicator = cg3_applicator_create(grammar);
-
+    auto applicator = cg3_applicator_create(grammar_ptr);
     if (!applicator)
+    {
         return nullptr;
+    }
 
-    memstream input_stream(input_data, input_size);
-
-    auto output = new std::stringstream(std::ios::in | std::ios::out | std::ios::binary);
-
-    cg3_run_grammar_on_text(applicator, &input_stream, output);
-    cg3_applicator_free(applicator);
-    cg3_grammar_free(grammar);
-
-    output->seekg(0, output->end);
-    *output_size = output->tellg();
-
-    return output;
+    return applicator;
 }
 
-extern "C" void cg3_free(std::stringstream *stream)
+extern "C" void cg3_applicator_delete(
+    cg3_applicator *ptr,
+    cg3_grammar *grammar_ptr)
 {
-    delete stream;
+    cg3_applicator_free(ptr);
+    cg3_grammar_free(grammar_ptr);
 }
 
-extern "C" void cg3_copy_output(std::stringstream *stream, char *output, size_t size)
-{
-    stream->seekg(0, stream->beg);
-    stream->read(output, size);
-}
-
-extern "C" std::stringstream*
-cg3_mwesplit(
+extern "C" const char *cg3_applicator_run(
+    cg3_applicator *applicator,
     const uint8_t *input_data,
     size_t input_size,
-    size_t *output_size
-) {
+    size_t *output_size)
+{
     memstream input_stream(input_data, input_size);
-    auto applicator = cg3_mwesplitapplicator_create();
-
     auto output = new std::stringstream(std::ios::in | std::ios::out | std::ios::binary);
 
     cg3_run_grammar_on_text(applicator, &input_stream, output);
     cg3_applicator_free(applicator);
-    
+
     output->seekg(0, output->end);
     *output_size = output->tellg();
 
-    return output;
+    return strdup(output->str().c_str());
+}
+
+extern "C" void cg3_free(void *ptr)
+{
+    free(ptr);
+}
+
+extern "C" cg3_mwesplitapplicator *
+cg3_mwesplit_new()
+{
+    return cg3_mwesplitapplicator_create();
+}
+
+extern "C" const char *
+cg3_mwesplit_run(
+    cg3_mwesplitapplicator *applicator,
+    const uint8_t *input_data,
+    size_t input_size,
+    size_t *output_size)
+{
+    memstream input_stream(input_data, input_size);
+    auto output = new std::stringstream(std::ios::in | std::ios::out | std::ios::binary);
+
+    cg3_run_grammar_on_text(applicator, &input_stream, output);
+    cg3_applicator_free(applicator);
+
+    output->seekg(0, output->end);
+    *output_size = output->tellg();
+
+    return strdup(output->str().c_str());
+}
+
+extern "C" void cg3_mwesplit_delete(cg3_mwesplitapplicator *ptr)
+{
+    cg3_mwesplitapplicator_free(ptr);
 }

@@ -1,5 +1,5 @@
 [package]
-name = "cg3-rs"
+name = "cg3"
 version = "0.1.0"
 edition = "2021"
 
