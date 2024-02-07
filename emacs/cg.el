@@ -471,7 +471,8 @@ CG-mode provides the following specific keyboard key bindings:
     (add-hook 'kill-buffer-hook
               (lambda () (cancel-timer hl-timer))
               nil
-              'local)))
+              'local))
+  (cg-imenu-setup))
 
 
 (defconst cg-font-lock-syntactic-keywords
@@ -955,6 +956,19 @@ you want to keep analyses hidden most of the time.")
 
 
 
+;;; Imenu
+
+(defun cg-imenu-setup ()
+  "Set up `imenu-generic-expression' for running `imenu'."
+  (setq imenu-generic-expression
+        '((nil "^#*\\s *\\(SECTION\\|CONSTRAINTS\\).*" 0)
+          (nil "^#*\\s *DELIMITERS.*" 0)
+          (nil "^#*\\s *MAPPINGS.*" 0)
+          (nil "^#*\\s *\\(BEFORE\\|AFTER\\)-SECTIONS.*" 0))))
+
+
+
+
 (define-compilation-mode cg-output-mode "CG-out"
   "Major mode for output of Constraint Grammar compilations and runs."
   (setq-local tool-bar-map cg-output-mode-tool-bar-map)
@@ -1174,7 +1188,10 @@ buffer to cg-output-buffer on check."
   (when string
     (process-send-string proc string))
   (process-send-string proc "\n")
-  (process-send-eof proc))
+  (process-send-eof proc)
+  ;; two eof's needed for some pre-pipes, not sure why:
+  (when (process-live-p proc)
+    (process-send-eof proc)))
 
 (defun cg-check ()
   "Run vislcg3 --trace on the buffer with your example inputs.
