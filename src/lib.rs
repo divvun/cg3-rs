@@ -76,13 +76,16 @@ pub struct MweSplit {
 
 impl MweSplit {
     pub fn new() -> Self {
+        println!("WE SPLIT");
         START.call_once(|| unsafe { cg3_rs_init() });
 
         let mwesplit = unsafe { cg3_mwesplit_new() };
+        println!("WE SPLAT?");
         Self { mwesplit }
     }
 
     pub fn run(&self, input: &str) -> Option<String> {
+        println!("WE HIT");
         let mut output_size = 0usize;
         let output = unsafe {
             cg3_mwesplit_run(self.mwesplit, input.as_ptr(), input.len(), &mut output_size)
@@ -90,6 +93,7 @@ impl MweSplit {
         let slice = unsafe { std::slice::from_raw_parts(output, output_size) };
         let out = std::str::from_utf8(slice).ok().map(|s| s.to_string());
         unsafe { cg3_free(output as _) };
+        println!("WE CRY");
         out
     }
 }

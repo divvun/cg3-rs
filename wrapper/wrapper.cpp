@@ -74,7 +74,6 @@ extern "C" const char *cg3_applicator_run(
     auto output = new std::stringstream(std::ios::in | std::ios::out | std::ios::binary);
 
     cg3_run_grammar_on_text(applicator, &input_stream, output);
-    cg3_applicator_free(applicator);
 
     output->seekg(0, output->end);
     *output_size = output->tellg();
@@ -104,7 +103,6 @@ cg3_mwesplit_run(
     auto output = new std::stringstream(std::ios::in | std::ios::out | std::ios::binary);
 
     cg3_run_grammar_on_text(applicator, &input_stream, output);
-    cg3_applicator_free(applicator);
 
     output->seekg(0, output->end);
     *output_size = output->tellg();
