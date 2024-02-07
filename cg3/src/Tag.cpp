@@ -21,6 +21,7 @@
 #include "Set.hpp"
 #include "Grammar.hpp"
 #include "Strings.hpp"
+#include "MathParser.hpp"
 
 namespace CG3 {
 
@@ -106,7 +107,7 @@ void Tag::parseTagRaw(const UChar* to, Grammar* grammar) {
 	}
 
 	if (tag[0] == '<' && tag[length - 1] == '>') {
-		parseNumeric();
+		parseNumeric(false);
 	}
 	if (tag[0] == '#') {
 		if (u_sscanf(tag.data(), "#%i->%i", &dep_self, &dep_parent) == 2 && dep_self != 0) {
@@ -138,21 +139,46 @@ void Tag::parseTagRaw(const UChar* to, Grammar* grammar) {
 	}
 }
 
-void Tag::parseNumeric() {
+void Tag::parseNumeric(bool trusted) {
 	if (tag.size() >= 256) {
 		return;
 	}
 	UChar tkey[256];
 	UChar top[256];
-	UChar txval[256];
-	UChar spn[] = { '-', '.', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 0 };
 	tkey[0] = 0;
 	top[0] = 0;
-	txval[0] = 0;
-	if (u_sscanf(tag.data(), "%*[<]%[^<>=:!]%[<>=:!]%[-.MAXIN0-9]%*[>]", &tkey, &top, &txval) == 3 && top[0] && txval[0]) {
+	if (u_sscanf(tag.data(), "%*[<]%[^<>=:!]%[<>=:!]", &tkey, &top) == 2 && top[0]) {
+		auto tkz = u_strlen(tkey);
+		auto toz = u_strlen(top);
+		if (UIZ(tkz + toz + 1) >= tag.size()) {
+			return;
+		}
+
+		UChar txval[256];
+		std::copy(tag.begin() + tkz + toz + 1, tag.end() - 1, txval);
+		txval[tag.size() - tkz - toz - 2] = 0;
+		if (txval[0] == 0) {
+			return;
+		}
+
 		double tval = 0;
-		int32_t r = u_strspn(txval, spn);
-		if (txval[0] == 'M' && txval[1] == 'A' && txval[2] == 'X' && txval[3] == 0) {
+		auto r = u_strspn(txval, u"-.0123456789");
+		if (trusted && txval[r] && (UStringView(txval).find_first_of(u"-+*/^%()=") != UStringView::npos) && (UStringView(txval).find_first_of(u"\"\\<>[]{}!?&$¤#£@~`´';:,|_") == UStringView::npos)) {
+			comparison_offset = u_strlen(tkey) + u_strlen(top) + 1;
+			try {
+				MathParser mp(NUMERIC_MIN, NUMERIC_MAX);
+				UStringView exp(tag);
+				exp.remove_prefix(comparison_offset);
+				exp.remove_suffix(1);
+				mp.eval(exp);
+			}
+			catch (...) {
+				comparison_offset = 0;
+				return;
+			}
+			type |= T_NUMERIC_MATH;
+		}
+		else if (txval[0] == 'M' && txval[1] == 'A' && txval[2] == 'X' && txval[3] == 0) {
 			tval = NUMERIC_MAX;
 		}
 		else if (txval[0] == 'M' && txval[1] == 'I' && txval[2] == 'N' && txval[3] == 0) {

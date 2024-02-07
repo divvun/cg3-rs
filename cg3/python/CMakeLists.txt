@@ -1,5 +1,10 @@
 find_package(SWIG 3.0 REQUIRED)
-find_package(PythonInterp 3.5 REQUIRED)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.12.0")
+	find_package(Python 3.5 REQUIRED)
+	set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
+else()
+	find_package(PythonInterp 3.5 REQUIRED)
+endif()
 
 set(PYTHON_FILE "constraint_grammar.py")
 set(CPP_WRAP_FILE "constraint_grammar_wrap.cpp")
@@ -15,6 +20,7 @@ configure_file(setup.py.in setup.py)
 
 add_custom_command(OUTPUT ${CPP_WRAP_FILE} ${PYTHON_FILE}
 	COMMAND ${PYTHON_EXECUTABLE} setup.py build
+	DEPENDS cg3
 	COMMENT "Building ${PYTHON_FILE}"
 )
 
