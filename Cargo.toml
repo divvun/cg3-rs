@@ -10,4 +10,7 @@ cmake = "0.1.50"
 cc = "1.0.79"
 pkg-config = "0.3.27"
 
+[dependencies]
+thiserror = "1.0.56"
+
 
