@@ -1,4 +1,4 @@
-use std::sync::Once;
+use std::sync::{Mutex, Once};
 use std::{ffi::c_void, path::Path, str};
 
 static START: Once = Once::new();
@@ -33,11 +33,16 @@ pub struct Applicator {
     grammar: *mut c_void,
 }
 
+static CG3: Mutex<()> = Mutex::new(());
+
 impl Applicator {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        let _guard = CG3.lock().unwrap();
+
         let buf = std::fs::read(path).unwrap();
 
         START.call_once(|| unsafe { cg3_rs_init() });
+
         let grammar = std::ptr::null_mut();
 
         let applicator = unsafe { cg3_applicator_new(buf.as_ptr(), buf.len(), grammar) };
@@ -76,16 +81,14 @@ pub struct MweSplit {
 
 impl MweSplit {
     pub fn new() -> Self {
-        println!("WE SPLIT");
-        START.call_once(|| unsafe { cg3_rs_init() });
+        let _guard = CG3.lock().unwrap();
 
+        START.call_once(|| unsafe { cg3_rs_init() });
         let mwesplit = unsafe { cg3_mwesplit_new() };
-        println!("WE SPLAT?");
         Self { mwesplit }
     }
 
     pub fn run(&self, input: &str) -> Option<String> {
-        println!("WE HIT");
         let mut output_size = 0usize;
         let output = unsafe {
             cg3_mwesplit_run(self.mwesplit, input.as_ptr(), input.len(), &mut output_size)
@@ -93,7 +96,6 @@ impl MweSplit {
         let slice = unsafe { std::slice::from_raw_parts(output, output_size) };
         let out = std::str::from_utf8(slice).ok().map(|s| s.to_string());
         unsafe { cg3_free(output as _) };
-        println!("WE CRY");
         out
     }
 }
