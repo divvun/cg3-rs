@@ -129,6 +129,7 @@ pub enum Block<'a> {
 
 #[derive(Debug, Clone)]
 pub struct Reading<'a> {
+    pub raw_line: &'a str,
     pub base_form: &'a str,
     pub tags: Vec<&'a str>,
     pub depth: usize,
@@ -235,9 +236,10 @@ impl<'a> Output<'a> {
                         let base_form = &base_form[1..base_form.len() - 1];
 
                         cohort.readings.push(Reading {
+                            raw_line: x,
                             base_form,
                             tags: chunks.collect(),
-                            depth,
+                            depth: depth + 1,
                         });
 
                         break None;
