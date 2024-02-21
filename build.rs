@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 fn main() {
+    #[cfg(windows)]
     let sysroot = PathBuf::from(std::env::var("SYSROOT").unwrap());
 
     #[cfg(windows)]
