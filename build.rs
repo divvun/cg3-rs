@@ -47,7 +47,7 @@ fn main() {
         .include(dst.join("include"))
         .include(dst.join("include").join("cg3"))
         .include(dst)
-        .include(sysroot)
+        // .include(sysroot)
         .static_flag(true)
         .cpp(true)
         // .flag("-std=c++11")
