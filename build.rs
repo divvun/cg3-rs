@@ -37,10 +37,10 @@ fn main() {
     }
 
     println!("cargo:rustc-link-lib=static=cg3");
-    // println!("cargo:rustc-link-lib=static=icuuc");
-    // println!("cargo:rustc-link-lib=static=icuio");
-    // println!("cargo:rustc-link-lib=static=icudata");
-    // println!("cargo:rustc-link-lib=static=icui18n");
+    println!("cargo:rustc-link-lib=static=icuuc");
+    println!("cargo:rustc-link-lib=static=icuio");
+    println!("cargo:rustc-link-lib=static=icudata");
+    println!("cargo:rustc-link-lib=static=icui18n");
 
     cc::Build::new()
         .file("wrapper/wrapper.cpp")
