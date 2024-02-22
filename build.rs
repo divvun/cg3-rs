@@ -32,17 +32,19 @@ fn main() {
 
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
 
-    println!("cargo:rustc-link-lib=static=cg3");
+    println!("cargo:rustc-link-lib=cg3");
 
-    println!("cargo:rustc-link-lib=static=icuuc");
-    println!("cargo:rustc-link-lib=static=icuio");
+    println!("cargo:rustc-link-lib=icuuc");
+    println!("cargo:rustc-link-lib=icuio");
     if cfg!(windows) {
-        println!("cargo:rustc-link-lib=static=icudt");
-        println!("cargo:rustc-link-lib=static=icuin");
+        println!("cargo:rustc-link-lib=icudt");
+        println!("cargo:rustc-link-lib=icuin");
     } else {
-        println!("cargo:rustc-link-lib=static=icudata");
-        println!("cargo:rustc-link-lib=static=icui18n");
+        println!("cargo:rustc-link-lib=icudata");
+        println!("cargo:rustc-link-lib=icui18n");
     }
+
+    let is_shared = cfg!(windows) && std::env::var("VCPKGRS_DYNAMIC").is_ok();
 
     cc::Build::new()
         .file("wrapper/wrapper.cpp")
@@ -50,9 +52,13 @@ fn main() {
         .include(dst.join("include"))
         .include(dst.join("include").join("cg3"))
         .include(dst)
-        // .include(sysroot)
-        .static_flag(true)
+        .static_flag(!is_shared)
+        .static_crt(!is_shared)
         .cpp(true)
-        // .flag("-std=c++11")
+        .flag(if cfg!(windows) {
+            "/std:c++14"
+        } else {
+            "-std=c++11"
+        })
         .compile("cg3_wrapper");
 }
