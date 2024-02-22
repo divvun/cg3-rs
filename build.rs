@@ -8,7 +8,7 @@ fn main() {
     let dst = cmake::Config::new("cg3")
         .define("WIN32", "ON")
         .define("MSVC", "ON")
-        // .define("CMAKE_CXX_FLAGS", "/Dcg3_EXPORTS /DWIN32 /D_WIN32 /D_WINDOWS /W3 /GR /EHsc")
+        .define("CMAKE_CXX_FLAGS", "/Dcg3_EXPORTS /DWIN32 /D_WIN32 /D_WINDOWS /W3 /GR /EHsc")
         // .define("CMAKE_TOOLCHAIN_FILE", r"D:\vcpkg\scripts\buildsystems\vcpkg.cmake")
         // .define("SQLITE3_INCLUDE_DIRS", r"D:\vcpkg\installed\x64-windows\include")
         // .define("SQLITE3_LIBRARIES", r"D:\vcpkg\installed\x64-windows\lib\sqlite3.lib")
