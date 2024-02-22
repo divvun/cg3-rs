@@ -38,14 +38,17 @@ fn main() {
     }
 
     println!("cargo:rustc-link-lib=static=cg3");
-    println!("cargo:rustc-link-lib=static=icuuc");
-    println!("cargo:rustc-link-lib=static=icuio");
-    if cfg!(windows) {
-        println!("cargo:rustc-link-lib=static=icudt");
-        println!("cargo:rustc-link-lib=static=icuin");
-    } else {
-        println!("cargo:rustc-link-lib=static=icudata");
-        println!("cargo:rustc-link-lib=static=icui18n");
+
+    if cfg!(unix) {
+        println!("cargo:rustc-link-lib=static=icuuc");
+        println!("cargo:rustc-link-lib=static=icuio");
+        if cfg!(windows) {
+            println!("cargo:rustc-link-lib=static=icudt");
+            println!("cargo:rustc-link-lib=static=icuin");
+        } else {
+            println!("cargo:rustc-link-lib=static=icudata");
+            println!("cargo:rustc-link-lib=static=icui18n");
+        }
     }
 
     cc::Build::new()
