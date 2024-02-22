@@ -5,6 +5,7 @@ fn main() {
         let lib = vcpkg::Config::new().find_package("icu").unwrap();
         lib.include_paths
     } else if cfg!(target_os = "macos") {
+        println!("cargo:rustc-link-search=native=/opt/homebrew/lib");
         vec![PathBuf::from("/opt/homebrew/include")]
     } else {
         vec![]
