@@ -16,13 +16,7 @@ fn main() {
         .define("WIN32", "ON")
         .define("MSVC", "ON")
         .define("CMAKE_CXX_FLAGS", "/Dcg3_EXPORTS /DWIN32 /D_WIN32 /D_WINDOWS /W3 /GR /EHsc /O2")
-        // .define("CMAKE_TOOLCHAIN_FILE", r"D:\vcpkg\scripts\buildsystems\vcpkg.cmake")
-        // .define("SQLITE3_INCLUDE_DIRS", r"D:\vcpkg\installed\x64-windows\include")
-        // .define("SQLITE3_LIBRARIES", r"D:\vcpkg\installed\x64-windows\lib\sqlite3.lib")
-        // .define("ICU_LIBRARY_DIRS", sysroot.join("lib64"))
         .define("BUILD_SHARED_LIBS", "OFF")
-        // .define("Boost_INCLUDE_DIR", sysroot.join("include"))
-        // .define("ICU_INCLUDE_DIR", sysroot.join("include"))
         .build();
 
     #[cfg(unix)]

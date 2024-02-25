@@ -3,6 +3,8 @@
 #include <istream>
 #include <sstream>
 #include <iostream>
+#include <string.h>
+
 
 class membuf : public std::basic_streambuf<char>
 {
