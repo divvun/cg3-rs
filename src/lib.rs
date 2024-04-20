@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::sync::{Mutex, Once};
 use std::{ffi::c_void, path::Path, str};
 
@@ -127,12 +128,29 @@ pub enum Block<'a> {
     Text(&'a str),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Reading<'a> {
     pub raw_line: &'a str,
     pub base_form: &'a str,
     pub tags: Vec<&'a str>,
     pub depth: usize,
+}
+
+impl Debug for Reading<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let alt = f.alternate();
+
+        let mut x = f.debug_struct("Reading");
+        x.field("base_form", &self.base_form)
+            .field("tags", &self.tags)
+            .field("depth", &self.depth);
+
+        if alt {
+            x.field("raw_line", &self.raw_line).finish()
+        } else {
+            x.finish_non_exhaustive()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +306,27 @@ mod tests {
         println!("{:?}", out);
     }
 
+    #[test]
+    fn test_badjel() {
+        let output = Output::new(TEST_BADJEL);
+
+        for o in output.iter() {
+            let o = o.unwrap();
+            println!("{:?}", o);
+        }
+
+        let out = output
+            .iter()
+            .filter_map(Result::ok)
+            .filter_map(|x| match x {
+                Block::Cohort(x) => Some(x),
+                _ => None,
+            })
+            .map(|x| x.word_form)
+            .collect::<Vec<_>>();
+        println!("{:?}", out);
+    }
+
     const TEST_TEXT: &str = "\"<Wikipedia>\"
 \t\"Wikipedia\" Err/Orth N Prop Sem/Org Attr <W:0.0>
 \t\"Wikipedia\" Err/Orth N Prop Sem/Org Sg Acc <W:0.0>
@@ -341,3 +380,20 @@ mod tests {
 : 
 ";
 }
+
+const TEST_BADJEL: &str = r#""<sáddejuvvot>"
+	"sáddet" VV TVV Der/PassL <mv> <mv> V <TH-Acc-Any><SO-Loc-Any><DE-Ill-Any> <TH-Acc-Any><DE-Ill-*Ani> IV Ind Prs Sg2 <W:0> @+FMAINV #1->1
+: 
+"<báhpirat>"
+	"bábir" N Sem/Mat_Txt Pl Nom <W:0> @<SUBJ #2->2
+: 
+"<interneahta>"
+	"interneahtta" N Sem/Plc-abstr Sg Gen <W:0> @>P #3->4
+: 
+"<badjel>"
+	"badjel" Po <W:0> @<ADVL &lex-bokte-not-badjel #4->4
+	"bokte" Po <W:0> @<ADVL &SUGGEST #4->4
+"<.>"
+	"." CLB <W:0> #5->5
+:\n
+"#;

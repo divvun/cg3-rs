@@ -15,7 +15,10 @@ fn main() {
     let dst = cmake::Config::new("cg3")
         .define("WIN32", "ON")
         .define("MSVC", "ON")
-        .define("CMAKE_CXX_FLAGS", "/Dcg3_EXPORTS /DWIN32 /D_WIN32 /D_WINDOWS /W3 /GR /EHsc /O2")
+        .define(
+            "CMAKE_CXX_FLAGS",
+            "/Dcg3_EXPORTS /DWIN32 /D_WIN32 /D_WINDOWS /W3 /GR /EHsc /O2",
+        )
         .define("BUILD_SHARED_LIBS", "OFF")
         .build();
 
