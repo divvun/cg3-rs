@@ -9,8 +9,6 @@ fn main() {
     } else if cfg!(target_os = "macos") {
         println!("cargo:rustc-link-search=native=/opt/homebrew/lib");
         dst.define("CMAKE_PREFIX_PATH", "/opt/homebrew/opt/icu4c");
-        // dst.define("CMAKE_STATIC_LINKER_FLAGS", "-L/opt/homebrew/opt/icu4c/lib");
-        // dst.define("CMAKE_SHARED_LINKER_FLAGS", "-L/opt/homebrew/opt/icu4c/lib");
         vec![
             PathBuf::from("/opt/homebrew/include"),
             PathBuf::from("/opt/homebrew/opt/icu4c/include"),

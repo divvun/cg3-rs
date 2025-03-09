@@ -153,10 +153,36 @@ impl Debug for Reading<'_> {
     }
 }
 
+impl std::fmt::Display for Reading<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}\"{}\"{}",
+            "\t".repeat(self.depth),
+            self.base_form,
+            self.tags.iter().fold(String::new(), |mut acc, tag| {
+                acc.push_str(" ");
+                acc.push_str(tag);
+                acc
+            })
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Cohort<'a> {
     pub word_form: &'a str,
     pub readings: Vec<Reading<'a>>,
+}
+
+impl std::fmt::Display for Cohort<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "\"<{}>\"", self.word_form)?;
+        for reading in &self.readings {
+            writeln!(f, "{}", reading)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -167,6 +193,18 @@ pub enum Error {
         position: usize,
         expected: &'static str,
     },
+}
+
+impl std::fmt::Display for Output<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for block in self.iter() {
+            match block {
+                Ok(block) => write!(f, "{}", block)?,
+                Err(_) => return Err(std::fmt::Error),
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<'a> Output<'a> {
@@ -285,6 +323,18 @@ impl<'a> Output<'a> {
     }
 }
 
+impl std::fmt::Display for Block<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Block::Cohort(cohort) => {
+                write!(f, "{}", cohort)
+            }
+            Block::Escaped(text) => writeln!(f, ":{}", text),
+            Block::Text(text) => writeln!(f, "{}", text),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,26 +359,27 @@ mod tests {
         println!("{:?}", out);
     }
 
-    // #[test]
-    // fn test_badjel() {
-    //     let output = Output::new(TEST_BADJEL);
+    #[test]
+    fn test_parse_round_trip() {
+        let output = Output::new(TEST_TEXT);
+        for line in output.iter() {
+            println!("{:?}", line);
+        }
 
-    //     for o in output.iter() {
-    //         let o = o.unwrap();
-    //         println!("{:?}", o);
-    //     }
+        let reconstructed = output.to_string();
+        assert_eq!(TEST_TEXT.trim(), reconstructed.trim());
+    }
 
-    //     let out = output
-    //         .iter()
-    //         .filter_map(Result::ok)
-    //         .filter_map(|x| match x {
-    //             Block::Cohort(x) => Some(x),
-    //             _ => None,
-    //         })
-    //         .map(|x| x.word_form)
-    //         .collect::<Vec<_>>();
-    //     println!("{:?}", out);
-    // }
+    #[test]
+    fn test_parse_round_trip_2() {
+        let output = Output::new(TEST_BADJEL);
+        for line in output.iter() {
+            println!("{:?}", line);
+        }
+
+        let reconstructed = output.to_string();
+        assert_eq!(TEST_BADJEL.trim(), reconstructed.trim());
+    }
 
     const TEST_TEXT: &str = "\"<Wikipedia>\"
 \t\"Wikipedia\" Err/Orth N Prop Sem/Org Attr <W:0.0>
