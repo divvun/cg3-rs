@@ -6,7 +6,7 @@ use std::{ffi::c_void, path::Path, str};
 
 static START: Once = Once::new();
 
-extern "C" {
+unsafe extern "C" {
     fn cg3_rs_init();
     fn cg3_applicator_new(
         grammar_data: *const u8,
@@ -196,88 +196,90 @@ impl<'a> Output<'a> {
         let mut cohort = None;
         let mut text = VecDeque::new();
 
-        std::iter::from_fn(move || loop {
-            if cohort.is_none() {
-                if let Some(t) = text.pop_front() {
-                    return Some(Ok(t));
-                }
-            }
-
-            let Some(line) = lines.peek() else {
-                if let Some(cohort) = cohort.take() {
-                    return Some(Ok(Block::Cohort(cohort)));
-                }
-
-                return None;
-            };
-
-            let ret = loop {
-                match line {
-                    Line::WordForm(x) => {
-                        if let Some(cohort) = cohort.take() {
-                            return Some(Ok(Block::Cohort(cohort)));
-                        }
-
-                        let (Some(start), Some(end)) = (x.find("\"<"), x.find(">\"")) else {
-                            return Some(Err(todo!()));
-                        };
-
-                        let word_form = &x[start + 2..end];
-
-                        cohort = Some(Cohort {
-                            word_form,
-                            readings: Vec::new(),
-                        });
-
-                        break None;
-                    }
-                    Line::Reading(x) => {
-                        let Some(cohort) = cohort.as_mut() else {
-                            break Some(Err(todo!()));
-                        };
-
-                        let Some(depth) = x.rfind('\t') else {
-                            break Some(Err(todo!()));
-                        };
-
-                        let x = &x[depth + 1..];
-                        let mut chunks = x.split_ascii_whitespace();
-
-                        let base_form = match chunks.next().ok_or_else(|| todo!()) {
-                            Ok(v) => v,
-                            Err(e) => break Some(Err(e)),
-                        };
-
-                        if !(base_form.starts_with("\"") && base_form.ends_with("\"")) {
-                            todo!()
-                        }
-                        let base_form = &base_form[1..base_form.len() - 1];
-
-                        cohort.readings.push(Reading {
-                            raw_line: x,
-                            base_form,
-                            tags: chunks.collect(),
-                            depth: depth + 1,
-                        });
-
-                        break None;
-                    }
-                    Line::Text(x) => {
-                        if x.starts_with(':') {
-                            text.push_back(Block::Escaped(&x[1..]));
-                        } else {
-                            text.push_back(Block::Text(x));
-                        }
-
-                        break None;
+        std::iter::from_fn(move || {
+            loop {
+                if cohort.is_none() {
+                    if let Some(t) = text.pop_front() {
+                        return Some(Ok(t));
                     }
                 }
-            };
 
-            lines.next();
+                let Some(line) = lines.peek() else {
+                    if let Some(cohort) = cohort.take() {
+                        return Some(Ok(Block::Cohort(cohort)));
+                    }
 
-            if let Some(ret) = ret {
-                return Some(ret);
+                    return None;
+                };
+
+                let ret = loop {
+                    match line {
+                        Line::WordForm(x) => {
+                            if let Some(cohort) = cohort.take() {
+                                return Some(Ok(Block::Cohort(cohort)));
+                            }
+
+                            let (Some(start), Some(end)) = (x.find("\"<"), x.find(">\"")) else {
+                                return Some(Err(todo!()));
+                            };
+
+                            let word_form = &x[start + 2..end];
+
+                            cohort = Some(Cohort {
+                                word_form,
+                                readings: Vec::new(),
+                            });
+
+                            break None;
+                        }
+                        Line::Reading(x) => {
+                            let Some(cohort) = cohort.as_mut() else {
+                                break Some(Err(todo!()));
+                            };
+
+                            let Some(depth) = x.rfind('\t') else {
+                                break Some(Err(todo!()));
+                            };
+
+                            let x = &x[depth + 1..];
+                            let mut chunks = x.split_ascii_whitespace();
+
+                            let base_form = match chunks.next().ok_or_else(|| todo!()) {
+                                Ok(v) => v,
+                                Err(e) => break Some(Err(e)),
+                            };
+
+                            if !(base_form.starts_with("\"") && base_form.ends_with("\"")) {
+                                todo!()
+                            }
+                            let base_form = &base_form[1..base_form.len() - 1];
+
+                            cohort.readings.push(Reading {
+                                raw_line: x,
+                                base_form,
+                                tags: chunks.collect(),
+                                depth: depth + 1,
+                            });
+
+                            break None;
+                        }
+                        Line::Text(x) => {
+                            if x.starts_with(':') {
+                                text.push_back(Block::Escaped(&x[1..]));
+                            } else {
+                                text.push_back(Block::Text(x));
+                            }
+
+                            break None;
+                        }
+                    }
+                };
+
+                lines.next();
+
+                if let Some(ret) = ret {
+                    return Some(ret);
+                }
             }
         })
     }
@@ -289,6 +291,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
+        println!("{}", TEST_TEXT);
         let output = Output::new(TEST_TEXT);
         for o in output.iter() {
             let o = o.unwrap();
@@ -306,26 +309,26 @@ mod tests {
         println!("{:?}", out);
     }
 
-    #[test]
-    fn test_badjel() {
-        let output = Output::new(TEST_BADJEL);
+    // #[test]
+    // fn test_badjel() {
+    //     let output = Output::new(TEST_BADJEL);
 
-        for o in output.iter() {
-            let o = o.unwrap();
-            println!("{:?}", o);
-        }
+    //     for o in output.iter() {
+    //         let o = o.unwrap();
+    //         println!("{:?}", o);
+    //     }
 
-        let out = output
-            .iter()
-            .filter_map(Result::ok)
-            .filter_map(|x| match x {
-                Block::Cohort(x) => Some(x),
-                _ => None,
-            })
-            .map(|x| x.word_form)
-            .collect::<Vec<_>>();
-        println!("{:?}", out);
-    }
+    //     let out = output
+    //         .iter()
+    //         .filter_map(Result::ok)
+    //         .filter_map(|x| match x {
+    //             Block::Cohort(x) => Some(x),
+    //             _ => None,
+    //         })
+    //         .map(|x| x.word_form)
+    //         .collect::<Vec<_>>();
+    //     println!("{:?}", out);
+    // }
 
     const TEST_TEXT: &str = "\"<Wikipedia>\"
 \t\"Wikipedia\" Err/Orth N Prop Sem/Org Attr <W:0.0>

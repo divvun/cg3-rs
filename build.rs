@@ -1,18 +1,26 @@
 use std::path::PathBuf;
 
 fn main() {
+    let mut dst = cmake::Config::new("cg3");
+
     let includes = if cfg!(windows) {
         let lib = vcpkg::Config::new().find_package("icu").unwrap();
         lib.include_paths
     } else if cfg!(target_os = "macos") {
         println!("cargo:rustc-link-search=native=/opt/homebrew/lib");
-        vec![PathBuf::from("/opt/homebrew/include")]
+        dst.define("CMAKE_PREFIX_PATH", "/opt/homebrew/opt/icu4c");
+        // dst.define("CMAKE_STATIC_LINKER_FLAGS", "-L/opt/homebrew/opt/icu4c/lib");
+        // dst.define("CMAKE_SHARED_LINKER_FLAGS", "-L/opt/homebrew/opt/icu4c/lib");
+        vec![
+            PathBuf::from("/opt/homebrew/include"),
+            PathBuf::from("/opt/homebrew/opt/icu4c/include"),
+        ]
     } else {
         vec![]
     };
 
     #[cfg(windows)]
-    let dst = cmake::Config::new("cg3")
+    let dst = dst
         .define("WIN32", "ON")
         .define("MSVC", "ON")
         .define(
@@ -23,12 +31,18 @@ fn main() {
         .build();
 
     #[cfg(unix)]
-    let dst = cmake::Config::new("cg3")
-        .define("BUILD_SHARED_LIBS", "OFF")
-        .build();
+    let dst = {
+        let dst = dst.define("BUILD_SHARED_LIBS", "OFF");
+
+        for x in includes.iter() {
+            dst.define("CMAKE_CXX_FLAGS", format!("-I{}", x.display()));
+            dst.define("CMAKE_C_FLAGS", format!("-I{}", x.display()));
+        }
+
+        dst.build()
+    };
 
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
-
     println!("cargo:rustc-link-lib=cg3");
 
     println!("cargo:rustc-link-lib=icuuc");
