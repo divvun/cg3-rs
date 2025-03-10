@@ -31,6 +31,7 @@ fn main() {
     #[cfg(unix)]
     let dst = {
         let dst = dst.define("BUILD_SHARED_LIBS", "OFF");
+        dst.define("CMAKE_POSITION_INDEPENDENT_CODE", "ON");
 
         for x in includes.iter() {
             dst.define("CMAKE_CXX_FLAGS", format!("-I{}", x.display()));
@@ -67,7 +68,7 @@ fn main() {
         .flag(if cfg!(windows) {
             "/std:c++14"
         } else {
-            "-std=c++11"
+            "-std=c++20"
         })
         .compile("cg3_wrapper");
 }
