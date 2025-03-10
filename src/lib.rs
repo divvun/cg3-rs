@@ -253,7 +253,8 @@ impl<'a> Output<'a> {
                         if cohort
                             .readings
                             .first()
-                            .map(|x| x.base_form == "." && x.tags.contains(&"CLB"))
+                            // Rudimentary check for sentence end. We want to include '.', '?', '!', but not commas.
+                            .map(|x| x.base_form != "," && x.tags.contains(&"CLB"))
                             .unwrap_or(false)
                         {
                             return Some(Ok(sentence.trim().to_string()));
