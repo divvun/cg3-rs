@@ -229,6 +229,52 @@ impl<'a> Output<'a> {
         })
     }
 
+    pub fn sentences(&'a self) -> impl Iterator<Item = Result<String, Error>> {
+        let mut iter = self.iter();
+
+        std::iter::from_fn(move || {
+            let mut sentence = String::new();
+
+            while let Some(block) = iter.next() {
+                let block = match block {
+                    Ok(v) => v,
+                    Err(e) => return Some(Err(e)),
+                };
+
+                match block {
+                    Block::Cohort(cohort) => {
+                        sentence.push_str(
+                            cohort
+                                .readings
+                                .first()
+                                .map(|r| r.base_form)
+                                .unwrap_or(cohort.word_form),
+                        );
+                        if cohort
+                            .readings
+                            .first()
+                            .map(|x| x.base_form == "." && x.tags.contains(&"CLB"))
+                            .unwrap_or(false)
+                        {
+                            return Some(Ok(sentence.trim().to_string()));
+                        }
+                    }
+                    Block::Escaped(text) => {
+                        let text = text.replace("\\n", "\n");
+                        sentence.push_str(&text);
+                    }
+                    Block::Text(_text) => {}
+                }
+            }
+
+            if !sentence.is_empty() {
+                return Some(Ok(sentence.trim().to_string()));
+            }
+
+            None
+        })
+    }
+
     pub fn iter(&'a self) -> impl Iterator<Item = Result<Block<'a>, Error>> {
         let mut lines = self.lines().peekable();
         let mut cohort = None;
@@ -381,6 +427,14 @@ mod tests {
         assert_eq!(TEST_BADJEL.trim(), reconstructed.trim());
     }
 
+    #[test]
+    fn test_sentences() {
+        let output = Output::new(TEST_BADJEL);
+        for sentence in output.sentences() {
+            println!("{:?}", sentence);
+        }
+    }
+
     const TEST_TEXT: &str = "\"<Wikipedia>\"
 \t\"Wikipedia\" Err/Orth N Prop Sem/Org Attr <W:0.0>
 \t\"Wikipedia\" Err/Orth N Prop Sem/Org Sg Acc <W:0.0>
@@ -450,4 +504,34 @@ const TEST_BADJEL: &str = r#""<sáddejuvvot>"
 "<.>"
 	"." CLB <W:0> #5->5
 :\n
+"<sáddejuvvot>"
+	"sáddet" VV TVV Der/PassL <mv> <mv> V <TH-Acc-Any><SO-Loc-Any><DE-Ill-Any> <TH-Acc-Any><DE-Ill-*Ani> IV Ind Prs Sg2 <W:0> @+FMAINV #1->1
+: 
+"<báhpirat>"
+	"bábir" N Sem/Mat_Txt Pl Nom <W:0> @<SUBJ #2->2
+: 
+"<interneahta>"
+	"interneahtta" N Sem/Plc-abstr Sg Gen <W:0> @>P #3->4
+: 
+"<badjel>"
+	"badjel" Po <W:0> @<ADVL &lex-bokte-not-badjel #4->4
+	"bokte" Po <W:0> @<ADVL &SUGGEST #4->4
+"<.>"
+	"." CLB <W:0> #5->5
+:\n
+"<sáddejuvvot>"
+	"sáddet" VV TVV Der/PassL <mv> <mv> V <TH-Acc-Any><SO-Loc-Any><DE-Ill-Any> <TH-Acc-Any><DE-Ill-*Ani> IV Ind Prs Sg2 <W:0> @+FMAINV #1->1
+: 
+"<báhpirat>"
+	"bábir" N Sem/Mat_Txt Pl Nom <W:0> @<SUBJ #2->2
+: 
+"<interneahta>"
+	"interneahtta" N Sem/Plc-abstr Sg Gen <W:0> @>P #3->4
+: 
+"<badjel>"
+	"badjel" Po <W:0> @<ADVL &lex-bokte-not-badjel #4->4
+	"bokte" Po <W:0> @<ADVL &SUGGEST #4->4
+"<.>"
+	"." CLB <W:0> #5->5
+:
 "#;
