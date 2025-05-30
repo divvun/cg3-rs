@@ -8,6 +8,13 @@
     A list of binaries available and their usage information.
   </para>
 
+  <section id="cmdargs-override">
+    <title>Order of argument sources</title>
+    <para>
+      If command line arguments come from multiple sources, they are applied in this order, with later values overriding prior: <link linkend="grammar-cmdargs"><code>CMDARGS</code></link>, environment variable <code>CG3_DEFAULT</code>, arguments passed on the command line, <link linkend="grammar-cmdargs"><code>CMDARGS-OVERRIDE</code></link>, environment variable <code>CG3_OVERRIDE</code>.
+    </para>
+  </section>
+
   <section id="vislcg3">
     <title>vislcg3</title>
     <para>
@@ -37,6 +44,7 @@ Options:
      --nrules               a regex for which rule names to parse/run; defaults to all rules
      --nrules-v             a regex for which rule names not to parse/run
  -d, --debug                enables debug output (very noisy)
+     --debug-rules          number or ranges of rules to debug
  -v, --verbose              increases verbosity
      --quiet                squelches warnings (same as -v 0)
  -2, --vislcg-compat        enables compatibility mode for older CG-2 and vislcg grammars

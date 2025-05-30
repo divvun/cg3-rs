@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -25,6 +25,17 @@
 #include "AST.hpp"
 #include <wordexp.h>
 #include <bitset>
+
+#define MAYBE_QUOTED(n, p) \
+	do {                                                                                \
+		if (*(n) == '"') {                                                              \
+			++(n);                                                                      \
+			SKIPTO_NOSPAN((n), '"');                                                    \
+			if (*(n) != '"') {                                                          \
+				error("%s: Error: Expected closing \" on line %u near `%S`!\n", (p));   \
+			}                                                                           \
+		}                                                                               \
+	} while (false)
 
 namespace CG3 {
 
@@ -187,14 +198,8 @@ void TextualParser::parseTagList(UChar*& p, Set* s, bool ordered) {
 
 				while (*p && *p != ';' && *p != ')') {
 					AST_OPEN(Tag);
-					UChar* n = p;
-					if (*n == '"') {
-						n++;
-						SKIPTO_NOSPAN(n, '"');
-						if (*n != '"') {
-							error("%s: Error: Expected closing \" on line %u near `%S`!\n", p);
-						}
-					}
+					auto n = p;
+					MAYBE_QUOTED(n, p);
 					result->lines += SKIPTOWS(n, ')', true);
 					auto c = SI32(n - p);
 					u_strncpy(&gbuffers[0][0], p, c);
@@ -213,14 +218,8 @@ void TextualParser::parseTagList(UChar*& p, Set* s, bool ordered) {
 			}
 			else {
 				AST_OPEN(Tag);
-				UChar* n = p;
-				if (*n == '"') {
-					n++;
-					SKIPTO_NOSPAN(n, '"');
-					if (*n != '"') {
-						error("%s: Error: Expected closing \" on line %u near `%S`!\n", p);
-					}
-				}
+				auto n = p;
+				MAYBE_QUOTED(n, p);
 				result->lines += SKIPTOWS(n, 0, true);
 				auto c = SI32(n - p);
 				u_strncpy(&gbuffers[0][0], p, c);
@@ -296,7 +295,7 @@ Set* TextualParser::parseSetInline(UChar*& p, Set* s) {
 					// No, this can't just reuse parseTagList() because this will only ever parse a single CompositeTag,
 					// whereas parseTagList() will handle mixed Tag and CompositeTag
 					// Doubly so now that parseTagList() will sort+uniq the tags, which we don't want for MAP/ADD/SUBSTITUTE/etc
-					UChar* n = p;
+					auto n = p;
 					++p;
 					Set* set_c = result->allocateSet();
 					set_c->type |= ST_ORDERED;
@@ -307,14 +306,8 @@ Set* TextualParser::parseSetInline(UChar*& p, Set* s) {
 					while (*p && *p != ';' && *p != ')') {
 						result->lines += SKIPWS(p, ';', ')');
 						AST_OPEN(Tag);
-						UChar* n = p;
-						if (*n == '"') {
-							n++;
-							SKIPTO_NOSPAN(n, '"');
-							if (*n != '"') {
-								error("%s: Error: Expected closing \" on line %u near `%S`!\n", p);
-							}
-						}
+						auto n = p;
+						MAYBE_QUOTED(n, p);
 						result->lines += SKIPTOWS(n, ')', true);
 						auto c = SI32(n - p);
 						u_strncpy(&gbuffers[0][0], p, c);
@@ -358,7 +351,7 @@ Set* TextualParser::parseSetInline(UChar*& p, Set* s) {
 				}
 				else {
 					AST_OPEN(SetName);
-					UChar* n = p;
+					auto n = p;
 					result->lines += SKIPTOWS(n, ')', true);
 					while (n[-1] == ',' || n[-1] == ']') {
 						--n;
@@ -438,7 +431,7 @@ Set* TextualParser::parseSetInline(UChar*& p, Set* s) {
 				wantop = true;
 			}
 			else {
-				UChar* n = p;
+				auto n = p;
 				if (n[0] == '\\' && ISSPACE(n[1])) {
 					++n;
 				}
@@ -503,7 +496,7 @@ void TextualParser::parseContextualTestPosition(UChar*& p, ContextualTest& t) {
 	bool negative = false;
 	bool had_digits = false;
 
-	UChar* n = p;
+	auto n = p;
 	AST_OPEN(ContextPos);
 
 	size_t tries;
@@ -644,7 +637,7 @@ void TextualParser::parseContextualTestPosition(UChar*& p, ContextualTest& t) {
 		if (*p == 'r' && p[1] == ':') {
 			t.pos |= POS_RELATION;
 			p += 2;
-			UChar* n = p;
+			auto n = p;
 			SKIPTOWS(n, '(');
 			auto c = SI32(n - p);
 			u_strncpy(&gbuffers[0][0], p, c);
@@ -849,7 +842,7 @@ ContextualTest* TextualParser::parseContextualTestList(UChar*& p, Rule* rule, bo
 	std::pair<size_t, UString> tmpl_data;
 
 	UChar* pos_p = p;
-	UChar* n = p;
+	auto n = p;
 	result->lines += SKIPTOWS(n, '(');
 	auto c = SI32(n - p);
 	u_strncpy(&gbuffers[0][0], p, c);
@@ -1056,7 +1049,7 @@ flags_t TextualParser::parseRuleFlags(UChar*& p) {
 	bool setflag = true;
 	while (setflag) {
 		setflag = false;
-		for (size_t i = 0; i < FLAGS_COUNT; i++) {
+		for (size_t i = 0; i < FLAGS_COUNT; ++i) {
 			UChar* op = p;
 			if (ux_simplecasecmp(p, g_flags[i])) {
 				p += g_flags[i].size();
@@ -1068,7 +1061,7 @@ flags_t TextualParser::parseRuleFlags(UChar*& p) {
 						goto undo_flag;
 					}
 					++p;
-					UChar* n = p;
+					auto n = p;
 					result->lines += SKIPTOWS(n, 0, true);
 					auto c = SI32(n - p);
 					u_strncpy(&gbuffers[0][0], p, c);
@@ -1155,14 +1148,8 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 		cur_ast->b = lp;
 		AST_OPEN(RuleWordform);
 		cur_ast->b = lp;
-		UChar* n = lp;
-		if (*n == '"') {
-			n++;
-			SKIPTO_NOSPAN(n, '"');
-			if (*n != '"') {
-				error("%s: Error: Expected closing \" on line %u near `%S`!\n", lp);
-			}
-		}
+		auto n = lp;
+		MAYBE_QUOTED(n, lp);
 		result->lines += SKIPTOWS(n, 0, true);
 		auto c = SI32(n - lp);
 		u_strncpy(&gbuffers[0][0], lp, c);
@@ -1180,7 +1167,7 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 	if (*p == ':') {
 		++p;
 		AST_OPEN(RuleName);
-		UChar* n = p;
+		auto n = p;
 		result->lines += SKIPTOWS(n, '(');
 		auto c = SI32(n - p);
 		u_strncpy(&gbuffers[0][0], p, c);
@@ -1216,7 +1203,7 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 		result->lines += SKIPWS(p);
 
 		AST_OPEN(RuleExternalCmd);
-		UChar* n = p;
+		auto n = p;
 		if (*n == '"') {
 			++n;
 			SKIPTO_NOSPAN(n, '"');
@@ -1333,13 +1320,13 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 		AST_CLOSE(p);
 	}
 
-	if (rule->sub_reading == GSR_ANY && (key == K_MAP || key == K_ADD || key == K_REPLACE || key == K_SUBSTITUTE || key == K_COPY)) {
-		error("%s: Error: SUB:* on line %u is not yet valid for MAP/ADD/REPLACE/SUBSTITUTE/COPY!\n");
+	if (rule->sub_reading == GSR_ANY && (key == K_MAP || key == K_ADD || key == K_REPLACE || key == K_SUBSTITUTE || key == K_COPY || key == K_COPYCOHORT)) {
+		error("%s: Error: SUB:* on line %u is not yet valid for MAP/ADD/REPLACE/SUBSTITUTE/COPY/COPYCOHORT!\n");
 	}
 
 	result->lines += SKIPWS(p);
 	lp = p;
-	if (key == K_MAP || key == K_ADD || key == K_REPLACE || key == K_APPEND || key == K_SUBSTITUTE || key == K_COPY || key == K_ADDRELATIONS || key == K_ADDRELATION || key == K_SETRELATIONS || key == K_SETRELATION || key == K_REMRELATIONS || key == K_REMRELATION || key == K_SETVARIABLE || key == K_REMVARIABLE || key == K_ADDCOHORT || key == K_JUMP || key == K_SPLITCOHORT || key == K_MERGECOHORTS || key == K_RESTORE) {
+	if (key == K_MAP || key == K_ADD || key == K_REPLACE || key == K_APPEND || key == K_SUBSTITUTE || key == K_COPY || key == K_COPYCOHORT || key == K_ADDRELATIONS || key == K_ADDRELATION || key == K_SETRELATIONS || key == K_SETRELATION || key == K_REMRELATIONS || key == K_REMRELATION || key == K_SETVARIABLE || key == K_REMVARIABLE || key == K_ADDCOHORT || key == K_JUMP || key == K_SPLITCOHORT || key == K_MERGECOHORTS || key == K_RESTORE) {
 		AST_OPEN(RuleMaplist);
 		swapper_false swp(no_isets, no_isets);
 		Set* s = parseSetInlineWrapper(p);
@@ -1355,7 +1342,7 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 	}
 
 	bool copy_except = false;
-	if (key == K_COPY && ux_simplecasecmp(p, STR_EXCEPT)) {
+	if ((key == K_COPY || key == K_COPYCOHORT) && ux_simplecasecmp(p, STR_EXCEPT)) {
 		AST_OPEN(RuleExcept);
 		p += STR_EXCEPT.size();
 		copy_except = true;
@@ -1395,7 +1382,7 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 		AST_CLOSE(p);
 	}
 
-	if (key == K_ADD || key == K_MAP || key == K_SUBSTITUTE || key == K_COPY) {
+	if (key == K_ADD || key == K_MAP || key == K_SUBSTITUTE || key == K_COPY || key == K_COPYCOHORT) {
 		if (ux_simplecasecmp(p, STR_AFTER)) {
 			p += STR_AFTER.size();
 			rule->flags |= RF_AFTER;
@@ -1404,7 +1391,7 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 			p += STR_BEFORE.size();
 			rule->flags |= RF_BEFORE;
 		}
-		if (rule->flags & (RF_BEFORE | RF_AFTER)) {
+		if (key != K_COPYCOHORT && (rule->flags & (RF_BEFORE | RF_AFTER))) {
 			Set* s = parseSetInlineWrapper(p);
 			rule->childset1 = s->hash;
 		}
@@ -1464,7 +1451,7 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 	}
 	AST_CLOSE(p);
 
-	if (key == K_SETPARENT || key == K_SETCHILD || key == K_ADDRELATIONS || key == K_ADDRELATION || key == K_SETRELATIONS || key == K_SETRELATION || key == K_REMRELATIONS || key == K_REMRELATION || key == K_MOVE || key == K_SWITCH || key == K_MERGECOHORTS) {
+	if (key == K_SETPARENT || key == K_SETCHILD || key == K_ADDRELATIONS || key == K_ADDRELATION || key == K_SETRELATIONS || key == K_SETRELATION || key == K_REMRELATIONS || key == K_REMRELATION || key == K_MOVE || key == K_SWITCH || key == K_MERGECOHORTS || key == K_COPYCOHORT) {
 		result->lines += SKIPWS(p);
 		if (key == K_MOVE) {
 			AST_OPEN(RuleMoveType);
@@ -1499,13 +1486,25 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 				rule->flags |= RF_REVERSE;
 			}
 			else {
-				error("%s: Error: Expected dependency keyword TO or FROM on line %u near `%S`!\n", p);
+				error("%s: Error: Expected dependency/target keyword TO or FROM on line %u near `%S`!\n", p);
 			}
 			AST_CLOSE(p);
 		}
 		result->lines += SKIPWS(p);
 
-		if (key == K_MOVE) {
+		if (key == K_COPYCOHORT && !(rule->flags & RF_REVERSE)) {
+			if (ux_simplecasecmp(p, STR_AFTER)) {
+				p += STR_AFTER.size();
+				rule->flags |= RF_AFTER;
+			}
+			else if (ux_simplecasecmp(p, STR_BEFORE)) {
+				p += STR_BEFORE.size();
+				rule->flags |= RF_BEFORE;
+			}
+			result->lines += SKIPWS(p);
+		}
+
+		if (key == K_MOVE || key == K_COPYCOHORT) {
 			AST_OPEN(RuleWithChildDepTarget);
 			if (ux_simplecasecmp(p, g_flags[FL_WITHCHILD])) {
 				p += g_flags[FL_WITHCHILD].size();
@@ -1547,8 +1546,11 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 	if (key == K_SETPARENT || key == K_SETCHILD || key == K_SPLITCOHORT || key == K_MERGECOHORTS) {
 		result->has_dep = true;
 	}
-	if (key == K_SETRELATION || key == K_SETRELATIONS || key == K_ADDRELATION || key == K_ADDRELATIONS || key == K_REMRELATION || key == K_REMRELATIONS) {
+	if (key == K_SETRELATION || key == K_SETRELATIONS || key == K_ADDRELATION || key == K_ADDRELATIONS || key == K_REMRELATION || key == K_REMRELATIONS || key == K_MERGECOHORTS) {
 		result->has_relations = true;
+	}
+	if (key == K_COPYCOHORT && !(rule->flags & (RF_BEFORE|RF_AFTER))) {
+		rule->flags |= RF_AFTER;
 	}
 
 	if (!(rule->flags & RF_REMEMBERX)) {
@@ -1587,7 +1589,9 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 			AST_OPEN(RuleSubrules);
 			result->lines += SKIPWS(p);
 			do {
-				maybeParseRule(p);
+				if (!maybeParseRule(p)) {
+					error("%s: Error: Expected rule on line %u near `%S`!\n", p);
+				}
 				result->lines += SKIPWS(p, '}', ';');
 				if (*p == ';') {
 					++p;
@@ -1683,6 +1687,14 @@ bool TextualParser::maybeParseRule(UChar*& p) {
 	else if (IS_ICASE(p, "SETCHILD", "setchild")) {
 		parseRule(p, K_SETCHILD);
 	}
+	// REMPARENT
+	else if (IS_ICASE(p, "REMPARENT", "remparent")) {
+		parseRule(p, K_REMPARENT);
+	}
+	// SWITCHPARENT
+	else if (IS_ICASE(p, "SWITCHPARENT", "switchparent")) {
+		parseRule(p, K_SWITCHPARENT);
+	}
 	// RESTORE
 	else if (IS_ICASE(p, "RESTORE", "restore")) {
 		parseRule(p, K_RESTORE);
@@ -1719,10 +1731,14 @@ bool TextualParser::maybeParseRule(UChar*& p) {
 	else if (IS_ICASE(p, "SUBSTITUTE", "substitute")) {
 		parseRule(p, K_SUBSTITUTE);
 	}
+	// COPYCOHORT
+	else if (IS_ICASE(p, "COPYCOHORT", "copycohort")) {
+		parseRule(p, K_COPYCOHORT);
+	}
 	// COPY
 	else if (IS_ICASE(p, "COPY", "copy")) {
 		parseRule(p, K_COPY);
-			}
+	}
 	// UNMAP
 	else if (IS_ICASE(p, "UNMAP", "unmap")) {
 		parseRule(p, K_UNMAP);
@@ -1795,7 +1811,7 @@ void TextualParser::parseAnchorish(UChar*& p, bool rule_flags) {
 	// Initial : now forbidden to allow for section rule flags
 	if (*p != ':') {
 		AST_OPEN(AnchorName);
-		UChar* n = p;
+		auto n = p;
 		result->lines += SKIPTOWS(n, 0, true);
 		auto c = SI32(n - p);
 		u_strncpy(&gbuffers[0][0], p, c);
@@ -1848,6 +1864,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				std::cerr << "Parsing line " << result->lines << "          \r" << std::flush;
 			}
 			result->lines += SKIPWS(p);
+			size_t icn = 0;
 			// DELIMITERS
 			if (IS_ICASE(p, "DELIMITERS", "delimiters")) {
 				if (result->delimiters) {
@@ -1954,7 +1971,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				result->lines += SKIPWS(p);
 
 				AST_OPEN(Tag);
-				UChar* n = p;
+				auto n = p;
 				result->lines += SKIPTOWS(n, ';');
 				auto c = SI32(n - p);
 				u_strncpy(&gbuffers[0][0], p, c);
@@ -1986,14 +2003,8 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 
 				while (*p && *p != ';') {
 					AST_OPEN(Tag);
-					UChar* n = p;
-					if (*n == '"') {
-						n++;
-						SKIPTO_NOSPAN(n, '"');
-						if (*n != '"') {
-							error("%s: Error: Expected closing \" on line %u near `%S`!\n", p);
-						}
-					}
+					auto n = p;
+					MAYBE_QUOTED(n, p);
 					result->lines += SKIPTOWS(n, ';', true);
 					auto c = SI32(n - p);
 					u_strncpy(&gbuffers[0][0], p, c);
@@ -2027,14 +2038,8 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 
 				while (*p && *p != ';') {
 					AST_OPEN(Tag);
-					UChar* n = p;
-					if (*n == '"') {
-						n++;
-						SKIPTO_NOSPAN(n, '"');
-						if (*n != '"') {
-							error("%s: Error: Expected closing \" on line %u near `%S`!\n", p);
-						}
-					}
+					auto n = p;
+					MAYBE_QUOTED(n, p);
 					result->lines += SKIPTOWS(n, ';', true);
 					auto c = SI32(n - p);
 					u_strncpy(&gbuffers[0][0], p, c);
@@ -2068,7 +2073,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 
 				while (*p && *p != ';') {
 					AST_OPEN(SetName);
-					UChar* n = p;
+					auto n = p;
 					result->lines += SKIPTOWS(n, ';', true);
 					result->static_sets.push_back(UString(p, n));
 					p = n;
@@ -2079,6 +2084,46 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				if (result->static_sets.empty()) {
 					error("%s: Error: STATIC-SETS declared, but no definitions given, on line %u near `%S`!\n", p);
 				}
+				result->lines += SKIPWS(p, ';');
+				if (*p != ';') {
+					error("%s: Error: Expected closing ; before line %u near `%S`!\n", p);
+				}
+				AST_CLOSE(p + 1);
+			}
+			// CMDARGS-OVERRIDE, CMDARGS
+			else if ((icn = IS_ICASE(p, "CMDARGS-OVERRIDE", "cmdargs-override")) != 0 || (icn = IS_ICASE(p, "CMDARGS", "cmdargs")) != 0) {
+				AST_OPEN(CmdArgs);
+				p += icn;
+				result->lines += SKIPWS(p, '+');
+				if (p[0] != '+' || p[1] != '=') {
+					error("%s: Error: Encountered a %C before the expected += on line %u near `%S`!\n", *p, p);
+				}
+				p += 2;
+				result->lines += SKIPWS(p);
+
+				auto s = p;
+				while (*p && *p != ';') {
+					auto n = p;
+					MAYBE_QUOTED(n, p);
+					result->lines += SKIPTOWS(n, ';', true);
+					p = n;
+					result->lines += SKIPWS(p);
+				}
+
+				std::string args;
+				args.resize((p - s) * 3);
+				int32_t outz = 0;
+				UErrorCode status = U_ZERO_ERROR;
+				u_strToUTF8(&args[0], SI32(args.size()), &outz, s, SI32(p - s), &status);
+				args.resize(outz);
+
+				if (icn == 16) {
+					result->cmdargs_override = std::move(args);
+				}
+				else {
+					result->cmdargs = std::move(args);
+				}
+
 				result->lines += SKIPWS(p, ';');
 				if (*p != ';') {
 					error("%s: Error: Expected closing ; before line %u near `%S`!\n", p);
@@ -2100,7 +2145,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				UString name;
 				while (*p && *p != ';') {
 					AST_OPEN(SetName);
-					UChar* n = p;
+					auto n = p;
 					result->lines += SKIPTOWS(n, ';', true);
 					name.assign(p, n);
 					if (!result->undefSet(name)) {
@@ -2141,14 +2186,8 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				list_tags.swap(tmp);
 				while (*p && *p != ';') {
 					AST_OPEN(Tag);
-					UChar* n = p;
-					if (*n == '"') {
-						n++;
-						SKIPTO_NOSPAN(n, '"');
-						if (*n != '"') {
-							error("%s: Error: Expected closing \" on line %u near `%S`!\n", p);
-						}
-					}
+					auto n = p;
+					MAYBE_QUOTED(n, p);
 					result->lines += SKIPTOWS(n, ';', true);
 					auto c = SI32(n - p);
 					u_strncpy(&gbuffers[0][0], p, c);
@@ -2183,7 +2222,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				p += 4;
 				result->lines += SKIPWS(p);
 				AST_OPEN(SetName);
-				UChar* n = p;
+				auto n = p;
 				result->lines += SKIPTOWS(n, 0, true);
 				while (n[-1] == ',' || n[-1] == ']') {
 					--n;
@@ -2240,7 +2279,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				p += 3;
 				result->lines += SKIPWS(p);
 				AST_OPEN(SetName);
-				UChar* n = p;
+				auto n = p;
 				result->lines += SKIPTOWS(n, 0, true);
 				while (n[-1] == ',' || n[-1] == ']') {
 					--n;
@@ -2446,7 +2485,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				else {
 					error("%s: Error: Expected RTL or LTR on line %u near `%S`!\n", *p, p);
 				}
-				UChar* n = p;
+				auto n = p;
 				result->lines += SKIPTOWS(n, 0, true);
 				p = n;
 				AST_CLOSE(p);
@@ -2525,14 +2564,8 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				strict_tags.swap(tmp);
 				while (*p && *p != ';') {
 					AST_OPEN(Tag);
-					UChar* n = p;
-					if (*n == '"') {
-						n++;
-						SKIPTO_NOSPAN(n, '"');
-						if (*n != '"') {
-							error("%s: Error: Expected closing \" on line %u near `%S`!\n", p);
-						}
-					}
+					auto n = p;
+					MAYBE_QUOTED(n, p);
 					result->lines += SKIPTOWS(n, ';', true);
 					auto c = SI32(n - p);
 					u_strncpy(&gbuffers[0][0], p, c);
@@ -2579,7 +2612,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				swapper<bool> osets(true, only_sets, local_only_sets);
 
 				AST_OPEN(IncludeFilename);
-				UChar* n = p;
+				auto n = p;
 				result->lines += SKIPTOWS(n, 0, true);
 				auto c = SI32(n - p);
 				u_strncpy(&gbuffers[0][0], p, c);
@@ -2670,7 +2703,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				p += 8;
 				result->lines += SKIPWS(p);
 				AST_OPEN(TemplateName);
-				UChar* n = p;
+				auto n = p;
 				result->lines += SKIPTOWS(n, 0, true);
 				auto c = SI32(n - p);
 				u_strncpy(&gbuffers[0][0], p, c);
@@ -2711,24 +2744,18 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 					int32_t c = 0;
 					Tag* left = nullptr;
 					Tag* right = nullptr;
-					UChar* n = p;
+					auto n = p;
 					result->lines += SKIPTOWS(n, '(', true);
 					if (*n != '(') {
 						error("%s: Error: Encountered %C before the expected ( on line %u near `%S`!\n", *p, p);
 					}
 					AST_OPEN(CompositeTag);
 					cur_ast->b = n;
-					n++;
+					++n;
 					result->lines += SKIPWS(n);
 					p = n;
 					AST_OPEN(Tag);
-					if (*n == '"') {
-						n++;
-						SKIPTO_NOSPAN(n, '"');
-						if (*n != '"') {
-							error("%s: Error: Expected closing \" on line %u near `%S`!\n", p);
-						}
-					}
+					MAYBE_QUOTED(n, p);
 					result->lines += SKIPTOWS(n, ')', true);
 					c = SI32(n - p);
 					u_strncpy(&gbuffers[0][0], p, c);
@@ -2743,13 +2770,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 					}
 
 					AST_OPEN(Tag);
-					if (*n == '"') {
-						n++;
-						SKIPTO_NOSPAN(n, '"');
-						if (*n != '"') {
-							error("%s: Error: Expected closing \" on line %u near `%S`!\n", p);
-						}
-					}
+					MAYBE_QUOTED(n, p);
 					result->lines += SKIPTOWS(n, ')', true);
 					c = SI32(n - p);
 					u_strncpy(&gbuffers[0][0], p, c);
@@ -2795,7 +2816,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 			}
 			// No keyword found at this position, skip a character.
 			else {
-				UChar* n = p;
+				auto n = p;
 				if (*p == ';' || *p == '"') {
 					if (*p == '"') {
 						++p;

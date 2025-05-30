@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2023, GrammarSoft ApS
+ * Copyright (C) 2007-2025, GrammarSoft ApS
  * Developed by Tino Didriksen <mail@tinodidriksen.com>
  * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
  *
@@ -105,7 +105,7 @@ int main(int argc, char* argv[]) {
 		std::cerr << "Grammar has dependency rules." << std::endl;
 	}
 
-	FILE* gout = fopen(argv[2], "wb");
+	std::ofstream gout(argv[2], std::ios::binary);
 
 	if (gout) {
 		BinaryGrammar writer(grammar, std::cerr);

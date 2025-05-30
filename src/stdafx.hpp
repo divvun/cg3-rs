@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -43,6 +43,7 @@
 #include <exception>
 #include <stdexcept>
 #include <algorithm>
+#include <functional>
 #include <iterator>
 #include <iostream>
 #include <fstream>
@@ -113,7 +114,7 @@ namespace bc = ::boost::container;
 namespace be = ::boost::endian;
 
 struct flags_t {
-	uint32_t flags = 0;
+	uint64_t flags = 0;
 	int32_t sub_reading = 0;
 };
 }

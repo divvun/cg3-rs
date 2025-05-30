@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -74,9 +74,6 @@ Cohort::~Cohort() {
 	}
 	free_reading(wread);
 
-	for (auto iter : removed) {
-		free_cohort(iter);
-	}
 	if (parent) {
 		parent->parent->cohort_map.erase(global_number);
 		parent->parent->dep_window.erase(global_number);
@@ -125,12 +122,6 @@ void Cohort::clear() {
 	deleted.clear();
 	delayed.clear();
 	wread = nullptr;
-
-	for (auto iter : removed) {
-		free_cohort(iter);
-	}
-	removed.clear();
-	assert(enclosed.empty() && "Enclosed was not empty!");
 }
 
 void Cohort::detach() {

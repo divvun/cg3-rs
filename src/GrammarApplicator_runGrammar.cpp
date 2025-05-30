@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -280,7 +280,7 @@ void GrammarApplicator::runGrammarOnText(std::istream& input, std::ostream& outp
 				addTagToReading(*cCohort->wread, cCohort->wordform);
 				while (space[0]) {
 					SKIPWS(space, 0, 0, true);
-					UChar* n = space;
+					auto n = space;
 					if (*n == '"') {
 						++n;
 						SKIPTO_NOSPAN(n, '"');

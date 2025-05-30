@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -105,6 +105,13 @@ int GrammarWriter::writeGrammar(std::ostream& output) {
 	}
 	else {
 		u_fprintf(output, "SUBREADINGS = RTL ;\n");
+	}
+
+	if (!grammar->cmdargs.empty()) {
+		u_fprintf(output, "CMDARGS += %s ;\n", grammar->cmdargs.c_str());
+	}
+	if (!grammar->cmdargs_override.empty()) {
+		u_fprintf(output, "CMDARGS-OVERRIDE += %s ;\n", grammar->cmdargs_override.c_str());
 	}
 
 	if (!grammar->static_sets.empty()) {
@@ -281,7 +288,7 @@ void GrammarWriter::printRule(std::ostream& to, const Rule& rule) {
 	u_fprintf(to, " ");
 
 	for (uint32_t i = 0; i < FLAGS_COUNT; i++) {
-		if (i == FL_BEFORE || i == FL_AFTER) {
+		if (i == FL_BEFORE || i == FL_AFTER || i == FL_WITHCHILD) {
 			continue;
 		}
 		if (rule.flags & (1ull << i)) {
@@ -295,7 +302,7 @@ void GrammarWriter::printRule(std::ostream& to, const Rule& rule) {
 	}
 
 	if (rule.flags & RF_WITHCHILD) {
-		u_fprintf(to, "%S ", grammar->sets_list[rule.childset1]->name.data());
+		u_fprintf(to, "WITHCHILD %S ", grammar->sets_list[rule.childset1]->name.data());
 	}
 
 	if (rule.type == K_SUBSTITUTE || rule.type == K_EXECUTE) {
@@ -306,14 +313,14 @@ void GrammarWriter::printRule(std::ostream& to, const Rule& rule) {
 		u_fprintf(to, "%S ", rule.maplist->name.data());
 	}
 
-	if (rule.sublist && (rule.type == K_ADDRELATIONS || rule.type == K_SETRELATIONS || rule.type == K_REMRELATIONS || rule.type == K_SETVARIABLE || rule.type == K_COPY)) {
-		if (rule.type == K_COPY) {
+	if (rule.sublist && (rule.type == K_ADDRELATIONS || rule.type == K_SETRELATIONS || rule.type == K_REMRELATIONS || rule.type == K_SETVARIABLE || rule.type == K_COPY || rule.type == K_COPYCOHORT)) {
+		if (rule.type == K_COPY || rule.type == K_COPYCOHORT) {
 			u_fprintf(to, "EXCEPT ");
 		}
 		u_fprintf(to, "%S ", rule.sublist->name.data());
 	}
 
-	if (rule.type == K_ADD || rule.type == K_MAP || rule.type == K_SUBSTITUTE || rule.type == K_COPY) {
+	if (rule.type == K_ADD || rule.type == K_MAP || rule.type == K_SUBSTITUTE || rule.type == K_COPY || rule.type == K_COPYCOHORT) {
 		if (rule.flags & RF_BEFORE) {
 			u_fprintf(to, "BEFORE ");
 		}
@@ -321,6 +328,9 @@ void GrammarWriter::printRule(std::ostream& to, const Rule& rule) {
 			u_fprintf(to, "AFTER ");
 		}
 		if (rule.childset1) {
+			if (rule.type == K_COPYCOHORT) {
+				u_fprintf(to, "WITHCHILD ");
+			}
 			u_fprintf(to, "%S ", grammar->sets_list[rule.childset1]->name.data());
 		}
 	}
@@ -342,7 +352,7 @@ void GrammarWriter::printRule(std::ostream& to, const Rule& rule) {
 		u_fprintf(to, ") ");
 	}
 
-	if (rule.type == K_SETPARENT || rule.type == K_SETCHILD || rule.type == K_ADDRELATIONS || rule.type == K_ADDRELATION || rule.type == K_SETRELATIONS || rule.type == K_SETRELATION || rule.type == K_REMRELATIONS || rule.type == K_REMRELATION) {
+	if (rule.type == K_SETPARENT || rule.type == K_SETCHILD || rule.type == K_ADDRELATIONS || rule.type == K_ADDRELATION || rule.type == K_SETRELATIONS || rule.type == K_SETRELATION || rule.type == K_REMRELATIONS || rule.type == K_REMRELATION || rule.type == K_COPYCOHORT) {
 		u_fprintf(to, "TO ");
 	}
 	else if (rule.type == K_MOVE_AFTER) {

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
 cmake_policy(VERSION ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION})
 project(cg3 CXX C)
 
@@ -30,6 +30,7 @@ include(GNUInstallDirs)
 
 option(BUILD_SHARED_LIBS "Set to OFF to use static library" ON)
 option(ENABLE_PYTHON_BINDINGS "Set to ON to build the Python wrapper" OFF)
+option(ENABLE_PROFILING "Set to OFF to disable profiling, and thus the SQLite dependency" ON)
 
 if(MSVC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /utf-8 /std:c++latest /Zc:__cplusplus /permissive- /W4 /MP")
@@ -106,6 +107,7 @@ if(BIG_ENDIAN)
 	add_definitions(-DBIG_ENDIAN)
 endif()
 
+include(CheckIncludeFileCXX)
 CHECK_INCLUDE_FILE_CXX(filesystem HAS_FS)
 if(HAS_FS)
 	add_definitions(-DHAS_FS)
@@ -114,6 +116,10 @@ endif()
 # std::filesystem is in a separate library until g++ 9
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
 	set(STDFS_LIB stdc++fs)
+endif()
+
+if(NOT ENABLE_PROFILING)
+	add_definitions(-DDISABLE_PROFILING=1)
 endif()
 
 if(WIN32)

@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -28,6 +28,9 @@ bool ContextualTest::operator==(const ContextualTest& other) const {
 		return false;
 	}
 	if (pos != other.pos) {
+		return false;
+	}
+	if (jump_pos != other.jump_pos) {
 		return false;
 	}
 	if (target != other.target) {
@@ -68,6 +71,7 @@ uint32_t ContextualTest::rehash() {
 	}
 
 	hash = hash_value(pos);
+	hash = hash_value(hash, jump_pos);
 	hash = hash_value(hash, target);
 	hash = hash_value(hash, barrier);
 	hash = hash_value(hash, cbarrier);

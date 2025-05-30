@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -69,7 +69,7 @@ SingleWindow::~SingleWindow() {
 		}
 	}
 
-	for (auto iter : cohorts) {
+	for (auto iter : all_cohorts) {
 		free_cohort(iter);
 	}
 	if (next && previous) {
@@ -98,7 +98,7 @@ void SingleWindow::clear() {
 		}
 	}
 
-	for (auto iter : cohorts) {
+	for (auto iter : all_cohorts) {
 		free_cohort(iter);
 	}
 	if (next && previous) {
@@ -123,6 +123,7 @@ void SingleWindow::clear() {
 	text.clear();
 	text_post.clear();
 	cohorts.clear();
+	all_cohorts.clear();
 	valid_rules.clear();
 	hit_external.clear();
 	for (auto& cs : rule_to_cohorts) {
@@ -157,6 +158,7 @@ void SingleWindow::appendCohort(Cohort* cohort) {
 		cohort->next = next->cohorts.front();
 	}
 	cohorts.push_back(cohort);
+	all_cohorts.push_back(cohort);
 	parent->cohort_map[cohort->global_number] = cohort;
 	parent->dep_window[cohort->global_number] = cohort;
 	if (cohort->local_number == 0) {

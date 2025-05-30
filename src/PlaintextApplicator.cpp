@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -320,9 +320,7 @@ void PlaintextApplicator::printCohort(Cohort* cohort, std::ostream& output, bool
 }
 
 void PlaintextApplicator::printSingleWindow(SingleWindow* window, std::ostream& output, bool profiling) {
-	uint32_t cs = UI32(window->cohorts.size());
-	for (uint32_t c = 0; c < cs; c++) {
-		Cohort* cohort = window->cohorts[c];
+	for (auto& cohort : window->all_cohorts) {
 		printCohort(cohort, output, profiling);
 	}
 	u_fputc('\n', output);

@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -292,8 +292,10 @@ Cohort* GrammarApplicator::runContextualTest(SingleWindow* sWindow, size_t posit
 			j = get_attach_to().cohort;
 		}
 		else if (test->jump_pos == JUMP_TARGET) {
-			if (!context_stack.empty()) {
-				j = context_stack.back().target.cohort;
+			for (auto& it : reversed(context_stack)) {
+				if (it.is_with) {
+					j = it.target.cohort;
+				}
 			}
 		}
 		else {
@@ -639,7 +641,7 @@ Cohort* GrammarApplicator::runDependencyTest(SingleWindow* sWindow, Cohort* curr
 
 	// ToDo: Now that dep_deep_seen is a composite, investigate all .clear() to see if they're needed
 	if (test->pos & POS_DEP_DEEP) {
-		if (index_matches(dep_deep_seen, std::make_pair(test->hash, current->global_number))) {
+		if (dep_deep_seen.contains(std::make_pair(test->hash, current->global_number))) {
 			return 0;
 		}
 		dep_deep_seen.insert(std::make_pair(test->hash, current->global_number));
