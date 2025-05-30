@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -315,18 +315,32 @@ inline bool ISSPACE(const Char* p) {
 	return ISSPACE(*p) && !ISESC(p);
 }
 
+template<typename Char>
+inline bool ISALPHA_C(Char p) {
+	return (p < 255) && isalpha(p);
+}
+
+template<typename Char>
+inline bool ISDIGIT_C(Char p) {
+	return (p < 255) && isdigit(p);
+}
+
 template<typename Char, typename C, size_t N>
-inline bool IS_ICASE(const Char* p, const C (&uc)[N], const C (&lc)[N]) {
+inline size_t IS_ICASE(const Char* p, const C (&uc)[N], const C (&lc)[N]) {
 	// N - 1 due to null terminator for string constants
 	if (ISSTRING(p, N - 1)) {
-		return false;
+		return 0;
 	}
-	for (size_t i = 0; i < N - 1; ++i) {
+	size_t i = 0;
+	for (; i < N - 1; ++i) {
 		if (p[i] != uc[i] && p[i] != lc[i]) {
-			return false;
+			return 0;
 		}
 	}
-	return !u_isalnum(p[N - 1]);
+	if (!u_isalnum(p[N - 1])) {
+		return i;
+	}
+	return 0;
 }
 
 template<typename Char>
@@ -461,11 +475,6 @@ inline bool is_cg3b(const S& s) {
 	return (s[0] == 'C' && s[1] == 'G' && s[2] == '3' && s[3] == 'B');
 }
 
-template<typename Cont, typename VT>
-inline bool index_matches(const Cont& index, const VT& entry) {
-	return (index.find(entry) != index.end());
-}
-
 inline void insert_if_exists(boost::dynamic_bitset<>& cont, const boost::dynamic_bitset<>* other) {
 	if (other && !other->empty()) {
 		cont.resize(std::max(cont.size(), other->size()));
@@ -525,127 +534,38 @@ inline UString readUTF8String(S& input) {
 	#pragma warning (disable: 4127)
 #endif
 
-// macOS has macros for these that somehow only reveal themselves in the Python binding
-#ifdef htonl
-#undef htonl
-#endif
-
-#ifdef htons
-#undef htons
-#endif
-
-#ifdef ntohl
-#undef ntohl
-#endif
-
-#ifdef ntohs
-#undef ntohs
-#endif
-
 template<typename T>
-T htonl(T t) {
-	return be::native_to_big(t);
-}
-
-template<typename T>
-T htons(T t) {
-	return be::native_to_big(t);
-}
-
-template<typename T>
-T ntohl(T t) {
-	return be::big_to_native(t);
-}
-
-template<typename T>
-T ntohs(T t) {
-	return be::big_to_native(t);
-}
-
-inline uint32_t hton32(uint32_t val) {
-	return UI32(htonl(val));
-}
-
-inline uint32_t ntoh32(uint32_t val) {
-	return UI32(ntohl(val));
-}
-
-template<typename T>
-inline void writeSwapped(std::ostream& stream, const T& value) {
-	if (sizeof(T) == 1) {
-		stream.write(reinterpret_cast<const char*>(&value), sizeof(T));
-	}
-	else if (sizeof(T) == 2) {
-		auto tmp = UI16(htons(UI16(value)));
-		stream.write(reinterpret_cast<const char*>(&tmp), sizeof(T));
-	}
-	else if (sizeof(T) == 4) {
-		auto tmp = UI32(htonl(UI32(value)));
-		stream.write(reinterpret_cast<const char*>(&tmp), sizeof(T));
-	}
-	else if (sizeof(T) == 8) {
-		uint64_t tmp = value;
-#ifndef BIG_ENDIAN
-		auto high = hton32(UI32(tmp >> 32));
-		auto low = hton32(UI32(tmp & 0xFFFFFFFFULL));
-		tmp = (UI64(low) << 32) | high;
-#endif
-		stream.write(reinterpret_cast<const char*>(&tmp), sizeof(T));
-	}
-	else {
-		throw std::runtime_error("Unhandled type size in writeSwapped()");
-	}
+inline void writeBE(std::ostream& stream, T value) {
+	value = be::native_to_big(value);
+	stream.write(reinterpret_cast<const char*>(&value), sizeof(value));
 	if (!stream) {
-		throw std::runtime_error("Stream was in bad state in writeSwapped()");
+		throw std::runtime_error("Stream was in bad state in writeBE()");
 	}
 }
 
 template<>
-inline void writeSwapped(std::ostream& stream, const double& value) {
+inline void writeBE(std::ostream& stream, double value) {
 	int exp = 0;
 	auto mant64 = UI64(SI64(DBL(std::numeric_limits<int64_t>::max()) * frexp(value, &exp)));
 	auto exp32 = UI32(exp);
-	writeSwapped(stream, mant64);
-	writeSwapped(stream, exp32);
+	writeBE(stream, mant64);
+	writeBE(stream, exp32);
 }
 
 template<typename T>
-inline T readSwapped(std::istream& stream) {
+inline T readBE(std::istream& stream) {
 	if (!stream) {
-		throw std::runtime_error("Stream was in bad state in readSwapped()");
+		throw std::runtime_error("Stream was in bad state in readBE()");
 	}
-	if (sizeof(T) == 1) {
-		uint8_t tmp = 0;
-		stream.read(reinterpret_cast<char*>(&tmp), sizeof(T));
-		return static_cast<T>(tmp);
-	}
-	if (sizeof(T) == 2) {
-		uint16_t tmp = 0;
-		stream.read(reinterpret_cast<char*>(&tmp), sizeof(T));
-		return static_cast<T>(ntohs(tmp));
-	}
-	if (sizeof(T) == 4) {
-		uint32_t tmp = 0;
-		stream.read(reinterpret_cast<char*>(&tmp), sizeof(T));
-		return static_cast<T>(ntohl(tmp));
-	}
-	if (sizeof(T) == 8) {
-		uint64_t tmp = 0;
-		stream.read(reinterpret_cast<char*>(&tmp), sizeof(T));
-#ifndef BIG_ENDIAN
-		auto high = ntoh32(UI32(tmp >> 32));
-		auto low = ntoh32(UI32(tmp & 0xFFFFFFFFULL));
-		tmp = (UI64(low) << 32) | high;
-#endif
-		return static_cast<T>(tmp);
-	}
-	throw std::runtime_error("Unhandled type size in readSwapped()");
+	T tmp;
+	stream.read(reinterpret_cast<char*>(&tmp), sizeof(tmp));
+	return be::big_to_native(tmp);
 }
 
 template<>
-inline double readSwapped(std::istream& stream) {
-	auto mant64 = readSwapped<uint64_t>(stream);
-	auto exp = static_cast<int>(readSwapped<int32_t>(stream));
+inline double readBE(std::istream& stream) {
+	auto mant64 = readBE<uint64_t>(stream);
+	auto exp = static_cast<int>(readBE<int32_t>(stream));
 
 	auto value = DBL(SI64(mant64)) / DBL(std::numeric_limits<int64_t>::max());
 
@@ -763,6 +683,27 @@ private:
 	T* p;
 };
 
+class scope_guard {
+public:
+	scope_guard(std::function<void()> func, bool good = true)
+		: func(func)
+		, good(good)
+	{}
+
+	~scope_guard() {
+		if (good) {
+			func();
+		}
+	}
+
+	void set(bool val = true) {
+		good = val;
+	}
+private:
+	std::function<void()> func;
+	bool good = true;
+};
+
 template<typename T>
 inline T* reverse(T* head) {
 	T* nr = nullptr;
@@ -798,29 +739,6 @@ Reversed<T> reversed(T&& c) {
 template<typename Cont, typename T>
 inline void erase(Cont& cont, const T& val) {
 	cont.erase(std::remove(cont.begin(), cont.end(), val), cont.end());
-}
-
-inline size_t fread_throw(void* buffer, size_t size, size_t count, FILE* stream) {
-	size_t rv = ::fread(buffer, size, count, stream);
-	if (rv != count) {
-		throw std::runtime_error("fread() did not read all requested objects");
-	}
-	return rv;
-}
-
-inline size_t fread_throw(void* buffer, size_t size, size_t count, std::istream& stream) {
-	if (!stream.read(static_cast<char*>(buffer), size * count)) {
-		throw std::runtime_error("stream did not read all requested objects");
-	}
-	return size * count;
-}
-
-inline size_t fwrite_throw(const void* buffer, size_t size, size_t count, FILE* stream) {
-	size_t rv = ::fwrite(buffer, size, count, stream);
-	if (rv != count) {
-		throw std::runtime_error("fwrite() did not write all requested objects");
-	}
-	return rv;
 }
 
 template<class Function, std::size_t... Indices>

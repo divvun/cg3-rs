@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -93,6 +93,11 @@ enum KEYWORDS : uint32_t {
 	K_WITH,
 	K_OLIST,
 	K_OSET,
+	K_CMDARGS,
+	K_CMDARGS_OVERRIDE,
+	K_COPYCOHORT,
+	K_REMPARENT,
+	K_SWITCHPARENT,
 	KEYWORD_COUNT,
 };
 
@@ -142,6 +147,7 @@ enum : uint32_t {
 	FL_LOOKIGNORED,
 	FL_NOMAPPED,
 	FL_NOPARENT,
+	FL_DETACH,
 	FLAGS_COUNT,
 };
 }
@@ -183,6 +189,7 @@ constexpr UStringView g_flags[FLAGS_COUNT] = {
 	u"LOOKIGNORED",
 	u"NOMAPPED",
 	u"NOPARENT",
+	u"DETACH",
 };
 
 constexpr UStringView keywords[KEYWORD_COUNT] = {
@@ -253,6 +260,11 @@ constexpr UStringView keywords[KEYWORD_COUNT] = {
 	u"WITH",
 	u"OLIST",
 	u"OSET",
+	u"CMDARGS",
+	u"CMDARGS-OVERRIDE",
+	u"COPYCOHORT",
+	u"REMPARENT",
+	u"SWITCHPARENT",
 };
 
 constexpr UStringView stringbits[] = {

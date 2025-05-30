@@ -1,11 +1,11 @@
 ;;; cg.el --- Major mode for editing Constraint Grammar files  -*- lexical-binding: t; coding: utf-8 -*-
 
-;; Copyright (C) 2010-2022 Kevin Brubeck Unhammer
+;; Copyright (C) 2010-2024 Kevin Brubeck Unhammer
 
 ;; Author: Kevin Brubeck Unhammer <unhammer@fsfe.org>
 ;; Version: 0.4.0
 ;; Package-Requires: ((emacs "26.1"))
-;; Url: https://visl.sdu.dk/constraint_grammar.html
+;; Url: https://edu.visl.dk/constraint_grammar.html
 ;; Keywords: languages
 
 ;; This file is not part of GNU Emacs.
@@ -57,7 +57,7 @@
 ;; - use something like prolog-clause-start to define M-a/e etc.
 ;; - indentation function (based on prolog again?)
 ;; - the rest of the keywords
-;; - https://visl.sdu.dk/cg3/single/#regex-icase
+;; - https://edu.visl.dk/cg3/single/#regex-icase
 ;; - keyword tab-completion
 ;; - `font-lock-syntactic-keywords' is obsolete since 24.1
 ;; - show definition of set/list-at-point in modeline
@@ -70,6 +70,10 @@
 (eval-when-compile (require 'cl-lib))
 (require 'xref)
 (require 'tool-bar)
+
+
+(autoload 'cl-remove "cl-seq")
+(autoload 'cl-mapcan "cl-extra")
 
 ;;;============================================================================
 ;;;
@@ -143,7 +147,7 @@ See also `cg-command' and `cg-pre-pipe'."
   '("LIST" "SET" "TEMPLATE"
     ;; These are not sets (and don't have names after the kw) but we
     ;; have them here to make beginning-of-defun work:
-    "MAPPING-PREFIX" "SOFT-DELIMITERS" "DELIMITERS")
+    "MAPPING-PREFIX" "SOFT-DELIMITERS" "PARENTHESES" "DELIMITERS")
   "List-like keywords used for indentation, highlighting etc.
 Don't change without re-evaluating `cg-kw-re' (or all of cg.el).")
 (defconst cg-kw-set-re (regexp-opt cg-kw-set-list)
@@ -155,16 +159,20 @@ Don't change without re-evaluating `cg-kw-re' (or all of cg.el).")
     "UNPROTECT"
     "IFF"
     "ADDCOHORT" "REMCOHORT"
+    "MERGECOHORTS"
+    "COPYCOHORT"
+    "SPLITCOHORT"
     "COPY"
     "MOVE" "SWITCH"
     "EXTERNAL" "DELIMIT"
     "MAP"    "ADD"
     "UNMAP"
     "SELECT" "REMOVE"
-    "SETPARENT"    "SETCHILD"
+    "SETPARENT"    "SETCHILD"     "REMPARENT"    "SWITCHPARENT"
     "ADDRELATION"  "REMRELATION"  "SETRELATION"
     "ADDRELATIONS" "REMRELATIONS" "SETRELATIONS"
     "SETVARIABLE"  "REMVARIABLE"
+    "CMDARGS" "CMDARGS-OVERRIDE" "OPTIONS"
     "APPEND")
   "Rule-starter keywords for indentation, highlighting etc.
 Don't change without re-evaluating `cg-kw-re' (or all of cg.el)." )
@@ -200,9 +208,16 @@ Don't change without re-evaluating `cg-kw-re' (or all of cg.el)." )
 			     "UNMAPLAST"
 			     "REVERSE"
 			     "SUB"
-			     "OUTPUT")
+				 "OUTPUT"
+				 "CAPTURE_UNIF"
+				 "REPEAT"
+				 "IGNORED"
+				 "LOOKIGNORED"
+				 "NOMAPPED"
+				 "NOPARENT"
+				 "DETACH")
   "Rule flags used for highlighting.
-from https://visl.sdu.dk/svn/visl/tools/vislcg3/trunk/src/Strings.cpp
+from https://edu.visl.dk/svn/visl/tools/vislcg3/trunk/src/Strings.cpp
 Don't change without re-evaluating the file.")
 (defconst cg-kw-context-flags '("NOT"
 				"NEGATE"
@@ -212,6 +227,7 @@ Don't change without re-evaluating the file.")
 				"CBARRIER"
 				"OR"
 				"TARGET"
+				"EXCEPT"
 				"IF"
 				"AFTER"
 				"BEFORE"
@@ -466,6 +482,7 @@ CG-mode provides the following specific keyboard key bindings:
     (font-lock-set-defaults)
     (font-lock-ensure))
   (add-hook 'after-change-functions #'cg-after-change nil 'buffer-local)
+  ;; TODO: Use new track-changes library for ↑ in Emacs >= 30.1, more performant than after-change-functions
   (let* ((buf (current-buffer))
          (hl-timer (run-with-idle-timer 1 'repeat 'cg-output-hl buf)))
     (add-hook 'kill-buffer-hook
@@ -524,7 +541,8 @@ beginning of the region to highlight; see
     (((class color) (min-colors 16) (background dark))  :foreground "LightSalmon" :underline "orange")
     (((class color) (min-colors 8)) :foreground "green" :underline "orange")
     (t :slant italic))
-  "CG mode face used to highlight troublesome strings with unescaped quotes in them.")
+  "CG mode face used to highlight troublesome strings.
+E.g. strings with unescaped quotes in them.")
 
 
 
@@ -660,7 +678,7 @@ select the whole string \"SELECT:1022:rulename\")."
                           (yank)
                           (buffer-substring-no-properties (point-min)(point-max))))))
     (if (string-match
-         "\\(\\(select\\|iff\\|remove\\|map\\|addcohort\\|remcohort\\|switch\\|copy\\|add\\|substitute\\):\\)?\\([0-9]+\\)"
+         "\\(\\(select\\|iff\\|remove\\|map\\|addcohort\\|remcohort\\|switch\\|copy\\|add\\|substitute\\|mergecohorts\\|copycohort\\|splitcohort\\):\\)?\\([0-9]+\\)"
          rule)
         (progn (goto-char (point-min))
 	       (forward-line (1- (string-to-number (match-string 3 rule))))
@@ -802,7 +820,7 @@ text file you've already opened) to use as CG input buffer."
 The cache is emptied whenever you make a change in the input buffer,
 or call `cg-check' from another CG file."
   :group 'cg
-  :type 'bool)
+  :type 'boolean)
 
 (defvar cg--check-cache-buffer nil "See `cg-check-do-cache'.")
 
@@ -841,12 +859,11 @@ Since `cg-check' will not reuse a cache unless `cg--file' and
 (defcustom cg-per-buffer-input 'pipe
   "Make input buffers specific to their source CG's.
 
-If it is 'pipe (the default), input buffers will be shared by all
-CG's that have the same value for `cg-pre-pipe'.
+If it is the symbol `pipe' (the default), input buffers will be shared
+by all CG's that have the same value for `cg-pre-pipe'.
 
-If this is 'buffer or t, the input buffer created by
-`cg-edit-input' will be specific to the CG buffer it was called
-from.
+If this is the symbol `buffer' or t, the input buffer created by
+`cg-edit-input' will be specific to the CG buffer it was called from.
 
 If it is nil, all CG buffers share one input buffer."
   :type 'symbol)
@@ -861,8 +878,8 @@ If it is nil, all CG buffers share one input buffer."
 
 (defun cg--get-input-buffer (file)
   "Return a (possibly new) input buffer.
-If `cg-per-buffer-input' is t, the buffer will have be named
-after FILE; if it is 'pipe, the buffer will be named after the
+If `cg-per-buffer-input' is t, the buffer will have be named after FILE;
+if it is the symbol `pipe', the buffer will be named after the
 `cg-pre-pipe'."
   (let ((buf (if (buffer-live-p cg--input-buffer)
                  cg--input-buffer
@@ -968,6 +985,16 @@ you want to keep analyses hidden most of the time.")
 
 
 
+(defun cg--colourise-compilation-buffer ()
+  (require 'ansi-color)
+  (read-only-mode 1)
+  (ansi-color-apply-on-region compilation-filter-start (point))
+  (save-excursion
+    (let ((end (point)))
+      (goto-char compilation-filter-start)
+      (while (re-search-forward "\\[\\(1A\\|0G\\)" end 'noerror)
+        (replace-match "" nil nil))))
+  (read-only-mode -1))
 
 (define-compilation-mode cg-output-mode "CG-out"
   "Major mode for output of Constraint Grammar compilations and runs."
@@ -995,6 +1022,7 @@ you want to keep analyses hidden most of the time.")
        nil)
   (set (make-local-variable 'compilation-finish-functions)
        (list #'cg-check-finish-function))
+  (add-hook 'compilation-filter-hook #'cg--colourise-compilation-buffer nil 'local)
   (modify-syntax-entry ?§ "_")
   (modify-syntax-entry ?@ "_")
   ;; For cg-output-hide-analyses:
@@ -1102,7 +1130,7 @@ See `cg-output-hide-analyses'."
 (defcustom cg-check-after-change nil
   "If non-nil, run `cg-check' on grammar after each change to the buffer."
   :group 'cg
-  :type 'bool)
+  :type 'boolean)
 
 ;;;###autoload
 (defcustom cg-check-after-change-secs 1
@@ -1253,7 +1281,7 @@ Similarly, `cg-post-pipe' is run on output."
 
       (let ((cg-proc (get-buffer-process out))
             (pre-proc (start-process "cg-pre-pipe" "*cg-pre-pipe-output*"
-                                     "/bin/bash" "-c" pre-pipe))
+                                     "/bin/bash" "-o" "pipefail" "-c" pre-pipe))
             (cache-buffer (cg-pristine-cache-buffer file in pre-pipe)))
         (set-process-filter pre-proc (lambda (_pre-proc string)
                                        (with-current-buffer cache-buffer
@@ -1261,6 +1289,11 @@ Similarly, `cg-post-pipe' is run on output."
                                        (when (eq (process-status cg-proc) 'run)
                                          (process-send-string cg-proc string))))
         (set-process-sentinel pre-proc (lambda (_pre-proc _string)
+                                         (let ((status (process-exit-status pre-proc)))
+                                           (when (/= 0 status)
+                                             (with-current-buffer cache-buffer
+                                               (insert (format "%s failed with exit code %d" cg-pre-pipe status)))
+                                             (display-buffer cache-buffer nil)))
                                          (when (eq (process-status cg-proc) 'run)
                                            (cg-end-process cg-proc))))
         (with-current-buffer in

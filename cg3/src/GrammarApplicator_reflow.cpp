@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -33,7 +33,7 @@ Tag* GrammarApplicator::makeBaseFromWord(uint32_t tag) {
 
 Tag* GrammarApplicator::makeBaseFromWord(Tag* tag) {
 	const size_t len = tag->tag.size();
-	if (len < 5) {
+	if (len < 4) {
 		return tag;
 	}
 	static thread_local UString n;
@@ -812,19 +812,23 @@ Cohort* GrammarApplicator::delimitAt(SingleWindow& current, Cohort* cohort) {
 	addTagToReading(*cReading, begintag);
 
 	cCohort->appendReading(cReading);
-
 	nwin->appendCohort(cCohort);
 
-	uint32_t c = cohort->local_number;
-	size_t nc = c + 1;
-	for (; nc < current.cohorts.size(); nc++) {
-		current.cohorts[nc]->parent = nwin;
-		nwin->appendCohort(current.cohorts[nc]);
+	auto lc = cohort->local_number;
+	auto nc = std::find(current.all_cohorts.begin() + lc, current.all_cohorts.end(), cohort);
+	++nc;
+	auto from = nc;
+	for (; nc != current.all_cohorts.end(); ++nc) {
+		(*nc)->parent = nwin;
+		if ((*nc)->type & (CT_ENCLOSED | CT_REMOVED | CT_IGNORED)) {
+			nwin->all_cohorts.push_back(*nc);
+		}
+		else {
+			nwin->appendCohort(*nc);
+		}
 	}
-	c = UI32(current.cohorts.size() - c);
-	for (nc = 0; nc < c - 1; nc++) {
-		current.cohorts.pop_back();
-	}
+	current.cohorts.erase(current.cohorts.begin() + lc + 1, current.cohorts.end());
+	current.all_cohorts.erase(from, current.all_cohorts.end());
 
 	cohort = current.cohorts.back();
 	for (auto reading : cohort->readings) {
@@ -849,16 +853,13 @@ void GrammarApplicator::reflowTextuals_Reading(Reading& r) {
 }
 
 void GrammarApplicator::reflowTextuals_Cohort(Cohort& c) {
-	for (auto it : c.enclosed) {
-		reflowTextuals_Cohort(*it);
-	}
-	for (auto it : c.removed) {
-		reflowTextuals_Cohort(*it);
-	}
 	for (auto it : c.readings) {
 		reflowTextuals_Reading(*it);
 	}
 	for (auto it : c.deleted) {
+		reflowTextuals_Reading(*it);
+	}
+	for (auto it : c.ignored) {
 		reflowTextuals_Reading(*it);
 	}
 	for (auto it : c.delayed) {
@@ -867,7 +868,7 @@ void GrammarApplicator::reflowTextuals_Cohort(Cohort& c) {
 }
 
 void GrammarApplicator::reflowTextuals_SingleWindow(SingleWindow& sw) {
-	for (auto it : sw.cohorts) {
+	for (auto it : sw.all_cohorts) {
 		reflowTextuals_Cohort(*it);
 	}
 }

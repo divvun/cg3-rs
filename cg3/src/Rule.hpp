@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -67,6 +67,7 @@ enum RULE_FLAGS : uint64_t {
 	RF_LOOKIGNORED  = (1 << 30),
 	RF_NOMAPPED     = (1ull << 31),
 	RF_NOPARENT     = (1ull << 32),
+	RF_DETACH       = (1ull << 33),
 };
 
 using rule_flags_t = std::underlying_type<RULE_FLAGS>::type;

@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -32,7 +32,7 @@ namespace CG3 {
 /**
  * Tests whether one set is a subset of another set, specialized for TagSet.
  *
- * In the https://visl.sdu.dk/cg3_performance.html test data, this function is executed 1516098 times,
+ * In the https://edu.visl.dk/cg3_performance.html test data, this function is executed 1516098 times,
  * of which 23222 (1.5%) return true.
  *
  * @param[in] a The tags from the set
@@ -91,11 +91,11 @@ uint32_t GrammarApplicator::doesTagMatchRegexp(uint32_t test, const Tag& tag, bo
 	UErrorCode status = U_ZERO_ERROR;
 	int32_t gc = uregex_groupCount(tag.regexp, &status);
 	uint32_t match = 0;
-	uint32_t ih = hash_value(tag.hash, test);
-	if (!bypass_index && index_matches(index_regexp_no, ih)) {
+	auto ih = (UI64(tag.hash) << 32) | test;
+	if (!bypass_index && index_regexp_no.contains(ih)) {
 		match = 0;
 	}
-	else if (!bypass_index && gc == 0 && index_matches(index_regexp_yes, ih)) {
+	else if (!bypass_index && gc == 0 && index_regexp_yes.contains(ih)) {
 		match = test;
 	}
 	else {
@@ -130,11 +130,11 @@ uint32_t GrammarApplicator::doesTagMatchRegexp(uint32_t test, const Tag& tag, bo
 
 uint32_t GrammarApplicator::doesTagMatchIcase(uint32_t test, const Tag& tag, bool bypass_index) {
 	uint32_t match = 0;
-	uint32_t ih = hash_value(tag.hash, test);
-	if (!bypass_index && index_matches(index_icase_no, ih)) {
+	auto ih = (UI64(tag.hash) << 32) | test;
+	if (!bypass_index && index_icase_no.contains(ih)) {
 		match = 0;
 	}
-	else if (!bypass_index && index_matches(index_icase_yes, ih)) {
+	else if (!bypass_index && index_icase_yes.contains(ih)) {
 		match = test;
 	}
 	else {
@@ -157,11 +157,11 @@ uint32_t GrammarApplicator::doesRegexpMatchLine(const Reading& reading, const Ta
 	UErrorCode status = U_ZERO_ERROR;
 	int32_t gc = uregex_groupCount(tag.regexp, &status);
 	uint32_t match = 0;
-	uint32_t ih = hash_value(reading.tags_string_hash, tag.hash);
-	if (!bypass_index && index_matches(index_regexp_no, ih)) {
+	auto ih = (UI64(reading.tags_string_hash) << 32) | tag.hash;
+	if (!bypass_index && index_regexp_no.contains(ih)) {
 		match = 0;
 	}
-	else if (!bypass_index && gc == 0 && index_matches(index_regexp_yes, ih)) {
+	else if (!bypass_index && gc == 0 && index_regexp_yes.contains(ih)) {
 		match = reading.tags_string_hash;
 	}
 	else {
@@ -222,7 +222,7 @@ uint32_t GrammarApplicator::doesRegexpMatchReading(const Reading& reading, const
 /**
  * Tests whether a given reading matches a given tag.
  *
- * In the https://visl.sdu.dk/cg3_performance.html test data, this function is executed 1058428 times,
+ * In the https://edu.visl.dk/cg3_performance.html test data, this function is executed 1058428 times,
  * of which 827259 are treated as raw tags.
  *
  * @param[in] reading The reading to test
@@ -530,7 +530,10 @@ uint32_t GrammarApplicator::doesTagMatchReading(const Reading& reading, const Ta
 		}
 	}
 	else if (tag.type & T_ENCL) {
-		if (!reading.parent->enclosed.empty()) {
+		auto sw = reading.parent->parent;
+		auto c = std::find(sw->all_cohorts.begin() + reading.parent->local_number, sw->all_cohorts.end(), reading.parent);
+		++c;
+		if (c != sw->all_cohorts.end() && (*c)->enclosed) {
 			match = true;
 		}
 	}
@@ -597,7 +600,7 @@ bool GrammarApplicator::doesSetMatchReading_trie(const Reading& reading, const S
 /**
  * Tests whether a given reading matches a given LIST set.
  *
- * In the https://visl.sdu.dk/cg3_performance.html test data, this function is executed 1073969 times.
+ * In the https://edu.visl.dk/cg3_performance.html test data, this function is executed 1073969 times.
  *
  * @param[in] reading The reading to test
  * @param[in] set The hash of the set to test against
@@ -654,7 +657,7 @@ bool GrammarApplicator::doesSetMatchReading_tags(const Reading& reading, const S
 /**
  * Tests whether a given reading matches a given LIST or SET set.
  *
- * In the https://visl.sdu.dk/cg3_performance.html test data, this function is executed 5746792 times,
+ * In the https://edu.visl.dk/cg3_performance.html test data, this function is executed 5746792 times,
  * of which only 1700292 make it past the first index check.
  *
  * @param[in] reading The reading to test
@@ -668,10 +671,10 @@ bool GrammarApplicator::doesSetMatchReading(const Reading& reading, const uint32
 	// Only 30% of tests get past this.
 	// ToDo: This is not good enough...while numeric tags are special, their failures can be indexed.
 	if (!bypass_index && !unif_mode) {
-		if (index_readingSet_no[set].find(reading.hash) != index_readingSet_no[set].end()) {
+		if (index_readingSet_no[set].contains(reading.hash)) {
 			return false;
 		}
-		if (index_readingSet_yes[set].find(reading.hash) != index_readingSet_yes[set].end()) {
+		if (index_readingSet_yes[set].contains(reading.hash)) {
 			return true;
 		}
 	}
@@ -957,7 +960,7 @@ bool GrammarApplicator::doesSetMatchCohortNormal(Cohort& cohort, const uint32_t 
 		retval = doesSetMatchCohort_testLinked(cohort, *theset, context);
 	}
 
-	if (context && !context->matched_target) {
+	if (context && !context->matched_target && !(context->options & (POS_ACTIVE | POS_INACTIVE))) {
 		if (!grammar->sets_any || set >= grammar->sets_any->size() || !grammar->sets_any->test(set)) {
 			bool was_sub = (context->test && (context->test->offset_sub != 0));
 			if (!was_sub && set < cohort.possible_sets.size()) {

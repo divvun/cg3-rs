@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -1126,7 +1126,6 @@ inline void trie_indexToRule(const trie_t& trie, Grammar& grammar, uint32_t r) {
 void Grammar::indexSetToRule(uint32_t r, Set* s) {
 	if (s->type & (ST_SPECIAL | ST_TAG_UNIFY)) {
 		indexTagToRule(tag_any, r);
-		return;
 	}
 
 	trie_indexToRule(s->trie, *this, r);

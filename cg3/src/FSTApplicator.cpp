@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -462,6 +462,13 @@ void FSTApplicator::printCohort(Cohort* cohort, std::ostream& output, bool profi
 		goto removed;
 	}
 
+	if (!cohort->wblank.empty()) {
+		u_fprintf(output, "%S", cohort->wblank.data());
+		if (!ISNL(cohort->wblank.back())) {
+			u_fputc('\n', output);
+		}
+	}
+
 	if (cohort->wread && !did_warn_statictags) {
 		u_fprintf(ux_stderr, "Warning: FST CG format cannot output static tags! You are losing information!\n");
 		u_fflush(ux_stderr);
@@ -508,9 +515,7 @@ void FSTApplicator::printSingleWindow(SingleWindow* window, std::ostream& output
 		}
 	}
 
-	uint32_t cs = UI32(window->cohorts.size());
-	for (uint32_t c = 0; c < cs; c++) {
-		Cohort* cohort = window->cohorts[c];
+	for (auto& cohort : window->all_cohorts) {
 		printCohort(cohort, output, profiling);
 	}
 

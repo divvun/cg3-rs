@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -21,53 +21,60 @@
 #ifndef c6d28b7452ec699b_OPTIONS_PARSER_H
 #define c6d28b7452ec699b_OPTIONS_PARSER_H
 
-auto options_default = options;
-auto options_override = options;
+namespace Options {
 
-inline void parse_opts(const char* which, decltype(options)& where) {
+template<typename Opts>
+inline void parse_opts(char* p, Opts& where) {
+	using namespace CG3;
+	std::vector<char*> argv(1); // 0th element is the program name
+	while (*p) {
+		while (*p && ISSPACE(*p)) {
+			++p;
+		}
+		if (*p == '-') {
+			auto n = p;
+			SKIPTOWS(p);
+			*p = 0;
+			argv.push_back(n);
+			++p;
+		}
+		else if (*p == '"') {
+			++p;
+			auto n = p;
+			SKIPTO(p, '"');
+			*p = 0;
+			argv.push_back(n);
+			++p;
+		}
+		else if (*p == '\'') {
+			++p;
+			auto n = p;
+			SKIPTO(p, '\'');
+			*p = 0;
+			argv.push_back(n);
+			++p;
+		}
+		else {
+			auto n = p;
+			SKIPTOWS(p);
+			*p = 0;
+			argv.push_back(n);
+			++p;
+		}
+	}
+	u_parseArgs(static_cast<int>(argv.size()), &argv[0], where.size(), where.data());
+}
+
+template<typename Opts>
+inline void parse_opts_env(const char* which, Opts& where) {
 	using namespace CG3;
 	if (auto _env = getenv(which)) {
 		std::string env(_env);
 		env.push_back(0);
-		std::vector<char*> argv(1); // 0th element is the program name
-		auto p = &env[0];
-		while (*p) {
-			while (*p && ISSPACE(*p)) {
-				++p;
-			}
-			if (*p == '-') {
-				auto n = p;
-				SKIPTOWS(p);
-				*p = 0;
-				argv.push_back(n);
-				++p;
-			}
-			else if (*p == '"') {
-				++p;
-				auto n = p;
-				SKIPTO(p, '"');
-				*p = 0;
-				argv.push_back(n);
-				++p;
-			}
-			else if (*p == '\'') {
-				++p;
-				auto n = p;
-				SKIPTO(p, '\'');
-				*p = 0;
-				argv.push_back(n);
-				++p;
-			}
-			else {
-				auto n = p;
-				SKIPTOWS(p);
-				*p = 0;
-				argv.push_back(n);
-				++p;
-			}
-		}
-		u_parseArgs(static_cast<int>(argv.size()), &argv[0], NUM_OPTIONS, where.data());
+		parse_opts(&env[0], where);
 	}
+}
+
 }
 
 #endif

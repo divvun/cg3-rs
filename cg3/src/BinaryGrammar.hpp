@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -47,11 +47,14 @@ enum : uint32_t {
 	BINF_ADDCOHORT_ATTACH = (1 << 17),
 };
 
+constexpr uint32_t BIN_REV_ANCIENT = 10297;
+constexpr uint32_t BIN_REV_CMDARGS = 13898;
+
 class BinaryGrammar : public IGrammarParser {
 public:
 	BinaryGrammar(Grammar& result, std::ostream& ux_err);
 
-	int writeBinaryGrammar(FILE* output);
+	int writeBinaryGrammar(std::ostream& output);
 
 	void setCompatible(bool compat) override;
 	void setVerbosity(uint32_t level) override;
@@ -65,7 +68,7 @@ private:
 	int parse_grammar(UString& buffer) override;
 
 	Grammar* grammar = nullptr;
-	void writeContextualTest(ContextualTest* t, FILE* output);
+	void writeContextualTest(ContextualTest* t, std::ostream& output);
 	ContextualTest* readContextualTest(std::istream& input);
 
 	typedef std::unordered_map<ContextualTest*, uint32_t> deferred_t;

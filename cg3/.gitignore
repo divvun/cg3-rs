@@ -3,11 +3,14 @@
 /CMakeCache.txt
 /CMakeFiles
 Makefile
+/build
 /src/cg-comp
 /src/cg-conv
 /src/cg-mwesplit
 /src/cg-proc
 /src/cg-relabel
+/src/cg-annotate
+/src/cg-merge-annotations
 /src/CMakeFiles
 /src/libcg3.1.dylib
 /src/libcg3.dylib

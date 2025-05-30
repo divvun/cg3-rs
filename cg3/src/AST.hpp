@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 *
 * This program is free software: you can redistribute it and/or modify
@@ -30,6 +30,7 @@ enum ASTType {
 	AST_Barrier,
 	AST_BarrierSafe,
 	AST_BeforeSections,
+	AST_CmdArgs,
 	AST_CompositeTag,
 	AST_Context,
 	AST_ContextMod,

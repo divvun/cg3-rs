@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -181,7 +181,7 @@ void MweSplitApplicator::printSingleWindow(SingleWindow* window, std::ostream& o
 	for (uint32_t c = 0; c < cs; c++) {
 		Cohort* cohort = window->cohorts[c];
 		std::vector<Cohort*> cs = splitMwe(cohort);
-		for (auto iter : cs) {
+		for (auto& iter : cs) {
 			printCohort(iter, output, profiling);
 		}
 	}

@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2007-2023, GrammarSoft ApS
+* Copyright (C) 2007-2025, GrammarSoft ApS
 * Developed by Tino Didriksen <mail@tinodidriksen.com>
 * Design by Eckhard Bick <eckhard.bick@mail.dk>, Tino Didriksen <mail@tinodidriksen.com>
 *
@@ -66,8 +66,42 @@ bool GrammarApplicator::updateRuleToCohorts(Cohort& c, const uint32_t& rsit) {
 	if (!doesWordformsMatch(c.wordform, r->wordform)) {
 		return false;
 	}
+	if (current->rule_to_cohorts.size() < rsit+1) {
+		indexSingleWindow(*current);
+	}
 	CohortSet& cohortset = current->rule_to_cohorts[rsit];
-	cohortset.insert(&c);
+	std::vector<size_t> csi;
+	for (size_t i = 0; i < cohortsets.size(); ++i) {
+		if (cohortsets[i] != &cohortset) {
+			continue;
+		}
+		csi.push_back(i);
+	}
+	if (!csi.empty()) {
+		auto cap = cohortset.capacity();
+		std::vector<CohortSet::const_iterator*> ends;
+		std::vector<std::pair<CohortSet::const_iterator*,Cohort*>> chs;
+		for (size_t i = 0; i < csi.size(); ++i) {
+			if (*rocits[csi[i]] == cohortset.end()) {
+				ends.push_back(rocits[csi[i]]);
+			}
+			else {
+				chs.push_back(std::pair(rocits[csi[i]], **rocits[csi[i]]));
+			}
+		}
+		cohortset.insert(&c);
+		for (auto it : ends) {
+			*it = cohortset.end();
+		}
+		if (cap != cohortset.capacity()) {
+			for (auto& it : chs) {
+				*it.first = cohortset.find(it.second);
+			}
+		}
+	}
+	else {
+		cohortset.insert(&c);
+	}
 	return current->valid_rules.insert(rsit);
 }
 
@@ -330,11 +364,19 @@ bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, R
 		}
 	};
 	override_cohortset();
+	cohortsets.push_back(cohortset);
+	rocits.push_back(nullptr);
+
+	scope_guard popper([&]() {
+		cohortsets.pop_back();
+		rocits.pop_back();
+		});
 
 	if (debug_level > 1) {
 		std::cerr << "DEBUG: " << cohortset->size() << "/" << current.cohorts.size() << " = " << double(cohortset->size()) / double(current.cohorts.size()) << std::endl;
 	}
-	for (auto rocit = cohortset->cbegin(); rocit != cohortset->cend();) {
+	for (auto rocit = cohortset->cbegin(); (!cohortset->empty()) && (rocit != cohortset->cend());) {
+		rocits.back() = &rocit;
 		Cohort* cohort = *rocit;
 		++rocit;
 
@@ -430,10 +472,15 @@ bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, R
 			continue;
 		}
 
+		// If this is REMPARENT and there's no parent, skip it.
+		if ((type == K_REMPARENT || type == K_SWITCHPARENT) && cohort->dep_parent == DEP_NO_PARENT) {
+			continue;
+		}
+
 		// Check if on previous runs the rule did not match this cohort, and skip if that is the case.
 		// This cache is cleared if any rule causes any state change in the window.
 		uint32_t ih = hash_value(rule.number, cohort->global_number);
-		if (index_matches(index_ruleCohort_no, ih)) {
+		if (index_ruleCohort_no.contains(ih)) {
 			continue;
 		}
 		index_ruleCohort_no.insert(ih);
@@ -474,12 +521,14 @@ bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, R
 		{
 			Rule_Context context;
 			context.target.cohort = cohort;
+			context.is_with = (rule.type == K_WITH);
 			context_stack.push_back(std::move(context));
 		}
 
 		auto reset_cohorts = [&]() {
 			cohortset = &current.rule_to_cohorts[rule.number];
 			override_cohortset();
+			cohortsets.back() = cohortset;
 			if (get_apply_to().cohort->type & CT_REMOVED) {
 				rocit = cohortset->lower_bound(current.cohorts[get_apply_to().cohort->local_number]);
 			}
@@ -597,6 +646,7 @@ bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, R
 			for (auto r = cohort->readings[i]; r; r = r->next) {
 				r->active = true;
 			}
+			rule_target = cohort;
 			// Actually check if the reading is a valid target. First check if rule target matches...
 			if (rule.target && doesSetMatchReading(*reading, rule.target, (set.type & (ST_CHILD_UNIFY | ST_SPECIAL)) != 0)) {
 				bool regex_prop = true;
@@ -681,6 +731,9 @@ bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, R
 							addProfilingExample(r);
 						}
 					}
+					if (!debug_rules.empty() && debug_rules.contains(rule.line)) {
+						printDebugRule(rule);
+					}
 
 					if (regex_prop && i && !regexgrps_c.empty()) {
 						for (auto z = i; z > 0; --z) {
@@ -695,6 +748,9 @@ bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, R
 				}
 				else {
 					context_stack.back().regexgrp_ct = orz;
+					if (!debug_rules.empty() && debug_rules.contains(rule.line)) {
+						printDebugRule(rule, true, false);
+					}
 				}
 				++num_iff;
 			}
@@ -703,6 +759,9 @@ bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, R
 				if (profiler) {
 					Profiler::Key k{ ET_RULE, rule.number + 1 };
 					++profiler->entries[k].num_fail;
+				}
+				if (!debug_rules.empty() && debug_rules.contains(rule.line)) {
+					printDebugRule(rule, false, false);
 				}
 			}
 			readings_plain.insert(std::make_pair(reading->hash_plain, reading));
@@ -750,7 +809,9 @@ bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, R
 		}
 
 		for (auto& ctx : reading_contexts) {
-			if (!ctx.target.subreading->matched_target) continue;
+			if (!ctx.target.subreading->matched_target) {
+				continue;
+			}
 			if (!ctx.target.subreading->matched_tests && rule.type != K_IFF) {
 				continue;
 			}
@@ -765,7 +826,9 @@ bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, R
 				reset_cohorts();
 				break;
 			}
-			if (!finish_reading_loop) break;
+			if (!finish_reading_loop) {
+				break;
+			}
 		}
 
 		reset_cohorts_for_loop = false;
@@ -790,7 +853,7 @@ bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, R
  * Only when no further changes are caused at a level does it progress to next level.
  *
  * The loops in this function are increasingly explosive, despite efforts to contain them.
- * In the https://visl.sdu.dk/cg3_performance.html test data, this function is called 1015 times.
+ * In the https://edu.visl.dk/cg3_performance.html test data, this function is called 1015 times.
  * The first loop (rules) is executed 3101728 times.
  * The second loop (cohorts) is executed 11087278 times.
  * The third loop (finding readings) is executed 11738927 times; of these, 1164585 (10%) match the rule target.
@@ -873,9 +936,12 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 		bool should_repeat = false;
 		bool should_bail = false;
 
-		auto reindex = [&]() {
-			foreach (iter, current.cohorts) {
-				(*iter)->local_number = UI32(std::distance(current.cohorts.begin(), iter));
+		auto reindex = [&](SingleWindow* which = nullptr) {
+			if (!which) {
+				which = &current;
+			}
+			foreach (iter, which->cohorts) {
+				(*iter)->local_number = UI32(std::distance(which->cohorts.begin(), iter));
 			}
 			gWindow->rebuildCohortLinks();
 		};
@@ -910,7 +976,7 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 			}
 		};
 
-		auto add_cohort = [&](Cohort* cohort, size_t& spacesInAddedWf) {
+		auto add_cohort = [&](Cohort* cohort, size_t& spacesInAddedWf, CohortSet* withs = nullptr) {
 			Cohort* cCohort = alloc_cohort(&current);
 			cCohort->global_number = gWindow->cohort_counter++;
 
@@ -1002,6 +1068,74 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 			if (grammar->addcohort_attach && (rule->type == K_ADDCOHORT_BEFORE || rule->type == K_ADDCOHORT_AFTER)) {
 				attachParentChild(*cohort, *cCohort);
 			}
+			else if (rule->type == K_MERGECOHORTS && !(rule->flags & RF_DETACH)) {
+				auto c = context_stack.back().target.cohort;
+				if (c->dep_parent == DEP_NO_PARENT || !current.parent->cohort_map.count(c->dep_parent)) {
+					// Don't introduce dependencies
+					if (has_dep) {
+						if (!withs->count(cohort)) {
+							// Insertion target isn't being merged, so attach to that
+							attachParentChild(*cohort, *cCohort);
+						}
+						else {
+							// Attach to nearest un-merged token
+							auto next = cohort->next;
+							auto prev = cohort->prev;
+							for (; next || prev ;) {
+								if (next && next->parent != cohort->parent) {
+									next = nullptr;
+								}
+								if (next && !withs->count(next)) {
+									attachParentChild(*next, *cCohort);
+									break;
+								}
+								if (next) {
+									next = next->next;
+								}
+
+								if (prev && prev->parent != cohort->parent) {
+									prev = nullptr;
+								}
+								if (prev && !withs->count(prev)) {
+									attachParentChild(*prev, *cCohort);
+									break;
+								}
+								if (prev) {
+									prev = prev->prev;
+								}
+							}
+						}
+					}
+				}
+				else {
+					attachParentChild(*current.parent->cohort_map[c->dep_parent], *cCohort);
+				}
+
+				std::set<uint32_t> ps;
+				for (auto c : *withs) {
+					ps.insert(c->global_number);
+					if (c->type & CT_RELATED) {
+						for (auto& riter : c->relations) {
+							cCohort->relations[riter.first].insert(riter.second.begin(), riter.second.end());
+						}
+						cCohort->type |= CT_RELATED;
+					}
+				}
+				for (auto c : current.all_cohorts) {
+					if (ps.count(c->dep_parent)) {
+						attachParentChild(*cCohort, *c);
+					}
+					for (auto& riter : c->relations) {
+						for (auto r : ps) {
+							if (riter.second.count(r)) {
+								riter.second.erase(r);
+								riter.second.insert(cCohort->global_number);
+								cCohort->type |= CT_RELATED;
+							}
+						}
+					}
+				}
+			}
 
 			if (cCohort->readings.empty()) {
 				initEmptyCohort(*cCohort);
@@ -1017,9 +1151,11 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 
 			if (rule->type == K_ADDCOHORT_BEFORE) {
 				current.cohorts.insert(current.cohorts.begin() + cohorts.front()->local_number, cCohort);
+				current.all_cohorts.insert(std::find(current.all_cohorts.begin() + cohorts.front()->local_number, current.all_cohorts.end(), cohorts.front()), cCohort);
 			}
 			else {
 				current.cohorts.insert(current.cohorts.begin() + cohorts.back()->local_number + 1, cCohort);
+				current.all_cohorts.insert(std::find(current.all_cohorts.begin() + cohorts.back()->local_number, current.all_cohorts.end(), cohorts.back()) + 1, cCohort);
 			}
 
 			foreach (iter, current.cohorts) {
@@ -1031,17 +1167,13 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 		};
 
 		auto rem_cohort = [&](Cohort* cohort) {
+			auto& current = *cohort->parent;
 			for (auto iter : cohort->readings) {
 				iter->hit_by.push_back(rule->number);
 				iter->deleted = true;
 				if (trace) {
 					iter->noprint = false;
 				}
-			}
-			// Move any enclosed parentheses to the previous cohort
-			if (!cohort->enclosed.empty()) {
-				cohort->prev->enclosed.insert(cohort->prev->enclosed.end(), cohort->enclosed.begin(), cohort->enclosed.end());
-				cohort->enclosed.clear();
 			}
 			// Remove the cohort from all rules
 			for (auto& cs : current.rule_to_cohorts) {
@@ -1052,56 +1184,81 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 			while (!cohort->dep_children.empty()) {
 				uint32_t ch = cohort->dep_children.back();
 				if (cohort->dep_parent == DEP_NO_PARENT) {
-					attachParentChild(*current.parent->cohort_map[0], *current.parent->cohort_map[ch], true, true);
+					attachParentChild(*gWindow->cohort_map[0], *gWindow->cohort_map[ch], true, true);
 				}
 				else {
-					attachParentChild(*current.parent->cohort_map[cohort->dep_parent], *current.parent->cohort_map[ch], true, true);
+					attachParentChild(*gWindow->cohort_map[cohort->dep_parent], *gWindow->cohort_map[ch], true, true);
 				}
 				cohort->dep_children.erase(ch);
 			}
 			cohort->type |= CT_REMOVED;
-			if (!cohort->prev->enclosed.empty()) {
-				cohort->prev->enclosed.back()->removed.push_back(cohort);
-				cohort->prev->enclosed.back()->ignored_cohorts.insert(cohort->prev->enclosed.back()->ignored_cohorts.end(), cohort->ignored_cohorts.begin(), cohort->ignored_cohorts.end());
-				cohort->ignored_cohorts.clear();
-			}
-			else {
-				cohort->prev->removed.push_back(cohort);
-				cohort->prev->ignored_cohorts.insert(cohort->prev->ignored_cohorts.end(), cohort->ignored_cohorts.begin(), cohort->ignored_cohorts.end());
-				cohort->ignored_cohorts.clear();
-			}
 			cohort->detach();
-			for (auto& cm : current.parent->cohort_map) {
+			for (auto& cm : gWindow->cohort_map) {
 				cm.second->dep_children.erase(cohort->dep_self);
 			}
-			current.parent->cohort_map.erase(cohort->global_number);
+			gWindow->cohort_map.erase(cohort->global_number);
 			current.cohorts.erase(current.cohorts.begin() + cohort->local_number);
 			foreach (iter, current.cohorts) {
 				(*iter)->local_number = UI32(std::distance(current.cohorts.begin(), iter));
 			}
+
+			if (current.cohorts.size() == 1 && &current != gWindow->current) {
+				// This window is now empty, so remove it entirely from consideration so rules can look past it
+				cohort = current.cohorts[0];
+
+				// Remove the cohort from all rules
+				for (auto& cs : current.rule_to_cohorts) {
+					cs.erase(cohort);
+				}
+				cohort->detach();
+				for (auto& cm : gWindow->cohort_map) {
+					cm.second->dep_children.erase(cohort->dep_self);
+				}
+				gWindow->cohort_map.erase(cohort->global_number);
+				free_cohort(cohort);
+
+				if (current.previous) {
+					current.previous->text += current.text + current.text_post;
+					current.previous->all_cohorts.insert(current.previous->all_cohorts.end(), current.all_cohorts.begin() + 1, current.all_cohorts.end());
+				}
+				else if (current.next) {
+					current.next->text = current.text_post + current.next->text;
+					current.next->all_cohorts.insert(current.previous->all_cohorts.begin() + 1, current.all_cohorts.begin() + 1, current.all_cohorts.end());
+				}
+				current.all_cohorts.clear();
+
+				for (size_t i = 0; i < gWindow->previous.size(); ++i) {
+					if (gWindow->previous[i] == &current) {
+						free_swindow(gWindow->previous[i]);
+						gWindow->previous.erase(gWindow->previous.begin() + i);
+						break;
+					}
+				}
+				for (size_t i = 0; i < gWindow->next.size(); ++i) {
+					if (gWindow->next[i] == &current) {
+						free_swindow(gWindow->next[i]);
+						gWindow->next.erase(gWindow->next.begin() + i);
+						break;
+					}
+				}
+
+				gWindow->rebuildSingleWindowLinks();
+			}
+
 			gWindow->rebuildCohortLinks();
 		};
 
 		auto ignore_cohort = [&](Cohort* cohort) {
+			auto& current = *cohort->parent;
 			for (auto iter : cohort->readings) {
 				iter->hit_by.push_back(rule->number);
-			}
-			if (!cohort->enclosed.empty()) {
-				cohort->prev->enclosed.insert(cohort->prev->enclosed.end(), cohort->enclosed.begin(), cohort->enclosed.end());
-				cohort->enclosed.clear();
 			}
 			for (auto& cs : current.rule_to_cohorts) {
 				cs.erase(cohort);
 			}
-			cohort->type |= CT_REMOVED;
-			if (!cohort->prev->enclosed.empty()) {
-				cohort->prev->enclosed.back()->ignored_cohorts.push_back(cohort);
-			}
-			else {
-				cohort->prev->ignored_cohorts.push_back(cohort);
-			}
+			cohort->type |= CT_IGNORED;
 			cohort->detach();
-			current.parent->cohort_map.erase(cohort->global_number);
+			gWindow->cohort_map.erase(cohort->global_number);
 			current.cohorts.erase(current.cohorts.begin() + cohort->local_number);
 		};
 
@@ -1287,9 +1444,12 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 				//u_fprintf(ux_stderr, "Info: SetVariable fired for %S.\n", names.front()->tag.data());
 			}
 			else if (rule->type == K_DELIMIT) {
-				delimitAt(current, get_apply_to().cohort);
-				delimited = true;
-				readings_changed = true;
+				auto cohort = get_apply_to().cohort;
+				if (cohort->parent->cohorts.size() > cohort->local_number + 1) {
+					delimitAt(current, cohort);
+					delimited = true;
+					readings_changed = true;
+				}
 			}
 			else if (rule->type == K_EXTERNAL_ONCE || rule->type == K_EXTERNAL_ALWAYS) {
 				if (rule->type == K_EXTERNAL_ONCE && !current.hit_external.insert(rule->line).second) {
@@ -1563,6 +1723,7 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 					current.parent->cohort_map[cCohort->global_number] = cCohort;
 
 					current.cohorts.insert(current.cohorts.begin() + get_apply_to().cohort->local_number + i + 1, cCohort);
+					current.all_cohorts.insert(std::find(current.all_cohorts.begin() + get_apply_to().cohort->local_number, current.all_cohorts.end(), get_apply_to().cohort) + i + 1, cCohort);
 				}
 
 				// Move text from the to-be-deleted cohort to the last new cohort
@@ -1618,13 +1779,7 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 					iter->hit_by.push_back(rule->number);
 					iter->deleted = true;
 				}
-				// Move any enclosed parentheses to the previous cohort
-				if (!get_apply_to().cohort->enclosed.empty()) {
-					get_apply_to().cohort->prev->enclosed.insert(get_apply_to().cohort->prev->enclosed.end(), get_apply_to().cohort->enclosed.begin(), get_apply_to().cohort->enclosed.end());
-					get_apply_to().cohort->enclosed.clear();
-				}
 				get_apply_to().cohort->type |= CT_REMOVED;
-				get_apply_to().cohort->prev->removed.push_back(get_apply_to().cohort);
 				get_apply_to().cohort->detach();
 				for (auto& cm : current.parent->cohort_map) {
 					cm.second->dep_children.erase(get_apply_to().cohort->dep_self);
@@ -1755,6 +1910,7 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 				auto state_hash = get_apply_to().subreading->hash;
 				auto theTags = ss_taglist.get();
 				getTagList(*rule->sublist, theTags);
+				bool appending = (theTags->size() == 1 && (*theTags)[0]->comparison_hash == grammar->tag_any);
 
 				// Modify the list of tags to remove to be the actual list of tags present, including matching regex and icase tags
 				FILL_TAG_LIST(theTags);
@@ -1800,6 +1956,12 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 					}
 
 					++i;
+				}
+
+				if (appending) {
+					get_apply_to().subreading->tags_list.push_back(substtag);
+					tpos = get_apply_to().subreading->tags_list.size();
+					reflowReading(*(get_apply_to().subreading));
 				}
 
 				// Should Substitute really do nothing if no tags were removed? 2013-10-21, Eckhard says this is expected behavior.
@@ -1866,7 +2028,7 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 						splitMappings(mappings, *get_apply_to().cohort, *get_apply_to().subreading, true);
 					}
 					if (wf && wf != get_apply_to().subreading->parent->wordform) {
-												for (auto r : get_apply_to().subreading->parent->readings) {
+						for (auto r : get_apply_to().subreading->parent->readings) {
 							delTagFromReading(*r, get_apply_to().subreading->parent->wordform);
 							addTagToReading(*r, wf);
 						}
@@ -2068,13 +2230,9 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 				}
 
 				size_t spacesInAddedWf = 0;
-				context_stack.back().target.cohort = add_cohort(merge_at, spacesInAddedWf);
+				context_stack.back().target.cohort = add_cohort(merge_at, spacesInAddedWf, &withs);
 
 				for (auto c : withs) {
-					if (!c->ignored_cohorts.empty()) {
-						get_apply_to().cohort->ignored_cohorts.insert(get_apply_to().cohort->ignored_cohorts.end(), c->ignored_cohorts.begin(), c->ignored_cohorts.end());
-						c->ignored_cohorts.clear();
-					}
 					size_t foundSpace = c->text.find_first_of(' ');
 					while(spacesInAddedWf && foundSpace != std::string::npos) {
 						c->text.erase(foundSpace, 1);
@@ -2102,12 +2260,176 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 
 				reset_cohorts_for_loop = true;
 			}
+			else if (rule->type == K_COPYCOHORT) {
+				Cohort* attach = nullptr;
+				Cohort* cohort = context_stack.back().target.cohort;
+				uint32_t c = cohort->local_number;
+				dep_deep_seen.clear();
+				tmpl_cntx.clear();
+				context_stack.back().attach_to.cohort = nullptr;
+				context_stack.back().attach_to.reading = nullptr;
+				context_stack.back().attach_to.subreading = nullptr;
+				if (runContextualTest(&current, c, rule->dep_target, &attach) && attach) {
+					profileRuleContext(true, rule, rule->dep_target);
+
+					if (get_attach_to().cohort) {
+						attach = get_attach_to().cohort;
+					}
+					context_target = attach;
+					bool good = true;
+					for (auto it : rule->dep_tests) {
+						context_stack.back().mark = attach;
+						dep_deep_seen.clear();
+						tmpl_cntx.clear();
+						bool test_good = (runContextualTest(attach->parent, attach->local_number, it) != nullptr);
+
+						profileRuleContext(test_good, rule, it);
+
+						if (!test_good) {
+							good = test_good;
+							break;
+						}
+					}
+
+					if (!good || cohort == attach || cohort->local_number == 0) {
+						return;
+					}
+
+					auto childset = rule->childset2;
+					if (rule->flags & RF_REVERSE) {
+						std::swap(cohort, attach);
+						childset = rule->childset1;
+					}
+
+					Cohort* cCohort = alloc_cohort(attach->parent);
+					cCohort->global_number = gWindow->cohort_counter++;
+					cCohort->wordform = cohort->wordform;
+					insert_if_exists(cCohort->possible_sets, grammar->sets_any);
+
+					auto theTags = ss_taglist.get();
+					getTagList(*rule->maplist, theTags);
+
+					for (auto& tter : *theTags) {
+						if (tter->type & T_VSTR) {
+							VARSTRINGIFY(tter);
+						}
+					}
+
+					auto excepts = ss_taglist.get();
+					if (rule->sublist) {
+						getTagList(*rule->sublist, excepts);
+						FILL_TAG_LIST_RAW(excepts);
+					}
+
+					std::vector<Reading*> rs;
+					for (auto r : cohort->readings) {
+						rs.clear();
+						for (; r; r = r->next) {
+							auto cReading = alloc_reading(cCohort);
+							++numReadings;
+							cReading->hit_by.push_back(rule->number);
+							cReading->noprint = false;
+							TagList mappings;
+							for (auto hash : r->tags_list) {
+								auto tter = grammar->single_tags[hash];
+								if (tter->type & T_MAPPING || tter->tag[0] == grammar->mapping_prefix) {
+									mappings.push_back(tter);
+								}
+								else {
+									hash = addTagToReading(*cReading, hash);
+								}
+								if (updateValidRules(rules, intersects, hash, *cReading)) {
+									iter_rules = intersects.find(rule->number);
+									iter_rules_end = intersects.end();
+								}
+							}
+							for (auto tter : *theTags) {
+								auto hash = tter->hash;
+								if (hash == grammar->tag_any) {
+									continue;
+								}
+								if (tter->type & T_MAPPING || tter->tag[0] == grammar->mapping_prefix) {
+									mappings.push_back(tter);
+								}
+								else {
+									hash = addTagToReading(*cReading, hash);
+								}
+								if (updateValidRules(rules, intersects, hash, *cReading)) {
+									iter_rules = intersects.find(rule->number);
+									iter_rules_end = intersects.end();
+								}
+							}
+							if (!mappings.empty()) {
+								splitMappings(mappings, *cCohort, *cReading);
+							}
+							rs.push_back(cReading);
+						}
+						auto rn = rs.front();
+						for (size_t j = 1; j < rs.size(); ++j) {
+							rn->next = rs[j];
+							rn = rn->next;
+						}
+						cCohort->appendReading(rs.front());
+					}
+
+					if (cCohort->readings.empty()) {
+						initEmptyCohort(*cCohort);
+						if (trace) {
+							auto r = cCohort->readings.front();
+							r->hit_by.push_back(rule->number);
+							r->noprint = false;
+						}
+					}
+
+					for (auto r : cCohort->readings) {
+						for (; r; r = r->next) {
+							for (auto tter : *excepts) {
+								delTagFromReading(*r, tter);
+							}
+						}
+					}
+
+					if (cohort->wread) {
+						cCohort->wread = alloc_reading(cCohort);
+						for (auto hash : cohort->wread->tags_list) {
+							hash = addTagToReading(*cCohort->wread, hash);
+							if (updateValidRules(rules, intersects, hash, *cCohort->wread)) {
+								iter_rules = intersects.find(rule->number);
+								iter_rules_end = intersects.end();
+							}
+						}
+					}
+
+					current.parent->cohort_map[cCohort->global_number] = cCohort;
+					current.parent->dep_window[cCohort->global_number] = cCohort;
+
+					CohortSet edges;
+					collect_subtree(edges, attach, childset);
+
+					if (rule->flags & RF_BEFORE) {
+						attach->parent->cohorts.insert(attach->parent->cohorts.begin() + edges.front()->local_number, cCohort);
+						attach->parent->all_cohorts.insert(std::find(attach->parent->all_cohorts.begin() + edges.front()->local_number, attach->parent->all_cohorts.end(), edges.front()), cCohort);
+						attachParentChild(*edges.front(), *cCohort);
+					}
+					else {
+						attach->parent->cohorts.insert(attach->parent->cohorts.begin() + edges.back()->local_number + 1, cCohort);
+						attach->parent->all_cohorts.insert(std::find(attach->parent->all_cohorts.begin() + edges.back()->local_number, attach->parent->all_cohorts.end(), edges.back()) + 1, cCohort);
+						attachParentChild(*edges.back(), *cCohort);
+					}
+
+					reindex(attach->parent);
+					indexSingleWindow(*attach->parent);
+					readings_changed = true;
+					reset_cohorts_for_loop = true;
+				}
+			}
 			else if (rule->type == K_SETPARENT || rule->type == K_SETCHILD || rule->type == K_ADDRELATION || rule->type == K_SETRELATION || rule->type == K_REMRELATION || rule->type == K_ADDRELATIONS || rule->type == K_SETRELATIONS || rule->type == K_REMRELATIONS) {
 				auto dep_target_cb = [&]() -> bool {
 					Cohort* target = context_stack.back().target.cohort;
 					Cohort* attach = context_stack.back().attach_to.cohort;
 					swapper<Cohort*> sw((rule->flags & RF_REVERSE) != 0, target, attach);
 					if (rule->type == K_SETPARENT || rule->type == K_SETCHILD) {
+						has_dep = true;
 						bool attached = false;
 						if (rule->type == K_SETPARENT) {
 							attached = attachParentChild(*attach, *target, (rule->flags & RF_ALLOWLOOP) != 0, (rule->flags & RF_ALLOWCROSS) != 0);
@@ -2129,6 +2451,7 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 						return attached;
 					}
 					else if (rule->type == K_ADDRELATION || rule->type == K_SETRELATION || rule->type == K_REMRELATION) {
+						has_relations = true;
 						bool rel_did_anything = false;
 						auto theTags = ss_taglist.get();
 						getTagList(*rule->maplist, theTags);
@@ -2165,6 +2488,7 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 						return true;
 					}
 					else if (rule->type == K_ADDRELATIONS || rule->type == K_SETRELATIONS || rule->type == K_REMRELATIONS) {
+						has_relations = true;
 						bool rel_did_anything = false;
 
 						auto sublist = ss_taglist.get();
@@ -2285,6 +2609,7 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 							// We assume running the test again would result in the same, so don't bother.
 							break;
 						}
+						seen_targets->insert(attach->global_number);
 						// Did not successfully attach due to loop restrictions; look onwards from here
 						context_stack.back().target = context_stack.back().attach_to;
 						context_stack.back().unif_tags->swap(utags);
@@ -2300,6 +2625,45 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 				}
 				rule->dep_target->offset = orgoffset;
 				finish_reading_loop = false;
+			}
+			else if (rule->type == K_REMPARENT) {
+				// this is a per-cohort rule
+				finish_reading_loop = false;
+				TRACE;
+				get_apply_to().cohort->dep_parent = DEP_NO_PARENT;
+			}
+			else if (rule->type == K_SWITCHPARENT) {
+				// this is a per-cohort rule
+				finish_reading_loop = false;
+				TRACE;
+
+				// collect cohorts
+				Cohort* child = get_apply_to().cohort;
+				Cohort* parent = current.parent->cohort_map[child->dep_parent];
+				auto grandparent_number = parent->dep_parent;
+				CohortSet siblings;
+				for (auto iter : current.cohorts) {
+					if (iter->dep_parent == parent->global_number && doesSetMatchCohortNormal(*iter, rule->childset1)) {
+						siblings.insert(iter);
+					}
+				}
+
+				// clear dependencies
+				child->dep_parent = DEP_NO_PARENT;
+				parent->dep_parent = DEP_NO_PARENT;
+				for (auto s : siblings) {
+					s->dep_parent = DEP_NO_PARENT;
+				}
+
+				// reattach
+				auto it = current.parent->cohort_map.find(grandparent_number);
+				if (it != current.parent->cohort_map.end()) {
+					attachParentChild(*(it->second), *child);
+				}
+				attachParentChild(*child, *parent);
+				for (auto s : siblings) {
+					attachParentChild(*child, *s);
+				}
 			}
 			else if (rule->type == K_MOVE_AFTER || rule->type == K_MOVE_BEFORE || rule->type == K_SWITCH) {
 				// this is a per-cohort rule
@@ -2358,6 +2722,10 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 						current.cohorts[attach->local_number] = cohort;
 						cohorts.insert(attach);
 						cohorts.insert(cohort);
+						auto ac_c = std::find(current.all_cohorts.begin() + cohort->local_number, current.all_cohorts.end(), cohort);
+						auto ac_a = std::find(current.all_cohorts.begin() + attach->local_number, current.all_cohorts.end(), attach);
+						*ac_c = attach;
+						*ac_a = cohort;
 					}
 					else {
 						CohortSet edges;
@@ -2387,6 +2755,7 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 
 						for (auto c : reversed(cohorts)) {
 							current.cohorts.erase(current.cohorts.begin() + c->local_number);
+							current.all_cohorts.erase(std::find(current.all_cohorts.begin() + c->local_number, current.all_cohorts.end(), c));
 						}
 
 						foreach (iter, current.cohorts) {
@@ -2407,14 +2776,21 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 						}
 
 						uint32_t spot = 0;
+						auto ac_spot = current.all_cohorts.begin();
 						if (rule->type == K_MOVE_BEFORE) {
 							spot = edges.front()->local_number;
 							if (spot == 0) {
 								spot = 1;
 							}
+							ac_spot = std::find(current.all_cohorts.begin() + edges.front()->local_number, current.all_cohorts.end(), edges.front());
+							if ((*ac_spot)->local_number == 0) {
+								++ac_spot;
+							}
 						}
 						else if (rule->type == K_MOVE_AFTER) {
 							spot = edges.back()->local_number + 1;
+							ac_spot = std::find(current.all_cohorts.begin() + edges.front()->local_number, current.all_cohorts.end(), edges.back());
+							++ac_spot;
 						}
 
 						if (spot > current.cohorts.size()) {
@@ -2424,6 +2800,7 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 
 						for (auto c : reversed(cohorts)) {
 							current.cohorts.insert(current.cohorts.begin() + spot, c);
+							current.all_cohorts.insert(ac_spot, c);
 						}
 					}
 					reindex();
@@ -2499,6 +2876,8 @@ uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const 
 		}
 
 		if (rule_did_something) {
+			iter_rules = intersects.find(rule->number);
+			iter_rules_end = intersects.end();
 			if (trace_rules.contains(rule->line)) {
 				retval |= RV_TRACERULE;
 			}
@@ -2622,9 +3001,6 @@ void GrammarApplicator::runGrammarOnWindow() {
 			if (p != grammar->parentheses.end()) {
 				auto right = iter.base();
 				--right;
-				--right;
-				c = *right;
-				++right;
 				bool found = false;
 				CohortVector encs;
 				for (; right != current->cohorts.end(); ++right) {
@@ -2635,10 +3011,7 @@ void GrammarApplicator::runGrammarOnWindow() {
 						break;
 					}
 				}
-				if (!found) {
-					encs.clear();
-				}
-				else {
+				if (found) {
 					auto left = iter.base();
 					--left;
 					uint32_t lc = (*left)->local_number;
@@ -2650,13 +3023,13 @@ void GrammarApplicator::runGrammarOnWindow() {
 						++left;
 					}
 					current->cohorts.resize(current->cohorts.size() - encs.size());
-					for (auto eiter : encs) {
-						eiter->type |= CT_ENCLOSED;
-					}
-					for (auto eiter2 : c->enclosed) {
-						encs.push_back(eiter2);
-					}
-					c->enclosed = encs;
+					auto ec = std::find(current->all_cohorts.begin() + encs.front()->local_number, current->all_cohorts.end(), encs.front());
+					--ec;
+					do {
+						++ec;
+						(*ec)->type |= CT_ENCLOSED;
+						++((*ec)->enclosed);
+					} while (*ec != encs.back());
 					current->has_enclosures = true;
 					goto label_scanParentheses;
 				}
@@ -2701,9 +3074,7 @@ label_runGrammarOnWindow_begin:
 
 	if (trace_encl) {
 		uint32_t hitpass = std::numeric_limits<uint32_t>::max() - pass;
-		size_t nc = current->cohorts.size();
-		for (size_t i = 0; i < nc; ++i) {
-			Cohort* c = current->cohorts[i];
+		for (auto& c : current->cohorts) {
 			for (auto rit : c->readings) {
 				rit->hit_by.push_back(hitpass);
 			}
@@ -2716,28 +3087,51 @@ label_runGrammarOnWindow_begin:
 	}
 
 label_unpackEnclosures:
-	if (!grammar->parentheses.empty() && current->has_enclosures) {
-		size_t nc = current->cohorts.size();
+	if (current->has_enclosures) {
+		size_t nc = current->all_cohorts.size();
 		for (size_t i = 0; i < nc; ++i) {
-			Cohort* c = current->cohorts[i];
-			if (!c->enclosed.empty()) {
-				current->cohorts.resize(current->cohorts.size() + c->enclosed.size(), 0);
-				size_t ne = c->enclosed.size();
-				for (size_t j = nc - 1; j > i; --j) {
-					current->cohorts[j + ne] = current->cohorts[j];
-					current->cohorts[j + ne]->local_number = UI32(j + ne);
+			Cohort* c = current->all_cohorts[i];
+			if (c->enclosed == 1) {
+				size_t la = i;
+				for (; la > 0; --la) {
+					if (!(current->all_cohorts[la - 1]->type & (CT_ENCLOSED | CT_REMOVED | CT_IGNORED))) {
+						--la;
+						break;
+					}
 				}
-				for (size_t j = 0; j < ne; ++j) {
-					current->cohorts[i + j + 1] = c->enclosed[j];
-					current->cohorts[i + j + 1]->local_number = UI32(i + j + 1);
-					current->cohorts[i + j + 1]->parent = current;
-					current->cohorts[i + j + 1]->type &= ~CT_ENCLOSED;
+				size_t ni = current->all_cohorts[la]->local_number;
+
+				size_t ra = i;
+				size_t ne = 0;
+				for (; ra < nc; ++ra) {
+					if (!(current->all_cohorts[ra]->type & (CT_ENCLOSED | CT_REMOVED | CT_IGNORED))) {
+						break;
+					}
+					--(current->all_cohorts[ra]->enclosed);
+					if (current->all_cohorts[ra]->enclosed == 0) {
+						current->all_cohorts[ra]->type &= ~CT_ENCLOSED;
+						++ne;
+					}
 				}
-				par_left_tag = c->enclosed[0]->is_pleft;
-				par_right_tag = c->enclosed[ne - 1]->is_pright;
-				par_left_pos = UI32(i + 1);
-				par_right_pos = UI32(i + ne);
-				c->enclosed.clear();
+
+				current->cohorts.resize(current->cohorts.size() + ne, nullptr);
+				for (size_t j = current->cohorts.size() - 1; j > ni + ne; --j) {
+					current->cohorts[j] = current->cohorts[j - ne];
+					current->cohorts[j]->local_number = UI32(j);
+					current->cohorts[j - ne] = nullptr;
+				}
+				for (size_t j = 0; i < ra; ++i) {
+					if (current->all_cohorts[i]->enclosed == 0) {
+						current->cohorts[ni + j + 1] = current->all_cohorts[i];
+						current->cohorts[ni + j + 1]->local_number = UI32(ni + j + 1);
+						current->cohorts[ni + j + 1]->parent = current;
+						++j;
+					}
+				}
+				par_left_tag = current->all_cohorts[la + 1]->is_pleft;
+				par_right_tag = current->all_cohorts[ra - 1]->is_pright;
+				par_left_pos = UI32(ni + 1);
+				par_right_pos = UI32(ni + ne);
 				if (rv & RV_TRACERULE) {
 					goto label_unpackEnclosures;
 				}
@@ -2758,28 +3152,24 @@ label_unpackEnclosures:
 	}
 
 	bool should_reflow = false;
-	bool any_ignored_cohorts = true;
-	while (any_ignored_cohorts) {
-		any_ignored_cohorts = false;
-		for (size_t i = 0; i < current->cohorts.size(); ++i) {
-			Cohort* cc = current->cohorts[i];
-			cc->local_number = UI32(i); // Will also adjust newly restored cohorts
-			current->parent->cohort_map.insert(std::make_pair(cc->global_number, cc));
-
-			if (!cc->ignored_cohorts.empty()) {
-				for (auto& c : cc->ignored_cohorts) {
-					c->type &= ~CT_REMOVED;
+	for (size_t i = current->all_cohorts.size(); i > 0; --i) {
+		auto cohort = current->all_cohorts[i - 1];
+		if (cohort->type & CT_IGNORED) {
+			for (auto ins = i; ins > 0; --ins) {
+				if (!(current->all_cohorts[ins - 1]->type & (CT_REMOVED | CT_ENCLOSED | CT_IGNORED))) {
+					current->cohorts.insert(current->cohorts.begin() + current->all_cohorts[ins - 1]->local_number + 1, cohort);
+					cohort->type &= ~CT_IGNORED;
+					current->parent->cohort_map.insert(std::make_pair(cohort->global_number, cohort));
+					should_reflow = true;
+					break;
 				}
-				current->cohorts.insert(current->cohorts.begin() + i + 1, cc->ignored_cohorts.begin(), cc->ignored_cohorts.end());
-				any_ignored_cohorts = true;
-				cc->ignored_cohorts.clear();
 			}
-		}
-		if (any_ignored_cohorts) {
-			should_reflow = true;
 		}
 	}
 	if (should_reflow) {
+		for (size_t i = 0; i < current->cohorts.size(); ++i) {
+			current->cohorts[i]->local_number = UI32(i);
+		}
 		reflowDependencyWindow();
 	}
 }
