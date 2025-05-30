@@ -178,64 +178,64 @@ set_target_properties(cg3 PROPERTIES SOVERSION ${_cg3_VERSION_MAJOR})
 cg3_link(cg3)
 set(LINKLIB cg3)
 
-add_executable(cg-comp cg-comp.cpp)
-cg3_link(cg-comp)
-target_link_libraries(cg-comp ${LINKLIB})
+# add_executable(cg-comp cg-comp.cpp)
+# cg3_link(cg-comp)
+# target_link_libraries(cg-comp ${LINKLIB})
 
-add_executable(cg-proc cg-proc.cpp)
-cg3_link(cg-proc)
-target_link_libraries(cg-proc ${LINKLIB})
+# add_executable(cg-proc cg-proc.cpp)
+# cg3_link(cg-proc)
+# target_link_libraries(cg-proc ${LINKLIB})
 
-add_executable(cg-relabel cg-relabel.cpp)
-cg3_link(cg-relabel)
-target_link_libraries(cg-relabel ${LINKLIB})
+# add_executable(cg-relabel cg-relabel.cpp)
+# cg3_link(cg-relabel)
+# target_link_libraries(cg-relabel ${LINKLIB})
 
-add_executable(cg-conv
-	cg-conv.cpp
-	options_conv.hpp
-	)
-cg3_link(cg-conv)
-target_link_libraries(cg-conv ${LINKLIB})
+# add_executable(cg-conv
+# 	cg-conv.cpp
+# 	options_conv.hpp
+# 	)
+# cg3_link(cg-conv)
+# target_link_libraries(cg-conv ${LINKLIB})
 
-add_executable(cg-mwesplit cg-mwesplit.cpp)
-cg3_link(cg-mwesplit)
-target_link_libraries(cg-mwesplit ${LINKLIB})
+# add_executable(cg-mwesplit cg-mwesplit.cpp)
+# cg3_link(cg-mwesplit)
+# target_link_libraries(cg-mwesplit ${LINKLIB})
 
-add_executable(cg-annotate cg-annotate.cpp)
-cg3_link(cg-annotate)
-target_link_libraries(cg-annotate ${LINKLIB})
+# add_executable(cg-annotate cg-annotate.cpp)
+# cg3_link(cg-annotate)
+# target_link_libraries(cg-annotate ${LINKLIB})
 
-add_executable(cg-merge-annotations cg-merge-annotations.cpp)
-cg3_link(cg-merge-annotations)
-target_link_libraries(cg-merge-annotations ${LINKLIB})
+# add_executable(cg-merge-annotations cg-merge-annotations.cpp)
+# cg3_link(cg-merge-annotations)
+# target_link_libraries(cg-merge-annotations ${LINKLIB})
 
-add_executable(vislcg3
-	main.cpp
-	)
-cg3_link(vislcg3)
-target_link_libraries(vislcg3 ${LINKLIB})
+# add_executable(vislcg3
+# 	main.cpp
+# 	)
+# cg3_link(vislcg3)
+# target_link_libraries(vislcg3 ${LINKLIB})
 
-add_executable(test_libcg3 test_libcg3.c)
-target_link_libraries(test_libcg3 ${LINKLIB})
+# add_executable(test_libcg3 test_libcg3.c)
+# target_link_libraries(test_libcg3 ${LINKLIB})
 
-if(APPLE)
-	foreach(t cg-conv cg-comp cg-proc cg-relabel cg-mwesplit cg-annotate cg-merge-annotations vislcg3)
-		set("_file_${t}" $<TARGET_FILE:${t}>)
-		add_custom_command(
-			TARGET ${t}
-			POST_BUILD
-			COMMAND install_name_tool -change libcg3.0.dylib @rpath/libcg3.0.dylib ${_file_${t}}
-			COMMAND install_name_tool -add_rpath @executable_path/ ${_file_${t}}
-			COMMAND install_name_tool -add_rpath @executable_path/../${CMAKE_INSTALL_LIBDIR} ${_file_${t}}
-			COMMAND install_name_tool -add_rpath @loader_path/../${CMAKE_INSTALL_LIBDIR} ${_file_${t}}
-			COMMENT "Adding @rpath to ${t}"
-			VERBATIM
-		)
-	endforeach()
-endif()
+# if(APPLE)
+# 	foreach(t cg-conv cg-comp cg-proc cg-relabel cg-mwesplit cg-annotate cg-merge-annotations vislcg3)
+# 		set("_file_${t}" $<TARGET_FILE:${t}>)
+# 		add_custom_command(
+# 			TARGET ${t}
+# 			POST_BUILD
+# 			COMMAND install_name_tool -change libcg3.0.dylib @rpath/libcg3.0.dylib ${_file_${t}}
+# 			COMMAND install_name_tool -add_rpath @executable_path/ ${_file_${t}}
+# 			COMMAND install_name_tool -add_rpath @executable_path/../${CMAKE_INSTALL_LIBDIR} ${_file_${t}}
+# 			COMMAND install_name_tool -add_rpath @loader_path/../${CMAKE_INSTALL_LIBDIR} ${_file_${t}}
+# 			COMMENT "Adding @rpath to ${t}"
+# 			VERBATIM
+# 		)
+# 	endforeach()
+# endif()
 
-add_test(t_libcg3 test_libcg3 "${CMAKE_CURRENT_SOURCE_DIR}/../test/T_Select/grammar.cg3")
+# add_test(t_libcg3 test_libcg3 "${CMAKE_CURRENT_SOURCE_DIR}/../test/T_Select/grammar.cg3")
 
 install(TARGETS cg3 ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES cg3.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(TARGETS cg-comp cg-proc cg-relabel cg-mwesplit cg-conv cg-annotate cg-merge-annotations vislcg3 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+# install(TARGETS cg-comp cg-proc cg-relabel cg-mwesplit cg-conv cg-annotate cg-merge-annotations vislcg3 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

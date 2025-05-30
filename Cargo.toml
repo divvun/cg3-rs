@@ -6,10 +6,8 @@ edition = "2024"
 [lib]
 crate-type = ["rlib", "staticlib"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [build-dependencies]
-cmake = "0.1.50"
+cmake = "=0.1.48"
 cc = "1.0.79"
 pkg-config = "0.3.27"
 vcpkg = "0.2.15"
