@@ -193,6 +193,10 @@ pub enum Error {
         position: usize,
         expected: &'static str,
     },
+    #[error("Invalid line: {0}")]
+    InvalidLine(String),
+    #[error("Invalid reading: {0}")]
+    InvalidReading(String),
 }
 
 impl std::fmt::Display for Output<'_> {
@@ -305,7 +309,7 @@ impl<'a> Output<'a> {
                             }
 
                             let (Some(start), Some(end)) = (x.find("\"<"), x.find(">\"")) else {
-                                return Some(Err(todo!()));
+                                return Some(Err(Error::InvalidLine(x.to_string())));
                             };
 
                             let word_form = &x[start + 2..end];
@@ -319,23 +323,26 @@ impl<'a> Output<'a> {
                         }
                         Line::Reading(x) => {
                             let Some(cohort) = cohort.as_mut() else {
-                                break Some(Err(todo!()));
+                                break Some(Err(Error::InvalidReading(x.to_string())));
                             };
 
                             let Some(depth) = x.rfind('\t') else {
-                                break Some(Err(todo!()));
+                                break Some(Err(Error::InvalidReading(x.to_string())));
                             };
 
                             let x = &x[depth + 1..];
                             let mut chunks = x.split_ascii_whitespace();
 
-                            let base_form = match chunks.next().ok_or_else(|| todo!()) {
+                            let base_form = match chunks
+                                .next()
+                                .ok_or_else(|| Error::InvalidReading(x.to_string()))
+                            {
                                 Ok(v) => v,
                                 Err(e) => break Some(Err(e)),
                             };
 
                             if !(base_form.starts_with("\"") && base_form.ends_with("\"")) {
-                                todo!()
+                                break Some(Err(Error::InvalidReading(x.to_string())));
                             }
                             let base_form = &base_form[1..base_form.len() - 1];
 
