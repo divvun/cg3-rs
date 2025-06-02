@@ -56,6 +56,7 @@ impl Applicator {
     }
 
     pub fn run(&self, input: &str) -> Option<String> {
+        let _guard = CG3.lock().unwrap();
         let mut output_size = 0usize;
         let output = unsafe {
             cg3_applicator_run(
@@ -74,6 +75,7 @@ impl Applicator {
 
 impl Drop for Applicator {
     fn drop(&mut self) {
+        let _guard = CG3.lock().unwrap();
         unsafe { cg3_applicator_delete(self.applicator, self.grammar) };
     }
 }
@@ -92,6 +94,7 @@ impl MweSplit {
     }
 
     pub fn run(&self, input: &str) -> Option<String> {
+        let _guard = CG3.lock().unwrap();
         let mut output_size = 0usize;
         let output = unsafe {
             cg3_mwesplit_run(self.mwesplit, input.as_ptr(), input.len(), &mut output_size)
@@ -105,6 +108,7 @@ impl MweSplit {
 
 impl Drop for MweSplit {
     fn drop(&mut self) {
+        let _guard = CG3.lock().unwrap();
         unsafe { cg3_mwesplit_delete(self.mwesplit) };
     }
 }
