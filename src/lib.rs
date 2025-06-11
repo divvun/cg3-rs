@@ -393,62 +393,56 @@ impl std::fmt::Display for Block<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum TokenizeState {
+    None,
+    Token,
+    InString,
+    EndOfString,
+}
+
 fn tokenize_tags(input: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
-    let mut current_start = 0;
-    let mut i = 0;
-    let chars: Vec<char> = input.chars().collect();
+    let mut state = TokenizeState::None;
+    let mut cur = 0;
 
-    while i < chars.len() {
-        // Skip leading whitespace
-        while i < chars.len() && chars[i].is_whitespace() {
-            i += 1;
-        }
-
-        if i >= chars.len() {
-            break;
-        }
-
-        current_start = i;
-
-        if chars[i] == '"' {
-            // Start of quoted string - find the matching end quote
-            i += 1; // Skip opening quote
-
-            // Find the end of the quoted string by looking for a quote followed by whitespace or end of string
-            while i < chars.len() {
-                if chars[i] == '"' {
-                    // Check if this quote is followed by whitespace or end of string
-                    let next_i = i + 1;
-                    if next_i >= chars.len() || chars[next_i].is_whitespace() {
-                        // This is the closing quote
-                        i += 1; // Include the closing quote
-                        break;
-                    }
-                }
-                i += 1;
+    for (i, c) in input.char_indices() {
+        if c == '"' {
+            if matches!(state, TokenizeState::None) {
+                state = TokenizeState::InString;
+                cur = i;
+            } else if matches!(state, TokenizeState::InString) {
+                state = TokenizeState::EndOfString;
             }
+            continue;
+        }
 
-            // Add the entire quoted string as one token
-            let token_end = i;
-            tokens.push(&input[byte_offset(&chars, current_start)..byte_offset(&chars, token_end)]);
+        if matches!(state, TokenizeState::EndOfString) && c.is_whitespace() {
+            state = TokenizeState::None;
+            tokens.push(&input[cur..i]);
+            cur = i + 1;
+            continue;
+        }
+
+        if c.is_whitespace() {
+            if matches!(state, TokenizeState::None) {
+                cur = i + 1;
+            }
+            if matches!(state, TokenizeState::Token) {
+                tokens.push(&input[cur..i]);
+                cur = i + 1;
+                state = TokenizeState::None;
+            }
+            continue;
         } else {
-            // Regular token - read until whitespace
-            while i < chars.len() && !chars[i].is_whitespace() {
-                i += 1;
+            if matches!(state, TokenizeState::None) {
+                state = TokenizeState::Token;
+                continue;
             }
-
-            let token_end = i;
-            tokens.push(&input[byte_offset(&chars, current_start)..byte_offset(&chars, token_end)]);
         }
     }
 
     tokens
-}
-
-// Helper function to convert char index to byte offset
-fn byte_offset(chars: &[char], char_index: usize) -> usize {
-    chars.iter().take(char_index).map(|c| c.len_utf8()).sum()
 }
 
 #[cfg(test)]
