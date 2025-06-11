@@ -335,7 +335,7 @@ impl<'a> Output<'a> {
                             };
 
                             let x = &x[depth + 1..];
-                            let mut chunks = x.split_ascii_whitespace();
+                            let mut chunks = tokenize_tags(x).into_iter();
 
                             let base_form = match chunks
                                 .next()
@@ -393,6 +393,64 @@ impl std::fmt::Display for Block<'_> {
     }
 }
 
+fn tokenize_tags(input: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let mut current_start = 0;
+    let mut i = 0;
+    let chars: Vec<char> = input.chars().collect();
+
+    while i < chars.len() {
+        // Skip leading whitespace
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+
+        if i >= chars.len() {
+            break;
+        }
+
+        current_start = i;
+
+        if chars[i] == '"' {
+            // Start of quoted string - find the matching end quote
+            i += 1; // Skip opening quote
+
+            // Find the end of the quoted string by looking for a quote followed by whitespace or end of string
+            while i < chars.len() {
+                if chars[i] == '"' {
+                    // Check if this quote is followed by whitespace or end of string
+                    let next_i = i + 1;
+                    if next_i >= chars.len() || chars[next_i].is_whitespace() {
+                        // This is the closing quote
+                        i += 1; // Include the closing quote
+                        break;
+                    }
+                }
+                i += 1;
+            }
+
+            // Add the entire quoted string as one token
+            let token_end = i;
+            tokens.push(&input[byte_offset(&chars, current_start)..byte_offset(&chars, token_end)]);
+        } else {
+            // Regular token - read until whitespace
+            while i < chars.len() && !chars[i].is_whitespace() {
+                i += 1;
+            }
+
+            let token_end = i;
+            tokens.push(&input[byte_offset(&chars, current_start)..byte_offset(&chars, token_end)]);
+        }
+    }
+
+    tokens
+}
+
+// Helper function to convert char index to byte offset
+fn byte_offset(chars: &[char], char_index: usize) -> usize {
+    chars.iter().take(char_index).map(|c| c.len_utf8()).sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,6 +503,50 @@ mod tests {
         for sentence in output.sentences() {
             println!("{:?}", sentence);
         }
+    }
+
+    #[test]
+    fn test_tokenize_respecting_quotes() {
+        // Test case 1: NRK example
+        let input = r#""NRK" N Prop Sem/Org ACR Sg Nom <W:0.0> @HNOUN #1->0 "ænn ærr koo "phon"#;
+        let tokens = tokenize_tags(input);
+        let expected = vec![
+            r#""NRK""#,
+            "N",
+            "Prop",
+            "Sem/Org",
+            "ACR",
+            "Sg",
+            "Nom",
+            "<W:0.0>",
+            "@HNOUN",
+            "#1->0",
+            r#""ænn ærr koo "phon"#,
+        ];
+        assert_eq!(tokens, expected);
+
+        // Test case 2: New York example
+        let input = r#""New York" MWE OLang/UND N Prop Sem/Plc Sg Ill <W:0.0> @<ADVL"#;
+        let tokens = tokenize_tags(input);
+        let expected = vec![
+            r#""New York""#,
+            "MWE",
+            "OLang/UND",
+            "N",
+            "Prop",
+            "Sem/Plc",
+            "Sg",
+            "Ill",
+            "<W:0.0>",
+            "@<ADVL",
+        ];
+        assert_eq!(tokens, expected);
+
+        // Test case 3: Simple case without quotes
+        let input = "word N Sg Nom";
+        let tokens = tokenize_tags(input);
+        let expected = vec!["word", "N", "Sg", "Nom"];
+        assert_eq!(tokens, expected);
     }
 
     const TEST_TEXT: &str = "\"<Wikipedia>\"
@@ -502,21 +604,6 @@ mod tests {
 }
 
 const TEST_BADJEL: &str = r#""<sáddejuvvot>"
-	"sáddet" VV TVV Der/PassL <mv> <mv> V <TH-Acc-Any><SO-Loc-Any><DE-Ill-Any> <TH-Acc-Any><DE-Ill-*Ani> IV Ind Prs Sg2 <W:0> @+FMAINV #1->1
-: 
-"<báhpirat>"
-	"bábir" N Sem/Mat_Txt Pl Nom <W:0> @<SUBJ #2->2
-: 
-"<interneahta>"
-	"interneahtta" N Sem/Plc-abstr Sg Gen <W:0> @>P #3->4
-: 
-"<badjel>"
-	"badjel" Po <W:0> @<ADVL &lex-bokte-not-badjel #4->4
-	"bokte" Po <W:0> @<ADVL &SUGGEST #4->4
-"<.>"
-	"." CLB <W:0> #5->5
-:\n
-"<sáddejuvvot>"
 	"sáddet" VV TVV Der/PassL <mv> <mv> V <TH-Acc-Any><SO-Loc-Any><DE-Ill-Any> <TH-Acc-Any><DE-Ill-*Ani> IV Ind Prs Sg2 <W:0> @+FMAINV #1->1
 : 
 "<báhpirat>"
