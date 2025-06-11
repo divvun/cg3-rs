@@ -441,6 +441,10 @@ fn tokenize_tags(input: &str) -> Vec<&str> {
             }
         }
     }
+    
+    if !matches!(state, TokenizeState::None) {
+        tokens.push(&input[cur..]);
+    }
 
     tokens
 }
