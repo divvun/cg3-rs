@@ -550,13 +550,9 @@ Tag* Grammar::allocateTag(const UChar* txt) {
 	return addTag(tag);
 }
 
-Tag* Grammar::allocateTag(const UString& txt) {
-	return allocateTag(txt.data());
-}
-
 Tag* Grammar::addTag(Tag* tag) {
 	uint32_t hash = tag->rehash();
-	for (uint32_t seed = 0; seed < 10000; seed++) {
+	for (uint32_t seed = 0; seed < 10000; ++seed) {
 		uint32_t ih = hash + seed;
 		Taguint32HashMap::iterator it;
 		if ((it = single_tags.find(ih)) != single_tags.end()) {
@@ -668,10 +664,6 @@ void Grammar::addAnchor(const UChar* to, uint32_t at, bool primary) {
 	if (it == anchors.end()) {
 		anchors[ah] = at;
 	}
-}
-
-void Grammar::addAnchor(const UString& to, uint32_t at, bool primary) {
-	return addAnchor(to.data(), at, primary);
 }
 
 void Grammar::reindex(bool unused_sets, bool used_tags) {

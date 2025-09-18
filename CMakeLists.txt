@@ -62,28 +62,37 @@ else()
 	set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g3")
 	set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3")
 
-	# Enable latest possible C standard
-	foreach(flag "-std=c2x" "-std=c11" "-std=c1x" "-std=c99")
-		string(REGEX REPLACE "[^a-z0-9]" "" _flag ${flag})
-		CHECK_C_COMPILER_FLAG(${flag} COMPILER_SUPPORTS_${_flag})
-		if(COMPILER_SUPPORTS_${_flag})
-			set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${flag}")
-			break()
-		endif()
-	endforeach()
+	if(EMSCRIPTEN)
+		# For Emscripten, skip C/C++ flag detection and use CMake's standard setting
+		set(CMAKE_C_STANDARD 11)
+		set(CMAKE_C_STANDARD_REQUIRED ON)
+		set(CMAKE_CXX_STANDARD 17)
+		set(CMAKE_CXX_STANDARD_REQUIRED ON)
+		set(_ENABLED_CXX "-std=c++17")
+	else()
+		# Enable latest possible C standard
+		foreach(flag "-std=c2x" "-std=c11" "-std=c1x" "-std=c99")
+			string(REGEX REPLACE "[^a-z0-9]" "" _flag ${flag})
+			CHECK_C_COMPILER_FLAG(${flag} COMPILER_SUPPORTS_${_flag})
+			if(COMPILER_SUPPORTS_${_flag})
+				set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${flag}")
+				break()
+			endif()
+		endforeach()
 
-	# Require latest possible C++ standard
-	foreach(flag "-std=c++23" "-std=c++2b" "-std=c++20" "-std=c++2a" "-std=c++17")
-		string(REGEX REPLACE "[^a-z0-9]" "-" _flag ${flag})
-		CHECK_CXX_COMPILER_FLAG(${flag} COMPILER_SUPPORTS_${_flag})
-		if(COMPILER_SUPPORTS_${_flag})
-			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${flag}")
-			set(_ENABLED_CXX ${flag})
-			break()
+		# Require latest possible C++ standard
+		foreach(flag "-std=c++23" "-std=c++2b" "-std=c++20" "-std=c++2a" "-std=c++17")
+			string(REGEX REPLACE "[^a-z0-9]" "-" _flag ${flag})
+			CHECK_CXX_COMPILER_FLAG(${flag} COMPILER_SUPPORTS_${_flag})
+			if(COMPILER_SUPPORTS_${_flag})
+				set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${flag}")
+				set(_ENABLED_CXX ${flag})
+				break()
+			endif()
+		endforeach()
+		if(NOT _ENABLED_CXX)
+			message(FATAL_ERROR "Could not enable at least C++17 - upgrade your compiler")
 		endif()
-	endforeach()
-	if(NOT _ENABLED_CXX)
-		message(FATAL_ERROR "Could not enable at least C++17 - upgrade your compiler")
 	endif()
 
 	# Generate pkg-config file
@@ -132,12 +141,15 @@ else()
 endif()
 if(EMSCRIPTEN)
 	include_directories("include/wordexp")
-	set(CMAKE_EXECUTABLE_SUFFIX ".html")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g3 -gsource-map")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g3 -gsource-map")
+	set(CMAKE_EXECUTABLE_SUFFIX ".js")
+	# Only add debug info for Debug builds
+	if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g3 -gsource-map")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g3 -gsource-map")
+	endif()
 endif()
 
-add_definitions(-DUNISTR_FROM_CHAR_EXPLICIT=explicit -DUNISTR_FROM_STRING_EXPLICIT=explicit)
+add_definitions(-DUNISTR_FROM_CHAR_EXPLICIT=explicit -DUNISTR_FROM_STRING_EXPLICIT=explicit -DU_CHARSET_IS_UTF8=1)
 include_directories("include")
 include_directories("src")
 
@@ -145,7 +157,7 @@ enable_testing()
 
 add_subdirectory(src)
 
-if(ENABLE_PYTHON_BINDINGS)
+if(ENABLE_PYTHON_BINDINGS AND NOT EMSCRIPTEN)
 	add_subdirectory(python)
 endif()
 
@@ -153,6 +165,7 @@ configure_file(scripts/cg3-autobin.pl.in scripts/cg3-autobin.pl @ONLY)
 install(PROGRAMS
 	"${CMAKE_CURRENT_BINARY_DIR}/scripts/cg3-autobin.pl"
 	"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-sort"
+	"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-stabilize-relations"
 	"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-strictify"
 	"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-untrace"
 	DESTINATION ${CMAKE_INSTALL_BINDIR})

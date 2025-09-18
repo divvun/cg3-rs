@@ -48,6 +48,7 @@ public:
 	[[noreturn]] void error(const char* str);
 	[[noreturn]] void error(const char* str, UChar c);
 	[[noreturn]] void error(const char* str, const UChar* p);
+	[[noreturn]] void error(const char* str, const UChar* p, UChar c);
 	[[noreturn]] void error(const char* str, const UChar* p, const UString& msg);
 	[[noreturn]] void error(const char* str, UChar c, const UChar* p);
 	[[noreturn]] void error(const char* str, const char* s, const UChar* p);
@@ -87,7 +88,9 @@ private:
 	void addRuleToGrammar(Rule* rule);
 
 	Tag* parseTag(const UChar* to, const UChar* p = nullptr);
-	Tag* parseTag(const UString& to, const UChar* p = nullptr);
+	Tag* parseTag(const UString& to, const UChar* p = nullptr) {
+		return parseTag(to.data(), p);
+	}
 	Tag* parseTag(const UStringView& to, const UChar* p = nullptr) {
 		return parseTag(to.data(), p);
 	}

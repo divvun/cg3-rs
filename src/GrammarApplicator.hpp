@@ -31,6 +31,7 @@
 #include "interval_vector.hpp"
 #include "flat_unordered_set.hpp"
 #include "scoped_stack.hpp"
+#include "cg3.h"
 #include <deque>
 
 class Process;
@@ -126,6 +127,9 @@ public:
 	bool add_spacing = true;
 	bool print_ids = false;
 
+	cg3_sformat fmt_input = CG3SF_CG;
+	cg3_sformat fmt_output = CG3SF_CG;
+
 	bool dep_has_spanned = false;
 	uint32_t dep_delimit = 0;
 	bool dep_absolute = false;
@@ -199,6 +203,8 @@ protected:
 	void printReading(const Reading* reading, std::ostream& output, size_t sub = 1);
 	virtual void printCohort(Cohort* cohort, std::ostream& output, bool profiling = false);
 	virtual void printSingleWindow(SingleWindow* window, std::ostream& output, bool profiling = false);
+	virtual void printStreamCommand(UStringView cmd, std::ostream& output);
+	virtual void printPlainTextLine(UStringView line, std::ostream& output);
 
 	void pipeOutReading(const Reading* reading, std::ostream& output);
 	void pipeOutCohort(const Cohort* cohort, std::ostream& output);
@@ -346,6 +352,7 @@ protected:
 	bool unmapReading(Reading& reading, const uint32_t rule);
 	TagList getTagList(const Set& theSet, bool unif_mode = false) const;
 	void getTagList(const Set& theSet, TagList& theTags, bool unif_mode = false) const;
+	void getTagsMatching(const Reading& reading, TagList& theTags, TagList& rvTags);
 	void mergeReadings(ReadingList& readings);
 	void mergeMappings(Cohort& cohort);
 	bool isChildOf(const Cohort* child, const Cohort* parent);

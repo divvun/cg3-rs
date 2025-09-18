@@ -23,6 +23,7 @@
 #include "BinaryGrammar.hpp"
 #include "GrammarApplicator.hpp"
 #include "MweSplitApplicator.hpp"
+#include "FormatConverter.hpp"
 #include "Window.hpp"
 #include "SingleWindow.hpp"
 #include "version.hpp"
@@ -35,9 +36,20 @@ namespace {
 std::unique_ptr<std::istream> ux_stdin;
 std::unique_ptr<std::ostream> ux_stdout;
 std::unique_ptr<std::ostream> ux_stderr;
+
+bool did_init = false;
+bool did_cleanup = false;
 }
 
 cg3_status cg3_init(FILE* in, FILE* out, FILE* err) {
+	if (did_cleanup) {
+		fprintf(err, "CG3 Error: Cannot init after cleanup!\n");
+		return CG3_ERROR;
+	}
+	if (did_init) {
+		return CG3_SUCCESS;
+	}
+
 	UErrorCode status = U_ZERO_ERROR;
 	u_init(&status);
 	if (U_FAILURE(status) && status != U_FILE_ACCESS_ERROR) {
@@ -73,16 +85,26 @@ cg3_status cg3_init(FILE* in, FILE* out, FILE* err) {
 		return CG3_ERROR;
 	}
 
+	did_init = true;
 	return CG3_SUCCESS;
 }
 
 cg3_status cg3_cleanup(void) {
+	if (!did_init) {
+		u_fprintf(ux_stderr, "CG3 Error: Must init before cleanup!\n");
+		return CG3_ERROR;
+	}
+	if (did_cleanup) {
+		return CG3_SUCCESS;
+	}
+
 	ux_stdin.reset();
 	ux_stdout.reset();
 	ux_stderr.reset();
 
 	u_cleanup();
 
+	did_cleanup = true;
 	return CG3_SUCCESS;
 }
 
@@ -121,6 +143,9 @@ cg3_grammar* cg3_grammar_load(const char* filename) {
 }
 
 cg3_grammar* cg3_grammar_load_buffer(const char* buffer, size_t length) {
+	if (length == 0) {
+		length = strlen(buffer);
+	}
 	if (length < 4) {
 		u_fprintf(ux_stderr, "CG3 Error: Error reading first 4 bytes from grammar!\n");
 		return 0;
@@ -151,6 +176,47 @@ cg3_grammar* cg3_grammar_load_buffer(const char* buffer, size_t length) {
 void cg3_grammar_free(cg3_grammar* grammar_) {
 	auto grammar = static_cast<Grammar*>(grammar_);
 	delete grammar;
+}
+
+cg3_sformat cg3_detect_sformat(const char* filename) {
+	std::ifstream input(filename, std::ios::binary);
+	if (!input) {
+		u_fprintf(ux_stderr, "CG3 Error: Error opening %s for reading!\n", filename);
+		return CG3SF_INVALID;
+	}
+
+	std::string buf8 = read_utf8(input);
+
+	return detectFormat(buf8);
+}
+
+cg3_sformat cg3_detect_sformat_buffer(const char* buffer, size_t length) {
+	if (length == 0) {
+		length = strlen(buffer);
+	}
+	return detectFormat(std::string_view(buffer, length));
+}
+
+cg3_sconverter* cg3_sconverter_create(cg3_sformat fmt_in, cg3_sformat fmt_out) {
+	FormatConverter* applicator = new FormatConverter(*ux_stderr);
+	applicator->is_conv = true;
+	applicator->trace = true;
+	applicator->verbosity_level = 0;
+	applicator->fmt_input = fmt_in;
+	applicator->fmt_output = fmt_out;
+	return applicator;
+}
+
+void cg3_sconverter_free(cg3_sconverter* converter_) {
+	FormatConverter* fc_applicator = static_cast<FormatConverter*>(converter_);
+	delete fc_applicator; // Delete as the concrete type FormatConverter
+}
+
+void cg3_sconverter_run_fns(cg3_sconverter* converter_, const char* input, const char* output) {
+	FormatConverter* applicator = static_cast<FormatConverter*>(converter_);
+	std::ifstream is(input, std::ios::binary);
+	std::ofstream os(output, std::ios::binary);
+	applicator->runGrammarOnText(is, os);
 }
 
 cg3_applicator* cg3_applicator_create(cg3_grammar* grammar_) {
