@@ -39,6 +39,42 @@
 
 namespace CG3 {
 
+bool is_mapping_list(Grammar* result, Set* s) {
+	bool is_list = true;
+	if (!(s->trie.empty() && s->trie_special.empty() && !(s->type & (ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY)))) {
+		auto tries = { &s->trie, &s->trie_special };
+		for (auto& trie : tries) {
+			if (trie->empty()) {
+				continue;
+			}
+			// ToDo: Optimize to iterate over the tags directly instead of making a copy
+			auto ctags = trie_getTags(*trie);
+			for (auto& it : ctags) {
+				for (auto& tag : it) {
+					if (tag->type & (T_FAILFAST | T_REGEXP_LINE)) {
+						return false;
+					}
+				}
+			}
+		}
+		return is_list;
+	}
+	for (auto op : s->set_ops) {
+		if (op != S_OR) {
+			is_list = false;
+			break;
+		}
+	}
+	for (auto i : s->sets) {
+		auto set = result->getSet(i);
+		if (!is_mapping_list(result, set)) {
+			is_list = false;
+			break;
+		}
+	}
+	return is_list;
+};
+
 TextualParser::TextualParser(Grammar& res, std::ostream& ux_err, bool _dump_ast)
   : IGrammarParser(res, ux_err)
 {
@@ -93,6 +129,12 @@ void TextualParser::error(const char* str, UChar c) {
 void TextualParser::error(const char* str, const UChar* p) {
 	ux_bufcpy(nearbuf, p, 20);
 	u_fprintf(ux_stderr, str, filebase, result->lines, nearbuf);
+	incErrorCount();
+}
+
+void TextualParser::error(const char* str, const UChar* p, UChar c) {
+	ux_bufcpy(nearbuf, p, 20);
+	u_fprintf(ux_stderr, str, filebase, result->lines, nearbuf, c);
 	incErrorCount();
 }
 
@@ -172,10 +214,6 @@ Tag* TextualParser::parseTag(const UChar* to, const UChar* p) {
 		}
 	}
 	return tag;
-}
-
-Tag* TextualParser::parseTag(const UString& to, const UChar* p) {
-	return parseTag(to.data(), p);
 }
 
 Tag* TextualParser::addTag(Tag* tag) {
@@ -741,7 +779,7 @@ void TextualParser::parseContextualTestPosition(UChar*& p, ContextualTest& t) {
 	}
 
 	if (tries >= 100) {
-		error("%s: Error: Invalid position on line %u near `%S` - caused endless loop!\n", n);
+		error("%s: Error: Invalid position on line %u near `%S` - unknown specifier %C\n", n, *p);
 	}
 	else if (tries >= 20) {
 		ux_bufcpy(nearbuf, n, 20);
@@ -1268,42 +1306,6 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 		rule->childset1 = 0;
 	}
 
-	auto is_mapping_list = [&](Set *s) {
-		bool is_list = true;
-		if (!(s->trie.empty() && s->trie_special.empty() && !(s->type & (ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY)))) {
-			auto tries = { &s->trie, &s->trie_special };
-			for (auto& trie : tries) {
-				if (trie->empty()) {
-					continue;
-				}
-				// ToDo: Optimize to iterate over the tags directly instead of making a copy
-				auto ctags = trie_getTags(*trie);
-				for (auto& it : ctags) {
-					for (auto& tag : it) {
-						if (tag->type & (T_FAILFAST | T_REGEXP_LINE)) {
-							return false;
-						}
-					}
-				}
-			}
-			return is_list;
-		}
-		for (auto op : s->set_ops) {
-			if (op != S_OR) {
-				is_list = false;
-				break;
-			}
-		}
-		for (auto i : s->sets) {
-			auto set = result->getSet(i);
-			if (set->trie.empty() && set->trie_special.empty() && !(set->type & (ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY))) {
-				is_list = false;
-				break;
-			}
-		}
-		return is_list;
-	};
-
 	lp = p;
 	if (key == K_SUBSTITUTE || key == K_EXECUTE) {
 		AST_OPEN(RuleSublist);
@@ -1314,7 +1316,7 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 		if (s->empty()) {
 			error("%s: Error: Empty substitute set on line %u near `%S`!\n", lp);
 		}
-		if (!is_mapping_list(s)) {
+		if (!is_mapping_list(result, s)) {
 			error("%s: Error: Substitute set on line %u near `%S` was neither unified nor of LIST type!\n", lp);
 		}
 		AST_CLOSE(p);
@@ -1335,14 +1337,14 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 		if (s->empty()) {
 			error("%s: Error: Empty mapping set on line %u near `%S`!\n", lp);
 		}
-		if (!is_mapping_list(s)) {
+		if (!is_mapping_list(result, s)) {
 			error("%s: Error: Mapping set on line %u near `%S` was neither unified nor of LIST type!\n", lp);
 		}
 		AST_CLOSE(p);
 	}
 
 	bool copy_except = false;
-	if ((key == K_COPY || key == K_COPYCOHORT) && ux_simplecasecmp(p, STR_EXCEPT)) {
+	if ((key == K_COPY || key == K_COPYCOHORT || key == K_REPLACE) && ux_simplecasecmp(p, STR_EXCEPT)) {
 		AST_OPEN(RuleExcept);
 		p += STR_EXCEPT.size();
 		copy_except = true;
@@ -1355,12 +1357,13 @@ void TextualParser::parseRule(UChar*& p, KEYWORDS key) {
 		AST_OPEN(RuleSublist);
 		swapper_false swp(no_isets, no_isets);
 		Set* s = parseSetInlineWrapper(p);
+		//s = result->flattenSet(s);
 		s->reindex(*result);
 		rule->sublist = s;
 		if (s->empty()) {
 			error("%s: Error: Empty relation set on line %u near `%S`!\n", lp);
 		}
-		if (!is_mapping_list(s)) {
+		if (!is_mapping_list(result, s)) {
 			error("%s: Error: Relation/Value set on line %u near `%S` was neither unified nor of LIST type!\n", lp);
 		}
 		AST_CLOSE(p);
@@ -1882,7 +1885,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				++p;
 				parseTagList(p, result->delimiters);
 				result->addSet(result->delimiters);
-				if (result->delimiters->trie.empty() && result->delimiters->trie_special.empty()) {
+				if (result->delimiters->empty()) {
 					error("%s: Error: DELIMITERS declared, but no definitions given, on line %u near `%S`!\n", p);
 				}
 				result->lines += SKIPWS(p, ';');
@@ -1908,7 +1911,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				++p;
 				parseTagList(p, result->soft_delimiters);
 				result->addSet(result->soft_delimiters);
-				if (result->soft_delimiters->trie.empty() && result->soft_delimiters->trie_special.empty()) {
+				if (result->soft_delimiters->empty()) {
 					error("%s: Error: SOFT-DELIMITERS declared, but no definitions given, on line %u near `%S`!\n", p);
 				}
 				result->lines += SKIPWS(p, ';');
@@ -1934,7 +1937,7 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				++p;
 				parseTagList(p, result->text_delimiters);
 				result->addSet(result->text_delimiters);
-				if (result->text_delimiters->trie.empty() && result->text_delimiters->trie_special.empty()) {
+				if (result->text_delimiters->empty()) {
 					error("%s: Error: TEXT-DELIMITERS declared, but no definitions given, on line %u near `%S`!\n", p);
 				}
 
@@ -2256,7 +2259,12 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 					Set* tmp = result->getSet(s->hash);
 					if (tmp) {
 						if (verbosity_level > 0 && !is_internal(tmp->name)) {
-							u_fprintf(ux_stderr, "%s: Warning: LIST %S was defined twice with the same contents: Lines %u and %u.\n", filebase, s->name.data(), tmp->line, s->line);
+							if (s->name == tmp->name) {
+								u_fprintf(ux_stderr, "%s: Warning: Multiple definitions of identical LIST %S: Lines %u and %u.\n", filebase, s->name.data(), tmp->line, s->line);
+							}
+							else {
+								u_fprintf(ux_stderr, "%s: Warning: LIST %S was defined twice with the same contents: Lines %u and %u.\n", filebase, s->name.data(), tmp->line, s->line);
+							}
 							u_fflush(ux_stderr);
 						}
 					}
@@ -2304,7 +2312,12 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 				Set* tmp = result->getSet(s->hash);
 				if (tmp) {
 					if (verbosity_level > 0 && !is_internal(tmp->name)) {
-						u_fprintf(ux_stderr, "%s: Warning: SET %S was defined twice with the same contents: Lines %u and %u.\n", filebase, s->name.data(), tmp->line, s->line);
+						if (s->name == tmp->name) {
+							u_fprintf(ux_stderr, "%s: Warning: Multiple definitions of identical SET %S: Lines %u and %u.\n", filebase, s->name.data(), tmp->line, s->line);
+						}
+						else {
+							u_fprintf(ux_stderr, "%s: Warning: SET %S was defined twice with the same contents: Lines %u and %u.\n", filebase, s->name.data(), tmp->line, s->line);
+						}
 						u_fflush(ux_stderr);
 					}
 				}
@@ -2665,25 +2678,32 @@ void TextualParser::parseFromUChar(UChar* input, const char* fname) {
 					grammar_size = static_cast<size_t>(_stat.st_size);
 				}
 
-				UFILE* grammar = u_fopen(abspath.data(), "rb", nullptr, nullptr);
-				if (!grammar) {
-					u_fprintf(ux_stderr, "%s: Error: Error opening %s for reading!\n", filebase, abspath.data());
-					CG3Quit(1);
-				}
-				UChar32 bom = u_fgetcx(grammar);
-				if (bom != 0xfeff && bom != static_cast<UChar32>(0xffffffff)) {
-					u_fungetc(bom, grammar);
+				std::string buf;
+				buf.resize(grammar_size);
+				{
+					std::ifstream grammar(abspath.data(), std::ios::binary);
+					if (!grammar) {
+						u_fprintf(ux_stderr, "%s: Error: Error opening %s for reading!\n", filebase, abspath.data());
+						CG3Quit(1);
+					}
+					if (!grammar.read(&buf[0], grammar_size)) {
+						u_fprintf(ux_stderr, "%s: Error: Error reading %s!\n", filebase, abspath.data());
+						CG3Quit(1);
+					}
+					if (buf[0] == '\xEF' && buf[1] == '\xBB' && buf[2] == '\xBF') {
+						buf.erase(0, 3);
+					}
 				}
 
 				grammarbufs.emplace_back(new UString(grammar_size * 2, 0));
 				auto& data = *grammarbufs.back().get();
-				uint32_t read = u_file_read(&data[4], SI32(grammar_size * 2), grammar);
-				u_fclose(grammar);
-				if (read >= grammar_size * 2 - 1) {
+				int32_t size = 0;
+				u_strFromUTF8(&data[4], SI32(grammar_size * 2), &size, buf.data(), SI32(buf.size()), &err);
+				if (size >= SI32(grammar_size * 2 - 1)) {
 					u_fprintf(ux_stderr, "%s: Error: Converting from underlying codepage to UTF-16 exceeded factor 2 buffer.\n", filebase);
 					CG3Quit(1);
 				}
-				data.resize(read + 4 + 1);
+				data.resize(size + 4 + 1);
 
 				uint32_t olines = 0;
 				swapper oswap(true, olines, result->lines);
@@ -2864,26 +2884,34 @@ int TextualParser::parse_grammar(const char* fname) {
 		result->grammar_size = static_cast<size_t>(_stat.st_size);
 	}
 
-	UFILE* grammar = u_fopen(filename, "rb", nullptr, nullptr);
-	if (!grammar) {
-		u_fprintf(ux_stderr, "%s: Error: Error opening %s for reading!\n", filebase, filename);
-		CG3Quit(1);
-	}
-	UChar32 bom = u_fgetcx(grammar);
-	if (bom != 0xfeff && bom != static_cast<UChar32>(0xffffffff)) {
-		u_fungetc(bom, grammar);
+	std::string buf;
+	buf.resize(result->grammar_size);
+	{
+		std::ifstream grammar(filename, std::ios::binary);
+		if (!grammar) {
+			u_fprintf(ux_stderr, "%s: Error: Error opening %s for reading!\n", filebase, filename);
+			CG3Quit(1);
+		}
+		if (!grammar.read(&buf[0], result->grammar_size)) {
+			u_fprintf(ux_stderr, "%s: Error: Error reading %s!\n", filebase, filename);
+			CG3Quit(1);
+		}
+		if (buf[0] == '\xEF' && buf[1] == '\xBB' && buf[2] == '\xBF') {
+			buf.erase(0, 3);
+		}
 	}
 
 	// It reads into the buffer at offset 4 because certain functions may look back, so we need some nulls in front.
 	grammarbufs.emplace_back(new UString(result->grammar_size * 2, 0));
 	auto& data = *grammarbufs.back().get();
-	uint32_t read = u_file_read(&data[4], SI32(result->grammar_size * 2), grammar);
-	u_fclose(grammar);
-	if (read >= result->grammar_size * 2 - 1) {
+	int32_t size = 0;
+	UErrorCode err = U_ZERO_ERROR;
+	u_strFromUTF8(&data[4], SI32(result->grammar_size * 2), &size, buf.data(), SI32(buf.size()), &err);
+	if (size >= SI32(result->grammar_size * 2 - 1)) {
 		u_fprintf(ux_stderr, "%s: Error: Converting from underlying codepage to UTF-16 exceeded factor 2 buffer.\n", filebase);
 		CG3Quit(1);
 	}
-	data.resize(read + 4 + 1);
+	data.resize(size + 4 + 1);
 
 	return parse_grammar(data);
 }
@@ -2896,12 +2924,11 @@ int TextualParser::parse_grammar(const char* buffer, size_t length) {
 	grammarbufs.emplace_back(new UString(length * 2, 0));
 	auto& data = *grammarbufs.back().get();
 
+	int32_t size = 0;
 	UErrorCode err = U_ZERO_ERROR;
-	UConverter* conv = ucnv_open("UTF-8", &err);
-	auto tmp = ucnv_toUChars(conv, &data[4], SI32(length * 2), buffer, SI32(length), &err);
-
-	if (static_cast<size_t>(tmp) >= length * 2 - 1) {
-		u_fprintf(ux_stderr, "%s: Error: Converting from underlying codepage to UTF-16 exceeded factor 2 buffer!\n", filebase);
+	u_strFromUTF8(&data[4], SI32(result->grammar_size * 2), &size, buffer, SI32(length), &err);
+	if (size >= SI32(result->grammar_size * 2 - 1)) {
+		u_fprintf(ux_stderr, "%s: Error: Converting from underlying codepage to UTF-16 exceeded factor 2 buffer.\n", filebase);
 		CG3Quit(1);
 	}
 
@@ -3016,7 +3043,7 @@ int TextualParser::parse_grammar(UString& data) {
 	// Create context sets for nested rules
 	{
 		constexpr UStringView grp[] = { STR_UU_C1, STR_UU_C2, STR_UU_C3, STR_UU_C4, STR_UU_C5, STR_UU_C6, STR_UU_C7, STR_UU_C8, STR_UU_C9 };
-		for (size_t i = 0; i < 9; i++) {
+		for (size_t i = 0; i < 9; ++i) {
 			Set* set_c = result->allocateSet();
 			set_c->line = 0;
 			set_c->setName(grp[i]);

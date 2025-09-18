@@ -36,6 +36,7 @@ extern "C" {
 typedef void cg3_grammar;
 typedef void cg3_applicator;
 typedef cg3_applicator cg3_mwesplitapplicator;
+typedef cg3_applicator cg3_sconverter;
 typedef void cg3_sentence;
 typedef void cg3_cohort;
 typedef void cg3_reading;
@@ -69,14 +70,35 @@ typedef enum {
 	CG3O_SECTIONS_TEXT = 2,
 } cg3_option;
 
+// Stream formats
+typedef enum {
+	CG3SF_INVALID,
+	CG3SF_CG,
+	CG3SF_NICELINE,
+	CG3SF_APERTIUM,
+	CG3SF_MATXIN,
+	CG3SF_FST,
+	CG3SF_PLAIN,
+	CG3SF_JSONL,
+	CG3SF_BINARY,
+} cg3_sformat;
+
 // Default usage: if (!cg3_init(stdin, stdout, stderr)) { exit(1); }
 cg3_status cg3_init(FILE* in, FILE* out, FILE* err);
 // Default usage: cg3_cleanup();
 cg3_status cg3_cleanup(void);
 
 cg3_grammar* cg3_grammar_load(const char* filename);
+// Length may be 0, in which case length is determined via strlen(buffer)
 cg3_grammar* cg3_grammar_load_buffer(const char* buffer, size_t length);
 void cg3_grammar_free(cg3_grammar* grammar);
+
+cg3_sformat cg3_detect_sformat(const char* filename);
+// Length may be 0, in which case length is determined via strlen(buffer)
+cg3_sformat cg3_detect_sformat_buffer(const char* buffer, size_t length);
+cg3_sconverter* cg3_sconverter_create(cg3_sformat fmt_in, cg3_sformat fmt_out);
+void cg3_sconverter_free(cg3_sconverter* converter_);
+void cg3_sconverter_run_fns(cg3_sconverter* converter_, const char* input, const char* output);
 
 cg3_applicator* cg3_applicator_create(cg3_grammar* grammar);
 // Pass in OR'ed values from cg3_flags; each call resets flags, so set all needed ones in a single call.

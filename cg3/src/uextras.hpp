@@ -87,6 +87,8 @@ UChar* u_fgets(UChar* s, int32_t n, std::istream& input);
 
 UChar u_fgetc(std::istream& input);
 
+std::string read_utf8(std::istream& in, size_t len = 1000);
+
 // ICU std::ostream output wrappers
 void u_fflush(std::ostream& output);
 void u_fflush(std::ostream* output);
@@ -148,7 +150,7 @@ inline int ux_isSetOp(const UChar* it) {
 inline bool ux_isEmpty(const UChar* text) {
 	size_t length = u_strlen(text);
 	if (length > 0) {
-		for (size_t i = 0; i < length; i++) {
+		for (size_t i = 0; i < length; ++i) {
 			if (!ISSPACE(text[i])) {
 				return false;
 			}
