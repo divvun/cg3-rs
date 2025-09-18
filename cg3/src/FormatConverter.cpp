@@ -103,7 +103,7 @@ FormatConverter::FormatConverter(std::ostream& ux_err)
   , ApertiumApplicator(ux_err)
   , BinaryApplicator(ux_err)
   , FSTApplicator(ux_err)
-  , JsonlApplicator(ux_err)
+//   , JsonlApplicator(ux_err)
   , MatxinApplicator(ux_err)
   , NicelineApplicator(ux_err)
   , PlaintextApplicator(ux_err)
@@ -158,7 +158,7 @@ void FormatConverter::runGrammarOnText(std::istream& input, std::ostream& output
 		break;
 	}
 	case CG3SF_JSONL: {
-		JsonlApplicator::runGrammarOnText(input, output);
+		// JsonlApplicator::runGrammarOnText(input, output);
 		break;
 	}
 	case CG3SF_BINARY: {
@@ -193,7 +193,7 @@ void FormatConverter::printCohort(Cohort* cohort, std::ostream& output, bool pro
 		break;
 	}
 	case CG3SF_JSONL: {
-		JsonlApplicator::printCohort(cohort, output, profiling);
+		// JsonlApplicator::printCohort(cohort, output, profiling);
 		break;
 	}
 	case CG3SF_BINARY:
@@ -226,7 +226,7 @@ void FormatConverter::printSingleWindow(SingleWindow* window, std::ostream& outp
 		break;
 	}
 	case CG3SF_JSONL: {
-		JsonlApplicator::printSingleWindow(window, output, profiling);
+		// JsonlApplicator::printSingleWindow(window, output, profiling);
 		break;
 	}
 	case CG3SF_BINARY: {
@@ -241,7 +241,7 @@ void FormatConverter::printSingleWindow(SingleWindow* window, std::ostream& outp
 void FormatConverter::printStreamCommand(UStringView cmd, std::ostream& output) {
 	switch (fmt_output) {
 	case CG3SF_JSONL: {
-		JsonlApplicator::printStreamCommand(cmd, output);
+		// JsonlApplicator::printStreamCommand(cmd, output);
 		break;
 	}
 	case CG3SF_BINARY: {
@@ -263,7 +263,7 @@ void FormatConverter::printStreamCommand(UStringView cmd, std::ostream& output) 
 void FormatConverter::printPlainTextLine(UStringView line, std::ostream& output) {
 	switch (fmt_output) {
 	case CG3SF_JSONL: {
-		JsonlApplicator::printPlainTextLine(line, output);
+		// JsonlApplicator::printPlainTextLine(line, output);
 		break;
 	}
 	case CG3SF_BINARY: {

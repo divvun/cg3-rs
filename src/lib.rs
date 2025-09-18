@@ -601,6 +601,7 @@ mod tests {
 ";
 }
 
+#[allow(dead_code)]
 const TEST_BADJEL: &str = r#""<sáddejuvvot>"
 	"sáddet" VV TVV Der/PassL <mv> <mv> V <TH-Acc-Any><SO-Loc-Any><DE-Ill-Any> <TH-Acc-Any><DE-Ill-*Ani> IV Ind Prs Sg2 <W:0> @+FMAINV #1->1
 : 
