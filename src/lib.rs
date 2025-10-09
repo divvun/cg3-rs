@@ -20,6 +20,10 @@ unsafe extern "C" {
         input_size: usize,
         output_size: *mut usize,
     ) -> *const u8;
+    fn cg3_applicator_set_trace(
+        applicator: *mut c_void,
+        trace: bool,
+    );
     fn cg3_free(ptr: *const c_void);
     fn cg3_mwesplit_new() -> *mut c_void;
     fn cg3_mwesplit_delete(mwesplit: *mut c_void);
@@ -53,6 +57,11 @@ impl Applicator {
             applicator,
             grammar,
         }
+    }
+
+    pub fn set_trace(&self, trace: bool) {
+        let _guard = CG3.lock().unwrap();
+        unsafe { cg3_applicator_set_trace(self.applicator, trace) };
     }
 
     pub fn run(&self, input: &str) -> Option<String> {

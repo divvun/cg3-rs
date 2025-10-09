@@ -103,6 +103,7 @@ void cg3_sconverter_run_fns(cg3_sconverter* converter_, const char* input, const
 cg3_applicator* cg3_applicator_create(cg3_grammar* grammar);
 // Pass in OR'ed values from cg3_flags; each call resets flags, so set all needed ones in a single call.
 void cg3_applicator_setflags(cg3_applicator* applicator, uint32_t flags);
+void cg3_applicator_set_trace(cg3_applicator* applicator, bool value);
 /*
 Valid signatures:
 - cg3_applicator_setoption(aplc, CG3O_SECTIONS, uint32_t*);

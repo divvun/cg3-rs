@@ -249,6 +249,11 @@ void cg3_applicator_setflags(cg3_applicator* applicator_, uint32_t flags) {
 	applicator->no_pass_origin = (flags & CG3F_NO_PASS_ORIGIN) != 0;
 }
 
+void cg3_applicator_set_trace(cg3_applicator* applicator, bool value) {
+	GrammarApplicator* ga = static_cast<GrammarApplicator*>(applicator);
+	ga->trace = value;
+}
+
 void cg3_applicator_setoption(cg3_applicator* applicator_, cg3_option option, void* value_) {
 	GrammarApplicator* applicator = static_cast<GrammarApplicator*>(applicator_);
 	switch (option) {
