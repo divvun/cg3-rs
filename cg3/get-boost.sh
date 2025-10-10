@@ -1,6 +1,6 @@
 #!/bin/sh
-export BOOSTVER=65
-export BOOSTMINOR=1
+export BOOSTVER=89
+export BOOSTMINOR=0
 export BDOT="1.$BOOSTVER.$BOOSTMINOR"
 export BUC="boost_1_${BOOSTVER}_$BOOSTMINOR"
 

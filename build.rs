@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 fn main() {
     println!("cargo:rerun-if-changed=wrapper/wrapper.cpp");
     println!("cargo:rerun-if-changed=wrapper/wrapper.hpp");
@@ -10,10 +8,7 @@ fn main() {
         let lib = vcpkg::Config::new().find_package("icu").unwrap();
         lib.include_paths
     } else if cfg!(target_os = "macos") {
-        println!("cargo:rustc-link-search=native=/opt/homebrew/lib");
-        vec![
-            PathBuf::from("/opt/homebrew/include"),
-        ]
+        vec![]
     } else {
         vec![]
     };
@@ -44,7 +39,6 @@ fn main() {
 
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-lib=cg3");
-    println!("cargo:rustc-link-lib=sqlite3");
 
     let is_shared = cfg!(windows) && std::env::var("VCPKGRS_DYNAMIC").is_ok();
 

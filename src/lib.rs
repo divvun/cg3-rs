@@ -20,10 +20,7 @@ unsafe extern "C" {
         input_size: usize,
         output_size: *mut usize,
     ) -> *const u8;
-    fn cg3_applicator_set_trace(
-        applicator: *mut c_void,
-        trace: bool,
-    );
+    fn cg3_applicator_set_trace(applicator: *mut c_void, trace: bool);
     fn cg3_free(ptr: *const c_void);
     fn cg3_mwesplit_new() -> *mut c_void;
     fn cg3_mwesplit_delete(mwesplit: *mut c_void);
@@ -450,7 +447,7 @@ fn tokenize_tags(input: &str) -> Vec<&str> {
             }
         }
     }
-    
+
     if !matches!(state, TokenizeState::None) {
         tokens.push(&input[cur..]);
     }
