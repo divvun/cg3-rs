@@ -39,6 +39,19 @@ fn main() {
 
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-lib=cg3");
+    if cfg!(target_vendor = "apple") {
+        println!("cargo:rustc-link-lib=icucore");
+    } else {
+        if cfg!(unix) {
+            println!("cargo:rustc-link-lib=icuuc");
+            println!("cargo:rustc-link-lib=icuio");
+        } else if cfg!(windows) {
+            println!("cargo:rustc-link-lib=icudt");
+            println!("cargo:rustc-link-lib=icuin");
+        }
+        println!("cargo:rustc-link-lib=icudata");
+        println!("cargo:rustc-link-lib=icui18n");
+    }
 
     let is_shared = cfg!(windows) && std::env::var("VCPKGRS_DYNAMIC").is_ok();
 
@@ -59,18 +72,4 @@ fn main() {
         });
 
     build.compile("cg3_wrapper");
-
-    if cfg!(target_vendor = "apple") {
-        println!("cargo:rustc-link-lib=icucore");
-    } else {
-        if cfg!(unix) {
-            println!("cargo:rustc-link-lib=icuuc");
-            println!("cargo:rustc-link-lib=icuio");
-        } else if cfg!(windows) {
-            println!("cargo:rustc-link-lib=icudt");
-            println!("cargo:rustc-link-lib=icuin");
-        }
-        println!("cargo:rustc-link-lib=icudata");
-        println!("cargo:rustc-link-lib=icui18n");
-    }
 }
