@@ -40,7 +40,6 @@ else()
 	if(APPLE)
 		# Includes icucore in the OS
 		include_directories("../include/icu")
-		add_compile_definitions(APPLE_ICU_CHANGES=0 U_DISABLE_RENAMING=1 U_OVERRIDE_CXX_ALLOCATION=0)
 		set(ICU_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/include/icu")
 	else()
 		find_package(ICU 59.0 COMPONENTS i18n io uc data REQUIRED)
