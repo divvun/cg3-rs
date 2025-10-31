@@ -103,11 +103,12 @@
 #include <unicode/ustring.h>
 #include <unicode/uregex.h>
 #include <unicode/ubrk.h>
+using namespace icu;
 
 namespace CG3 {
-typedef std::basic_string<icu::UChar> UString;
-typedef std::basic_string_view<icu::UChar> UStringView;
-typedef std::vector<icu::UString> UStringVector;
+typedef std::basic_string<UChar> UString;
+typedef std::basic_string_view<UChar> UStringView;
+typedef std::vector<UString> UStringVector;
 typedef std::vector<uint32_t> uint32Vector;
 namespace bc = ::boost::container;
 namespace be = ::boost::endian;
