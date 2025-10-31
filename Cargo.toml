@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["rlib", "staticlib"]
 
 [build-dependencies]
-cmake = "=0.1.48"
+cmake = "0.1.54"
 cc = "1.0.79"
 pkg-config = "0.3.27"
 vcpkg = "0.2.15"

@@ -1,17 +1,22 @@
+use std::path::PathBuf;
+
 fn main() {
     println!("cargo:rerun-if-changed=wrapper/wrapper.cpp");
     println!("cargo:rerun-if-changed=wrapper/wrapper.hpp");
 
     let mut dst = cmake::Config::new("cg3");
 
-    let includes = if cfg!(windows) {
+    let mut includes = if cfg!(windows) {
         let lib = vcpkg::Config::new().find_package("icu").unwrap();
         lib.include_paths
-    } else if cfg!(target_os = "macos") {
-        vec![]
     } else {
         vec![]
     };
+
+    let cg3_sysroot = std::env::var("CG3_SYSROOT").ok();
+    if let Some(sysroot) = cg3_sysroot.as_ref() {
+        includes.push(PathBuf::from(sysroot).join("include"));
+    }
 
     #[cfg(windows)]
     let dst = dst
@@ -29,29 +34,32 @@ fn main() {
         let dst = dst.define("BUILD_SHARED_LIBS", "OFF");
         dst.define("CMAKE_POSITION_INDEPENDENT_CODE", "ON");
 
-        for x in includes.iter() {
-            dst.define("CMAKE_CXX_FLAGS", format!("-I{}", x.display()));
-            dst.define("CMAKE_C_FLAGS", format!("-I{}", x.display()));
-        }
+        let includes = includes
+            .iter()
+            .map(|x| format!("-I{}", x.display()))
+            .collect::<Vec<_>>();
+
+        dst.define("CMAKE_CXX_FLAGS", includes.join(" "));
+        dst.define("CMAKE_C_FLAGS", includes.join(" "));
 
         dst.build()
     };
 
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
-    println!("cargo:rustc-link-lib=cg3");
-    if cfg!(target_vendor = "apple") {
-        println!("cargo:rustc-link-lib=icucore");
-    } else {
-        if cfg!(unix) {
-            println!("cargo:rustc-link-lib=icuuc");
-            println!("cargo:rustc-link-lib=icuio");
-        } else if cfg!(windows) {
-            println!("cargo:rustc-link-lib=icudt");
-            println!("cargo:rustc-link-lib=icuin");
-        }
-        println!("cargo:rustc-link-lib=icudata");
-        println!("cargo:rustc-link-lib=icui18n");
+    if let Some(sysroot) = cg3_sysroot.as_ref() {
+        println!("cargo:rustc-link-search=native={}/lib", sysroot);
     }
+    println!("cargo:rustc-link-lib=cg3");
+
+    if cfg!(unix) {
+        println!("cargo:rustc-link-lib=icuuc");
+        println!("cargo:rustc-link-lib=icuio");
+    } else if cfg!(windows) {
+        println!("cargo:rustc-link-lib=icudt");
+        println!("cargo:rustc-link-lib=icuin");
+    }
+    println!("cargo:rustc-link-lib=icudata");
+    println!("cargo:rustc-link-lib=icui18n");
 
     let is_shared = cfg!(windows) && std::env::var("VCPKGRS_DYNAMIC").is_ok();
 
@@ -62,7 +70,6 @@ fn main() {
         .include(dst.join("include"))
         .include(dst.join("include").join("cg3"))
         .include(&dst)
-        .static_flag(!is_shared)
         .static_crt(!is_shared)
         .cpp(true)
         .flag(if cfg!(windows) {

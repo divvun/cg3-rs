@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.15 FATAL_ERROR)
 cmake_policy(VERSION ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION})
 project(cg3 CXX C)
 
@@ -31,6 +31,7 @@ include(GNUInstallDirs)
 option(BUILD_SHARED_LIBS "Set to OFF to use static library" ON)
 option(ENABLE_PYTHON_BINDINGS "Set to ON to build the Python wrapper" OFF)
 option(ENABLE_PROFILING "Set to OFF to disable profiling, and thus the SQLite dependency" OFF)
+option(INSTALL_SCRIPTS "Set to OFF to skip installing utility scripts" ON)
 
 if(MSVC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /utf-8 /std:c++latest /Zc:__cplusplus /permissive- /W4 /MP")
@@ -131,9 +132,12 @@ if(NOT ENABLE_PROFILING)
 	add_definitions(-DDISABLE_PROFILING=1)
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_OSX_SYSROOT MATCHES "iPhoneOS" OR CMAKE_OSX_SYSROOT MATCHES "iPhoneSimulator")
+	message(STATUS "Detected iOS build - disabling process support (CMAKE_OSX_SYSROOT: ${CMAKE_OSX_SYSROOT})")
 	set(TARGET_OS_IOS ON)
 	add_definitions(-DTARGET_OS_IOS=1)
+else()
+	message(STATUS "Not iOS - CMAKE_SYSTEM_NAME: ${CMAKE_SYSTEM_NAME}, CMAKE_OSX_SYSROOT: ${CMAKE_OSX_SYSROOT}")
 endif()
 
 if(WIN32)
@@ -141,14 +145,14 @@ if(WIN32)
 	include_directories("include/getopt" "include/wordexp")
 elseif(TARGET_OS_IOS)
 	add_definitions(-D_POSIX_C_SOURCE=200112)
-	include_directories("include/wordexp")
+	include_directories(BEFORE "include/wordexp")
 else()
 	add_definitions(-D_POSIX_C_SOURCE=200112)
 	set(POPEN_PLUS_CPP "../include/posix/popen_plus.cpp" "../include/posix/popen_plus.hpp")
 	include_directories("include/posix")
 endif()
 if(EMSCRIPTEN)
-	include_directories("include/wordexp")
+	include_directories(BEFORE "include/wordexp")
 	set(CMAKE_EXECUTABLE_SUFFIX ".js")
 	# Only add debug info for Debug builds
 	if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -169,14 +173,16 @@ if(ENABLE_PYTHON_BINDINGS AND NOT EMSCRIPTEN)
 	add_subdirectory(python)
 endif()
 
-configure_file(scripts/cg3-autobin.pl.in scripts/cg3-autobin.pl @ONLY)
-install(PROGRAMS
-	"${CMAKE_CURRENT_BINARY_DIR}/scripts/cg3-autobin.pl"
-	"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-sort"
-	"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-stabilize-relations"
-	"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-strictify"
-	"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-untrace"
-	DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(INSTALL_SCRIPTS)
+	configure_file(scripts/cg3-autobin.pl.in scripts/cg3-autobin.pl @ONLY)
+	install(PROGRAMS
+		"${CMAKE_CURRENT_BINARY_DIR}/scripts/cg3-autobin.pl"
+		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-sort"
+		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-stabilize-relations"
+		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-strictify"
+		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/cg-untrace"
+		DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
 set(ELISPDIR "${CMAKE_INSTALL_DATAROOTDIR}/emacs/site-lisp" CACHE PATH "Where to install Emacs Lisp files")
 install(FILES "emacs/cg.el" DESTINATION ${ELISPDIR})
