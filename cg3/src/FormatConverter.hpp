@@ -38,7 +38,7 @@ class FormatConverter : public ApertiumApplicator, public BinaryApplicator, publ
 public:
 	FormatConverter(std::ostream& ux_err);
 
-	void runGrammarOnText(std::istream& input, std::ostream& output);
+	void runGrammarOnText(std::istream& input, std::ostream& output) override;
 
 	std::unique_ptr<std::istream> detectFormat(std::istream& in);
 

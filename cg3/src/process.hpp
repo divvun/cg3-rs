@@ -131,6 +131,36 @@ private:
 	}
 };
 
+#elif defined(TARGET_OS_IOS)
+// iOS doesn't support system() or fork/exec from sandboxed apps
+// EXTERNAL rules are not supported on iOS
+class Process {
+public:
+	Process() {}
+	~Process() {}
+
+	void start(const std::string& cmdline) {
+		(void)cmdline;
+		throw std::runtime_error("Process execution is not supported on iOS. EXTERNAL rules cannot be used.");
+	}
+
+	void read(char *buffer, size_t count) {
+		(void)buffer;
+		(void)count;
+		throw std::runtime_error("Process execution is not supported on iOS.");
+	}
+
+	void write(const char *buffer, size_t length) {
+		(void)buffer;
+		(void)length;
+		throw std::runtime_error("Process execution is not supported on iOS.");
+	}
+
+	void flush() {
+		throw std::runtime_error("Process execution is not supported on iOS.");
+	}
+};
+
 #else
 #include <popen_plus.hpp>
 #include <cerrno>

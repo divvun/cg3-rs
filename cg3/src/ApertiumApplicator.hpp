@@ -31,7 +31,7 @@ class ApertiumApplicator : public virtual GrammarApplicator {
 public:
 	ApertiumApplicator(std::ostream& ux_err);
 
-	void runGrammarOnText(std::istream& input, std::ostream& output);
+	void runGrammarOnText(std::istream& input, std::ostream& output) override;
 
 	bool wordform_case = false;
 	bool print_word_forms = true;

@@ -176,7 +176,7 @@ set(LIBCG3_SOURCES
 	version.hpp
 	${POPEN_PLUS_CPP}
 	)
-if(WIN32 OR EMSCRIPTEN)
+if(WIN32 OR EMSCRIPTEN OR TARGET_OS_IOS)
 	set(LIBCG3_SOURCES
 		"${CMAKE_SOURCE_DIR}/include/wordexp/wordexp.cpp"
 		"${CMAKE_SOURCE_DIR}/include/wordexp/wordexp.h"

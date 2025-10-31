@@ -62,7 +62,7 @@ class BinaryApplicator : public virtual GrammarApplicator {
 public:
 	BinaryApplicator(std::ostream& ux_err);
 
-	void runGrammarOnText(std::istream& input, std::ostream& output);
+	void runGrammarOnText(std::istream& input, std::ostream& output) override;
 
 protected:
 	void printSingleWindow(SingleWindow* window, std::ostream& output, bool profiling = false) override;
