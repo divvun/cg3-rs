@@ -15,9 +15,13 @@ fn main() {
 
     let cg3_sysroot = std::env::var("CG3_SYSROOT").ok();
     if let Some(sysroot) = cg3_sysroot.as_ref() {
+        let cg3_sysroot_path = PathBuf::from(sysroot);
+        let pkgconfig_path = cg3_sysroot_path.join("lib").join("pkgconfig");
+        dst.env("PKG_CONFIG_PATH", &pkgconfig_path);
+        dst.define("CMAKE_PREFIX_PATH", &cg3_sysroot_path);
         includes.push(PathBuf::from(sysroot).join("include"));
     }
-
+    
     #[cfg(windows)]
     let dst = dst
         .define("WIN32", "ON")
