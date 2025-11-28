@@ -6,14 +6,14 @@ fn main() {
 
     let mut dst = cmake::Config::new("cg3");
 
-    let mut includes = if cfg!(windows) {
+    let cg3_sysroot = std::env::var("CG3_SYSROOT").ok();
+
+    let mut includes = if cfg!(windows) && cg3_sysroot.is_none() {
         let lib = vcpkg::Config::new().find_package("icu").unwrap();
         lib.include_paths
     } else {
         vec![]
     };
-
-    let cg3_sysroot = std::env::var("CG3_SYSROOT").ok();
     if let Some(sysroot) = cg3_sysroot.as_ref() {
         let cg3_sysroot_path = PathBuf::from(sysroot);
         let pkgconfig_path = cg3_sysroot_path.join("lib").join("pkgconfig");
