@@ -64,24 +64,6 @@ fn main() {
         dst.build()
     };
 
-    println!("cargo:rustc-link-search=native={}/lib", dst.display());
-    if let Some(sysroot) = cg3_sysroot.as_ref() {
-        println!("cargo:rustc-link-search=native={}/lib", sysroot);
-    }
-    println!("cargo:rustc-link-lib=static=cg3");
-
-    if cfg!(unix) {
-        println!("cargo:rustc-link-lib=static=icuuc");
-        println!("cargo:rustc-link-lib=static=icuio");
-        println!("cargo:rustc-link-lib=static=icudata");
-        println!("cargo:rustc-link-lib=static=icui18n");
-    } else if cfg!(windows) {
-        println!("cargo:rustc-link-lib=icudt");
-        println!("cargo:rustc-link-lib=icuin");
-        println!("cargo:rustc-link-lib=icudata");
-        println!("cargo:rustc-link-lib=icui18n");
-    }
-
     let is_shared = cfg!(windows) && std::env::var("VCPKGRS_DYNAMIC").is_ok();
 
     let mut build = cc::Build::new();
@@ -100,4 +82,24 @@ fn main() {
         });
 
     build.compile("cg3_wrapper");
+
+    // Link directives must come AFTER cc::compile() to ensure correct link order:
+    // cg3_wrapper (from cc) -> cg3 -> ICU
+    println!("cargo:rustc-link-search=native={}/lib", dst.display());
+    if let Some(sysroot) = cg3_sysroot.as_ref() {
+        println!("cargo:rustc-link-search=native={}/lib", sysroot);
+    }
+    println!("cargo:rustc-link-lib=static=cg3");
+
+    if cfg!(unix) {
+        println!("cargo:rustc-link-lib=static=icuuc");
+        println!("cargo:rustc-link-lib=static=icuio");
+        println!("cargo:rustc-link-lib=static=icudata");
+        println!("cargo:rustc-link-lib=static=icui18n");
+    } else if cfg!(windows) {
+        println!("cargo:rustc-link-lib=icudt");
+        println!("cargo:rustc-link-lib=icuin");
+        println!("cargo:rustc-link-lib=icudata");
+        println!("cargo:rustc-link-lib=icui18n");
+    }
 }
