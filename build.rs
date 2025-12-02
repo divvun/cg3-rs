@@ -68,17 +68,19 @@ fn main() {
     if let Some(sysroot) = cg3_sysroot.as_ref() {
         println!("cargo:rustc-link-search=native={}/lib", sysroot);
     }
-    println!("cargo:rustc-link-lib=cg3");
+    println!("cargo:rustc-link-lib=static=cg3");
 
     if cfg!(unix) {
-        println!("cargo:rustc-link-lib=icuuc");
-        println!("cargo:rustc-link-lib=icuio");
+        println!("cargo:rustc-link-lib=static=icuuc");
+        println!("cargo:rustc-link-lib=static=icuio");
+        println!("cargo:rustc-link-lib=static=icudata");
+        println!("cargo:rustc-link-lib=static=icui18n");
     } else if cfg!(windows) {
         println!("cargo:rustc-link-lib=icudt");
         println!("cargo:rustc-link-lib=icuin");
+        println!("cargo:rustc-link-lib=icudata");
+        println!("cargo:rustc-link-lib=icui18n");
     }
-    println!("cargo:rustc-link-lib=icudata");
-    println!("cargo:rustc-link-lib=icui18n");
 
     let is_shared = cfg!(windows) && std::env::var("VCPKGRS_DYNAMIC").is_ok();
 
