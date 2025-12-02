@@ -19,6 +19,21 @@ fn main() {
         let pkgconfig_path = cg3_sysroot_path.join("lib").join("pkgconfig");
         dst.env("PKG_CONFIG_PATH", &pkgconfig_path);
         dst.define("CMAKE_PREFIX_PATH", &cg3_sysroot_path);
+
+        // Bypass FindICU by setting ICU variables directly
+        let lib_dir = cg3_sysroot_path.join("lib");
+        dst.define("ICU_INCLUDE_DIRS", cg3_sysroot_path.join("include"));
+        dst.define(
+            "ICU_LIBRARIES",
+            format!(
+                "{};{};{};{}",
+                lib_dir.join("libicuuc.a").display(),
+                lib_dir.join("libicui18n.a").display(),
+                lib_dir.join("libicuio.a").display(),
+                lib_dir.join("libicudata.a").display()
+            ),
+        );
+
         includes.push(PathBuf::from(sysroot).join("include"));
     }
     
