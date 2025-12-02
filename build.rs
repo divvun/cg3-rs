@@ -89,7 +89,7 @@ fn main() {
     if let Some(sysroot) = cg3_sysroot.as_ref() {
         println!("cargo:rustc-link-search=native={}/lib", sysroot);
     }
-    println!("cargo:rustc-link-lib=static=cg3");
+    println!("cargo:rustc-link-lib=static:+whole-archive=cg3");
 
     if cfg!(unix) {
         println!("cargo:rustc-link-lib=static=icuuc");
