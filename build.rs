@@ -52,14 +52,18 @@ fn main() {
     let dst = {
         let dst = dst.define("BUILD_SHARED_LIBS", "OFF");
         dst.define("CMAKE_POSITION_INDEPENDENT_CODE", "ON");
+        dst.define("CMAKE_C_COMPILER", "clang");
+        dst.define("CMAKE_CXX_COMPILER", "clang++");
 
-        let includes = includes
+        let mut cflags: Vec<String> = includes
             .iter()
             .map(|x| format!("-I{}", x.display()))
-            .collect::<Vec<_>>();
+            .collect();
+        cflags.push("-fPIC".to_string());
+        cflags.push("-flto=thin".to_string());
 
-        dst.define("CMAKE_CXX_FLAGS", includes.join(" "));
-        dst.define("CMAKE_C_FLAGS", includes.join(" "));
+        dst.define("CMAKE_CXX_FLAGS", cflags.join(" "));
+        dst.define("CMAKE_C_FLAGS", cflags.join(" "));
 
         dst.build()
     };
@@ -67,6 +71,12 @@ fn main() {
     let is_shared = cfg!(windows) && std::env::var("VCPKGRS_DYNAMIC").is_ok();
 
     let mut build = cc::Build::new();
+    #[cfg(unix)]
+    {
+        build.compiler("clang++");
+        build.flag("-fPIC");
+        build.flag("-flto=thin");
+    }
     build
         .file("wrapper/wrapper.cpp")
         .includes(includes)
