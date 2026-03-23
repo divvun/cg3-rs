@@ -23,30 +23,38 @@ fn main() {
         // Bypass FindICU by setting ICU variables directly
         let lib_dir = cg3_sysroot_path.join("lib");
         dst.define("ICU_INCLUDE_DIRS", cg3_sysroot_path.join("include"));
+        let (icu_uc, icu_i18n, icu_io, icu_data) = if cfg!(windows) {
+            ("icuuc.lib", "icuin.lib", "icuio.lib", "icudt.lib")
+        } else {
+            ("libicuuc.a", "libicui18n.a", "libicuio.a", "libicudata.a")
+        };
         dst.define(
             "ICU_LIBRARIES",
             format!(
                 "{};{};{};{}",
-                lib_dir.join("libicuuc.a").display(),
-                lib_dir.join("libicui18n.a").display(),
-                lib_dir.join("libicuio.a").display(),
-                lib_dir.join("libicudata.a").display()
+                lib_dir.join(icu_uc).display(),
+                lib_dir.join(icu_i18n).display(),
+                lib_dir.join(icu_io).display(),
+                lib_dir.join(icu_data).display()
             ),
         );
 
         includes.push(PathBuf::from(sysroot).join("include"));
     }
-    
+
     #[cfg(windows)]
-    let dst = dst
-        .define("WIN32", "ON")
-        .define("MSVC", "ON")
-        .define(
-            "CMAKE_CXX_FLAGS",
-            "/Dcg3_EXPORTS /DWIN32 /D_WIN32 /D_WINDOWS /W3 /GR /EHsc /O2",
-        )
-        .define("BUILD_SHARED_LIBS", "OFF")
-        .build();
+    let dst = {
+        dst.static_crt(true);
+        dst.define("WIN32", "ON")
+            .define("MSVC", "ON")
+            .define(
+                "CMAKE_CXX_FLAGS",
+                "/Dcg3_EXPORTS /DWIN32 /D_WIN32 /D_WINDOWS /W3 /GR /EHsc /O2 /MT",
+            )
+            .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreaded")
+            .define("BUILD_SHARED_LIBS", "OFF")
+            .build()
+    };
 
     #[cfg(unix)]
     let dst = {
@@ -107,9 +115,9 @@ fn main() {
         println!("cargo:rustc-link-lib=static=icudata");
         println!("cargo:rustc-link-lib=static=icui18n");
     } else if cfg!(windows) {
+        println!("cargo:rustc-link-lib=icuuc");
+        println!("cargo:rustc-link-lib=icuio");
         println!("cargo:rustc-link-lib=icudt");
         println!("cargo:rustc-link-lib=icuin");
-        println!("cargo:rustc-link-lib=icudata");
-        println!("cargo:rustc-link-lib=icui18n");
     }
 }
