@@ -151,6 +151,11 @@ pub struct Grammar {
     pub ux_stderr: Option<()>,
     pub ux_stdout: Option<()>,
 
+    /// Wave-4 grammar-owned PRNG state for `Set::set_name`'s `to == 0`
+    /// fallback (the C++ used the process-global libc `rand()`). Non-zero
+    /// xorshift32 state, stepped by [`crate::set::rand_step`].
+    pub rand_state: u32,
+
     // --- feature / mode flags ---
     pub has_dep: bool,
     pub has_bag_of_tags: bool,
@@ -271,6 +276,7 @@ impl Default for Grammar {
         Grammar {
             ux_stderr: None,
             ux_stdout: None,
+            rand_state: 1,
             has_dep: false,
             has_bag_of_tags: false,
             has_relations: false,
@@ -436,7 +442,7 @@ impl Grammar {
             tset = self.get_set(nhash);
             if let Some(t) = tset {
                 let to = ui32(self.sets_by_contents.len());
-                self.sets_list[t.0].set_name(to);
+                self.sets_list[t.0].set_name(to, &mut self.rand_state);
             }
             if let Some(&seed) = self.set_name_seeds.get(&name) {
                 nhash = nhash.wrapping_add(seed);
@@ -1045,7 +1051,7 @@ impl Grammar {
                 self.sets_list[ns.0].line = to_line;
 
                 let newname = ui32(self.sets_by_contents.len() + 1);
-                self.sets_list[to.0].set_name(newname);
+                self.sets_list[to.0].set_name(newname, &mut self.rand_state);
                 to = self.add_set(to);
 
                 let tset_hash = self.sets_list[tset.0].hash;

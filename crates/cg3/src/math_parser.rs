@@ -24,7 +24,6 @@
 // 0;`, `UStringView temp_token;`) that are overwritten before their first read.
 #![allow(unused_assignments)]
 
-use std::cell::Cell;
 use std::f64::consts::PI;
 
 use crate::types::{UChar, UStringView};
@@ -65,24 +64,6 @@ const STOP_SET: &str = " +-/*%^=()";
 // C `ERANGE`; used to model `strtod`'s overflow signalling. See `MP_ERRNO`.
 const ERANGE: i32 = 34;
 
-thread_local! {
-    // Faithful-but-safe stand-in for C's (thread-local) `errno`. `c_strtod`
-    // sets it to `ERANGE` on overflow and NEVER clears it — reproducing the
-    // quirk that `errno` is not cleared before the `ERANGE` test, so once any
-    // number overflows every later number parse also throws. (Approximation:
-    // real `errno` also reflects unrelated libc calls; here only overflow in
-    // `c_strtod` ever sets it, and underflow is not detected.)
-    static MP_ERRNO: Cell<i32> = const { Cell::new(0) };
-}
-
-fn set_errno(v: i32) {
-    MP_ERRNO.with(|e| e.set(v));
-}
-
-fn errno() -> i32 {
-    MP_ERRNO.with(|e| e.get())
-}
-
 // [spec:cg3:def:math-parser.cg3.math-parser]
 // C++ class members. `exp_ptr`/`token` are string-views into the expression;
 // a lifetime parameter (not present in C++) lets them borrow the `exp` passed
@@ -94,6 +75,14 @@ pub struct MathParser<'a> {
     vars: [f64; NUMVARS],
     min: f64,
     max: f64,
+    /// Stand-in for C's (thread-local) `errno`, as a parser field (wave 4:
+    /// no thread_locals). `c_strtod` sets it to `ERANGE` on overflow and NEVER
+    /// clears it — reproducing the quirk that `errno` is not cleared before
+    /// the `ERANGE` test, so once any number overflows every later number
+    /// parse by THIS parser also throws. (The C global would have persisted
+    /// across parser instances on the thread; every engine call site builds a
+    /// fresh single-use parser, so the observable behaviour is identical.)
+    errno: i32,
 }
 
 impl<'a> MathParser<'a> {
@@ -110,6 +99,7 @@ impl<'a> MathParser<'a> {
             vars: [0.0; NUMVARS],
             min,
             max,
+            errno: 0,
         }
     }
 
@@ -310,8 +300,8 @@ impl<'a> MathParser<'a> {
             // (UB). Safe Rust cannot reproduce the overflow, so the token is
             // parsed directly. `errno` is NOT cleared before the ERANGE test
             // (see `MP_ERRNO`), so this reflects any prior overflow.
-            *result = c_strtod(self.token);
-            if errno() == ERANGE {
+            *result = c_strtod(self.token, &mut self.errno);
+            if self.errno == ERANGE {
                 return Err(MathError("Result did not fit in a double"));
             }
             self.get_token()?;
@@ -484,7 +474,7 @@ fn u_get_combining_class(_c: UChar) -> u8 {
 /// infinity it sets `MP_ERRNO = ERANGE` (matching `strtod`). Approximations:
 /// hex floats / `inf` / `nan` are not handled (a NUMBER token can't produce
 /// them), and underflow is not flagged ERANGE.
-fn c_strtod(s: &str) -> f64 {
+fn c_strtod(s: &str, errno: &mut i32) -> f64 {
     let bytes = s.as_bytes();
     let len = bytes.len();
     let mut i = 0usize;
@@ -527,7 +517,7 @@ fn c_strtod(s: &str) -> f64 {
     match s[start..i].parse::<f64>() {
         Ok(v) => {
             if v.is_infinite() {
-                set_errno(ERANGE);
+                *errno = ERANGE;
             }
             v
         }
@@ -540,8 +530,8 @@ mod tests {
     use super::*;
 
     fn eval(exp: &str) -> Result<f64, MathError> {
-        // Fresh parser per call so `MP_ERRNO` (thread-local) does not leak between
-        // independent expressions within a test.
+        // Fresh parser per call so the never-cleared `errno` field does not leak
+        // between independent expressions within a test.
         let mut mp = MathParser::new(-1000.0, 1000.0);
         mp.eval(exp)
     }

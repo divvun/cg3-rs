@@ -527,7 +527,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     fn add_set_to_grammar(&mut self, s: SetId) {
         // s->setName(UI32(grammar->sets_list.size() + 100))
         let name_arg = (self.grammar.sets_list_order.len() as u32).wrapping_add(100);
-        self.grammar.sets_list.get_mut(s.0).set_name(name_arg);
+        self.grammar.sets_list.get_mut(s.0).set_name(name_arg, &mut self.grammar.rand_state);
         // grammar->sets_list.push_back(s); s->number = UI32(sets_list.size()-1);
         self.grammar.sets_list_order.push(s);
         let num = (self.grammar.sets_list_order.len() - 1) as u32;

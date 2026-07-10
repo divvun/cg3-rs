@@ -13,7 +13,6 @@ use crate::sorted_vector::{Comparator, sorted_vector};
 use crate::tag::{T_MAPPING, T_SPECIAL, TagSortedVector, compare_Tag};
 use crate::tag_trie::{trie_delete, trie_markused, trie_rehash};
 use crate::types::{UString, Uint32Vector};
-use std::cell::Cell;
 use std::collections::HashMap;
 
 // PLACEHOLDER `Comparator<TagId>` for `compare_Tag`, needed so the
@@ -139,13 +138,15 @@ impl Set {
     /// PORT NOTES: the C++ `sprintf` into the shared global scratch buffer
     /// `cbuffers[0]` (overwriting it as a side effect) is reproduced with a
     /// local `format!` — no global scratch buffer exists in the port, so that
-    /// side effect is intentionally NOT reproduced. `rand()` is a self-contained
-    /// PRNG stand-in (see [`rand`]); exact libc-`rand()` value parity is not
-    /// achievable without seed parity and is not required (the id only needs to
-    /// be unique-ish for a synthetic set name).
-    pub fn set_name(&mut self, mut to: u32) {
+    /// side effect is intentionally NOT reproduced. The C++ used the
+    /// process-global libc `rand()` for the `to == 0` fallback; wave 4 threads
+    /// the PRNG state in from the owning [`Grammar`](crate::grammar::Grammar)
+    /// (`rand_state`, stepped by [`rand_step`]) — exact libc-`rand()` value
+    /// parity is not achievable without seed parity and is not required (the
+    /// id only needs to be unique-ish for a synthetic set name).
+    pub fn set_name(&mut self, mut to: u32, rand_state: &mut u32) {
         if to == 0 {
-            to = ui32(rand());
+            to = ui32(rand_step(rand_state));
         }
         // sprintf(&cbuffers[0][0], "_G_%u_%u_", line, to) -> n = chars written.
         let s = format!("_G_{}_{}_", self.line, to);
@@ -399,23 +400,18 @@ fn scan_prefixed_uint(name: &str, p: char) -> Option<u32> {
     Some(out)
 }
 
-thread_local! {
-    /// Non-zero xorshift state for the [`rand`] stand-in.
-    static RAND_STATE: Cell<u32> = const { Cell::new(1) };
-}
-
-/// Self-contained stand-in for libc `rand()`: returns a value in
-/// `[0, RAND_MAX]` (`RAND_MAX == 2^31 - 1`, matching glibc). A xorshift32
-/// generator drives it; exact glibc-`rand()` value parity is NOT reproduced
+/// Stand-in for libc `rand()`: returns a value in `[0, RAND_MAX]`
+/// (`RAND_MAX == 2^31 - 1`, matching glibc). A xorshift32 generator drives it,
+/// stepping the caller-owned state (the C++ used the process-global libc PRNG;
+/// wave 4 makes the state `Grammar`-owned — see `Grammar::rand_state`). The
+/// state must be non-zero; exact glibc-`rand()` value parity is NOT reproduced
 /// (it would require additive-feedback + seed parity, irrelevant to the only
 /// caller `setName`, which just needs a unique-ish synthetic id).
-fn rand() -> i32 {
-    RAND_STATE.with(|s| {
-        let mut x = s.get();
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        s.set(x);
-        (x & 0x7fff_ffff) as i32
-    })
+pub(crate) fn rand_step(state: &mut u32) -> i32 {
+    let mut x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+    (x & 0x7fff_ffff) as i32
 }

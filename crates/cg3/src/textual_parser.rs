@@ -755,7 +755,7 @@ impl TextualParser {
                         self.grammar.sets_list[set_c.0].line = self.grammar.lines;
                         let nm = self.sets_counter;
                         self.sets_counter += 1;
-                        self.grammar.sets_list.get_mut(set_c.0).set_name(nm);
+                        self.grammar.sets_list.get_mut(set_c.0).set_name(nm, &mut self.grammar.rand_state);
                         let mut tags: TagVector = TagVector::new();
 
                         while buf[*pos] != '\0' && buf[*pos] != ';' && buf[*pos] != ')' {
@@ -850,7 +850,7 @@ impl TextualParser {
                         self.grammar.sets_list[set_c.0].line = self.grammar.lines;
                         let nm = self.sets_counter;
                         self.sets_counter += 1;
-                        self.grammar.sets_list.get_mut(set_c.0).set_name(nm);
+                        self.grammar.sets_list.get_mut(set_c.0).set_name(nm, &mut self.grammar.rand_state);
 
                         let mut tag_freq: BTreeMap<TagId, usize> = BTreeMap::new();
                         for tags in &r {
@@ -945,7 +945,7 @@ impl TextualParser {
         if self.grammar.sets_list[s.0].name.is_empty() {
             let nm = self.sets_counter;
             self.sets_counter += 1;
-            self.grammar.sets_list.get_mut(s.0).set_name(nm);
+            self.grammar.sets_list.get_mut(s.0).set_name(nm, &mut self.grammar.rand_state);
         }
         self.grammar.add_set(s)
     }

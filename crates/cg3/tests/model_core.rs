@@ -661,9 +661,9 @@ fn set_name_hash_reindex_markused_drop() {
 
     // setName: explicit id and the rand() fallback for 0.
     g.sets_list.get_mut(s.0).line = 7;
-    g.sets_list.get_mut(s.0).set_name(42);
+    g.sets_list.get_mut(s.0).set_name(42, &mut g.rand_state);
     assert_eq!(g.sets_list[s.0].name, "_G_7_42_");
-    g.sets_list.get_mut(s.0).set_name(0);
+    g.sets_list.get_mut(s.0).set_name(0, &mut g.rand_state);
     let name = g.sets_list[s.0].name.clone();
     assert!(name.starts_with("_G_7_") && name.ends_with('_') && name != "_G_7_0_");
 
