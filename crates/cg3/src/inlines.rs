@@ -829,7 +829,7 @@ pub fn skipto_nospan_raw(p: &[char], pos: &mut usize, a: UChar) {
 pub fn cg3_quit(c: i32, file: Option<&str>, line: u32) -> ! {
     if let Some(file) = file {
         if line != 0 {
-            eprintln!("CG3Quit triggered from {} line {}.", file, line);
+            tracing::error!("CG3Quit triggered from {} line {}.", file, line);
         }
     }
     std::process::exit(c)

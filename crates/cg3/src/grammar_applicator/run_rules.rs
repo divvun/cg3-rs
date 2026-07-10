@@ -2566,12 +2566,12 @@ impl super::GrammarApplicator {
                 // "Error: External on line %u resulted in error: %s" + CG3Quit(1).
                 let mut es = crate::process::Process::new();
                 if let Err(e) = es.start(&cmd) {
-                    eprintln!("Error: External on line {} resulted in error: {}", rline, e);
+                    tracing::error!("Error: External on line {} resulted in error: {}", rline, e);
                     crate::inlines::cg3_quit(1, None, 0);
                 }
                 // writeRaw(es, CG3_EXTERNAL_PROTOCOL) — raw host-order u32.
                 if let Err(e) = es.write(&CG3_EXTERNAL_PROTOCOL.to_ne_bytes(), 4) {
-                    eprintln!("Error: External on line {} resulted in error: {}", rline, e);
+                    tracing::error!("Error: External on line {} resulted in error: {}", rline, e);
                     crate::inlines::cg3_quit(1, None, 0);
                 }
                 self.externals.insert(varname, es);

@@ -340,48 +340,22 @@ pub fn u_fflush<W: Write>(output: &mut W) {
 
 // [spec:cg3:def:uextras.u-vsnprintf-fn]
 // [spec:cg3:sem:uextras.u-vsnprintf-fn]
-//
-// The ICU `u_vsnprintf`/`u_vsnprintf_u` dispatcher (selected by format-char
-// type) has no std equivalent; both overloads collapse to formatting
-// `std::fmt::Arguments` into a `String`. The C++ return (the number of UChars
-// that WOULD be written, used by `_u_fprintf` to detect truncation) is
-// superseded by returning the fully formatted string directly.
-fn _u_vsnprintf(args: std::fmt::Arguments) -> String {
-    args.to_string()
-}
-
 // [spec:cg3:def:uextras.u-fprintf-fn]
 // [spec:cg3:sem:uextras.u-fprintf-fn]
-//
-// Shared core. Formats `args`, writes the UTF-8 result to `output`, and returns
-// the UTF-16 code-unit length of the output (`n16` = Σ `c.len_utf16()`). The
-// two-pass 500-UChar / 1500-byte stack-buffer resize logic is an internal
-// detail with no observable effect and is not reproduced.
-fn _u_fprintf<W: Write>(output: &mut W, args: std::fmt::Arguments) -> i32 {
-    let s = _u_vsnprintf(args);
-    let n16: i32 = s.chars().map(|c| c.len_utf16() as i32).sum();
-    let _ = output.write_all(s.as_bytes());
-    n16
-}
-
-// [spec:cg3:def:uextras.u-fprintf-fn]
-// [spec:cg3:sem:uextras.u-fprintf-fn]
-//
-// Public wrapper over a `char*`-style format. The three C++ overloads
-// (`ostream&`, `unique_ptr<ostream>&`, `ostream*`) collapse into `&mut impl
-// Write`. Call as `u_fprintf(out, format_args!("..."))`.
-pub fn u_fprintf<W: Write>(output: &mut W, args: std::fmt::Arguments) -> i32 {
-    _u_fprintf(output, args)
-}
-
 // [spec:cg3:def:uextras.u-fprintf-u-fn]
 // [spec:cg3:sem:uextras.u-fprintf-u-fn]
 //
-// The `UChar*`-format variant. Behaviorally identical to `u_fprintf` in this
-// port (all format strings are Rust/UTF-8), so it shares the same core.
-pub fn u_fprintf_u<W: Write>(output: &mut W, args: std::fmt::Arguments) -> i32 {
-    _u_fprintf(output, args)
-}
+// DISSOLVED (wave 4, printf-removal): the C++ `u_fprintf`/`u_fprintf_u`
+// overload family and its `_u_vsnprintf` formatting core are printf-vararg
+// C-isms with no Rust analog to preserve. Their observable contract — format
+// the arguments and write the result to the output stream as UTF-8 bytes,
+// ignoring I/O errors — is exactly `let _ = write!(out, ...)`, which is what
+// every former call site now does directly. The C++-internal mechanics the sem
+// rules describe (two-pass 500-UChar/1500-byte stack buffers, the UTF-16
+// code-unit return count) had no observable effect in the port: the buffers
+// were a resize strategy and NO caller in the entire tree consumed the return
+// value. `dissolved_printf_shims_are_plain_write` (tests below) pins the
+// observable contract.
 
 // [spec:cg3:def:uextras.u-fputc-fn]
 // [spec:cg3:sem:uextras.u-fputc-fn]
@@ -886,30 +860,27 @@ mod tests {
         assert_eq!(partial.position(), 0);
     }
 
-    // Output helpers: u_fprintf / u_fprintf_u format Arguments to UTF-8, returning
-    // the UTF-16 code-unit count; _u_vsnprintf (private) is the shared formatter;
-    // u_fputc writes a single char; u_fflush flushes the sink.
+    // Output helpers. The u_fprintf/u_fprintf_u/_u_vsnprintf shims are DISSOLVED
+    // (wave 4): formatted stream output is plain `write!` at every former call
+    // site. This pins their observable contract — the formatted arguments land
+    // on the stream as UTF-8 bytes, I/O errors ignored. u_fputc writes a single
+    // char; u_fflush flushes the sink.
     // [spec:cg3:sem:uextras.u-fprintf-fn/test]
     // [spec:cg3:sem:uextras.u-fprintf-u-fn/test]
     // [spec:cg3:sem:uextras.u-vsnprintf-fn/test]
     // [spec:cg3:sem:uextras.u-fputc-fn/test]
     // [spec:cg3:sem:uextras.u-fflush-fn/test]
     #[test]
-    fn output_helpers_write_and_count() {
-        // u_fprintf: writes the formatted UTF-8 and returns the UTF-16 unit count.
+    fn dissolved_printf_shims_are_plain_write() {
+        // Former u_fprintf(out, format_args!("hi {}", 42)) call shape.
         let mut out: Vec<u8> = Vec::new();
-        let n = u_fprintf(&mut out, format_args!("hi {}", 42));
-        assert_eq!(String::from_utf8(out.clone()).unwrap(), "hi 42");
-        assert_eq!(n, 5); // "hi 42" is 5 UTF-16 code units
+        let _ = write!(out, "hi {}", 42);
+        assert_eq!(String::from_utf8(out).unwrap(), "hi 42");
 
-        // Non-BMP char counts as 2 UTF-16 units (surrogate pair).
+        // Non-BMP output is written as its UTF-8 encoding (no UTF-16 leg).
         let mut out2: Vec<u8> = Vec::new();
-        let n2 = u_fprintf_u(&mut out2, format_args!("{}", '\u{1F600}'));
-        assert_eq!(n2, 2);
+        let _ = write!(out2, "{}", '\u{1F600}');
         assert_eq!(String::from_utf8(out2).unwrap(), "\u{1F600}");
-
-        // Private shared formatter.
-        assert_eq!(_u_vsnprintf(format_args!("{}-{}", 1, 2)), "1-2");
 
         // u_fputc: writes one char and echoes it back; 0x7FFF is the last handled.
         let mut out3: Vec<u8> = Vec::new();

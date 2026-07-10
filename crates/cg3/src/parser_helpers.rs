@@ -134,7 +134,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
     }
     if ux_is_set_op(to) != S_IGNORE {
         // Warning (not fatal): looks like a set operator.
-        eprintln!("{}: Warning: Tag '{}' looks like a set operator.", state.filebase(), to);
+        tracing::warn!("{}: Warning: Tag '{}' looks like a set operator.", state.filebase(), to);
     }
 
     // Parse \uxxxx and \u{x} as Unicode code points.
@@ -207,7 +207,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
         let tget = |off: usize, i: usize, chars: &[char]| -> char { cat(chars, off + i) };
 
         if tget(tmp_off, 0, &to_chars) == 'T' && tget(tmp_off, 1, &to_chars) == ':' {
-            eprintln!("{}: Warning: Tag looks like a misattempt of template usage.", state.filebase());
+            tracing::warn!("{}: Warning: Tag looks like a misattempt of template usage.", state.filebase());
         }
 
         // Prefix scans (independent ifs, source order).

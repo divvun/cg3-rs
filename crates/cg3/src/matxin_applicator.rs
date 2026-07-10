@@ -37,7 +37,7 @@ use crate::single_window::append_cohort;
 use crate::store::RuntimeStore;
 use crate::tag::{T_BASEFORM, T_MAPPING, T_WORDFORM, TagVector};
 use crate::types::UString;
-use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fprintf, u_fputc, ux_strip_bom};
+use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fputc, ux_strip_bom};
 
 // C++ `Strings.hpp` string constants.
 const STR_BEGINTAG: &str = ">>>";
@@ -290,8 +290,7 @@ impl MatxinApplicator {
                 if ch == '<' {
                     multi = false;
                     if intag {
-                        u_fprintf(&mut std::io::sink(), format_args!(
-                            "Error: The Matxin stream format does not allow '<' in tag names.\n"));
+                        tracing::error!("Error: The Matxin stream format does not allow '<' in tag names.");
                         c += 1;
                         continue;
                     }
@@ -316,8 +315,7 @@ impl MatxinApplicator {
                 } else if ch == '>' {
                     multi = false;
                     if !intag {
-                        u_fprintf(&mut std::io::sink(), format_args!(
-                            "Error: The Matxin stream format does not allow '>' outside tag names.\n"));
+                        tracing::error!("Error: The Matxin stream format does not allow '>' outside tag names.");
                         c += 1;
                         continue;
                     }
@@ -394,9 +392,9 @@ impl MatxinApplicator {
             return;
         }
         if r.next.is_some() {
-            u_fprintf(&mut std::io::sink(), format_args!("Error: input contains sub-readings!\n"));
-            u_fprintf(output, format_args!("  </SENTENCE>\n"));
-            u_fprintf(output, format_args!("</corpus>\n"));
+            tracing::error!("Error: input contains sub-readings!");
+            let _ = write!(output, "  </SENTENCE>\n");
+            let _ = write!(output, "</corpus>\n");
             std::process::exit(-1);
         }
         if r.baseform == 0 {
@@ -450,7 +448,7 @@ impl MatxinApplicator {
             if tag.r#type & T_BASEFORM == 0 && tag.r#type & T_WORDFORM == 0 {
                 let firstc = tag.tag.chars().next();
                 if firstc == Some('+') {
-                    u_fprintf(output, format_args!("{}", tag.tag));
+                    let _ = write!(output, "{}", tag.tag);
                 } else if firstc == Some('@') {
                     node.si = tag.tag.clone();
                 } else if first {
@@ -471,7 +469,7 @@ impl MatxinApplicator {
     /// std::ostream& output, bool profiling)`. Emits one `<SENTENCE>` block.
     pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         let number = self.base.store.single_windows.get(window.0).number;
-        u_fprintf(output, format_args!("  <SENTENCE ord=\"{number}\" alloc=\"0\">\n"));
+        let _ = write!(output, "  <SENTENCE ord=\"{number}\" alloc=\"0\">\n");
 
         let all_cohorts = self.base.store.single_windows.get(window.0).all_cohorts.clone();
         for cohort in all_cohorts {
@@ -548,7 +546,7 @@ impl MatxinApplicator {
         let deps = self.deps.clone();
         self.proc_node(&mut depth, &nodes, &deps, 0, output);
 
-        u_fprintf(output, format_args!("  </SENTENCE>\n"));
+        let _ = write!(output, "  </SENTENCE>\n");
     }
 
     // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.proc-node-fn]
@@ -580,16 +578,14 @@ impl MatxinApplicator {
 
         if n != 0 {
             for _ in 0..(*depth * 2) {
-                u_fprintf(output, format_args!(" "));
+                let _ = write!(output, " ");
             }
             if !v.is_empty() {
-                u_fprintf(output, format_args!(
-                    "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\">\n",
-                    node.self_, node.form, node.lemma, node.mi, si));
+                let _ = write!(output, "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\">\n",
+                    node.self_, node.form, node.lemma, node.mi, si);
             } else {
-                u_fprintf(output, format_args!(
-                    "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\"/>\n",
-                    node.self_, node.form, node.lemma, node.mi, si));
+                let _ = write!(output, "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\"/>\n",
+                    node.self_, node.form, node.lemma, node.mi, si);
                 *depth -= 1;
             }
         }
@@ -605,9 +601,9 @@ impl MatxinApplicator {
 
         if n != 0 {
             for _ in 0..(*depth * 2) {
-                u_fprintf(output, format_args!(" "));
+                let _ = write!(output, " ");
             }
-            u_fprintf(output, format_args!("</NODE>\n"));
+            let _ = write!(output, "</NODE>\n");
         }
         *depth -= 1;
     }
@@ -651,13 +647,11 @@ impl MatxinApplicator {
         let no_soft = self.base.grammar.soft_delimiters.is_none();
         if no_hard {
             if no_soft {
-                u_fprintf(&mut std::io::sink(), format_args!(
-                    "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.\n",
-                    self.base.hard_limit));
+                tracing::warn!("Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
+                    self.base.hard_limit);
             } else {
-                u_fprintf(&mut std::io::sink(), format_args!(
-                    "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.\n",
-                    self.base.soft_limit));
+                tracing::warn!("Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
+                    self.base.soft_limit);
             }
         }
 
@@ -713,8 +707,8 @@ impl MatxinApplicator {
                     self.base.store.single_windows.get_mut(ls.0).text.push(inchar);
                     self.base.store.single_windows.get_mut(ls.0).text.push(n);
                 } else {
-                    u_fprintf(output, format_args!("{inchar}"));
-                    u_fprintf(output, format_args!("{n}"));
+                    let _ = write!(output, "{inchar}");
+                    let _ = write!(output, "{n}");
                 }
                 continue;
             }
@@ -772,9 +766,8 @@ impl MatxinApplicator {
                     if !self.base.is_conv && cohorts_size >= self.base.hard_limit {
                         let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                         let wftag = self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
-                        u_fprintf(&mut std::io::sink(), format_args!(
-                            "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.\n",
-                            self.base.hard_limit, wftag, self.base.numCohorts, self.base.numLines));
+                        tracing::warn!("Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
+                            self.base.hard_limit, wftag, self.base.numCohorts, self.base.numLines);
                     }
                     self.add_endtag_all(cc);
                     append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
@@ -940,14 +933,13 @@ impl MatxinApplicator {
                 None => true,
             };
             if no_baseform {
-                u_fprintf(&mut std::io::sink(), format_args!(
-                    "Warning: Line {} had no valid baseform.\n", self.base.numLines));
+                tracing::warn!("Warning: Line {} had no valid baseform.", self.base.numLines);
             }
             self.base.numLines = self.base.numLines.wrapping_add(1);
         }
 
         if !firstblank.is_empty() {
-            u_fprintf(output, format_args!("{firstblank}"));
+            let _ = write!(output, "{firstblank}");
             firstblank.clear();
         }
 
@@ -964,7 +956,7 @@ impl MatxinApplicator {
         let _ = (c_reading, c_cohort, c_swindow);
 
         // Run the grammar & print results.
-        u_fprintf(output, format_args!("<corpus>\n"));
+        let _ = write!(output, "<corpus>\n");
         while !self.base.gWindow.next.is_empty() {
             self.base.gWindow.shuffle_windows_down(&mut self.base.store);
             self.base.run_grammar_on_window(output);
@@ -979,9 +971,9 @@ impl MatxinApplicator {
         }
 
         if inchar != '\0' && inchar != '\u{FFFF}' {
-            u_fprintf(output, format_args!("{inchar}"));
+            let _ = write!(output, "{inchar}");
         }
-        u_fprintf(output, format_args!("</corpus>\n"));
+        let _ = write!(output, "</corpus>\n");
         u_fflush(output);
     }
 

@@ -16,3 +16,7 @@ regex = "1"
 # JSONL applicator (replaces RapidJSON) and profiler (replaces the C sqlite3 API).
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
+# All diagnostics/logging (the C++ ux_stderr/std::cerr messages) are tracing
+# events; the binaries install a stderr subscriber.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }

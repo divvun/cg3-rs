@@ -57,19 +57,19 @@ pub fn main_comp(args: &[String]) -> i32 {
     let mut input = match File::open(&args[1]) {
         Ok(f) => f,
         Err(_) => {
-            eprintln!("Error: Error opening {} for reading!", args[1]);
+            tracing::error!("Error: Error opening {} for reading!", args[1]);
             cg3_quit(1, None, 0);
         }
     };
     let mut head = [0u8; 4];
     if input.read_exact(&mut head).is_err() {
-        eprintln!("Error: Error reading first 4 bytes from grammar!");
+        tracing::error!("Error: Error reading first 4 bytes from grammar!");
         cg3_quit(1, None, 0);
     }
     drop(input);
 
     if is_cg3b(head) {
-        eprintln!("Binary grammar detected. Cannot re-compile binary grammars.");
+        tracing::error!("Binary grammar detected. Cannot re-compile binary grammars.");
         cg3_quit(1, None, 0);
     }
 
@@ -85,12 +85,12 @@ pub fn main_comp(args: &[String]) -> i32 {
     let buffer = match std::fs::read(&args[1]) {
         Ok(b) => b,
         Err(_) => {
-            eprintln!("Error: Error opening {} for reading!", args[1]);
+            tracing::error!("Error: Error opening {} for reading!", args[1]);
             cg3_quit(1, None, 0);
         }
     };
     if parser.parse_grammar_utf8(&buffer) != 0 {
-        eprintln!("Error: Grammar could not be parsed - exiting!");
+        tracing::error!("Error: Grammar could not be parsed - exiting!");
         cg3_quit(1, None, 0);
     }
 
@@ -102,7 +102,7 @@ pub fn main_comp(args: &[String]) -> i32 {
     grammar.reindex(false, false);
 
     // Info banner to stderr (container sizes; see tools/mod.rs on Arena counts).
-    eprintln!(
+    tracing::info!(
         "Sections: {}, Rules: {}, Sets: {}, Tags: {}",
         grammar.sections.len(),
         grammar.rule_by_number.capacity(),
@@ -111,11 +111,11 @@ pub fn main_comp(args: &[String]) -> i32 {
     );
 
     if let Some(rules_any) = grammar.rules_any.as_ref() {
-        eprintln!("{} rules cannot be skipped by index.", rules_any.size());
+        tracing::info!("{} rules cannot be skipped by index.", rules_any.size());
     }
 
     if grammar.has_dep {
-        eprintln!("Grammar has dependency rules.");
+        tracing::info!("Grammar has dependency rules.");
     }
 
     // std::ofstream gout(argv[2], ...); if (gout) { BinaryGrammar writer; writer.writeBinaryGrammar(gout); }
@@ -126,7 +126,7 @@ pub fn main_comp(args: &[String]) -> i32 {
             let _ = gout.flush();
         }
         Err(_) => {
-            eprintln!("Could not write grammar to {}", args[2]);
+            tracing::error!("Could not write grammar to {}", args[2]);
         }
     }
 

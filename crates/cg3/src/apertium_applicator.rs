@@ -16,7 +16,7 @@
 //! buffers (matching the already-ported engine `run_grammar.rs` convention).
 //!
 //! OUTPUT SINK. C++ `std::ostream& output` → generic `output: &mut W`
-//! (`W: std::io::Write`); the `uextras::{u_fprintf, u_fputc, u_fflush}`
+//! (`W: std::io::Write`); the `uextras::{u_fputc, u_fflush}`
 //! primitives write UTF-8. `u_fprintf_u` (UChar pattern) collapses to
 //! `format_args!` with the literal Unicode chars.
 //!
@@ -40,7 +40,7 @@ use crate::single_window::{SingleWindow, append_cohort};
 use crate::store::RuntimeStore;
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_WORDFORM, TagList};
 use crate::types::{UString, flags_t};
-use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fprintf, u_fputc, ux_strip_bom};
+use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fputc, ux_strip_bom};
 
 // C++ `constexpr UChar esc_lt = '\1';` — the sentinel the reading scanner
 // substitutes for an escaped `\<` so it becomes literal baseform text rather
@@ -266,13 +266,8 @@ impl ApertiumApplicator {
                             let ss = s.unwrap();
                             if ss >= dd {
                                 // empty identifier before `=`
-                                u_fprintf(
-                                    &mut std::io::sink(),
-                                    format_args!(
-                                        "Warning: SETVAR on line {} had no identifier before the =! Defaulting to identifier *.\n",
-                                        self.base.numLines
-                                    ),
-                                );
+                                tracing::warn!("Warning: SETVAR on line {} had no identifier before the =! Defaulting to identifier *.",
+                                        self.base.numLines);
                                 a = tag_any;
                             } else {
                                 let ident = slice_str(ss, dd);
@@ -287,13 +282,8 @@ impl ApertiumApplicator {
                             // value after `=`: d[1] .. (c or len)
                             let val_end = c.unwrap_or(len);
                             if dd + 1 >= val_end {
-                                u_fprintf(
-                                    &mut std::io::sink(),
-                                    format_args!(
-                                        "Warning: SETVAR on line {} had no value after the =! Defaulting to value *.\n",
-                                        self.base.numLines
-                                    ),
-                                );
+                                tracing::warn!("Warning: SETVAR on line {} had no value after the =! Defaulting to value *.",
+                                        self.base.numLines);
                                 b = tag_any;
                             } else {
                                 let val = slice_str(dd + 1, val_end);
@@ -312,13 +302,8 @@ impl ApertiumApplicator {
                             // comma-separated bare identifier.
                             let ss = s.unwrap();
                             if ss >= cc {
-                                u_fprintf(
-                                    &mut std::io::sink(),
-                                    format_args!(
-                                        "Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.\n",
-                                        self.base.numLines
-                                    ),
-                                );
+                                tracing::warn!("Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.",
+                                        self.base.numLines);
                                 a = tag_any;
                             } else {
                                 let ident = slice_str(ss, cc);
@@ -334,13 +319,8 @@ impl ApertiumApplicator {
                         // d is None but c exists — comma-separated bare identifier.
                         let ss = s.unwrap();
                         if ss >= cc {
-                            u_fprintf(
-                                &mut std::io::sink(),
-                                format_args!(
-                                    "Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.\n",
-                                    self.base.numLines
-                                ),
-                            );
+                            tracing::warn!("Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.",
+                                    self.base.numLines);
                             a = tag_any;
                         } else {
                             let ident = slice_str(ss, cc);
@@ -444,13 +424,8 @@ impl ApertiumApplicator {
                     n += 1;
                 }
                 if n >= len || p[n] != '>' {
-                    u_fprintf(
-                        &mut std::io::sink(),
-                        format_args!(
-                            "Warning: Did not find matching > to close the tag on line {}.\n",
-                            self.base.numLines
-                        ),
-                    );
+                    tracing::warn!("Warning: Did not find matching > to close the tag on line {}.",
+                            self.base.numLines);
                     continue;
                 }
                 let tagtext: String = p[i..n].iter().collect();
@@ -577,7 +552,7 @@ impl ApertiumApplicator {
                 reading = reverse_reading(&mut self.base.store, reading);
             }
             self.print_reading_2(reading, output);
-            u_fprintf(output, format_args!("\n"));
+            let _ = write!(output, "\n");
             let mut opt = Some(reading);
             free_reading(&mut self.base.store, &mut opt);
         }
@@ -657,7 +632,7 @@ impl ApertiumApplicator {
                 bf_escaped[0] = '#';
             }
             let bf_str: String = bf_escaped.iter().collect();
-            u_fprintf(output, format_args!("{bf_str}"));
+            let _ = write!(output, "{bf_str}");
         }
 
         if self.surface_readings && !self.base.trace {
@@ -702,12 +677,12 @@ impl ApertiumApplicator {
             if tag.r#type & T_BASEFORM == 0 && tag.r#type & T_WORDFORM == 0 {
                 let first = tag.tag.chars().next();
                 if first == Some('+') {
-                    u_fprintf(output, format_args!("{}", tag.tag));
+                    let _ = write!(output, "{}", tag.tag);
                 } else if first == Some('&') {
                     let inner = substr_from(&tag.tag, 2);
-                    u_fprintf(output, format_args!("{escape}<{inner}{escape}>"));
+                    let _ = write!(output, "{escape}<{inner}{escape}>");
                 } else {
-                    u_fprintf(output, format_args!("{escape}<{}{escape}>", tag.tag));
+                    let _ = write!(output, "{escape}<{}{escape}>", tag.tag);
                 }
             }
         }
@@ -739,10 +714,7 @@ impl ApertiumApplicator {
                     }
                     let pr_local = store.cohorts.get(pr.0).local_number;
                     let _ = global_number;
-                    u_fprintf(
-                        output,
-                        format_args!("<#{}\u{2192}{}>", local_number, pr_local),
-                    );
+                    let _ = write!(output, "<#{}\u{2192}{}>", local_number, pr_local);
                 }
             }
         }
@@ -819,7 +791,7 @@ impl ApertiumApplicator {
         if local_number == 0 || (ctype & CT_REMOVED != 0) {
             let text = self.base.store.cohorts.get(cohort.0).text.clone();
             if !text.is_empty() {
-                u_fprintf(output, format_args!("{text}"));
+                let _ = write!(output, "{text}");
             }
             return;
         }
@@ -833,11 +805,11 @@ impl ApertiumApplicator {
 
         let wblank = self.base.store.cohorts.get(cohort.0).wblank.clone();
         if !wblank.is_empty() {
-            u_fprintf(output, format_args!("{wblank}"));
+            let _ = write!(output, "{wblank}");
         }
 
         if self.delimit_lexical_units {
-            u_fprintf(output, format_args!("^"));
+            let _ = write!(output, "^");
         }
 
         if self.print_word_forms {
@@ -874,7 +846,7 @@ impl ApertiumApplicator {
                 wf_escaped.push(ch);
             }
             let wf_str: String = wf_escaped.iter().collect();
-            u_fprintf(output, format_args!("{wf_str}"));
+            let _ = write!(output, "{wf_str}");
 
             // Static reading tags.
             if let Some(wread) = wread {
@@ -886,7 +858,7 @@ impl ApertiumApplicator {
                     }
                     let tid = tag_by_hash(&self.base.grammar, tter);
                     let tagtext = &self.base.grammar.single_tags_list.get(tid.0).tag;
-                    u_fprintf(output, format_args!("<{tagtext}>"));
+                    let _ = write!(output, "<{tagtext}>");
                 }
             }
         }
@@ -902,7 +874,7 @@ impl ApertiumApplicator {
                 continue;
             }
             if need_slash {
-                u_fprintf(output, format_args!("/"));
+                let _ = write!(output, "/");
             }
             need_slash = true;
             if self.base.grammar.sub_readings_ltr
@@ -925,7 +897,7 @@ impl ApertiumApplicator {
                     continue;
                 }
                 if need_slash {
-                    u_fprintf(output, format_args!("/{NOT_SIGN}"));
+                    let _ = write!(output, "/{NOT_SIGN}");
                 }
                 need_slash = true;
                 if self.base.grammar.sub_readings_ltr
@@ -943,7 +915,7 @@ impl ApertiumApplicator {
                     continue;
                 }
                 if need_slash {
-                    u_fprintf(output, format_args!("/{NOT_SIGN}"));
+                    let _ = write!(output, "/{NOT_SIGN}");
                 }
                 need_slash = true;
                 if self.base.grammar.sub_readings_ltr
@@ -956,12 +928,12 @@ impl ApertiumApplicator {
         }
 
         if self.delimit_lexical_units {
-            u_fprintf(output, format_args!("$"));
+            let _ = write!(output, "$");
         }
 
         let text = self.base.store.cohorts.get(cohort.0).text.clone();
         if !text.is_empty() {
-            u_fprintf(output, format_args!("{text}"));
+            let _ = write!(output, "{text}");
         }
     }
 
@@ -1000,7 +972,7 @@ impl ApertiumApplicator {
     ) {
         let text = self.base.store.single_windows.get(window.0).text.clone();
         if !text.is_empty() {
-            u_fprintf(output, format_args!("{text}"));
+            let _ = write!(output, "{text}");
         }
 
         let all_cohorts = self.base.store.single_windows.get(window.0).all_cohorts.clone();
@@ -1011,7 +983,7 @@ impl ApertiumApplicator {
 
         let text_post = self.base.store.single_windows.get(window.0).text_post.clone();
         if !text_post.is_empty() {
-            u_fprintf(output, format_args!("{text_post}"));
+            let _ = write!(output, "{text_post}");
             u_fflush(output);
         }
 
@@ -1038,13 +1010,11 @@ impl ApertiumApplicator {
         let no_soft = self.base.grammar.soft_delimiters.is_none();
         if no_hard {
             if no_soft {
-                u_fprintf(&mut std::io::sink(), format_args!(
-                    "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.\n",
-                    self.base.hard_limit));
+                tracing::warn!("Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
+                    self.base.hard_limit);
             } else {
-                u_fprintf(&mut std::io::sink(), format_args!(
-                    "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.\n",
-                    self.base.soft_limit));
+                tracing::warn!("Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
+                    self.base.soft_limit);
             }
         }
 
@@ -1151,10 +1121,7 @@ impl ApertiumApplicator {
                 }
             } else if !in_blank && c == '$' {
                 if !in_cohort {
-                    u_fprintf(
-                        &mut std::io::sink(),
-                        format_args!("Error: $ found without prior ^ on line {}.\n", self.base.numLines),
-                    );
+                    tracing::error!("Error: $ found without prior ^ on line {}.", self.base.numLines);
                     // CG3Quit(1) — abort in C++; keep going in the port.
                     return;
                 }
@@ -1178,10 +1145,7 @@ impl ApertiumApplicator {
                     let wchars: Vec<char> = wblank.chars().collect();
                     let n = wchars.len();
                     if wchars[n - 1] != ']' || (n < 2 || wchars[n - 2] != ']') {
-                        u_fprintf(
-                            &mut std::io::sink(),
-                            format_args!("Error: Word-bound blank was not immediately prior to token on line {}\n", self.base.numLines),
-                        );
+                        tracing::error!("Error: Word-bound blank was not immediately prior to token on line {}", self.base.numLines);
                         return;
                     }
                 }
@@ -1326,9 +1290,8 @@ impl ApertiumApplicator {
                             }
                             self.base.numReadings = self.base.numReadings.wrapping_add(1);
                             if self.base.store.readings.get(c_reading.0).baseform == 0 {
-                                u_fprintf(&mut std::io::sink(), format_args!(
-                                    "Warning: Cohort {} on line {} had no valid baseform.\n",
-                                    self.base.numCohorts, self.base.numLines));
+                                tracing::warn!("Warning: Cohort {} on line {} had no valid baseform.",
+                                    self.base.numCohorts, self.base.numLines);
                             }
                             rbuf.clear();
                             p += 1;
@@ -1393,9 +1356,8 @@ impl ApertiumApplicator {
                         if !self.base.is_conv && cohorts_size >= self.base.hard_limit {
                             let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                             let wftag = self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
-                            u_fprintf(&mut std::io::sink(), format_args!(
-                                "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.\n",
-                                self.base.hard_limit, wftag, self.base.numCohorts, self.base.numLines));
+                            tracing::warn!("Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
+                                self.base.hard_limit, wftag, self.base.numCohorts, self.base.numLines);
                         }
                         let readings = self.base.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {

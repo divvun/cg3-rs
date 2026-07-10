@@ -37,7 +37,6 @@ use crate::grammar_applicator::GrammarApplicator;
 use crate::sorted_vector::uint32SortedVector;
 use crate::tag::{TagList, T_DEPENDENCY, T_MAPPING, T_RELATION};
 use crate::types::{UString, UStringView};
-use crate::uextras::u_fprintf;
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — resolve a hash to its
 /// `TagId`. operator[] would default-insert a null `Tag*` on a miss (deref
@@ -232,22 +231,16 @@ impl JsonlApplicator {
     /// C++ `Reading* parseJsonReading(const json::Value& reading_obj, Cohort*
     /// parentCohort)`. Parses one reading object `{"l", "ts", "s"}`, recursing on
     /// subreadings; returns the new `ReadingId` or `None` on a non-object input.
-    fn parse_json_reading<W: Write>(
+    fn parse_json_reading(
         &mut self,
         reading_obj: &Value,
         parent_cohort: CohortId,
-        output_err: &mut W,
     ) -> Option<ReadingId> {
         let obj = match reading_obj {
             Value::Object(m) => m,
             _ => {
-                u_fprintf(
-                    output_err,
-                    format_args!(
-                        "Error: Expected reading object, but got different type on line {}.\n",
-                        self.base.numLines
-                    ),
-                );
+                tracing::error!("Error: Expected reading object, but got different type on line {}.",
+                        self.base.numLines);
                 return None;
             }
         };
@@ -274,22 +267,12 @@ impl JsonlApplicator {
                 let tid = self.base.add_tag(&base_tag, 0);
                 self.base.add_tag_to_reading(c_reading, tid);
             } else {
-                u_fprintf(
-                    output_err,
-                    format_args!(
-                        "Warning: Empty 'l' (baseform) in reading on line {}.\n",
-                        self.base.numLines
-                    ),
-                );
+                tracing::warn!("Warning: Empty 'l' (baseform) in reading on line {}.",
+                        self.base.numLines);
             }
         } else {
-            u_fprintf(
-                output_err,
-                format_args!(
-                    "Warning: Reading missing 'l' (baseform) on line {}.\n",
-                    self.base.numLines
-                ),
-            );
+            tracing::warn!("Warning: Reading missing 'l' (baseform) on line {}.",
+                    self.base.numLines);
         }
 
         // Tags ("ts").
@@ -321,26 +304,16 @@ impl JsonlApplicator {
         // Subreading ("s").
         if let Some(sub_reading_val) = obj.get("s") {
             if sub_reading_val.is_object() {
-                let sub = self.parse_json_reading(sub_reading_val, parent_cohort, output_err);
+                let sub = self.parse_json_reading(sub_reading_val, parent_cohort);
                 if let Some(sub) = sub {
                     self.base.store.readings.get_mut(c_reading.0).next = Some(sub);
                 } else {
-                    u_fprintf(
-                        output_err,
-                        format_args!(
-                            "Error: Failed to parse subreading object on line {}.\n",
-                            self.base.numLines
-                        ),
-                    );
+                    tracing::error!("Error: Failed to parse subreading object on line {}.",
+                            self.base.numLines);
                 }
             } else {
-                u_fprintf(
-                    output_err,
-                    format_args!(
-                        "Warning: Value for 's' (sub_reading) is not an object on line {}. Skipping.\n",
-                        self.base.numLines
-                    ),
-                );
+                tracing::warn!("Warning: Value for 's' (sub_reading) is not an object on line {}. Skipping.",
+                        self.base.numLines);
             }
         }
 
@@ -348,13 +321,8 @@ impl JsonlApplicator {
         if self.base.store.readings.get(c_reading.0).baseform == 0 {
             let wf_hash = self.base.grammar.single_tags_list.get(wordform.0).hash;
             self.base.store.readings.get_mut(c_reading.0).baseform = wf_hash;
-            u_fprintf(
-                output_err,
-                format_args!(
-                    "Warning: Reading on line {} ended up with no baseform. Using wordform.\n",
-                    self.base.numLines
-                ),
-            );
+            tracing::warn!("Warning: Reading on line {} ended up with no baseform. Using wordform.",
+                    self.base.numLines);
         }
 
         Some(c_reading)
@@ -365,11 +333,10 @@ impl JsonlApplicator {
     /// C++ `void parseJsonCohort(const json::Value& obj, SingleWindow* cSWindow,
     /// Cohort*& cCohort)`. Parses one cohort object into a new cohort, assigning
     /// it into the returned value.
-    fn parse_json_cohort<W: Write>(
+    fn parse_json_cohort(
         &mut self,
         obj: &Map<String, Value>,
         c_swindow: SwId,
-        output_err: &mut W,
     ) -> CohortId {
         let c_cohort = crate::cohort::alloc_cohort(&mut self.base.store, Some(c_swindow));
         let gn = self.base.gWindow.cohort_counter;
@@ -381,13 +348,8 @@ impl JsonlApplicator {
         let wform_str = if let Some(w) = obj.get("w") {
             json_to_ustring(w)
         } else {
-            u_fprintf(
-                output_err,
-                format_args!(
-                    "Warning: JSON cohort on line {} missing 'w' (wordform). Using empty.\n",
-                    self.base.numLines
-                ),
-            );
+            tracing::warn!("Warning: JSON cohort on line {} missing 'w' (wordform). Using empty.",
+                    self.base.numLines);
             UString::new()
         };
         let mut wform_tag = UString::new();
@@ -428,27 +390,17 @@ impl JsonlApplicator {
         if let Some(Value::Array(readings_arr)) = obj.get("rs") {
             for reading_val in readings_arr {
                 if !reading_val.is_object() {
-                    u_fprintf(
-                        output_err,
-                        format_args!(
-                            "Warning: Non-object found in 'rs' (readings) array on line {}. Skipping.\n",
-                            self.base.numLines
-                        ),
-                    );
+                    tracing::warn!("Warning: Non-object found in 'rs' (readings) array on line {}. Skipping.",
+                            self.base.numLines);
                     continue;
                 }
-                let c_reading = self.parse_json_reading(reading_val, c_cohort, output_err);
+                let c_reading = self.parse_json_reading(reading_val, c_cohort);
                 if let Some(c_reading) = c_reading {
                     crate::cohort::append_reading(&mut self.base.store, c_cohort, c_reading);
                     self.base.numReadings = self.base.numReadings.wrapping_add(1);
                 } else {
-                    u_fprintf(
-                        output_err,
-                        format_args!(
-                            "Error: Failed to parse main reading on line {}.\n",
-                            self.base.numLines
-                        ),
-                    );
+                    tracing::error!("Error: Failed to parse main reading on line {}.",
+                            self.base.numLines);
                 }
             }
         }
@@ -479,18 +431,13 @@ impl JsonlApplicator {
                 if !dr_val.is_object() {
                     continue;
                 }
-                let del_r = self.parse_json_reading(dr_val, c_cohort, output_err);
+                let del_r = self.parse_json_reading(dr_val, c_cohort);
                 if let Some(del_r) = del_r {
                     self.base.store.readings.get_mut(del_r.0).deleted = true;
                     self.base.store.cohorts.get_mut(c_cohort.0).deleted.push(del_r);
                 } else {
-                    u_fprintf(
-                        output_err,
-                        format_args!(
-                            "Error: Failed to parse deleted reading on line {}.\n",
-                            self.base.numLines
-                        ),
-                    );
+                    tracing::error!("Error: Failed to parse deleted reading on line {}.",
+                            self.base.numLines);
                 }
             }
         }
@@ -510,7 +457,7 @@ impl JsonlApplicator {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
         let doc = json!({ "cmd": ustring_to_utf8(cmd) });
         let s = serde_json::to_string(&doc).unwrap();
-        u_fprintf(output, format_args!("{s}\n"));
+        let _ = write!(output, "{s}\n");
     }
 
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
@@ -523,7 +470,7 @@ impl JsonlApplicator {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
         let doc = json!({ "t": ustring_to_utf8(line) });
         let s = serde_json::to_string(&doc).unwrap();
-        u_fprintf(output, format_args!("{s}\n"));
+        let _ = write!(output, "{s}\n");
     }
 
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn]
@@ -689,7 +636,7 @@ impl JsonlApplicator {
         }
 
         let s = serde_json::to_string(&Value::Object(doc)).unwrap();
-        u_fprintf(output, format_args!("{s}\n"));
+        let _ = write!(output, "{s}\n");
         let _ = output.flush();
     }
 
@@ -858,16 +805,11 @@ impl JsonlApplicator {
             let doc: Value = match serde_json::from_str(&line_str) {
                 Ok(v) => v,
                 Err(e) => {
-                    u_fprintf(
-                        output,
-                        // Note: C++ writes to ux_stderr; output-stream placeholder
-                        // stands in (no separate stderr handle threaded here).
-                        format_args!(
-                            "Warning: Failed to parse JSON on line {}: {} (offset {}). Skipping line.\n",
-                            self.base.numLines,
-                            e,
-                            e.column()
-                        ),
+                    tracing::warn!(
+                        "Warning: Failed to parse JSON on line {}: {} (offset {}). Skipping line.",
+                        self.base.numLines,
+                        e,
+                        e.column()
                     );
                     continue;
                 }
@@ -876,13 +818,8 @@ impl JsonlApplicator {
             let obj = match &doc {
                 Value::Object(m) => m,
                 _ => {
-                    u_fprintf(
-                        output,
-                        format_args!(
-                            "Warning: JSON on line {} is not an object. Skipping line.\n",
-                            self.base.numLines
-                        ),
-                    );
+                    tracing::warn!("Warning: JSON on line {} is not an object. Skipping line.",
+                            self.base.numLines);
                     continue;
                 }
             };
@@ -984,10 +921,7 @@ impl JsonlApplicator {
                         variables_output.insert(key_hash);
                     }
                 } else {
-                    u_fprintf(
-                        output,
-                        format_args!("Warning: Empty 'cmd' value on line {}.\n", self.base.numLines),
-                    );
+                    tracing::warn!("Warning: Empty 'cmd' value on line {}.", self.base.numLines);
                 }
                 continue;
             }
@@ -1016,10 +950,7 @@ impl JsonlApplicator {
                         self.print_plain_text_line(&t_ustr, output);
                     }
                 } else {
-                    u_fprintf(
-                        output,
-                        format_args!("Warning: Empty 't' value on line {}.\n", self.base.numLines),
-                    );
+                    tracing::warn!("Warning: Empty 't' value on line {}.", self.base.numLines);
                 }
                 continue;
             } else if obj.contains_key("w") {
@@ -1048,7 +979,7 @@ impl JsonlApplicator {
                 }
 
                 let sw = c_swindow.unwrap();
-                let cc = self.parse_json_cohort(obj, sw, output);
+                let cc = self.parse_json_cohort(obj, sw);
                 c_cohort = Some(cc);
                 // cCohort is never null in this port (alloc always succeeds), so the
                 // "Failed to create cohort" branch is unreachable.
@@ -1090,13 +1021,8 @@ impl JsonlApplicator {
                         });
                     if hard_hit {
                         if cohorts_len >= self.base.hard_limit as usize {
-                            u_fprintf(
-                                output,
-                                format_args!(
-                                    "Warning: Hard limit of {} cohorts reached at line {} - forcing break.\n",
-                                    self.base.hard_limit, self.base.numLines
-                                ),
-                            );
+                            tracing::warn!("Warning: Hard limit of {} cohorts reached at line {} - forcing break.",
+                                    self.base.hard_limit, self.base.numLines);
                         }
                         let rs = self.base.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {

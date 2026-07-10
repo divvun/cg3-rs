@@ -53,14 +53,14 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Option<Grammar> {
     let mut input = match File::open(filename) {
         Ok(f) => f,
         Err(_) => {
-            eprintln!("Error: Error opening {} for reading!", filename);
+            tracing::error!("Error: Error opening {} for reading!", filename);
             return None;
         }
     };
     // if (!input.read(&cbuffers[0][0], 4)) { ...; return 0; }
     let mut head = [0u8; 4];
     if input.read_exact(&mut head).is_err() {
-        eprintln!("Error: Error reading first 4 bytes from grammar!");
+        tracing::error!("Error: Error reading first 4 bytes from grammar!");
         return None;
     }
     drop(input); // input.close();
@@ -73,7 +73,7 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Option<Grammar> {
         // parser.reset(new BinaryGrammar(*grammar, ux_stderr));
         let mut parser = BinaryGrammar::binary_grammar(grammar);
         if parser.parse_grammar_filename(filename) != 0 {
-            eprintln!("Error: Grammar could not be parsed!");
+            tracing::error!("Error: Grammar could not be parsed!");
             return None;
         }
         let mut grammar = parser.grammar;
@@ -81,7 +81,7 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Option<Grammar> {
         Some(grammar)
     } else {
         if require_binary {
-            eprintln!("Error: Text grammar detected -- to compile this grammar, use `cg-comp'");
+            tracing::error!("Error: Text grammar detected -- to compile this grammar, use `cg-comp'");
             cg3_quit(1, None, 0);
         }
         // parser.reset(new TextualParser(*grammar, ux_stderr));
@@ -89,12 +89,12 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Option<Grammar> {
         let buffer = match std::fs::read(filename) {
             Ok(b) => b,
             Err(_) => {
-                eprintln!("Error: Error opening {} for reading!", filename);
+                tracing::error!("Error: Error opening {} for reading!", filename);
                 return None;
             }
         };
         if parser.parse_grammar_utf8(&buffer) != 0 {
-            eprintln!("Error: Grammar could not be parsed!");
+            tracing::error!("Error: Grammar could not be parsed!");
             return None;
         }
         let mut grammar = parser.grammar;
@@ -144,7 +144,7 @@ pub fn main_relabel(args: &[String]) -> i32 {
             let _ = gout.flush();
         }
         Err(_) => {
-            eprintln!("Could not write grammar to {}", args[3]);
+            tracing::error!("Could not write grammar to {}", args[3]);
         }
     }
 

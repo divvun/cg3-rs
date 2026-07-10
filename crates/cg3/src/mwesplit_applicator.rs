@@ -45,7 +45,7 @@ use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{isnl, ui32};
 use crate::store::RuntimeStore;
 use crate::tag::T_WORDFORM;
-use crate::uextras::{u_fflush, u_fprintf, u_fputc};
+use crate::uextras::{u_fflush, u_fputc};
 
 /// C++ `Strings.hpp` constants (UTF-16 → UTF-8 &str).
 const STR_DUMMY: &str = "__CG3_DUMMY_STRINGBIT__";
@@ -370,19 +370,14 @@ impl GrammarApplicator {
                 Some(vh) => {
                     if vh != self.grammar.tag_any {
                         let vtid = tag_by_hash(&self.grammar, vh);
-                        u_fprintf(
-                            output,
-                            format_args!(
-                                "{STR_CMD_SETVAR}{}={}>\n",
-                                key_tag, self.grammar.single_tags_list[vtid.0].tag
-                            ),
-                        );
+                        let _ = write!(output, "{STR_CMD_SETVAR}{}={}>\n",
+                                key_tag, self.grammar.single_tags_list[vtid.0].tag);
                     } else {
-                        u_fprintf(output, format_args!("{STR_CMD_SETVAR}{key_tag}>\n"));
+                        let _ = write!(output, "{STR_CMD_SETVAR}{key_tag}>\n");
                     }
                 }
                 None => {
-                    u_fprintf(output, format_args!("{STR_CMD_REMVAR}{key_tag}>\n"));
+                    let _ = write!(output, "{STR_CMD_REMVAR}{key_tag}>\n");
                 }
             }
         }
@@ -420,7 +415,7 @@ impl GrammarApplicator {
 
         u_fputc('\n', output);
         if flush_after {
-            u_fprintf(output, format_args!("{STR_CMD_FLUSH}\n"));
+            let _ = write!(output, "{STR_CMD_FLUSH}\n");
         }
         u_fflush(output);
     }

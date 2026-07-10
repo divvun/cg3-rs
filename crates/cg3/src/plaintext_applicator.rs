@@ -36,7 +36,7 @@ use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::CT_REMOVED;
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
-use crate::uextras::{get_line_clean, u_fflush, u_fprintf, u_fputc, ux_strip_bom};
+use crate::uextras::{get_line_clean, u_fflush, u_fputc, ux_strip_bom};
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — hash → `TagId`, `TagId(0)` on
 /// a miss (benign; see `niceline_applicator`).
@@ -466,7 +466,7 @@ impl PlaintextApplicator {
             let tag = &self.base.grammar.single_tags_list[wf.expect("cohort wordform").0].tag;
             strip_wordform_brackets(tag)
         };
-        u_fprintf(output, format_args!("{inner} "));
+        let _ = write!(output, "{inner} ");
     }
 
     // [spec:cg3:def:plaintext-applicator.cg3.plaintext-applicator.print-single-window-fn]

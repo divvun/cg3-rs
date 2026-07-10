@@ -327,7 +327,7 @@ pub fn main_proc(args: &[String]) -> i32 {
             Err(_) => end_program(prog),
         };
         if in_.read_exact(&mut head).is_err() {
-            eprintln!("Error: Error reading first 4 bytes from grammar!");
+            tracing::error!("Error: Error reading first 4 bytes from grammar!");
             cg3_quit(1, None, 0);
         }
     }
@@ -344,23 +344,24 @@ pub fn main_proc(args: &[String]) -> i32 {
     let mut grammar: Grammar = if is_cg3b(head) {
         let mut parser = BinaryGrammar::binary_grammar(Grammar::default());
         if parser.parse_grammar_filename(grammar_path) != 0 {
-            eprintln!("Error: Grammar could not be parsed - exiting!");
+            tracing::error!("Error: Grammar could not be parsed - exiting!");
             cg3_quit(1, None, 0);
         }
         parser.grammar
     } else {
-        eprintln!("Warning: Text grammar detected - to better process textual");
-        eprintln!("grammars, use `vislcg3'; to compile this grammar, use `cg-comp'");
+        tracing::warn!(
+            "Warning: Text grammar detected - to better process textual\ngrammars, use `vislcg3'; to compile this grammar, use `cg-comp'"
+        );
         let mut parser = TextualParser::new(Grammar::default(), false);
         let buffer = match std::fs::read(grammar_path) {
             Ok(b) => b,
             Err(_) => {
-                eprintln!("Error: Error opening {} for reading!", grammar_path);
+                tracing::error!("Error: Error opening {} for reading!", grammar_path);
                 cg3_quit(1, None, 0);
             }
         };
         if parser.parse_grammar_utf8(&buffer) != 0 {
-            eprintln!("Error: Grammar could not be parsed - exiting!");
+            tracing::error!("Error: Grammar could not be parsed - exiting!");
             cg3_quit(1, None, 0);
         }
         parser.grammar

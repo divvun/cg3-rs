@@ -36,7 +36,7 @@ use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{isnl, skipto_nospan};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION};
-use crate::uextras::{get_line_clean, u_fflush, u_fprintf, u_fputc, ux_strip_bom};
+use crate::uextras::{get_line_clean, u_fflush, u_fputc, ux_strip_bom};
 
 /// C++ `Strings.hpp` string constants used by the driver (UTF-16 → UTF-8 &str).
 const STR_DUMMY: &str = "__CG3_DUMMY_STRINGBIT__";
@@ -544,7 +544,7 @@ impl NicelineApplicator {
             let tid = tag_by_hash(&self.base.grammar, baseform);
             let tag = &self.base.grammar.single_tags_list[tid.0].tag;
             let inner = strip_surrounding_one(tag);
-            u_fprintf(output, format_args!("[{inner}]"));
+            let _ = write!(output, "[{inner}]");
         }
 
         let parent_cid = parent_cid.expect("reading has no parent cohort");
@@ -577,10 +577,7 @@ impl NicelineApplicator {
             if ttype & T_RELATION != 0 && self.base.has_relations {
                 continue;
             }
-            u_fprintf(
-                output,
-                format_args!(" {}", self.base.grammar.single_tags_list[tid.0].tag),
-            );
+            let _ = write!(output, " {}", self.base.grammar.single_tags_list[tid.0].tag);
         }
 
         // Dependency block.
@@ -610,14 +607,14 @@ impl NicelineApplicator {
             let arrow = if self.base.unicode_tags { "\u{2192}" } else { "->" };
             if self.base.dep_absolute {
                 let pr_global = self.base.store.cohorts.get(pr.0).global_number;
-                u_fprintf(output, format_args!(" #{p_global}{arrow}{pr_global}"));
+                let _ = write!(output, " #{p_global}{arrow}{pr_global}");
             } else if !self.base.dep_has_spanned {
                 let pr_local = self.base.store.cohorts.get(pr.0).local_number;
-                u_fprintf(output, format_args!(" #{p_local}{arrow}{pr_local}"));
+                let _ = write!(output, " #{p_local}{arrow}{pr_local}");
             } else if p_dep_parent == DEP_NO_PARENT {
-                u_fprintf(output, format_args!(" #{p_dep_self}{arrow}{p_dep_self}"));
+                let _ = write!(output, " #{p_dep_self}{arrow}{p_dep_self}");
             } else {
-                u_fprintf(output, format_args!(" #{p_dep_self}{arrow}{p_dep_parent}"));
+                let _ = write!(output, " #{p_dep_self}{arrow}{p_dep_parent}");
             }
         }
 
@@ -627,17 +624,12 @@ impl NicelineApplicator {
             (c.r#type & CT_RELATED != 0, c.global_number, c.relations.clone())
         };
         if p_related {
-            u_fprintf(output, format_args!(" ID:{p_global2}"));
+            let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
                 for siter in targets.iter().copied() {
                     let tid = tag_by_hash(&self.base.grammar, *rel_hash);
-                    u_fprintf(
-                        output,
-                        format_args!(
-                            " R:{}:{siter}",
-                            self.base.grammar.single_tags_list[tid.0].tag
-                        ),
-                    );
+                    let _ = write!(output, " R:{}:{siter}",
+                            self.base.grammar.single_tags_list[tid.0].tag);
                 }
             }
         }
@@ -683,7 +675,7 @@ impl NicelineApplicator {
                 let tag = &self.base.grammar.single_tags_list[wf.0].tag;
                 (strip_wordform_brackets(tag), c.wread.is_some())
             };
-            u_fprintf(output, format_args!("{wf_inner}"));
+            let _ = write!(output, "{wf_inner}");
             if has_wread && !self.did_warn_statictags {
                 // "Niceline CG format cannot output static tags! …": deferred.
                 self.did_warn_statictags = true;

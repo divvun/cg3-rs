@@ -49,6 +49,26 @@ pub mod cg_mwesplit;
 pub mod cg_annotate;
 pub mod cg_merge_annotations;
 
+// --- Diagnostics ----------------------------------------------------------------
+
+/// Install the process-wide tracing subscriber for the CLI binaries: every
+/// diagnostic the engine emits (the C++ `ux_stderr`/`std::cerr` messages, now
+/// `tracing::{error,warn,info}!` events) is written to stderr, message-first
+/// and timestamp-free so the output stays close to the classic CG-3 stderr
+/// text. Idempotent: a second call (e.g. from tests driving two tool mains in
+/// one process) is a no-op.
+pub fn init_diagnostics() {
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .without_time()
+        .with_target(false)
+        .with_ansi(false)
+        .with_max_level(tracing::Level::INFO)
+        .finish()
+        .try_init();
+}
+
 // --- Shared version constants (C++ `version.hpp`) ------------------------------
 
 /// ICU `UErrorCode` values used as tool exit codes (per the flagged-bug

@@ -92,7 +92,7 @@ pub fn main_run(args: &[String]) -> i32 {
     if argc < 0 {
         // argv[-argc] is the offending token.
         let bad = args.get((-argc) as usize).map(|s| s.as_str()).unwrap_or("");
-        eprintln!("{}: error in command line argument \"{}\"", prog, bad);
+        tracing::error!("{}: error in command line argument \"{}\"", prog, bad);
         return argc;
     }
 
@@ -105,7 +105,7 @@ pub fn main_run(args: &[String]) -> i32 {
         && !occ(&options, OPTIONS::HELP1)
         && !occ(&options, OPTIONS::HELP2)
     {
-        eprintln!("Error: No grammar specified - cannot continue!");
+        tracing::error!("Error: No grammar specified - cannot continue!");
         argc = -argc;
     }
 
@@ -141,7 +141,7 @@ pub fn main_run(args: &[String]) -> i32 {
         || occ(&options, OPTIONS::CODEPAGE_OUTPUT)
         || occ(&options, OPTIONS::CODEPAGE_GRAMMAR)
     {
-        eprintln!("Warning: The -C and --codepage-* option are deprecated and now default to UTF-8");
+        tracing::warn!("Warning: The -C and --codepage-* option are deprecated and now default to UTF-8");
     }
 
     // --stdout / --stderr / --stdin file redirection (C++ opens these up-front).
@@ -169,7 +169,7 @@ pub fn main_run(args: &[String]) -> i32 {
         // int serr = stat(path, &info); if (serr) { ... CG3Quit(1); } — stat
         // returns -1 on failure, so the message prints "error -1".
         if std::fs::metadata(&path).is_err() {
-            eprintln!("Error: Cannot stat {} due to error {}!", path, -1);
+            tracing::error!("Error: Cannot stat {} due to error {}!", path, -1);
             cg3_quit(1, None, 0);
         }
         // Open failure past stat → dead ifstream (empty input) — see NOTE.
@@ -187,12 +187,12 @@ pub fn main_run(args: &[String]) -> i32 {
         let mut input = match std::fs::File::open(&grammar_path) {
             Ok(f) => f,
             Err(_) => {
-                eprintln!("Error: Error opening {} for reading!", grammar_path);
+                tracing::error!("Error: Error opening {} for reading!", grammar_path);
                 cg3_quit(1, None, 0);
             }
         };
         if input.read_exact(&mut head).is_err() {
-            eprintln!("Error: Error reading first 4 bytes from grammar!");
+            tracing::error!("Error: Error reading first 4 bytes from grammar!");
             cg3_quit(1, None, 0);
         }
     }
@@ -200,14 +200,14 @@ pub fn main_run(args: &[String]) -> i32 {
     let is_binary = is_cg3b(head);
     if is_binary {
         if verbose {
-            eprintln!("Info: Binary grammar detected.");
+            tracing::info!("Info: Binary grammar detected.");
         }
         if occ(&options, OPTIONS::DUMP_AST) {
-            eprintln!("Error: --dump-ast is for textual grammars only!");
+            tracing::error!("Error: --dump-ast is for textual grammars only!");
             cg3_quit(1, None, 0);
         }
         if occ(&options, OPTIONS::PROFILING) {
-            eprintln!("Error: --profile is for textual grammars only!");
+            tracing::error!("Error: --profile is for textual grammars only!");
             cg3_quit(1, None, 0);
         }
     }
@@ -240,7 +240,7 @@ pub fn main_run(args: &[String]) -> i32 {
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules = Some(re),
                 Err(e) => {
-                    eprintln!("Error: uregex_open returned {} trying to parse --nrules {}", e, pat);
+                    tracing::error!("Error: uregex_open returned {} trying to parse --nrules {}", e, pat);
                     cg3_quit(1, None, 0);
                 }
             }
@@ -250,13 +250,13 @@ pub fn main_run(args: &[String]) -> i32 {
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules_inv = Some(re),
                 Err(e) => {
-                    eprintln!("Error: uregex_open returned {} trying to parse --nrules-v {}", e, pat);
+                    tracing::error!("Error: uregex_open returned {} trying to parse --nrules-v {}", e, pat);
                     cg3_quit(1, None, 0);
                 }
             }
         }
         if parser.parse_grammar_filename(&grammar_path) != 0 {
-            eprintln!("Error: Grammar could not be parsed - exiting!");
+            tracing::error!("Error: Grammar could not be parsed - exiting!");
             cg3_quit(1, None, 0);
         }
         let mut g = parser.grammar;
@@ -277,7 +277,7 @@ pub fn main_run(args: &[String]) -> i32 {
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules = Some(re),
                 Err(e) => {
-                    eprintln!("Error: uregex_open returned {} trying to parse --nrules {}", e, pat);
+                    tracing::error!("Error: uregex_open returned {} trying to parse --nrules {}", e, pat);
                     cg3_quit(1, None, 0);
                 }
             }
@@ -287,7 +287,7 @@ pub fn main_run(args: &[String]) -> i32 {
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules_inv = Some(re),
                 Err(e) => {
-                    eprintln!("Error: uregex_open returned {} trying to parse --nrules-v {}", e, pat);
+                    tracing::error!("Error: uregex_open returned {} trying to parse --nrules-v {}", e, pat);
                     cg3_quit(1, None, 0);
                 }
             }
@@ -299,12 +299,12 @@ pub fn main_run(args: &[String]) -> i32 {
         let buffer = match std::fs::read(&grammar_path) {
             Ok(b) => b,
             Err(_) => {
-                eprintln!("Error: Error opening {} for reading!", grammar_path);
+                tracing::error!("Error: Error opening {} for reading!", grammar_path);
                 cg3_quit(1, None, 0);
             }
         };
         if parser.parse_grammar_utf8(&buffer) != 0 {
-            eprintln!("Error: Grammar could not be parsed - exiting!");
+            tracing::error!("Error: Grammar could not be parsed - exiting!");
             cg3_quit(1, None, 0);
         }
 
@@ -355,14 +355,14 @@ pub fn main_run(args: &[String]) -> i32 {
             .next()
             .unwrap_or('@');
         if grammar.is_binary && grammar.mapping_prefix != mp {
-            eprintln!("Error: Mapping prefix must match the one used for compiling the binary grammar!");
+            tracing::error!("Error: Mapping prefix must match the one used for compiling the binary grammar!");
             cg3_quit(1, None, 0);
         }
         grammar.mapping_prefix = mp;
     }
 
     if verbose {
-        eprintln!("Reindexing grammar...");
+        tracing::info!("Reindexing grammar...");
     }
     grammar.reindex(
         occ(&options, OPTIONS::SHOW_UNUSED_SETS),
@@ -370,7 +370,7 @@ pub fn main_run(args: &[String]) -> i32 {
     );
 
     if verbose {
-        eprintln!(
+        tracing::info!(
             "Grammar has {} sections, {} templates, {} rules, {} sets, {} tags.",
             grammar.sections.len(),
             grammar.templates.len(),
@@ -379,18 +379,18 @@ pub fn main_run(args: &[String]) -> i32 {
             grammar.single_tags.size()
         );
         if let Some(rules_any) = grammar.rules_any.as_ref() {
-            eprintln!("{} rules cannot be skipped by index.", rules_any.size());
+            tracing::info!("{} rules cannot be skipped by index.", rules_any.size());
         }
         if grammar.has_dep {
-            eprintln!("Grammar has dependency rules.");
+            tracing::info!("Grammar has dependency rules.");
         }
         if grammar.has_relations {
-            eprintln!("Grammar has relation rules.");
+            tracing::info!("Grammar has relation rules.");
         }
     }
 
     if occ(&options, OPTIONS::PROFILING) && occ(&options, OPTIONS::GRAMMAR_ONLY) {
-        eprintln!("Error: Cannot gather profiling data with no input to run grammar on.");
+        tracing::error!("Error: Cannot gather profiling data with no input to run grammar on.");
         cg3_quit(1, None, 0);
     }
 
@@ -480,7 +480,7 @@ pub fn main_run(args: &[String]) -> i32 {
                 let _ = gout.flush();
             }
             Err(_) => {
-                eprintln!("Could not write grammar to {}", path);
+                tracing::error!("Could not write grammar to {}", path);
             }
         }
     }
@@ -496,7 +496,7 @@ pub fn main_run(args: &[String]) -> i32 {
                 grammar = writer.grammar;
             }
             Err(_) => {
-                eprintln!("Could not write grammar to {}", path);
+                tracing::error!("Could not write grammar to {}", path);
             }
         }
     }

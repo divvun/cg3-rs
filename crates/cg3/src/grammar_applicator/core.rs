@@ -47,7 +47,7 @@ use crate::tag::{
     T_VARSTRING, Tag,
 };
 use crate::tag_trie::trie_get_tag_list_append;
-use crate::uextras::{u_fflush, u_fprintf, u_fputc, ux_strCaseCompare};
+use crate::uextras::{u_fflush, u_fputc, ux_strCaseCompare};
 
 use super::tmpl_context_t;
 
@@ -695,7 +695,7 @@ impl super::GrammarApplicator {
         if self.fmt_output == super::cg3_sformat::CG3SF_BINARY {
             return self.bin_print_stream_command(cmd, output);
         }
-        u_fprintf(output, format_args!("{cmd}\n"));
+        let _ = write!(output, "{cmd}\n");
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-plain-text-line-fn]
@@ -709,7 +709,7 @@ impl super::GrammarApplicator {
         if self.fmt_output == super::cg3_sformat::CG3SF_BINARY {
             return self.bin_print_plain_text_line(line, output);
         }
-        u_fprintf(output, format_args!("{line}"));
+        let _ = write!(output, "{line}");
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-trace-fn]
@@ -720,7 +720,7 @@ impl super::GrammarApplicator {
             && self.grammar.rule_by_number.try_get(hit_by).is_some()
         {
             let r = &self.grammar.rule_by_number[hit_by];
-            u_fprintf(output, format_args!("{}", keyword_name(r.r#type)));
+            let _ = write!(output, "{}", keyword_name(r.r#type));
             use KEYWORDS::*;
             let is_rel = matches!(
                 r.r#type,
@@ -733,26 +733,26 @@ impl super::GrammarApplicator {
             );
             if is_rel {
                 if let Some(txt) = self.first_maplist_tag(r.maplist) {
-                    u_fprintf(output, format_args!("({txt}"));
+                    let _ = write!(output, "({txt}");
                 }
                 if matches!(r.r#type, K_ADDRELATIONS | K_SETRELATIONS | K_REMRELATIONS) {
                     if let Some(txt) = self.first_maplist_tag(r.sublist) {
-                        u_fprintf(output, format_args!(",{txt}"));
+                        let _ = write!(output, ",{txt}");
                     }
                 }
-                u_fprintf(output, format_args!(")"));
+                let _ = write!(output, ")");
             }
             if !self.trace_name_only || r.name.is_empty() {
-                u_fprintf(output, format_args!(":{}", r.line));
+                let _ = write!(output, ":{}", r.line);
             }
             if !r.name.is_empty() {
                 u_fputc(':', output);
-                u_fprintf(output, format_args!("{}", r.name));
+                let _ = write!(output, "{}", r.name);
             }
         } else {
             // C++ ENCL pass number: numeric_limits<uint32_t>::max() - hit_by.
             let pass = u32::MAX - hit_by;
-            u_fprintf(output, format_args!("ENCL:{pass}"));
+            let _ = write!(output, "ENCL:{pass}");
         }
     }
 
@@ -802,7 +802,7 @@ impl super::GrammarApplicator {
 
         if baseform != 0 {
             let tid = tag_by_hash(&self.grammar, baseform);
-            u_fprintf(output, format_args!("{}", self.grammar.single_tags_list[tid.0].tag));
+            let _ = write!(output, "{}", self.grammar.single_tags_list[tid.0].tag);
         }
 
         let tags_list: Vec<u32> = store.readings.get(reading.0).tags_list.clone();
@@ -833,10 +833,10 @@ impl super::GrammarApplicator {
                 mappings.push(tid);
                 continue;
             }
-            u_fprintf(output, format_args!(" {}", self.grammar.single_tags_list[tid.0].tag));
+            let _ = write!(output, " {}", self.grammar.single_tags_list[tid.0].tag);
         }
         for tid in mappings {
-            u_fprintf(output, format_args!(" {}", self.grammar.single_tags_list[tid.0].tag));
+            let _ = write!(output, " {}", self.grammar.single_tags_list[tid.0].tag);
         }
 
         // --- dependency annotation ---
@@ -866,42 +866,32 @@ impl super::GrammarApplicator {
             let arrow = if self.unicode_tags { "\u{2192}" } else { "->" };
             if self.dep_absolute {
                 let pr_global = store.cohorts.get(pr.0).global_number;
-                u_fprintf(output, format_args!(" #{p_global}{arrow}{pr_global}"));
+                let _ = write!(output, " #{p_global}{arrow}{pr_global}");
             } else if !self.dep_has_spanned {
                 let pr_local = store.cohorts.get(pr.0).local_number;
-                u_fprintf(output, format_args!(" #{p_local}{arrow}{pr_local}"));
+                let _ = write!(output, " #{p_local}{arrow}{pr_local}");
             } else {
                 let w = self.dep_span_width();
                 let p_win = p_sw.map(|s| store.single_windows.get(s.0).number).unwrap_or(0);
                 if p_dep_parent == DEP_NO_PARENT {
-                    u_fprintf(
-                        output,
-                        format_args!(
-                            " #{a}{b:0w$}{arrow}{c}{d:0w$}",
+                    let _ = write!(output, " #{a}{b:0w$}{arrow}{c}{d:0w$}",
                             a = p_win,
                             b = p_local,
                             c = p_win,
                             d = p_local,
-                            w = w
-                        ),
-                    );
+                            w = w);
                 } else {
                     let (pr_local, pr_win) = {
                         let c = store.cohorts.get(pr.0);
                         let win = c.parent.map(|s| store.single_windows.get(s.0).number).unwrap_or(0);
                         (c.local_number, win)
                     };
-                    u_fprintf(
-                        output,
-                        format_args!(
-                            " #{a}{b:0w$}{arrow}{c}{d:0w$}",
+                    let _ = write!(output, " #{a}{b:0w$}{arrow}{c}{d:0w$}",
                             a = p_win,
                             b = p_local,
                             c = pr_win,
                             d = pr_local,
-                            w = w
-                        ),
-                    );
+                            w = w);
                 }
             }
         }
@@ -912,14 +902,11 @@ impl super::GrammarApplicator {
             (c.r#type & CT_RELATED != 0, c.global_number, c.relations.clone())
         };
         if self.print_ids || p_related {
-            u_fprintf(output, format_args!(" ID:{p_global2}"));
+            let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
                 for siter in targets.iter().copied() {
                     let tid = tag_by_hash(&self.grammar, *rel_hash);
-                    u_fprintf(
-                        output,
-                        format_args!(" R:{}:{siter}", self.grammar.single_tags_list[tid.0].tag),
-                    );
+                    let _ = write!(output, " R:{}:{siter}", self.grammar.single_tags_list[tid.0].tag);
                 }
             }
         }
@@ -956,7 +943,7 @@ impl super::GrammarApplicator {
         // `goto removed` from local_number == 0 skips the entire main body.
         if local_number != 0 {
             if profiling && Some(cohort) == self.rule_target {
-                u_fprintf(output, format_args!("# RULE TARGET BEGIN\n"));
+                let _ = write!(output, "# RULE TARGET BEGIN\n");
             }
 
             let wblank = store.cohorts.get(cohort.0).wblank.clone();
@@ -983,7 +970,7 @@ impl super::GrammarApplicator {
                     let t = &self.grammar.single_tags_list[wf.0];
                     (t.tag.clone(), t.hash)
                 };
-                u_fprintf(output, format_args!("{wf_tag}"));
+                let _ = write!(output, "{wf_tag}");
                 if let Some(wr) = store.cohorts.get(cohort.0).wread {
                     let tags: Vec<u32> = store.readings.get(wr.0).tags_list.clone();
                     for tter in tags {
@@ -991,10 +978,7 @@ impl super::GrammarApplicator {
                             continue;
                         }
                         let tid = tag_by_hash(&self.grammar, tter);
-                        u_fprintf(
-                            output,
-                            format_args!(" {}", self.grammar.single_tags_list[tid.0].tag),
-                        );
+                        let _ = write!(output, " {}", self.grammar.single_tags_list[tid.0].tag);
                     }
                 }
                 u_fputc('\n', output);
@@ -1046,7 +1030,7 @@ impl super::GrammarApplicator {
         }
 
         if profiling && Some(cohort) == self.rule_target {
-            u_fprintf(output, format_args!("# RULE TARGET END\n"));
+            let _ = write!(output, "# RULE TARGET END\n");
         }
     }
 
@@ -1726,30 +1710,25 @@ impl super::GrammarApplicator {
 
         let mut buf: Vec<u8> = Vec::new();
         let line = self.grammar.rule_by_number[rule.0].line;
-        u_fprintf(
-            &mut buf,
-            format_args!(
-                "# ===== BEGIN RULE {}{}{} =====\n",
+        let _ = write!(&mut buf, "# ===== BEGIN RULE {}{}{} =====\n",
                 line,
                 if target { " TARGET-MATCH" } else { " TARGET-FAIL" },
-                if cntx { " CONTEXT-MATCH" } else { " CONTEXT-FAIL" }
-            ),
-        );
+                if cntx { " CONTEXT-MATCH" } else { " CONTEXT-FAIL" });
 
-        u_fprintf(&mut buf, format_args!("# PREVIOUS WINDOWS\n"));
+        let _ = write!(&mut buf, "# PREVIOUS WINDOWS\n");
         for s in self.gWindow.previous.clone() {
             self.print_single_window(store, s, &mut buf, true);
         }
-        u_fprintf(&mut buf, format_args!("# CURRENT WINDOW\n"));
+        let _ = write!(&mut buf, "# CURRENT WINDOW\n");
         if let Some(cur) = self.gWindow.current {
             self.print_single_window(store, cur, &mut buf, true);
         }
-        u_fprintf(&mut buf, format_args!("# NEXT WINDOWS\n"));
+        let _ = write!(&mut buf, "# NEXT WINDOWS\n");
         for s in self.gWindow.next.clone() {
             self.print_single_window(store, s, &mut buf, true);
         }
 
-        u_fprintf(&mut buf, format_args!("# ===== END RULE {line} =====\n"));
+        let _ = write!(&mut buf, "# ===== END RULE {line} =====\n");
 
         // u_fprintf(ux_stderr, "%s", buf): ux_stderr is a placeholder; deferred.
         let _ = buf;
@@ -1818,7 +1797,7 @@ impl crate::parser_helpers::ParseTagState for super::GrammarApplicator {
     /// `error()` defers the sink, so emit a plain stderr line here.
     fn error_near(&mut self, _near: &[char]) {
         let (label, line) = self.error("", None);
-        eprintln!("Error: parseTag failed at {label} {line}");
+        tracing::error!("Error: parseTag failed at {label} {line}");
     }
 
     /// C++ `state.addTag(tag)` → `GrammarApplicator::addTag(Tag*)` — the

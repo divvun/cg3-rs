@@ -198,7 +198,7 @@ impl BinaryGrammar {
         let meta = match std::fs::metadata(filename) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!(
+                tracing::error!(
                     "Error: Cannot stat {} due to error {} - bailing out!",
                     filename, e
                 );
@@ -210,7 +210,7 @@ impl BinaryGrammar {
         let data = match std::fs::read(filename) {
             Ok(d) => d,
             Err(e) => {
-                eprintln!(
+                tracing::error!(
                     "Error: Cannot stat {} due to error {} - bailing out!",
                     filename, e
                 );
@@ -256,18 +256,18 @@ impl BinaryGrammar {
         // Header: 4 magic bytes.
         let mut magic = [0u8; 4];
         if input.read_exact(&mut magic).is_err() {
-            eprintln!("Error: Error reading first 4 bytes from grammar!");
+            tracing::error!("Error: Error reading first 4 bytes from grammar!");
             cg3_quit(1, None, 0);
         }
         if !is_cg3b(magic) {
-            eprintln!("Error: Grammar does not begin with magic bytes - cannot load as binary!");
+            tracing::error!("Error: Grammar does not begin with magic bytes - cannot load as binary!");
             cg3_quit(1, None, 0);
         }
 
         let bin_revision = read_be::<u32, _>(input);
         if bin_revision <= BIN_REV_ANCIENT {
             if self.verbosity >= 1 {
-                eprintln!(
+                tracing::warn!(
                     "Warning: Grammar revision is {}, but current format is {} or later. Please recompile the binary grammar with latest CG-3.",
                     bin_revision, CG3_FEATURE_REV
                 );
@@ -276,14 +276,14 @@ impl BinaryGrammar {
             return self.read_binary_grammar_10043(input);
         }
         if bin_revision < CG3_TOO_OLD {
-            eprintln!(
+            tracing::error!(
                 "Error: Grammar revision is {}, but this loader requires {} or later!",
                 bin_revision, CG3_TOO_OLD
             );
             cg3_quit(1, None, 0);
         }
         if bin_revision > CG3_FEATURE_REV {
-            eprintln!(
+            tracing::error!(
                 "Error: Grammar revision is {}, but this loader only knows up to revision {}!",
                 bin_revision, CG3_FEATURE_REV
             );
@@ -405,7 +405,7 @@ impl BinaryGrammar {
                     match built {
                         Ok(re) => t.regexp = Some(re),
                         Err(e) => {
-                            eprintln!(
+                            tracing::error!(
                                 "Error: uregex_open returned {} trying to parse tag {} - cannot continue!",
                                 e, t.tag
                             );
@@ -827,7 +827,7 @@ impl BinaryGrammar {
     /// legacy input and returns error code 1 instead of parsing. The real reader
     /// lived in BinaryGrammar_read_10043.cpp and is intentionally excluded.
     fn read_binary_grammar_10043<R: Read>(&mut self, _input: &mut R) -> i32 {
-        eprintln!(
+        tracing::error!(
             "Error: legacy .cg3b rev <10373 not supported (readBinaryGrammar_10043 not ported)."
         );
         1
@@ -839,7 +839,7 @@ impl BinaryGrammar {
     /// never invoked (its only caller, `read_binary_grammar_10043`, errors out
     /// first); refuses legacy input and returns error code 1.
     fn read_contextual_test_10043<R: Read>(&mut self, _input: &mut R) -> i32 {
-        eprintln!(
+        tracing::error!(
             "Error: legacy .cg3b rev <10373 not supported (readContextualTest_10043 not ported)."
         );
         1
@@ -1427,7 +1427,7 @@ impl BinaryGrammar {
             fields |= 1 << 0;
             write_be(&mut buffer, hash);
         } else {
-            eprintln!("Error: Context on line {} had hash 0!", line);
+            tracing::error!("Error: Context on line {} had hash 0!", line);
             cg3_quit(1, None, 0);
         }
         if pos != 0 {

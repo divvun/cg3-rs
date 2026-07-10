@@ -538,7 +538,7 @@ impl TextualParser {
         let _ = std::io::stderr().flush();
         self.error_counter += 1;
         if self.error_counter >= 10 {
-            eprintln!("{}: Too many errors - giving up...", self.filebase);
+            tracing::error!("{}: Too many errors - giving up...", self.filebase);
             cg3_quit(1, None, 0);
         }
         panic::panic_any(ParseError(self.error_counter))
@@ -553,13 +553,13 @@ impl TextualParser {
     pub fn error_near(&mut self, near: &[char]) -> ! {
         ux_bufcpy(&mut self.nearbuf, Some(near), 20);
         let nb: String = self.nearbuf.iter().take_while(|&&c| c != '\0').collect();
-        eprintln!("{}: Error on line {} near `{}`!", self.filebase, self.grammar.lines, nb);
+        tracing::error!("{}: Error on line {} near `{}`!", self.filebase, self.grammar.lines, nb);
         self.inc_error_count()
     }
 
     /// The `(str)` overload (no near-context; used by the SUB:* guard).
     fn error_bare(&mut self) -> ! {
-        eprintln!("{}: Error on line {}!", self.filebase, self.grammar.lines);
+        tracing::error!("{}: Error on line {}!", self.filebase, self.grammar.lines);
         self.inc_error_count()
     }
 
@@ -1204,7 +1204,7 @@ impl TextualParser {
         if tries >= 100 {
             self.error_near(&buf[n..]); // unknown specifier
         } else if tries >= 20 {
-            eprintln!("{}: Warning: Position took many loops.", self.filebase);
+            tracing::warn!("{}: Warning: Position took many loops.", self.filebase);
         }
         if !isspace(buf[*pos]) {
             self.error_near(&buf[n..]); // garbage data
@@ -1256,7 +1256,7 @@ impl TextualParser {
             self.error_near(&buf[n..]);
         }
         if (posb & POS_SCANALL != 0) && (posb & POS_NOT != 0) {
-            eprintln!("{}: Warning: mixing NOT and ** ...", self.filebase);
+            tracing::warn!("{}: Warning: mixing NOT and ** ...", self.filebase);
         }
 
         if posb > POS_64BIT {
@@ -1355,7 +1355,7 @@ impl TextualParser {
                 self.grammar.lines += skipws(buf, pos, '\0', '\0', false);
             }
             if self.grammar.contexts_arena[t_cur.0].ors.len() == 1 && self.verbosity_level > 0 {
-                eprintln!("{}: Warning: inline template ...", self.filebase);
+                tracing::warn!("{}: Warning: inline template ...", self.filebase);
             }
         } else if token.starts_with('[') {
             // (2) Template shorthand [set, set, ...].
@@ -1434,7 +1434,7 @@ impl TextualParser {
                 (c.barrier, c.cbarrier, c.pos)
             };
             if (barrier != 0 || cbarrier != 0) && (pb & (MASK_POS_SCAN | POS_SELF) == 0) {
-                eprintln!("{}: Warning: Barriers only make sense for scanning or self tests.", self.filebase);
+                tracing::warn!("{}: Warning: Barriers only make sense for scanning or self tests.", self.filebase);
                 self.grammar.contexts_arena[t_cur.0].barrier = 0;
                 self.grammar.contexts_arena[t_cur.0].cbarrier = 0;
             }
@@ -1461,7 +1461,7 @@ impl TextualParser {
             && (self.grammar.contexts_arena[t_cur.0].pos & POS_SCANALL != 0)
             && (self.grammar.contexts_arena[t_cur.0].pos & POS_CAREFUL == 0)
         {
-            eprintln!("{}: Warning: ** without LINK or C doesn't make sense.", self.filebase);
+            tracing::warn!("{}: Warning: ** without LINK or C doesn't make sense.", self.filebase);
         }
 
         if let Some(rf) = rule_flags {
@@ -1763,7 +1763,7 @@ impl TextualParser {
             self.grammar.lines += skiptows(buf, &mut n, '(', false, false);
             let name: String = buf[*pos..n].iter().collect();
             if name.is_empty() {
-                eprintln!("{}: Warning: Rule had : but no name.", self.filebase);
+                tracing::warn!("{}: Warning: Rule had : but no name.", self.filebase);
             } else {
                 rule.set_name(Some(&name));
             }
@@ -2199,7 +2199,7 @@ impl TextualParser {
 
         self.grammar.lines += skipws(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            eprintln!("{}: Warning: Expected closing ; after previous rule!", self.filebase);
+            tracing::warn!("{}: Warning: Expected closing ; after previous rule!", self.filebase);
         }
 
         if destroy {
@@ -2216,7 +2216,7 @@ impl TextualParser {
     fn parse_directive(&mut self, buf: &[char], pos: &mut usize, fname: &str) {
         let p0 = *pos;
         if self.verbosity_level > 0 && self.grammar.lines % 500 == 0 {
-            eprint!("Parsing line {}          \r", self.grammar.lines);
+            tracing::info!("Parsing line {}", self.grammar.lines);
         }
         self.grammar.lines += skipws(buf, pos, '\0', '\0', false);
         let _ = p0;
@@ -2442,7 +2442,7 @@ impl TextualParser {
                 self.grammar.lines += skiptows(buf, &mut n, ';', true, false);
                 let name: String = buf[*pos..n].iter().collect();
                 if self.grammar.undef_set(&name).is_none() {
-                    eprintln!("{}: Warning: Set {} wasn't defined.", self.filebase, name);
+                    tracing::warn!("{}: Warning: Set {} wasn't defined.", self.filebase, name);
                 }
                 *pos = n;
                 self.grammar.lines += skipws(buf, pos, '\0', '\0', false);
@@ -2972,7 +2972,7 @@ impl TextualParser {
                     b
                 }
                 Err(e) => {
-                    eprintln!(
+                    tracing::error!(
                         "{}: Error: Cannot stat {} due to error {} - bailing out!",
                         self.filebase, abspath, e
                     );
@@ -3131,7 +3131,7 @@ impl TextualParser {
         let buf: &[char] = unsafe { std::slice::from_raw_parts(ptr, len) };
 
         if len <= 4 || buf[4] == '\0' {
-            eprintln!("{}: Error: Input is empty - cannot continue!", fname);
+            tracing::error!("{}: Error: Input is empty - cannot continue!", fname);
             cg3_quit(1, None, 0);
         }
 
@@ -3240,7 +3240,7 @@ impl TextualParser {
                     continue;
                 }
                 if self.grammar.anchors.find(thash) == self.grammar.anchors.end() {
-                    eprintln!("Error: JUMP could not find anchor.");
+                    tracing::error!("Error: JUMP could not find anchor.");
                     self.error_counter += 1;
                 }
             }
@@ -3268,7 +3268,7 @@ impl TextualParser {
         for (t, (line, name)) in deferred {
             let cn = hash_value_ustring(&name, 0);
             if !self.grammar.templates.contains_key(&cn) {
-                eprintln!(
+                tracing::error!(
                     "{}: Error: Unknown template '{}' referenced on line {}!",
                     self.filebase, name, line
                 );

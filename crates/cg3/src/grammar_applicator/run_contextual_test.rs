@@ -1233,7 +1233,7 @@ impl super::GrammarApplicator {
                                 let c = self.store.cohorts.get(current.0);
                                 (c.dep_self, c.dep_parent)
                             };
-                            eprintln!(
+                            tracing::warn!(
                                 "Warning: Cohort {} (parent {}) did not have any siblings.",
                                 ds, dp
                             );
@@ -1286,12 +1286,12 @@ impl super::GrammarApplicator {
                     if self.verbosity_level > 0 {
                         let ds = self.store.cohorts.get(current.0).dep_self;
                         if test_pos & POS_DEP_CHILD != 0 {
-                            eprintln!(
+                            tracing::warn!(
                                 "Warning: Child dependency {} -> {} does not exist - ignoring.",
                                 ds, dter
                             );
                         } else {
-                            eprintln!(
+                            tracing::warn!(
                                 "Warning: Sibling dependency {} -> {} does not exist - ignoring.",
                                 ds, dter
                             );

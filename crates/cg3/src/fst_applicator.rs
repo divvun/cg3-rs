@@ -38,7 +38,7 @@ use crate::single_window::{append_cohort, free_swindow};
 use crate::store::RuntimeStore;
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
 use crate::types::UString;
-use crate::uextras::{get_line_clean, u_fprintf, u_fputc, ux_strip_bom};
+use crate::uextras::{get_line_clean, u_fputc, ux_strip_bom};
 
 /// C++ `grammar->single_tags[hash]` — resolves a tag hash to its `TagId`, else
 /// `TagId(0)`. Reproduces `grammar_applicator::core::tag_by_hash` (which is
@@ -127,7 +127,7 @@ impl FSTApplicator {
 
         if let Some(next_id) = next {
             self.print_reading(store, next_id, output);
-            u_fprintf(output, format_args!("{}", self.sub_delims));
+            let _ = write!(output, "{}", self.sub_delims);
         }
 
         if baseform != 0 {
@@ -138,7 +138,7 @@ impl FSTApplicator {
             let chars: Vec<char> = tag.chars().collect();
             if chars.len() >= 2 {
                 let inner: String = chars[1..chars.len() - 1].iter().collect();
-                u_fprintf(output, format_args!("{inner}"));
+                let _ = write!(output, "{inner}");
             }
         }
 
@@ -173,7 +173,7 @@ impl FSTApplicator {
             if tag.r#type & T_RELATION != 0 && self.base.has_relations {
                 continue;
             }
-            u_fprintf(output, format_args!("+{}", tag.tag));
+            let _ = write!(output, "+{}", tag.tag);
         }
     }
 
@@ -200,7 +200,7 @@ impl FSTApplicator {
         if !goto_removed {
             let wblank = store.cohorts.get(cohort.0).wblank.clone();
             if !wblank.is_empty() {
-                u_fprintf(output, format_args!("{wblank}"));
+                let _ = write!(output, "{wblank}");
                 if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
                     u_fputc('\n', output);
                 }
@@ -242,12 +242,12 @@ impl FSTApplicator {
             let only_noprint = readings.len() == 1 && store.readings.get(readings[0].0).noprint;
             if readings.is_empty() || only_noprint {
                 // "<wordform>\t+?\n" — the FST "no analysis" marker.
-                u_fprintf(output, format_args!("{wform_inner}\t+?\n"));
+                let _ = write!(output, "{wform_inner}\t+?\n");
             } else {
                 // NOTE: printCohort does NOT sort readings (unlike the base CG
                 // applicator) — iterate the current vector order verbatim.
                 for rter in readings {
-                    u_fprintf(output, format_args!("{wform_inner}\t"));
+                    let _ = write!(output, "{wform_inner}\t");
                     self.print_reading(store, rter, output);
                     u_fputc('\n', output);
                 }
@@ -258,7 +258,7 @@ impl FSTApplicator {
         // removed:
         let text = store.cohorts.get(cohort.0).text.clone();
         if !text.is_empty() && text.chars().any(|c| !self.is_ws(c)) {
-            u_fprintf(output, format_args!("{text}"));
+            let _ = write!(output, "{text}");
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }
@@ -299,7 +299,7 @@ impl FSTApplicator {
         };
 
         if !text.is_empty() {
-            u_fprintf(output, format_args!("{text}"));
+            let _ = write!(output, "{text}");
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }
@@ -310,7 +310,7 @@ impl FSTApplicator {
         }
 
         if !text_post.is_empty() {
-            u_fprintf(output, format_args!("{text_post}"));
+            let _ = write!(output, "{text_post}");
             if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }
@@ -343,13 +343,11 @@ impl FSTApplicator {
         let no_soft = self.base.grammar.soft_delimiters.is_none();
         if no_hard {
             if no_soft {
-                u_fprintf(&mut std::io::sink(), format_args!(
-                    "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.\n",
-                    self.base.hard_limit));
+                tracing::warn!("Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
+                    self.base.hard_limit);
             } else {
-                u_fprintf(&mut std::io::sink(), format_args!(
-                    "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.\n",
-                    self.base.soft_limit));
+                tracing::warn!("Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
+                    self.base.soft_limit);
             }
         }
 
@@ -406,9 +404,8 @@ impl FSTApplicator {
                 if cleaned[space] != '\t' {
                     // If this line looks like markup, don't warn about it.
                     if cleaned[0] != '<' {
-                        u_fprintf(&mut std::io::sink(), format_args!(
-                            "Warning: {} on line {} looked like a cohort but wasn't - treated as text.\n",
-                            cleaned[..space].iter().collect::<String>(), self.base.numLines));
+                        tracing::warn!("Warning: {} on line {} looked like a cohort but wasn't - treated as text.",
+                            cleaned[..space].iter().collect::<String>(), self.base.numLines);
                     }
                     is_text = true;
                 } else {
@@ -636,8 +633,7 @@ impl FSTApplicator {
                                 };
                                 if cur_first == '\0' {
                                     base_str = Some(String::from("_")); // notag {'_',0}
-                                    u_fprintf(&mut std::io::sink(), format_args!(
-                                        "Warning: Line {} had empty tag.\n", self.base.numLines));
+                                    tracing::warn!("Warning: Line {} had empty tag.", self.base.numLines);
                                 }
                                 // Tag* tag2 = addTag(base);
                                 let base_text = match &base_str {
@@ -721,8 +717,7 @@ impl FSTApplicator {
                             let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                             let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
                             self.base.store.readings.get_mut(c_reading.0).baseform = wf_hash;
-                            u_fprintf(&mut std::io::sink(), format_args!(
-                                "Warning: Line {} had no valid baseform.\n", self.base.numLines));
+                            tracing::warn!("Warning: Line {} had no valid baseform.", self.base.numLines);
                         }
                         // if (single_tags[baseform]->tag.size() == 2) { ... }
                         let bf_hash = self.base.store.readings.get(c_reading.0).baseform;
@@ -913,9 +908,8 @@ impl FSTApplicator {
                 if !self.base.is_conv && over_hard {
                     let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                     let wftag = self.base.grammar.single_tags_list.get(wf.0).tag.clone();
-                    u_fprintf(&mut std::io::sink(), format_args!(
-                        "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.\n",
-                        self.base.hard_limit, wftag, self.base.numCohorts, self.base.numLines));
+                    tracing::warn!("Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
+                        self.base.hard_limit, wftag, self.base.numCohorts, self.base.numLines);
                 }
                 let rs = self.base.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
