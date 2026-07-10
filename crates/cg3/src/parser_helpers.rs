@@ -227,7 +227,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
             && tget(tmp_off, 3, &to_chars) == ':'
         {
             tag.r#type |= T_VARIABLE;
-            tag.dep_parent = 0; // variable_hash = 0 (union alias)
+            tag.set_variable_hash(0);
             tmp_off += 4;
             length -= 4;
         }
@@ -402,7 +402,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
                         let t = parse_tag(&after, near, state, false);
                         state.grammar().single_tags_list[t.0].hash
                     };
-                    tag.dep_parent = vh; // variable_hash (union alias)
+                    tag.set_variable_hash(vh);
                     let before: String = tag_tag[..bpos].to_string();
                     let ch = {
                         let t = parse_tag(&before, near, state, false);
@@ -452,31 +452,31 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
                 tag.r#type |= T_SAME_BASIC;
             } else if tag.tag == STR_UU_C1 {
                 tag.r#type |= T_CONTEXT;
-                tag.dep_parent = 1; // context_ref_pos (union alias)
+                tag.set_context_ref_pos(1);
             } else if tag.tag == STR_UU_C2 {
                 tag.r#type |= T_CONTEXT;
-                tag.dep_parent = 2;
+                tag.set_context_ref_pos(2);
             } else if tag.tag == STR_UU_C3 {
                 tag.r#type |= T_CONTEXT;
-                tag.dep_parent = 3;
+                tag.set_context_ref_pos(3);
             } else if tag.tag == STR_UU_C4 {
                 tag.r#type |= T_CONTEXT;
-                tag.dep_parent = 4;
+                tag.set_context_ref_pos(4);
             } else if tag.tag == STR_UU_C5 {
                 tag.r#type |= T_CONTEXT;
-                tag.dep_parent = 5;
+                tag.set_context_ref_pos(5);
             } else if tag.tag == STR_UU_C6 {
                 tag.r#type |= T_CONTEXT;
-                tag.dep_parent = 6;
+                tag.set_context_ref_pos(6);
             } else if tag.tag == STR_UU_C7 {
                 tag.r#type |= T_CONTEXT;
-                tag.dep_parent = 7;
+                tag.set_context_ref_pos(7);
             } else if tag.tag == STR_UU_C8 {
                 tag.r#type |= T_CONTEXT;
-                tag.dep_parent = 8;
+                tag.set_context_ref_pos(8);
             } else if tag.tag == STR_UU_C9 {
                 tag.r#type |= T_CONTEXT;
-                tag.dep_parent = 9;
+                tag.set_context_ref_pos(9);
             }
 
             // Regex compile.

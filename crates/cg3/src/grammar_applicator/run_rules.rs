@@ -1494,7 +1494,7 @@ impl super::GrammarApplicator {
         let trie_special = self.grammar.set_by_number(rtarget).trie_special.clone();
         for (&tid, _) in trie_special.iter() {
             let t = self.grammar.single_tags_list.get(tid.0);
-            let crp = t.dep_parent; // context_ref_pos aliases dep_parent
+            let crp = t.context_ref_pos();
             if t.r#type & crate::tag::T_CONTEXT != 0 && (crp as usize) <= ctx_len {
                 if let Some(Some(c)) = self
                     .context_stack

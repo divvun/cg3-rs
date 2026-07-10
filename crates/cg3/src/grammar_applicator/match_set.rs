@@ -220,7 +220,7 @@ pub fn test_tag_numerical(
     let parent = store.readings.get(reading.0).parent.unwrap();
     let mut compval = tag.comparison_val;
     // `tag.comparison_offset` aliases the `dep_parent` union member (tag.rs).
-    let comparison_offset = tag.dep_parent as usize;
+    let comparison_offset = tag.comparison_offset() as usize;
     if tag.r#type & T_NUMERIC_MATH != 0 && comparison_offset != 0 {
         let mn = cohort::get_min(store, grammar, parent, tag.comparison_hash);
         let mx = cohort::get_max(store, grammar, parent, tag.comparison_hash);
@@ -739,12 +739,11 @@ impl super::GrammarApplicator {
                         .map(|(_, v)| *v)
                 };
                 if let Some(itval) = found_value {
-                    // tag.variable_hash aliases dep_parent (tag.rs union).
-                    if tag.dep_parent == 0 {
+                    if tag.variable_hash() == 0 {
                         m = tag.hash;
                     } else {
                         let comp_tid = {
-                            let it = self.grammar.single_tags.find(tag.dep_parent);
+                            let it = self.grammar.single_tags.find(tag.variable_hash());
                             it.get().1
                         };
                         let comp_tag = self.grammar.single_tags_list[comp_tid.0].clone();
@@ -833,7 +832,7 @@ impl super::GrammarApplicator {
             // (17) previous context frame's position list
             if self.context_stack.len() > 1 {
                 let idx = self.context_stack.len() - 2;
-                let crp = tag.dep_parent; // context_ref_pos aliases dep_parent
+                let crp = tag.context_ref_pos();
                 let pc = self.store.readings.get(reading.0).parent;
                 let list = &self.context_stack[idx].context;
                 if crp as usize <= list.len() && pc == list[(crp - 1) as usize] {

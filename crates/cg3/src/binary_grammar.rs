@@ -436,12 +436,14 @@ impl BinaryGrammar {
             }
             // 1 << 12 used above.
             if tfields & (1 << 13) != 0 {
-                // variable_hash — the anonymous union aliasing `dep_parent`.
-                t.dep_parent = read_be(input);
+                // variable_hash (the C++ union member).
+                let v = read_be(input);
+                t.set_variable_hash(v);
             }
             if tfields & (1 << 14) != 0 {
-                // context_ref_pos — same aliased field.
-                t.dep_parent = read_be(input);
+                // context_ref_pos (the C++ union member).
+                let v = read_be(input);
+                t.set_context_ref_pos(v);
             }
 
             let hash = t.hash;
@@ -987,7 +989,7 @@ impl BinaryGrammar {
                     t.regexp.as_ref().map(|r| r.as_str().to_string()),
                     t.vs_sets.clone(),
                     t.vs_names.clone(),
-                    t.dep_parent,
+                    t.extra.raw(),
                 )
             };
 

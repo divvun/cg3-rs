@@ -122,14 +122,14 @@ pub struct Tag {
     /// `uint32_t dep_self = 0;`
     pub dep_self: u32,
     /// C++ anonymous `union { uint32_t dep_parent = 0; uint32_t variable_hash;
-    /// uint32_t context_ref_pos; uint32_t comparison_offset; };`.
-    ///
-    /// NOTE(lead): every union member is the same `uint32_t` overlaying the
-    /// same 4 bytes (a naming alias, not a variant), so the faithful port is a
-    /// single `u32`. Reads/writes under the names `variable_hash`,
-    /// `context_ref_pos`, and `comparison_offset` in the method pass all target
-    /// this field.
-    pub dep_parent: u32,
+    /// uint32_t context_ref_pos; uint32_t comparison_offset; };` — wave 4: a
+    /// tagged enum carrying the role the tag actually plays (the C++ union was
+    /// a naming alias over one `uint32_t`). Role accessors
+    /// ([`dep_parent`](Tag::dep_parent) & co.) treat `Unset` as the C++ zero
+    /// initialiser and PANIC on a cross-role read (which would have been a
+    /// silent bit-reinterpretation in C++; the test corpus confirms no
+    /// cross-role read occurs).
+    pub extra: TagUnion,
     /// `uint32_t hash = 0;`
     pub hash: u32,
     /// `uint32_t plain_hash = 0;`
@@ -211,6 +211,88 @@ pub type TagVectorSet = std::collections::BTreeSet<TagVector>;
 // Method bodies (Wave 2 method pass). Ported literally from `src/Tag.cpp` /
 // `src/Tag.hpp`; each fn carries its `[spec:cg3:def]` + `[spec:cg3:sem]` ids.
 // ===========================================================================
+
+
+/// The role-tagged replacement for the C++ anonymous union in [`Tag`]
+/// (`dep_parent` / `variable_hash` / `context_ref_pos` / `comparison_offset`).
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub enum TagUnion {
+    /// Zero-initialised: no role has written the field yet (C++ `= 0`).
+    #[default]
+    Unset,
+    /// `dep_parent` — the parent of a `#self→parent` dependency tag, or the
+    /// target of an `R:name:target` relation tag (`u32::MAX` while parsing).
+    DepParent(u32),
+    /// `variable_hash` — the value-tag hash of a `VAR=value` variable tag
+    /// (`0` = bare variable test).
+    VariableHash(u32),
+    /// `context_ref_pos` — the position `n` of a `_C{n}_` context reference.
+    ContextRefPos(u32),
+    /// `comparison_offset` — offset of the math expression inside a
+    /// `T_NUMERIC_MATH` tag's text (`0` = none/eval failed).
+    ComparisonOffset(u32),
+}
+
+impl TagUnion {
+    /// The raw `uint32_t` the C++ union would expose, regardless of role —
+    /// ONLY for serialization (`BinaryGrammar` writes the raw field).
+    pub fn raw(self) -> u32 {
+        match self {
+            TagUnion::Unset => 0,
+            TagUnion::DepParent(v)
+            | TagUnion::VariableHash(v)
+            | TagUnion::ContextRefPos(v)
+            | TagUnion::ComparisonOffset(v) => v,
+        }
+    }
+}
+
+impl Tag {
+    /// Role accessor: `dep_parent` (0 when unset; panics on a cross-role read).
+    pub fn dep_parent(&self) -> u32 {
+        match self.extra {
+            TagUnion::Unset => 0,
+            TagUnion::DepParent(v) => v,
+            other => panic!("Tag union read as dep_parent but holds {other:?}"),
+        }
+    }
+    pub fn set_dep_parent(&mut self, v: u32) {
+        self.extra = TagUnion::DepParent(v);
+    }
+    /// Role accessor: `variable_hash` (0 when unset = bare variable test).
+    pub fn variable_hash(&self) -> u32 {
+        match self.extra {
+            TagUnion::Unset => 0,
+            TagUnion::VariableHash(v) => v,
+            other => panic!("Tag union read as variable_hash but holds {other:?}"),
+        }
+    }
+    pub fn set_variable_hash(&mut self, v: u32) {
+        self.extra = TagUnion::VariableHash(v);
+    }
+    /// Role accessor: `context_ref_pos` (0 when unset).
+    pub fn context_ref_pos(&self) -> u32 {
+        match self.extra {
+            TagUnion::Unset => 0,
+            TagUnion::ContextRefPos(v) => v,
+            other => panic!("Tag union read as context_ref_pos but holds {other:?}"),
+        }
+    }
+    pub fn set_context_ref_pos(&mut self, v: u32) {
+        self.extra = TagUnion::ContextRefPos(v);
+    }
+    /// Role accessor: `comparison_offset` (0 when unset/eval failed).
+    pub fn comparison_offset(&self) -> u32 {
+        match self.extra {
+            TagUnion::Unset => 0,
+            TagUnion::ComparisonOffset(v) => v,
+            other => panic!("Tag union read as comparison_offset but holds {other:?}"),
+        }
+    }
+    pub fn set_comparison_offset(&mut self, v: u32) {
+        self.extra = TagUnion::ComparisonOffset(v);
+    }
+}
 
 impl Tag {
     // [spec:cg3:def:tag.cg3.tag.rehash-fn]
@@ -382,14 +464,13 @@ impl Tag {
             && txval_str.chars().any(|c| math_set.contains(c))
             && !txval_str.chars().any(|c| neg_set.contains(c))
         {
-            // comparison_offset (union member aliasing dep_parent).
-            self.dep_parent = (tkey.len() + top.len() + 1) as u32;
-            let comparison_offset = self.dep_parent as usize;
+            self.set_comparison_offset((tkey.len() + top.len() + 1) as u32);
+            let comparison_offset = self.comparison_offset() as usize;
             // exp = view(tag).remove_prefix(comparison_offset).remove_suffix(1)
             let exp_str: String = chars[comparison_offset..(size - 1)].iter().collect();
             let mut mp = MathParser::new(NUMERIC_MIN, NUMERIC_MAX);
             if mp.eval(&exp_str).is_err() {
-                self.dep_parent = 0;
+                self.set_comparison_offset(0);
                 return;
             }
             self.r#type |= T_NUMERIC_MATH;
@@ -528,7 +609,7 @@ impl Clone for Tag {
             r#type: o.r#type,
             comparison_hash: o.comparison_hash,
             dep_self: o.dep_self,
-            dep_parent: o.dep_parent,
+            extra: o.extra,
             hash: o.hash,
             plain_hash: o.plain_hash,
             number: o.number,
@@ -633,7 +714,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
             this.dep_self = v;
         }
         if let Some(v) = v2 {
-            this.dep_parent = v;
+            this.set_dep_parent(v);
         }
         if n == 2 && this.dep_self != 0 {
             this.r#type |= T_DEPENDENCY;
@@ -644,7 +725,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
             this.dep_self = v;
         }
         if let Some(v) = v2 {
-            this.dep_parent = v;
+            this.set_dep_parent(v);
         }
         if n == 2 && this.dep_self != 0 {
             this.r#type |= T_DEPENDENCY;
@@ -661,12 +742,12 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     }
     if cat(0) == 'R' && cat(1) == ':' {
         // dep_parent = UINT32_MAX; u_sscanf("R:%[^:]:%i", &relname, &dep_parent)
-        this.dep_parent = u32::MAX;
+        this.set_dep_parent(u32::MAX);
         let (n, relname, dp) = scan_relation(&to_chars);
         if let Some(v) = dp {
-            this.dep_parent = v;
+            this.set_dep_parent(v);
         }
-        if n == 2 && this.dep_parent != u32::MAX {
+        if n == 2 && this.dep_parent() != u32::MAX {
             this.r#type |= T_RELATION;
             let reltag = allocate_tag(grammar, &relname);
             this.comparison_hash = grammar.single_tags_list[reltag.0].hash;

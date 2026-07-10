@@ -843,7 +843,7 @@ impl super::GrammarApplicator {
                 t.plain_hash,
                 t.tag.chars().next().unwrap_or('\0'),
                 t.dep_self,
-                t.dep_parent,
+                t.dep_parent(),
                 t.comparison_hash,
             )
         };

@@ -770,7 +770,7 @@ fn tag_parse_raw_and_numeric() {
     let dep = g.allocate_tag("#2->1");
     let d = &g.single_tags_list[dep.0];
     assert_ne!(d.r#type & T_DEPENDENCY, 0);
-    assert_eq!((d.dep_self, d.dep_parent), (2, 1));
+    assert_eq!((d.dep_self, d.dep_parent()), (2, 1));
 
     let mut t = Tag::default();
     parse_tag_raw(&mut t, "ID:5", &mut g);
@@ -781,7 +781,7 @@ fn tag_parse_raw_and_numeric() {
     let mut t = Tag::default();
     parse_tag_raw(&mut t, "R:mark:4", &mut g);
     assert_ne!(t.r#type & T_RELATION, 0);
-    assert_eq!(t.dep_parent, 4);
+    assert_eq!(t.dep_parent(), 4);
     let mark = g.allocate_tag("mark"); // dedups to the tag interned above
     assert_eq!(t.comparison_hash, g.single_tags_list[mark.0].hash);
 
