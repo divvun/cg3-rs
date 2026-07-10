@@ -216,12 +216,12 @@ pub fn alloc_reading(store: &mut RuntimeStore, p: Option<CohortId>) -> ReadingId
 /// `next` chain is deep-cloned, matching the C++ order (`pool.get()` for the
 /// parent, then recursion for the children).
 pub fn alloc_reading_copy(store: &mut RuntimeStore, o: &Reading) -> ReadingId {
-    let cap_before = store.readings.capacity();
+    let pooled = store.readings.will_reuse();
     let r = copy_ctor_fields(o);
     let child_src = r.next;
     let idx = store.readings.alloc(r);
     // Pooled reuse (pool.get() returned a cleared object) forces both flags off.
-    if idx < cap_before {
+    if pooled {
         let rr = store.readings.get_mut(idx);
         rr.immutable = false;
         rr.active = false;

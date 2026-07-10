@@ -128,7 +128,16 @@ fn cohort_alloc_detach_clear_dtor_free() {
     // by-value ownership); the slot is recycled LIFO by the next alloc.
     free_cohort(&mut store, Some(&mut w), Some(c2));
     let reused = alloc_cohort(&mut store, Some(sw));
-    assert_eq!(reused, c2, "freed slot reused (pool semantics)");
+    // Wave 4 (GenArena): the SLOT is recycled LIFO (pool semantics), but the
+    // recycled id carries a bumped generation, so the stale c2 handle is now
+    // DETECTED instead of aliasing the new cohort.
+    assert_eq!(
+        cg3::arena::GenArena::<cg3::cohort::Cohort>::index_of(reused.0),
+        cg3::arena::GenArena::<cg3::cohort::Cohort>::index_of(c2.0),
+        "freed slot reused (pool semantics)"
+    );
+    assert_ne!(reused, c2, "recycled id has a new generation");
+    assert!(store.cohorts.try_get(c2.0).is_none(), "stale id detected");
 }
 
 // appendReading (member-list + external-list overloads: number staged from the
@@ -535,7 +544,12 @@ fn reading_alloc_copy_free_clear() {
     src2.immutable = true;
     src2.active = true;
     let pooled = alloc_reading_copy(&mut store, &src2);
-    assert_eq!(pooled, junk_id, "freed slot reused");
+    // Wave 4 (GenArena): same slot, bumped generation (stale junk_id detected).
+    assert_eq!(
+        cg3::arena::GenArena::<Reading>::index_of(pooled.0),
+        cg3::arena::GenArena::<Reading>::index_of(junk_id.0),
+        "freed slot reused"
+    );
     let p = store.readings.get(pooled.0);
     assert!(!p.immutable && !p.active, "pooled branch forces the flags off");
 

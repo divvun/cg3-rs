@@ -10,16 +10,16 @@
 //!
 //! Not a manifest symbol — port infrastructure standing in for the pools.
 
-use crate::arena::Arena;
+use crate::arena::GenArena;
 use crate::cohort::Cohort;
 use crate::reading::Reading;
 use crate::single_window::SingleWindow;
 
 #[derive(Default)]
 pub struct RuntimeStore {
-    pub cohorts: Arena<Cohort>,
-    pub readings: Arena<Reading>,
-    pub single_windows: Arena<SingleWindow>,
+    pub cohorts: GenArena<Cohort>,
+    pub readings: GenArena<Reading>,
+    pub single_windows: GenArena<SingleWindow>,
 }
 
 impl RuntimeStore {
