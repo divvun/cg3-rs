@@ -1,0 +1,969 @@
+//! Port of `src/FSTApplicator.cpp` + `src/FSTApplicator.hpp` — the FST-lookup
+//! text-format applicator (`hfst`/`apertium`-style `wordform<TAB>analysis` I/O).
+//!
+//! ## Composition (task design)
+//! C++ `class FSTApplicator : public virtual GrammarApplicator` becomes
+//! [`FSTApplicator`] holding a [`GrammarApplicator`](crate::grammar_applicator::GrammarApplicator)
+//! `base` by value plus the four FST-only members. Every engine/core call goes
+//! through `self.base.<method>` (or the core free fns threaded
+//! `&mut self.base.store` / `&mut self.base.gWindow` / `&self.base.grammar`).
+//! No `src/*` module other than this file is edited.
+//!
+//! ## Live vs. gated
+//! The three serialisers ([`FSTApplicator::print_reading`],
+//! [`print_cohort`](FSTApplicator::print_cohort),
+//! [`print_single_window`](FSTApplicator::print_single_window)) build only on
+//! ported base helpers + the runtime store, so they COMPILE LIVE.
+//!
+//! [`run_grammar_on_text`](FSTApplicator::run_grammar_on_text) is now a genuine
+//! port: the `input`/`output` streams are threaded as method params (mirroring
+//! the sibling `apertium_applicator.rs` — `input: &mut R (Read + Seek)` /
+//! `output: &mut W (Write)`), the `ux_stdin`/`ux_stdout` `Option<()>` fields are
+//! elided, and the C++ `u_strchr` / `u_strspn` / `u_strcspn` `UChar*` walks are
+//! reproduced over a `Vec<char>` scratch buffer with `usize` indices. The
+//! `reverse(cReading)` sub-reading reversal maps to [`reverse_reading`] over the
+//! arena `next` chain. `strtof` → `str::parse::<f32>`; the delimiter/warning
+//! diagnostics are emitted to a discard sink (`ux_stderr` placeholder).
+
+use std::io::Write;
+
+use crate::arena::{CohortId, ReadingId, SwId, TagId};
+use crate::cohort::{CT_REMOVED, alloc_cohort, free_cohort};
+use crate::grammar::Grammar;
+use crate::grammar_applicator::GrammarApplicator;
+use crate::inlines::{NUMERIC_MAX, insert_if_exists, isnl, isspace, reversed, skipto_nospan_raw};
+use crate::cohort::append_reading;
+use crate::reading::alloc_reading;
+use crate::single_window::{append_cohort, free_swindow};
+use crate::store::RuntimeStore;
+use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
+use crate::types::UString;
+use crate::uextras::{get_line_clean, u_fprintf, u_fputc, ux_strip_bom};
+
+/// C++ `grammar->single_tags[hash]` — resolves a tag hash to its `TagId`, else
+/// `TagId(0)`. Reproduces `grammar_applicator::core::tag_by_hash` (which is
+/// `pub(super)`, not reachable here); the module cannot be edited.
+fn tag_by_hash(grammar: &Grammar, hash: u32) -> TagId {
+    let it = grammar.single_tags.find(hash);
+    if it != grammar.single_tags.end() {
+        it.get().1
+    } else {
+        TagId(0)
+    }
+}
+
+/// C++ `reverse(Reading* head)` (the `inlines.hpp` `->next`-chain reversal),
+/// specialised to the arena `ReadingId` chain: reverses the singly-linked
+/// sub-reading `next` chain in place and returns the new head.
+fn reverse_reading(store: &mut RuntimeStore, head: ReadingId) -> ReadingId {
+    let mut nr: Option<ReadingId> = None;
+    let mut cur: Option<ReadingId> = Some(head);
+    while let Some(h) = cur {
+        let next = store.readings.get(h.0).next;
+        store.readings.get_mut(h.0).next = nr;
+        nr = Some(h);
+        cur = next;
+    }
+    nr.unwrap_or(head)
+}
+
+// [spec:cg3:def:fst-applicator.cg3.fst-applicator]
+/// C++ `class FSTApplicator : public virtual GrammarApplicator`. Composition
+/// port: the base engine is held by value; the four FST-only members take their
+/// C++ in-class defaults.
+pub struct FSTApplicator {
+    /// The `GrammarApplicator` base (C++ `public virtual` inheritance).
+    pub base: GrammarApplicator,
+    pub did_warn_statictags: bool,
+    pub wfactor: f64,
+    pub wtag: UString,
+    pub sub_delims: UString,
+}
+
+impl FSTApplicator {
+    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.fst-applicator-fn]
+    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.fst-applicator-fn]
+    /// C++ `FSTApplicator::FSTApplicator(std::ostream& ux_err)`. Delegates to the
+    /// base `GrammarApplicator(ux_err)` ctor with an empty body; the FST members
+    /// take their in-class defaults (`did_warn_statictags = false`,
+    /// `wfactor = 1.0`, `wtag = "W"`, `sub_delims = "#"`). No other side effects.
+    pub fn new(base: GrammarApplicator) -> Self {
+        FSTApplicator {
+            base,
+            did_warn_statictags: false,
+            wfactor: 1.0,
+            wtag: "W".to_string(),
+            sub_delims: "#".to_string(),
+        }
+    }
+
+    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.print-reading-fn]
+    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-reading-fn]
+    /// C++ `void FSTApplicator::printReading(const Reading* reading,
+    /// std::ostream& output)`. Serialises one reading in FST-lookup syntax
+    /// (`+`-joined baseform + tags), recursing into subreadings so the innermost
+    /// prints first, joined by `sub_delims` (`"#"`). No trailing newline (the
+    /// caller adds it).
+    ///
+    /// `Reading*`/`Cohort*` resolve through `self.base.store`; the store is
+    /// threaded as a parameter so the caller can split the `&mut self.base` /
+    /// `&mut store` borrows (matching the base print methods).
+    pub fn print_reading<W: Write>(
+        &self,
+        store: &crate::store::RuntimeStore,
+        reading: ReadingId,
+        output: &mut W,
+    ) {
+        let (noprint, deleted, next, baseform, parent) = {
+            let r = store.readings.get(reading.0);
+            (r.noprint, r.deleted, r.next, r.baseform, r.parent)
+        };
+        if noprint {
+            return;
+        }
+        if deleted {
+            return;
+        }
+
+        if let Some(next_id) = next {
+            self.print_reading(store, next_id, output);
+            u_fprintf(output, format_args!("{}", self.sub_delims));
+        }
+
+        if baseform != 0 {
+            // grammar->single_tags[baseform]->tag, stripped of the surrounding
+            // quotes: print `tag.size() - 2` chars starting at `tag.data() + 1`.
+            let tid = tag_by_hash(&self.base.grammar, baseform);
+            let tag = &self.base.grammar.single_tags_list[tid.0].tag;
+            let chars: Vec<char> = tag.chars().collect();
+            if chars.len() >= 2 {
+                let inner: String = chars[1..chars.len() - 1].iter().collect();
+                u_fprintf(output, format_args!("{inner}"));
+            }
+        }
+
+        // parent->wordform->hash for the skip test.
+        let parent_wf_hash = {
+            let cid = parent.expect("reading has no parent cohort");
+            let wf = store.cohorts.get(cid.0).wordform;
+            wf.map(|t| self.base.grammar.single_tags_list[t.0].hash).unwrap_or(0)
+        };
+
+        let tags_list: Vec<u32> = store.readings.get(reading.0).tags_list.clone();
+        let mut unique: crate::sorted_vector::uint32SortedVector =
+            crate::sorted_vector::uint32SortedVector::new();
+        for tter in tags_list {
+            if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag {
+                continue;
+            }
+            if tter == baseform || tter == parent_wf_hash {
+                continue;
+            }
+            if self.base.unique_tags {
+                if unique.find(tter) != unique.end() {
+                    continue;
+                }
+                unique.insert(tter);
+            }
+            let tid = tag_by_hash(&self.base.grammar, tter);
+            let tag = &self.base.grammar.single_tags_list[tid.0];
+            if tag.r#type & T_DEPENDENCY != 0 && self.base.has_dep && !self.base.dep_original {
+                continue;
+            }
+            if tag.r#type & T_RELATION != 0 && self.base.has_relations {
+                continue;
+            }
+            u_fprintf(output, format_args!("+{}", tag.tag));
+        }
+    }
+
+    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.print-cohort-fn]
+    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-cohort-fn]
+    /// C++ `void FSTApplicator::printCohort(Cohort* cohort, std::ostream& output,
+    /// bool profiling)`. Uses a `removed:` label so removed cohorts still print
+    /// their trailing text. Static tags trigger a one-shot stderr warning and are
+    /// otherwise dropped from FST output.
+    pub fn print_cohort<W: Write>(
+        &mut self,
+        store: &mut crate::store::RuntimeStore,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let (local_number, ctype) = {
+            let c = store.cohorts.get(cohort.0);
+            (c.local_number, c.r#type)
+        };
+        // if (local_number == 0 || (type & CT_REMOVED)) goto removed;
+        let goto_removed = local_number == 0 || (ctype & CT_REMOVED != 0);
+
+        if !goto_removed {
+            let wblank = store.cohorts.get(cohort.0).wblank.clone();
+            if !wblank.is_empty() {
+                u_fprintf(output, format_args!("{wblank}"));
+                if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
+                    u_fputc('\n', output);
+                }
+            }
+
+            if store.cohorts.get(cohort.0).wread.is_some() && !self.did_warn_statictags {
+                // u_fprintf(ux_stderr, "Warning: FST CG format cannot output
+                // static tags! You are losing information!\n"); ux_stderr is a
+                // placeholder — emission deferred; the one-shot flag is set.
+                self.did_warn_statictags = true;
+            }
+
+            if !profiling {
+                crate::cohort::unignore_all(store, cohort);
+                if !self.base.split_mappings {
+                    // mergeMappings(*cohort) — needs &mut self.base with the store
+                    // swapped out (its signature threads self.base.store inline).
+                    let mut s = std::mem::take(store);
+                    std::mem::swap(&mut s, &mut self.base.store);
+                    self.base.merge_mappings(cohort);
+                    std::mem::swap(&mut self.base.store, &mut s);
+                    *store = s;
+                }
+            }
+
+            // wform = cohort->wordform->tag; print stripped of `"<` and `>"`:
+            // wform.size() - 4 chars starting at wform.data() + 2.
+            let wform: Vec<char> = {
+                let wf = store.cohorts.get(cohort.0).wordform.expect("cohort wordform");
+                self.base.grammar.single_tags_list[wf.0].tag.chars().collect()
+            };
+            let wform_inner: String = if wform.len() >= 4 {
+                wform[2..wform.len() - 2].iter().collect()
+            } else {
+                String::new()
+            };
+
+            let readings: Vec<ReadingId> = store.cohorts.get(cohort.0).readings.clone();
+            let only_noprint = readings.len() == 1 && store.readings.get(readings[0].0).noprint;
+            if readings.is_empty() || only_noprint {
+                // "<wordform>\t+?\n" — the FST "no analysis" marker.
+                u_fprintf(output, format_args!("{wform_inner}\t+?\n"));
+            } else {
+                // NOTE: printCohort does NOT sort readings (unlike the base CG
+                // applicator) — iterate the current vector order verbatim.
+                for rter in readings {
+                    u_fprintf(output, format_args!("{wform_inner}\t"));
+                    self.print_reading(store, rter, output);
+                    u_fputc('\n', output);
+                }
+            }
+            u_fputc('\n', output);
+        }
+
+        // removed:
+        let text = store.cohorts.get(cohort.0).text.clone();
+        if !text.is_empty() && text.chars().any(|c| !self.is_ws(c)) {
+            u_fprintf(output, format_args!("{text}"));
+            if !isnl(text.chars().next_back().unwrap_or('\0')) {
+                u_fputc('\n', output);
+            }
+        }
+    }
+
+    /// C++ `UString::find_first_not_of(ws)` membership over the base's `ws`
+    /// whitespace set (space, tab, [newline], NUL). Mirrors the base's private
+    /// `is_ws`.
+    fn is_ws(&self, c: char) -> bool {
+        for &w in &self.base.ws {
+            if w == '\0' {
+                break;
+            }
+            if w == c {
+                return true;
+            }
+        }
+        false
+    }
+
+    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.print-single-window-fn]
+    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-single-window-fn]
+    /// C++ `void FSTApplicator::printSingleWindow(SingleWindow* window,
+    /// std::ostream& output, bool profiling)`. Pre-window text, then each cohort,
+    /// then post-window text, then one blank line, then flush. `profiling` is
+    /// forwarded to `printCohort` only.
+    pub fn print_single_window<W: Write>(
+        &mut self,
+        store: &mut crate::store::RuntimeStore,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let (text, all_cohorts, text_post) = {
+            let w = store.single_windows.get(window.0);
+            (w.text.clone(), w.all_cohorts.clone(), w.text_post.clone())
+        };
+
+        if !text.is_empty() {
+            u_fprintf(output, format_args!("{text}"));
+            if !isnl(text.chars().next_back().unwrap_or('\0')) {
+                u_fputc('\n', output);
+            }
+        }
+
+        for cohort in all_cohorts {
+            self.print_cohort(store, cohort, output, profiling);
+        }
+
+        if !text_post.is_empty() {
+            u_fprintf(output, format_args!("{text_post}"));
+            if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
+                u_fputc('\n', output);
+            }
+        }
+
+        u_fputc('\n', output);
+        let _ = output.flush();
+    }
+}
+
+impl FSTApplicator {
+    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.run-grammar-on-text-fn]
+    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.run-grammar-on-text-fn]
+    /// C++ `void FSTApplicator::runGrammarOnText(std::istream& input,
+    /// std::ostream& output)`. Reads the FST-lookup text format
+    /// (`wordform<TAB>analysis[<TAB>weight]` per line; a wordform's readings on
+    /// consecutive lines; blank/other line ends the cohort), builds windows, runs
+    /// the grammar, prints results. No regex — manual char scanning + `strtof`.
+    pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
+    where
+        R: std::io::Read + std::io::Seek,
+        W: std::io::Write,
+    {
+        // ux_stdin = &input; ux_stdout = &output; (elided: Option<()> placeholders)
+        // good()/eof()/output/grammar validity checks (each CG3Quit(1) with a
+        // u_fprintf diagnostic) elided — the grammar is assumed present.
+
+        // No-hard/soft-delimiter warnings (emitted to the discard sink).
+        let no_hard = self.base.grammar.delimiters.is_none();
+        let no_soft = self.base.grammar.soft_delimiters.is_none();
+        if no_hard {
+            if no_soft {
+                u_fprintf(&mut std::io::sink(), format_args!(
+                    "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.\n",
+                    self.base.hard_limit));
+            } else {
+                u_fprintf(&mut std::io::sink(), format_args!(
+                    "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.\n",
+                    self.base.soft_limit));
+            }
+        }
+
+        // UString line(1024, 0); UString cleaned(line.size(), 0);
+        let mut line: Vec<char> = vec!['\0'; 1024];
+        let mut cleaned: Vec<char> = vec!['\0'; line.len()];
+        let ignoreinput = false;
+        let mut did_soft_lookback = false;
+
+        self.base.index();
+
+        let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
+        let mut lines: u32 = 0;
+
+        let mut c_swindow: Option<SwId> = None;
+        let mut c_cohort: Option<CohortId> = None;
+
+        let mut l_swindow: Option<SwId> = None;
+        let mut l_cohort: Option<CohortId> = None;
+
+        self.base.gWindow.window_span = self.base.num_windows;
+
+        ux_strip_bom(input);
+
+        // C++ `while (!input.eof())`: reproduced by breaking when a read makes no
+        // progress (get_line_clean returns 0 and the line buffer stays empty).
+        'mainloop: loop {
+            lines += 1;
+            let mut packoff = get_line_clean(&mut line, &mut cleaned, input, true);
+
+            // Trim trailing whitespace.
+            while cleaned[0] != '\0' && packoff > 0 && isspace(cleaned[packoff - 1]) {
+                cleaned[packoff - 1] = '\0';
+                packoff -= 1;
+            }
+
+            // `is_text` is the `goto istext` flag; the C++ label body runs at the
+            // bottom for every non-cohort line.
+            let mut is_text = !(!ignoreinput && cleaned[0] != '\0');
+
+            if !is_text {
+                // space = &cleaned[0]; SKIPTO_NOSPAN_RAW(space, '\t');
+                let mut space = 0usize;
+                skipto_nospan_raw(&cleaned, &mut space, '\t');
+
+                if cleaned[space] != '\t' {
+                    // If this line looks like markup, don't warn about it.
+                    if cleaned[0] != '<' {
+                        u_fprintf(&mut std::io::sink(), format_args!(
+                            "Warning: {} on line {} looked like a cohort but wasn't - treated as text.\n",
+                            cleaned[..space].iter().collect::<String>(), self.base.numLines));
+                    }
+                    is_text = true;
+                } else {
+                    cleaned[space] = '\0';
+
+                    // tag = "\"<" + cleaned + ">\"";
+                    let wf_body: String = cleaned[..space].iter().collect();
+                    let mut tag = String::new();
+                    tag.push_str("\"<");
+                    tag.push_str(&wf_body);
+                    tag.push_str(">\"");
+
+                    if c_cohort.is_none() {
+                        if c_swindow.is_none() {
+                            let sw =
+                                self.base.gWindow.alloc_append_single_window(&mut self.base.store);
+                            self.base.init_empty_single_window(sw);
+                            c_swindow = Some(sw);
+                            l_swindow = Some(sw);
+                            self.base.numWindows = self.base.numWindows.wrapping_add(1);
+                            did_soft_lookback = false;
+                        }
+                        let cc = alloc_cohort(&mut self.base.store, c_swindow);
+                        let gn = self.base.gWindow.cohort_counter;
+                        self.base.gWindow.cohort_counter =
+                            self.base.gWindow.cohort_counter.wrapping_add(1);
+                        let wf = self.base.add_tag(&tag, 0);
+                        {
+                            let c = self.base.store.cohorts.get_mut(cc.0);
+                            c.global_number = gn;
+                            c.wordform = Some(wf);
+                        }
+                        c_cohort = Some(cc);
+                        l_cohort = Some(cc);
+                        self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
+                    }
+                    let cc = c_cohort.unwrap();
+
+                    // ++space; while (space && *space && (space[0]!='+' ||
+                    //   space[1]!='?' || space[2]!=0)) { ... }
+                    space += 1;
+                    while space < cleaned.len()
+                        && cleaned[space] != '\0'
+                        && !(cleaned[space] == '+'
+                            && cleaned[space + 1] == '?'
+                            && cleaned[space + 2] == '\0')
+                    {
+                        // tab = u_strchr(space, '\t'). FSTs sometimes echo the input
+                        // twice for non-matches, so a `\t+?` tail ends the cohort.
+                        let mut tab: Option<usize> = None;
+                        {
+                            let mut i = space;
+                            while cleaned[i] != '\0' {
+                                if cleaned[i] == '\t' {
+                                    tab = Some(i);
+                                    break;
+                                }
+                                i += 1;
+                            }
+                        }
+                        if let Some(t) = tab {
+                            if cleaned[t + 1] == '+' && cleaned[t + 2] == '?' {
+                                break;
+                            }
+                        }
+
+                        // Reading* cReading = alloc_reading(cCohort);
+                        let mut c_reading = alloc_reading(&mut self.base.store, Some(cc));
+                        insert_if_exists(
+                            &mut self.base.store.cohorts.get_mut(cc.0).possible_sets,
+                            self.base.grammar.sets_any.as_ref(),
+                        );
+                        let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                        self.base.add_tag_to_reading(c_reading, wf);
+
+                        // const UChar* base = space; (index into cleaned). A quoted
+                        // baseform reassignment (base = tag.data()) is tracked with
+                        // `base_str = Some(...)`.
+                        let mut base_idx = space;
+                        let mut base_str: Option<String> = None;
+                        let mut mappings = TagList::new();
+
+                        let mut wtag_tag: Option<TagId> = None;
+                        if let Some(mut t) = tab {
+                            cleaned[t] = '\0';
+                            t += 1;
+                            // Replace the first comma with '.' (locale decimal).
+                            {
+                                let mut i = t;
+                                while i < cleaned.len() && cleaned[i] != '\0' {
+                                    if cleaned[i] == ',' {
+                                        cleaned[i] = '.';
+                                        break;
+                                    }
+                                    i += 1;
+                                }
+                            }
+                            // char buf[32]; copy up to 31 units of the weight text.
+                            let mut buf = String::new();
+                            {
+                                let mut i = 0;
+                                while i < 31 && t + i < cleaned.len() && cleaned[t + i] != '\0' {
+                                    buf.push(cleaned[t + i]);
+                                    i += 1;
+                                }
+                            }
+                            let formatted = if buf == "inf" {
+                                // i = sprintf(buf, "%f", NUMERIC_MAX);
+                                format!("{:.6}", NUMERIC_MAX)
+                            } else {
+                                // weight = strtof(buf, 0); weight *= wfactor;
+                                let weight = (buf.parse::<f32>().unwrap_or(0.0) as f64) * self.wfactor;
+                                // i = sprintf(buf, "%f", weight);
+                                format!("{:.6}", weight)
+                            };
+                            // wtag_buf = "<" + wtag + ":" + buf + ">"
+                            let mut wtag_buf: UString = String::new();
+                            wtag_buf.push('<');
+                            wtag_buf.push_str(&self.wtag);
+                            wtag_buf.push(':');
+                            wtag_buf.push_str(&formatted);
+                            wtag_buf.push('>');
+                            wtag_tag = Some(self.base.add_tag(&wtag_buf, 0));
+                        }
+
+                        // Initial baseform, because it may end on '+'.
+                        // plus = u_strchr(space, '+');
+                        {
+                            let mut plus: Option<usize> = None;
+                            let mut i = space;
+                            while i < cleaned.len() && cleaned[i] != '\0' {
+                                if cleaned[i] == '+' {
+                                    plus = Some(i);
+                                    break;
+                                }
+                                i += 1;
+                            }
+                            if let Some(p0) = plus {
+                                let mut p = p0 + 1; // ++plus
+                                // int32_t p = u_strspn(plus, "+"); span of '+'.
+                                let mut f = 0usize;
+                                while p + f < cleaned.len() && cleaned[p + f] == '+' {
+                                    f += 1;
+                                }
+                                p += f; // space = plus + p
+                                space = p - 1; // --space
+                            }
+                        }
+
+                        // while (space && *space && (space = u_strchr(space,'+')))
+                        loop {
+                            // Advance space to the next '+' (u_strchr).
+                            let mut found: Option<usize> = None;
+                            {
+                                let mut i = space;
+                                while i < cleaned.len() && cleaned[i] != '\0' {
+                                    if cleaned[i] == '+' {
+                                        found = Some(i);
+                                        break;
+                                    }
+                                    i += 1;
+                                }
+                            }
+                            let Some(sp) = found else { break };
+                            space = sp;
+
+                            // if (base && base[0])
+                            let base_first = match &base_str {
+                                Some(s) => s.chars().next().unwrap_or('\0'),
+                                None => cleaned.get(base_idx).copied().unwrap_or('\0'),
+                            };
+                            if base_first != '\0' {
+                                // int32_t f = u_strcspn(base, sub_delims.data());
+                                // (base is always a cleaned index at the top of the
+                                // loop body — a reassignment to `tag` happens later).
+                                let sub: Vec<char> = self.sub_delims.chars().collect();
+                                let mut f = 0usize;
+                                while base_idx + f < cleaned.len()
+                                    && cleaned[base_idx + f] != '\0'
+                                    && !sub.contains(&cleaned[base_idx + f])
+                                {
+                                    f += 1;
+                                }
+                                let mut hash: Option<usize> = None;
+                                if f != 0 && base_idx + f < space {
+                                    // cleaned.resize(size+1); copy_backward; hash[0]=0
+                                    // — insert a NUL at base+f, shifting the tail right.
+                                    let hidx = base_idx + f;
+                                    cleaned.push('\0');
+                                    let n = cleaned.len();
+                                    for k in (hidx + 1..n).rev() {
+                                        cleaned[k] = cleaned[k - 1];
+                                    }
+                                    cleaned[hidx] = '\0';
+                                    hash = Some(hidx);
+                                    space = hidx;
+                                }
+                                cleaned[space] = '\0';
+
+                                // if (cReading->baseform == 0) { tag = '"'+base+'"';
+                                //   base = tag.data(); }
+                                if self.base.store.readings.get(c_reading.0).baseform == 0 {
+                                    let inner = cleaned_cstr(&cleaned, base_idx);
+                                    tag.clear();
+                                    tag.push('"');
+                                    tag.push_str(&inner);
+                                    tag.push('"');
+                                    base_str = Some(tag.clone());
+                                }
+                                // if (base[0] == 0) { base = notag; warn; }
+                                let cur_first = match &base_str {
+                                    Some(s) => s.chars().next().unwrap_or('\0'),
+                                    None => cleaned.get(base_idx).copied().unwrap_or('\0'),
+                                };
+                                if cur_first == '\0' {
+                                    base_str = Some(String::from("_")); // notag {'_',0}
+                                    u_fprintf(&mut std::io::sink(), format_args!(
+                                        "Warning: Line {} had empty tag.\n", self.base.numLines));
+                                }
+                                // Tag* tag2 = addTag(base);
+                                let base_text = match &base_str {
+                                    Some(s) => s.clone(),
+                                    None => cleaned_cstr(&cleaned, base_idx),
+                                };
+                                let t = self.base.add_tag(&base_text, 0);
+                                let (ttype, tfirst) = {
+                                    let tg = self.base.grammar.single_tags_list.get(t.0);
+                                    (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
+                                };
+                                if ttype & T_MAPPING != 0
+                                    || tfirst == self.base.grammar.mapping_prefix
+                                {
+                                    mappings.push(t);
+                                } else {
+                                    self.base.add_tag_to_reading(c_reading, t);
+                                }
+                                // if (hash && hash[0] == 0) { ... new sub-reading ... }
+                                if let Some(hidx) = hash {
+                                    if cleaned[hidx] == '\0' {
+                                        if let Some(wt) = wtag_tag {
+                                            self.base.add_tag_to_reading(c_reading, wt);
+                                        }
+                                        let parent =
+                                            self.base.store.readings.get(c_reading.0).parent;
+                                        let nr = crate::reading::Reading::allocate_reading(
+                                            &mut self.base.store,
+                                            parent,
+                                        );
+                                        self.base.store.readings.get_mut(nr.0).next =
+                                            Some(c_reading);
+                                        c_reading = nr; // cReading = nr;
+                                        space += 1; // ++space;
+                                    }
+                                }
+                            }
+                            // base = ++space;
+                            space += 1;
+                            base_idx = space;
+                            base_str = None;
+                        }
+
+                        // if (base && base[0]) — final trailing segment.
+                        let base_first = match &base_str {
+                            Some(s) => s.chars().next().unwrap_or('\0'),
+                            None => cleaned.get(base_idx).copied().unwrap_or('\0'),
+                        };
+                        if base_first != '\0' {
+                            if self.base.store.readings.get(c_reading.0).baseform == 0 {
+                                let inner = match &base_str {
+                                    Some(s) => s.clone(),
+                                    None => cleaned_cstr(&cleaned, base_idx),
+                                };
+                                tag.clear();
+                                tag.push('"');
+                                tag.push_str(&inner);
+                                tag.push('"');
+                                base_str = Some(tag.clone());
+                            }
+                            let base_text = match &base_str {
+                                Some(s) => s.clone(),
+                                None => cleaned_cstr(&cleaned, base_idx),
+                            };
+                            let t = self.base.add_tag(&base_text, 0);
+                            let (ttype, tfirst) = {
+                                let tg = self.base.grammar.single_tags_list.get(t.0);
+                                (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
+                            };
+                            if ttype & T_MAPPING != 0 || tfirst == self.base.grammar.mapping_prefix {
+                                mappings.push(t);
+                            } else {
+                                self.base.add_tag_to_reading(c_reading, t);
+                            }
+                        }
+                        if let Some(wt) = wtag_tag {
+                            self.base.add_tag_to_reading(c_reading, wt);
+                        }
+                        // if (!cReading->baseform) { baseform = wordform->hash; warn }
+                        if self.base.store.readings.get(c_reading.0).baseform == 0 {
+                            let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                            let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
+                            self.base.store.readings.get_mut(c_reading.0).baseform = wf_hash;
+                            u_fprintf(&mut std::io::sink(), format_args!(
+                                "Warning: Line {} had no valid baseform.\n", self.base.numLines));
+                        }
+                        // if (single_tags[baseform]->tag.size() == 2) { ... }
+                        let bf_hash = self.base.store.readings.get(c_reading.0).baseform;
+                        let bf_size = {
+                            let tid = tag_by_hash(&self.base.grammar, bf_hash);
+                            self.base.grammar.single_tags_list.get(tid.0).tag.chars().count()
+                        };
+                        if bf_size == 2 {
+                            self.base.del_tag_from_reading_hash(c_reading, bf_hash);
+                            let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                            let base = self.base.make_base_from_word(wf);
+                            let h = self.base.grammar.single_tags_list.get(base.0).hash;
+                            self.base.store.readings.get_mut(c_reading.0).baseform = h;
+                        }
+                        if !mappings.is_empty() {
+                            self.base.split_mappings(&mut mappings, cc, c_reading, true);
+                        }
+                        if self.base.grammar.sub_readings_ltr
+                            && self.base.store.readings.get(c_reading.0).next.is_some()
+                        {
+                            c_reading = reverse_reading(&mut self.base.store, c_reading);
+                        }
+                        append_reading(&mut self.base.store, cc, c_reading);
+                        self.base.numReadings = self.base.numReadings.wrapping_add(1);
+                    }
+                }
+            }
+
+            if is_text {
+                self.istext(
+                    &line,
+                    &cleaned,
+                    output,
+                    &mut c_swindow,
+                    &mut c_cohort,
+                    &mut l_swindow,
+                    &mut l_cohort,
+                    &mut did_soft_lookback,
+                    reset_after,
+                    lines,
+                );
+            }
+
+            self.base.numLines = self.base.numLines.wrapping_add(1);
+            line[0] = '\0';
+            cleaned[0] = '\0';
+            // C++ `while (!input.eof())`: stop once a read makes no progress.
+            if packoff == 0 && line[0] == '\0' {
+                break 'mainloop;
+            }
+        }
+
+        // Trailing pending cohort at EOF.
+        if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
+            append_cohort(&mut self.base.gWindow, &mut self.base.store, sw, cc);
+            if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+                self.base.init_empty_cohort(cc);
+            }
+            let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+            for r in rs {
+                let et = tag_by_hash(&self.base.grammar, self.base.endtag);
+                self.base.add_tag_to_reading(r, et);
+            }
+        }
+
+        // Drain buffered windows.
+        while !self.base.gWindow.next.is_empty() {
+            self.base.gWindow.shuffle_windows_down(&mut self.base.store);
+            self.base.run_grammar_on_window(output);
+        }
+        self.base.gWindow.shuffle_windows_down(&mut self.base.store);
+        while !self.base.gWindow.previous.is_empty() {
+            let tmp = self.base.gWindow.previous[0];
+            let mut store = std::mem::take(&mut self.base.store);
+            self.print_single_window(&mut store, tmp, output, false);
+            self.base.store = store;
+            let mut t = Some(tmp);
+            free_swindow(&mut self.base.gWindow, &mut self.base.store, &mut t);
+            self.base.gWindow.previous.remove(0);
+        }
+        let _ = output.flush();
+    }
+
+    /// C++ `istext:` label body of `runGrammarOnText`. Runs for every non-cohort
+    /// line: closes any pending cohort, handles the `is_conv` fast path, applies
+    /// the soft/hard delimiter window breaks, allocates windows, drains the
+    /// pipeline, and attaches trailing text.
+    #[allow(clippy::too_many_arguments)]
+    fn istext<W: Write>(
+        &mut self,
+        line: &[char],
+        cleaned: &[char],
+        output: &mut W,
+        c_swindow: &mut Option<SwId>,
+        c_cohort: &mut Option<CohortId>,
+        l_swindow: &mut Option<SwId>,
+        l_cohort: &mut Option<CohortId>,
+        did_soft_lookback: &mut bool,
+        reset_after: u32,
+        lines: u32,
+    ) {
+        // if (cCohort && cCohort->readings.empty()) initEmptyCohort(*cCohort);
+        if let Some(cc) = *c_cohort {
+            if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+                self.base.init_empty_cohort(cc);
+            }
+        }
+
+        // is_conv fast path.
+        if self.base.is_conv {
+            if let Some(cc) = *c_cohort {
+                self.base.store.cohorts.get_mut(cc.0).local_number = 1;
+                let mut store = std::mem::take(&mut self.base.store);
+                self.print_cohort(&mut store, cc, output, false);
+                self.base.store = store;
+                let mut opt = Some(cc);
+                free_cohort(&mut self.base.store, Some(&mut self.base.gWindow), &mut opt);
+                *c_cohort = None;
+            }
+            if cleaned[0] != '\0' && line[0] != '\0' {
+                let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
+                self.base.print_plain_text_line(&line_str, output);
+            }
+            return;
+        }
+
+        // Soft-limit lookback.
+        if let Some(cs) = *c_swindow {
+            let over_soft =
+                self.base.store.single_windows.get(cs.0).cohorts.len() as u32 >= self.base.soft_limit;
+            if over_soft && self.base.grammar.soft_delimiters.is_some() && !*did_soft_lookback {
+                *did_soft_lookback = true;
+                let sd = self.base.grammar.sets_list
+                    [self.base.grammar.soft_delimiters.unwrap().0]
+                    .number;
+                let cohorts = self.base.store.single_windows.get(cs.0).cohorts.clone();
+                for &c in reversed(&cohorts) {
+                    if self.base.does_set_match_cohort_normal(c, sd, None) {
+                        *did_soft_lookback = false;
+                        let cohort = self.base.delimit_at(cs, c);
+                        // cSWindow = cohort->parent->next;
+                        let parent = self.base.store.cohorts.get(cohort.0).parent.unwrap();
+                        *c_swindow = self.base.store.single_windows.get(parent.0).next;
+                        if let Some(cc) = *c_cohort {
+                            self.base.store.cohorts.get_mut(cc.0).parent = *c_swindow;
+                        }
+                        // verbose soft-limit warning: discard sink.
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Soft-delimiter on the current cohort.
+        if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
+            let over_soft =
+                self.base.store.single_windows.get(cs.0).cohorts.len() as u32 >= self.base.soft_limit;
+            let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
+                let sd = self.base.grammar.sets_list
+                    [self.base.grammar.soft_delimiters.unwrap().0]
+                    .number;
+                self.base.does_set_match_cohort_normal(cc, sd, None)
+            };
+            if over_soft && sd_hit {
+                let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+                for r in rs {
+                    let et = tag_by_hash(&self.base.grammar, self.base.endtag);
+                    self.base.add_tag_to_reading(r, et);
+                }
+                append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+                *l_swindow = Some(cs);
+                *l_cohort = Some(cc);
+                *c_swindow = None;
+                *did_soft_lookback = false;
+            }
+        }
+
+        // Hard break.
+        if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
+            let over_hard =
+                self.base.store.single_windows.get(cs.0).cohorts.len() as u32 >= self.base.hard_limit;
+            let delim_hit = self.base.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
+                let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0].number;
+                self.base.does_set_match_cohort_normal(cc, d, None)
+            };
+            if over_hard || delim_hit {
+                if !self.base.is_conv && over_hard {
+                    let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                    let wftag = self.base.grammar.single_tags_list.get(wf.0).tag.clone();
+                    u_fprintf(&mut std::io::sink(), format_args!(
+                        "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.\n",
+                        self.base.hard_limit, wftag, self.base.numCohorts, self.base.numLines));
+                }
+                let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+                for r in rs {
+                    let et = tag_by_hash(&self.base.grammar, self.base.endtag);
+                    self.base.add_tag_to_reading(r, et);
+                }
+                append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+                *l_swindow = Some(cs);
+                *l_cohort = Some(cc);
+                *c_swindow = None;
+                *did_soft_lookback = false;
+            }
+        }
+
+        // No current window: allocate + init a fresh one.
+        if c_swindow.is_none() {
+            let sw = self.base.gWindow.alloc_append_single_window(&mut self.base.store);
+            self.base.init_empty_single_window(sw);
+            *l_swindow = Some(sw);
+            // lCohort = cSWindow->cohorts[0];
+            *l_cohort = self.base.store.single_windows.get(sw.0).cohorts.first().copied();
+            *c_swindow = Some(sw);
+            *c_cohort = None;
+            self.base.numWindows = self.base.numWindows.wrapping_add(1);
+            *did_soft_lookback = false;
+        }
+
+        // Pending cCohort: append it.
+        if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
+            append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+            *l_cohort = Some(cc);
+        }
+
+        // Drain a window if enough have queued up.
+        if self.base.gWindow.next.len() as u32 > self.base.num_windows {
+            self.base.gWindow.shuffle_windows_down(&mut self.base.store);
+            self.base.run_grammar_on_window(output);
+            if self.base.numWindows % reset_after == 0 {
+                self.base.reset_indexes();
+            }
+            // verbose progress: discard sink.
+            let _ = lines;
+        }
+
+        *c_cohort = None;
+
+        // Attach trailing text.
+        if cleaned[0] != '\0' && line[0] != '\0' {
+            let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
+            if let Some(lc) = *l_cohort {
+                self.base.store.cohorts.get_mut(lc.0).text.push_str(&line_str);
+            } else if let Some(ls) = *l_swindow {
+                self.base.store.single_windows.get_mut(ls.0).text.push_str(&line_str);
+            } else {
+                self.base.print_plain_text_line(&line_str, output);
+            }
+        }
+    }
+}
+
+/// Read a NUL-terminated `UChar*` string starting at `start` out of the `cleaned`
+/// scratch buffer as an owned `String` (the C++ `base`/`&cleaned[i]` reads).
+fn cleaned_cstr(cleaned: &[char], start: usize) -> String {
+    let mut s = String::new();
+    let mut i = start;
+    while i < cleaned.len() && cleaned[i] != '\0' {
+        s.push(cleaned[i]);
+        i += 1;
+    }
+    s
+}
