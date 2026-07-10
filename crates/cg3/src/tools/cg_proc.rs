@@ -451,7 +451,7 @@ pub fn main_proc(args: &[String]) -> i32 {
             if let Some(rule) = base.grammar.rule_by_number.try_get(i) {
                 if rule.name == single_rule {
                     let number = rule.number;
-                    base.valid_rules.push_back(number);
+                    base.valid_rules.insert_sorted(number);
                 }
             }
         }

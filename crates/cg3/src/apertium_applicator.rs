@@ -1516,28 +1516,13 @@ fn find_sub_from(hay: &[char], needle: &[char], from: usize) -> Option<usize> {
 /// Collect the live `(key, value)` pairs of a `Uint32FlatHashMap` (the map does
 /// not derive `Clone`; this reproduces the C++ copy-assign `= variables_set`).
 fn collect_map(m: &crate::flat_unordered_map::Uint32FlatHashMap) -> Vec<(u32, u32)> {
-    let mut out = Vec::new();
-    let mut it = m.begin();
-    let end = m.end();
-    while it != end {
-        let pair = *it.get();
-        out.push(pair);
-        it.pre_increment();
-    }
-    out
+    m.iter().copied().collect()
 }
 
 /// Collect the live items of a `Uint32FlatHashSet` (same rationale as
 /// [`collect_map`]).
 fn collect_set(s: &crate::flat_unordered_set::Uint32FlatHashSet) -> Vec<u32> {
-    let mut out = Vec::new();
-    let mut it = s.begin();
-    let end = s.end();
-    while it != end {
-        out.push(it.get());
-        it.pre_increment();
-    }
-    out
+    s.iter().collect()
 }
 
 // Ensure the flags_t/SingleWindow/Reading imports are considered used even if a

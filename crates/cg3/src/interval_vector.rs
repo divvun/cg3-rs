@@ -288,8 +288,9 @@ impl<T: IntervalScalar> interval_vector<T> {
 
     // [spec:cg3:def:interval-vector.cg3.interval-vector.push-back-fn]
     // [spec:cg3:sem:interval-vector.cg3.interval-vector.push-back-fn]
-    /// Not an append: returns `insert(t)`.
-    pub fn push_back(&mut self, t: T) -> bool {
+    /// C++ `push_back` — misleadingly named (wave 4 rename): not an append;
+    /// returns `insert(t)` (interval-merging sorted insertion).
+    pub fn insert_sorted(&mut self, t: T) -> bool {
         self.insert(t)
     }
 
@@ -547,7 +548,7 @@ mod tests {
         assert_eq!(v.back(), 5);
 
         // Adjacent insert coalesces (fills the 2 gap -> one interval 1..=5).
-        assert!(v.push_back(2));
+        assert!(v.insert_sorted(2));
         assert!(v.contains(2));
         assert_eq!(v.front(), 1);
         assert_eq!(v.back(), 5);

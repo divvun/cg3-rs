@@ -2383,14 +2383,7 @@ impl super::GrammarApplicator {
     /// order (the C++ `for (auto& kv : variables)` iteration). Lets the REMVARIABLE
     /// branch scan while mutating `self`.
     fn variables_entries(&self) -> Vec<(u32, u32)> {
-        let mut out = Vec::with_capacity(self.variables.size());
-        let end = self.variables.end();
-        let mut it = self.variables.begin();
-        while it != end {
-            out.push(*it.get());
-            it.pre_increment();
-        }
-        out
+        self.variables.iter().copied().collect()
     }
 
     /// C++ `getTagList(*set).front()`-style first-tag helper with varstring

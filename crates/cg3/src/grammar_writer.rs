@@ -256,11 +256,8 @@ impl GrammarWriter {
         let mut anchors: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
 
         // for (auto at : res.anchors) anchors.insert(make_pair(at.second, at.first));
-        let mut it = res.anchors.begin();
-        while it != res.anchors.end() {
-            let (first, second) = *it.get();
+        for &(first, second) in res.anchors.iter() {
             anchors.entry(second).or_default().push(first);
-            it.pre_increment();
         }
 
         GrammarWriter {

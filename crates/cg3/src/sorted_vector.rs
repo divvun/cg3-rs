@@ -159,10 +159,13 @@ impl<T: Clone, Comp: Comparator<T> + Default> sorted_vector<T, Comp> {
 
     // [spec:cg3:def:sorted-vector.cg3.sorted-vector.push-back-fn]
     // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.push-back-fn]
-    /// Despite the name this does NOT append; it routes through [`insert`],
-    /// performing a sorted, duplicate-suppressing insertion. The `insert`
-    /// return value is discarded.
-    pub fn push_back(&mut self, t: T) {
+    /// C++ `push_back` — misleadingly named (wave 4 rename): it does NOT
+    /// append; it routes through [`insert`], performing a sorted,
+    /// duplicate-suppressing insertion. The `insert` return value is
+    /// discarded.
+    ///
+    /// [`insert`]: SortedVector::insert
+    pub fn insert_sorted(&mut self, t: T) {
         self.insert(t);
     }
 
@@ -547,8 +550,8 @@ mod tests {
         // Duplicate is suppressed: (index_of_existing, false).
         assert_eq!(v.insert(5), (1, false));
         // push_back routes through insert (does NOT append).
-        v.push_back(3);
-        v.push_back(3); // duplicate suppressed
+        v.insert_sorted(3);
+        v.insert_sorted(3); // duplicate suppressed
         // Order is now [2,3,5,8].
         assert_eq!(v.as_slice(), &[2, 3, 5, 8]);
 
@@ -601,7 +604,7 @@ mod tests {
     fn erase_pop_clear_and_reverse() {
         let mut v: sorted_vector<u32> = sorted_vector::new();
         for x in [1u32, 2, 3, 4, 5] {
-            v.push_back(x);
+            v.insert_sorted(x);
         }
         assert_eq!(v.as_slice(), &[1, 2, 3, 4, 5]);
 

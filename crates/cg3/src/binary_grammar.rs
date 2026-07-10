@@ -1100,14 +1100,7 @@ impl BinaryGrammar {
 
         // --- anchors ---
         let anchors: Vec<(u32, u32)> = {
-            let mut v = Vec::new();
-            let mut it = self.grammar.anchors.begin();
-            let end = self.grammar.anchors.end();
-            while it != end {
-                let (a, b) = *it.get();
-                v.push((a, b));
-                it.pre_increment();
-            }
+            let v: Vec<(u32, u32)> = self.grammar.anchors.iter().copied().collect();
             v
         };
         if !anchors.is_empty() {

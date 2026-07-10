@@ -90,6 +90,18 @@ impl<'a, K, V> Clone for ConstIterator<'a, K, V> {
 
 impl<'a, K, V> Copy for ConstIterator<'a, K, V> {}
 
+/// Wave 4: the C++-style cursor is also a real [`Iterator`] (yields the
+/// current `(key, value)` pair, then advances via the `pre_increment` walk).
+impl<'a, K: Sentinel, V: Copy> Iterator for ConstIterator<'a, K, V> {
+    type Item = (K, V);
+    fn next(&mut self) -> Option<(K, V)> {
+        let fum = self.fus?;
+        let cur = fum.elements[self.i];
+        self.pre_increment();
+        Some(cur)
+    }
+}
+
 impl<'a, K, V> Default for ConstIterator<'a, K, V> {
     // [spec:cg3:def:flat-unordered-map.cg3.flat-unordered-map.const-iterator.const-iterator-fn]
     // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.const-iterator.const-iterator-fn]
@@ -219,6 +231,14 @@ impl<K: Sentinel, V> FlatUnorderedMap<K, V> {
 
     // [spec:cg3:def:flat-unordered-map.cg3.flat-unordered-map.begin-fn]
     // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.begin-fn]
+    /// Iterate the live `(key, value)` pairs (wave 4 — the idiomatic
+    /// replacement for the C++ `begin()`/`pre_increment()`/`end()` walk).
+    pub fn iter(&self) -> impl Iterator<Item = &(K, V)> + '_ {
+        self.elements
+            .iter()
+            .filter(|e| e.0 != K::EMPTY && e.0 != K::DEL)
+    }
+
     pub fn begin(&self) -> ConstIterator<'_, K, V> {
         if self.size_ == 0 {
             return self.end();

@@ -97,6 +97,18 @@ impl<'a, T> Clone for ConstIterator<'a, T> {
 
 impl<'a, T> Copy for ConstIterator<'a, T> {}
 
+/// Wave 4: the C++-style cursor is also a real [`Iterator`] (yields the
+/// current element, then advances via the `pre_increment` walk).
+impl<'a, T: Sentinel> Iterator for ConstIterator<'a, T> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> {
+        let fus = self.fus?;
+        let cur = fus.elements[self.i];
+        self.pre_increment();
+        Some(cur)
+    }
+}
+
 impl<'a, T> Default for ConstIterator<'a, T> {
     // [spec:cg3:def:flat-unordered-set.cg3.flat-unordered-set.const-iterator.const-iterator-fn]
     // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.const-iterator.const-iterator-fn]
@@ -371,6 +383,15 @@ impl<T: Sentinel> FlatUnorderedSet<T> {
 
     // [spec:cg3:def:flat-unordered-set.cg3.flat-unordered-set.begin-fn]
     // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.begin-fn]
+    /// Iterate the live elements (wave 4 — the idiomatic replacement for the
+    /// C++ `begin()`/`pre_increment()`/`end()` walk).
+    pub fn iter(&self) -> impl Iterator<Item = T> + '_ {
+        self.elements
+            .iter()
+            .copied()
+            .filter(|&e| e != T::EMPTY && e != T::DEL)
+    }
+
     pub fn begin(&self) -> ConstIterator<'_, T> {
         if self.size_ == 0 {
             return self.end();

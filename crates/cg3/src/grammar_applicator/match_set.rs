@@ -336,14 +336,7 @@ fn ux_str_case_compare(a: &str, b: &str) -> bool {
 /// Not a manifest symbol — port infra so the variable branch can iterate while
 /// mutating `self`.
 fn collect_fum(m: &crate::flat_unordered_map::Uint32FlatHashMap) -> Vec<(u32, u32)> {
-    let mut out = Vec::with_capacity(m.size());
-    let end = m.end();
-    let mut it = m.begin();
-    while it != end {
-        out.push(*it.get());
-        it.pre_increment();
-    }
-    out
+    m.iter().copied().collect()
 }
 
 /// `uregex_groupCount(tag.regexp)` — the number of capture groups EXCLUDING the

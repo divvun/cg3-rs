@@ -657,7 +657,7 @@ impl super::GrammarApplicator {
             for i in 0..self.grammar.rule_by_number.capacity() {
                 if let Some(rule) = self.grammar.rule_by_number.try_get(i) {
                     if self.valid_rules.contains(rule.line) {
-                        vr.push_back(rule.number);
+                        vr.insert_sorted(rule.number);
                     }
                 }
             }
@@ -1564,13 +1564,13 @@ impl super::GrammarApplicator {
             let v = val(OPTIONS::RULE);
             let first = v.chars().next().unwrap_or('\0');
             if first.is_ascii_digit() {
-                self.valid_rules.push_back(stoi(v) as u32);
+                self.valid_rules.insert_sorted(stoi(v) as u32);
             } else {
                 // ucnv_toUChars is identity for UTF-8; compare rule names.
                 for i in 0..self.grammar.rule_by_number.capacity() {
                     if let Some(rule) = self.grammar.rule_by_number.try_get(i) {
                         if rule.name == v {
-                            self.valid_rules.push_back(rule.number);
+                            self.valid_rules.insert_sorted(rule.number);
                         }
                     }
                 }

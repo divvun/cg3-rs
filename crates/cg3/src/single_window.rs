@@ -142,13 +142,10 @@ fn single_window_teardown(window: &mut Window, store: &mut RuntimeStore, sw_id: 
         let threshold = store.cohorts.get(back.0).global_number;
         let mut to_erase: Vec<u32> = Vec::new();
         {
-            let mut it = window.relation_map.begin();
-            while it != window.relation_map.end() {
-                let pair = *it.get();
+            for &pair in window.relation_map.iter() {
                 if pair.1 <= threshold {
                     to_erase.push(pair.0);
                 }
-                it.pre_increment();
             }
         }
         for k in to_erase {
