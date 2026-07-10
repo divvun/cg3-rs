@@ -482,3 +482,168 @@ pub type Uint32FlatHashSet = FlatUnorderedSet<u32>;
 
 /// `using uint64FlatHashSet = flat_unordered_set<uint64_t>;`
 pub type Uint64FlatHashSet = FlatUnorderedSet<u64>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Collect the live values by driving begin()/end() and the iterator
+    // post-increment (operator++(int)).
+    fn collect(s: &Uint32FlatHashSet) -> Vec<u32> {
+        let mut out = Vec::new();
+        let mut it = s.begin();
+        let end = s.end();
+        while it != end {
+            // post_increment returns the pre-advance copy; read from it.
+            let prev = it.post_increment();
+            out.push(prev.get());
+        }
+        out.sort();
+        out
+    }
+
+    // The private LCG probe hashers. `hash_value_sz` is the container's OWN
+    // member `t*3663850746527583589 + 11210403176660999867` (usize wraparound)
+    // and MUST differ from `crate::inlines::hash_value_sz`. `hash_value` widens
+    // the value via `static_cast<size_type>` (zero-extension) then mixes.
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.hash-value-sz-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.hash-value-fn/test]
+    #[test]
+    fn lcg_probe_hash_formula() {
+        let s: Uint32FlatHashSet = FlatUnorderedSet::new();
+        let expect = |t: usize| {
+            t.wrapping_mul(3663850746527583589usize)
+                .wrapping_add(11210403176660999867usize)
+        };
+        assert_eq!(s.hash_value_sz(0), expect(0));
+        assert_eq!(s.hash_value_sz(3), expect(3));
+        assert_eq!(s.hash_value_sz(987654321), expect(987654321));
+        // hash_value(value) == hash_value_sz(value as usize).
+        assert_eq!(s.hash_value(9u32), s.hash_value_sz(9));
+        assert_eq!(s.hash_value(64u32), expect(64));
+
+        // NOT the crate mixer.
+        let mixer = crate::inlines::hash_value_sz(0x41, 0);
+        assert_ne!(
+            s.hash_value_sz(0x41),
+            mixer,
+            "container LCG must differ from inlines mixer"
+        );
+
+        // u64 values also widen and mix (Sentinel for u64).
+        let s64: Uint64FlatHashSet = FlatUnorderedSet::new();
+        assert_eq!(s64.hash_value(5u64), expect(5));
+    }
+
+    // Default ctor + insert + find/count/contains, begin/end iteration with
+    // post-increment (the annotated operator-fn), size/capacity/empty, default
+    // (end) ConstIterator. insert never rewrites an already-present value.
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.insert-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.find-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.count-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.contains-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.begin-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.end-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.size-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.capacity-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.empty-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.const-iterator.const-iterator-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.const-iterator.operator-fn/test]
+    #[test]
+    fn insert_find_iterate() {
+        let mut s: Uint32FlatHashSet = FlatUnorderedSet::new();
+        assert!(s.empty());
+        assert_eq!(s.size(), 0);
+        assert_eq!(s.capacity(), 0);
+        assert!(s.begin() == s.end());
+        assert!(s.end() == ConstIterator::default());
+
+        s.insert(11);
+        s.insert(22);
+        s.insert(33);
+        assert!(!s.empty());
+        assert_eq!(s.size(), 3);
+        assert!(s.capacity() >= 3);
+
+        // find/contains/count.
+        assert!(s.find(22) != s.end());
+        assert_eq!(s.find(22).get(), 22);
+        assert!(s.contains(33));
+        assert_eq!(s.count(33), 1);
+        assert!(s.find(99) == s.end());
+        assert!(!s.contains(99));
+        assert_eq!(s.count(99), 0);
+
+        // Re-inserting a present value does not grow the set.
+        s.insert(22);
+        assert_eq!(s.size(), 3);
+
+        // post_increment iteration recovers exactly the live values.
+        assert_eq!(collect(&s), vec![11, 22, 33]);
+
+        // post_increment semantics: returns the pre-advance value, advances self.
+        let mut it = s.begin();
+        let snapshot = it.post_increment();
+        assert_eq!(snapshot.get(), s.begin().get()); // snapshot still at first
+        // `it` has moved on (or reached end); the snapshot is unaffected.
+        assert!(it != s.begin() || it == s.end());
+    }
+
+    // erase tombstones, reserve rehashes, clear resets, swap exchanges state,
+    // assign clears + range-inserts. Also the erase-last-with-tombstone path.
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.erase-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.reserve-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.clear-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.swap-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.assign-fn/test]
+    #[test]
+    fn erase_reserve_clear_swap_assign() {
+        let mut s: Uint32FlatHashSet = FlatUnorderedSet::new();
+        for v in 1u32..=5 {
+            s.insert(v);
+        }
+        assert_eq!(s.size(), 5);
+
+        // erase leaves a tombstone; find no longer sees it, others survive.
+        s.erase(3);
+        assert_eq!(s.size(), 4);
+        assert!(s.find(3) == s.end());
+        assert!(s.contains(4));
+        s.erase(99); // no-op
+        assert_eq!(s.size(), 4);
+
+        // reserve rehashes into a bigger table, preserving live values.
+        let before = collect(&s);
+        s.reserve(64);
+        assert!(s.capacity() >= 64);
+        assert_eq!(collect(&s), before);
+
+        // swap exchanges the whole state.
+        let mut other: Uint32FlatHashSet = FlatUnorderedSet::new();
+        other.insert(500);
+        s.swap(&mut other);
+        assert_eq!(collect(&s), vec![500]);
+        assert_eq!(collect(&other), before);
+
+        // assign clears then range-inserts (duplicates collapse to one value).
+        s.assign([7u32, 8, 7, 9]);
+        assert_eq!(collect(&s), vec![7, 8, 9]);
+
+        // clear(0) empties.
+        s.clear(0);
+        assert!(s.empty());
+        assert_eq!(s.size(), 0);
+        assert!(s.begin() == s.end());
+
+        // Erase-last-live-with-tombstone triggers the internal clear.
+        let mut t: Uint32FlatHashSet = FlatUnorderedSet::new();
+        t.insert(1);
+        t.insert(2);
+        t.erase(1);
+        t.erase(2);
+        assert_eq!(t.size(), 0);
+        assert!(t.empty());
+        t.insert(5);
+        assert!(t.contains(5));
+    }
+}

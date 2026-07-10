@@ -503,3 +503,139 @@ impl<T: IntervalScalar> Default for interval_vector<T> {
 
 /// C++ `using uint32IntervalVector = interval_vector<uint32_t>`.
 pub type uint32IntervalVector = interval_vector<u32>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Constructing an interval_vector, inserting integers, and reading it back
+    // exercises the constructors, insert coalescing, contains/find/lower_bound,
+    // begin/end iteration, front/back extremes, empty, and the interval helper
+    // ctors + the interval `operator<` used by the internal lower_bound.
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.interval-vector-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.interval.interval-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.interval.operator-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.insert-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.push-back-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.contains-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.find-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.lower-bound-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.begin-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.end-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.front-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.back-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.empty-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.const-iterator.const-iterator-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.const-iterator.operator-fn/test]
+    #[test]
+    fn insert_coalesce_and_query() {
+        // interval helper ctors + operator<
+        let iv1 = interval::<u32>::new1(5);
+        assert!(iv1.lt_val(&6));
+        assert!(!iv1.lt_val(&5));
+        let iv2 = interval::<u32>::new2(2, 4);
+        assert!(iv2.lt_val(&5));
+
+        // Range ctor (from_range -> insert loop).
+        let mut v = interval_vector::from_range([3u32, 4, 5, 1]);
+        assert!(!v.empty());
+        assert!(v.contains(1));
+        assert!(v.contains(4));
+        assert!(!v.contains(2));
+        // 3,4,5 coalesced; 1 is separate -> front=1, back=5.
+        assert_eq!(v.front(), 1);
+        assert_eq!(v.back(), 5);
+
+        // Adjacent insert coalesces (fills the 2 gap -> one interval 1..=5).
+        assert!(v.push_back(2));
+        assert!(v.contains(2));
+        assert_eq!(v.front(), 1);
+        assert_eq!(v.back(), 5);
+        // Re-inserting present value returns false (no change).
+        assert!(!v.insert(3));
+
+        // find lands exactly on the value; find of absent -> end().
+        let f = v.find(4);
+        assert_eq!(f.value(), 4);
+        assert!(v.find(99) == v.end());
+
+        // lower_bound returns smallest present >= t.
+        assert_eq!(v.lower_bound(0).value(), 1);
+        assert_eq!(v.lower_bound(3).value(), 3);
+        assert!(v.lower_bound(6) == v.end());
+
+        // begin/end + iterator advance expand the intervals into 1,2,3,4,5.
+        let expanded: Vec<u32> = {
+            let mut it = v.begin();
+            let mut out = Vec::new();
+            while it != v.end() {
+                out.push(it.value());
+                it.advance();
+            }
+            out
+        };
+        assert_eq!(expanded, vec![1, 2, 3, 4, 5]);
+    }
+
+    // erase splits/shrinks intervals and always decrements _size, while insert
+    // skips the increment on the empty/first-interval paths: this drives the
+    // documented `_size` drift bug and clear() resetting it. Also exercises the
+    // iterator retreat + the bonus Iterator impl.
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.erase-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.size-fn/test]
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.clear-fn/test]
+    #[test]
+    fn erase_split_and_size_drift() {
+        let mut v: interval_vector<u32> = interval_vector::new();
+        // First insert into an empty container: returns true but does NOT bump
+        // _size (the reproduced bug). So size() stays 0 after one element.
+        assert!(v.insert(10));
+        assert_eq!(v.size(), 0, "empty-path insert skips _size increment (bug)");
+
+        // Grow the interval; the general path DOES bump _size.
+        assert!(v.insert(11)); // coalesces onto [10,11]; general path -> +1
+        assert_eq!(v.size(), 1);
+
+        // Split the middle out of [10,11] via a fresh 3-wide interval.
+        v.insert(20);
+        v.insert(21);
+        v.insert(22); // -> interval [20,22]
+        // erase the middle -> split into [20,20] and [22,22]; _size -= 1 always.
+        assert!(v.erase(21));
+        assert!(v.contains(20) && v.contains(22) && !v.contains(21));
+
+        // erase of absent value returns false and leaves size alone.
+        assert!(!v.erase(999));
+
+        // Iterator retreat walks backwards from end.
+        let mut it = v.end();
+        it.retreat();
+        assert_eq!(it.value(), v.back());
+
+        // Bonus Iterator impl collects all present integers ascending.
+        let all: Vec<u32> = v.begin().collect();
+        assert_eq!(all, vec![10, 11, 20, 22]);
+
+        // clear() empties + resets any drifted _size to 0.
+        v.clear();
+        assert!(v.empty());
+        assert_eq!(v.size(), 0);
+    }
+
+    // intersect merges two sorted interval lists and keeps _size correct.
+    // [spec:cg3:sem:interval-vector.cg3.interval-vector.intersect-fn/test]
+    #[test]
+    fn intersect_overlaps() {
+        let a = interval_vector::from_range([1u32, 2, 3, 4, 5, 10, 11, 12]);
+        let b = interval_vector::from_range([3u32, 4, 11, 12, 13, 99]);
+        let c = a.intersect(&b);
+        let got: Vec<u32> = c.begin().collect();
+        assert_eq!(got, vec![3, 4, 11, 12]);
+        // intersect maintains _size correctly (unlike insert): 4 elements.
+        assert_eq!(c.size(), 4);
+
+        // Empty operand -> empty intersection.
+        let empty: interval_vector<u32> = interval_vector::new();
+        assert!(a.intersect(&empty).empty());
+    }
+}

@@ -119,3 +119,57 @@ impl<C: Poolable + Default> Default for ScopedStack<C> {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Minimal `Poolable + Default` slot type: a growable string whose `clear`
+    /// empties it (so we can observe "cleared on release, not on acquire").
+    #[derive(Default)]
+    struct Slot {
+        s: String,
+    }
+
+    impl Poolable for Slot {
+        fn clear(&mut self) {
+            self.s.clear();
+        }
+    }
+
+    // `new()` builds an empty stack; `get()` hands out a `Proxy` (via
+    // `Proxy::new`, which reserves the next slot and post-increments depth); the
+    // proxy derefs (operator-> / operator* / operator C&, all Deref/DerefMut) to
+    // that slot; and dropping the proxy clears the slot and pops the depth.
+    // Nested `get()` reserves a deeper slot without disturbing the outer one.
+    // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.scoped-stack-fn/test]
+    // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.get-fn/test]
+    // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.proxy-fn/test]
+    // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.operator-fn/test]
+    #[test]
+    fn nested_scopes_and_deref() {
+        let mut ss: ScopedStack<Slot> = ScopedStack::new();
+        {
+            // Outer scope reserves slot 0.
+            let mut a = ss.get();
+            a.s.push_str("outer"); // DerefMut -> slot 0
+            assert_eq!(a.s, "outer"); // Deref -> slot 0
+            {
+                // Nested scope reserves slot 1 while `a` (slot 0) stays live.
+                let mut b = ss.get();
+                assert_eq!(b.s, "", "a fresh deeper slot starts empty");
+                b.s.push_str("inner");
+                assert_eq!(b.s, "inner");
+                // Outer proxy still refers to its own slot, unchanged.
+                assert_eq!(a.s, "outer");
+            } // `b` dropped: slot 1 cleared, depth back to 1.
+            // Outer still valid.
+            assert_eq!(a.s, "outer");
+        } // `a` dropped: slot 0 cleared, depth back to 0.
+
+        // Reuse: the next get() re-hands slot 0, which was cleared on release
+        // (not on acquire), so it comes back empty even though we wrote to it.
+        let c = ss.get();
+        assert_eq!(c.s, "", "released slot was cleared before reuse");
+    }
+}

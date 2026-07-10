@@ -109,3 +109,98 @@ pub fn parse_opts_env(which: &str, where_: &mut [UOption]) {
         parse_opts(&mut env, where_);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::{UOPT_NO_ARG, UOPT_REQUIRES_ARG};
+
+    fn opt(long: &'static str, short: UChar, has_arg: u8) -> UOption {
+        UOption {
+            long_name: Some(long),
+            short_name: short,
+            has_arg,
+            description: String::new(),
+            does_occur: false,
+            value: String::new(),
+        }
+    }
+
+    /// Build the NUL-terminated buffer `parse_opts` scans: the command text,
+    /// then the string's own readable terminator NUL, then the extra guard NUL
+    /// the trailing one-past read must land on (see the module QUIRK note).
+    fn buf(cmd: &str) -> Vec<UChar> {
+        let mut v: Vec<UChar> = cmd.chars().collect();
+        v.push('\0');
+        v.push('\0');
+        v
+    }
+
+    // `parse_opts` tokenizes an embedded command line (splitting on whitespace,
+    // honoring `"`/`'` quotes and `-` option tokens) into an argv and feeds it to
+    // u_parseArgs. Drives the dash-token, quoted-token, and bare-token paths plus
+    // the trailing-token / extra-NUL quirk. Options populated as a side effect.
+    // [spec:cg3:sem:options-parser.options.parse-opts-fn/test]
+    #[test]
+    fn tokenizes_and_populates_options() {
+        let mut where_ = [
+            opt("verbose", 'v', UOPT_NO_ARG),
+            opt("grammar", 'g', UOPT_REQUIRES_ARG),
+        ];
+        // A dash flag, a long option, and a quoted argument for -g.
+        let mut p = buf("--verbose -g 'my grammar.cg3'");
+        parse_opts(&mut p, &mut where_);
+
+        assert!(where_[0].does_occur, "--verbose parsed");
+        assert!(where_[1].does_occur, "-g parsed");
+        // The quoted token preserved its embedded space.
+        assert_eq!(where_[1].value, "my grammar.cg3");
+    }
+
+    // Double-quoted tokens are handled the same way, and a bare (non-dash,
+    // non-quoted) trailing token runs to the buffer end — exercising the
+    // one-byte-past-terminator quirk against the required extra NUL. Here the
+    // bare token is compacted by u_parseArgs (not consumed as an option value).
+    // (parse_opts facet lives on the primary test above.)
+    #[test]
+    fn double_quotes_and_trailing_bare_token() {
+        let mut where_ = [opt("grammar", 'g', UOPT_REQUIRES_ARG)];
+        // -g with a double-quoted arg, then a trailing bare word at buffer end.
+        let mut p = buf("-g \"a b\" leftover");
+        parse_opts(&mut p, &mut where_);
+        assert!(where_[0].does_occur);
+        assert_eq!(where_[0].value, "a b");
+        // The trailing bare token at the buffer edge did not panic (the extra
+        // NUL guarded the one-past read).
+    }
+
+    // `parse_opts_env` reads an environment variable; when set, its value is
+    // parsed into the option table (appending both the readable and the guard
+    // NUL); when unset, the table is left untouched.
+    // [spec:cg3:sem:options-parser.options.parse-opts-env-fn/test]
+    #[test]
+    fn env_var_set_and_unset() {
+        // A process-unique var name so parallel tests don't collide.
+        let var = "CG3_TEST_PARSE_OPTS_ENV";
+
+        // Unset -> nothing happens.
+        unsafe {
+            std::env::remove_var(var);
+        }
+        let mut where_ = [opt("verbose", 'v', UOPT_NO_ARG)];
+        parse_opts_env(var, &mut where_);
+        assert!(!where_[0].does_occur, "unset env leaves options untouched");
+
+        // Set -> value is tokenized and parsed.
+        unsafe {
+            std::env::set_var(var, "--verbose");
+        }
+        let mut where2 = [opt("verbose", 'v', UOPT_NO_ARG)];
+        parse_opts_env(var, &mut where2);
+        assert!(where2[0].does_occur, "set env value parsed into the table");
+
+        unsafe {
+            std::env::remove_var(var);
+        }
+    }
+}

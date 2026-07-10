@@ -380,6 +380,14 @@ impl FSTApplicator {
             lines += 1;
             let mut packoff = get_line_clean(&mut line, &mut cleaned, input, true);
 
+            // C++ `while (!input.eof())`: eofbit is set when a read attempt hits
+            // end-of-stream. `u_fgets` distinguishes a blank line (packoff == 0
+            // but `line[0]` holds the newline) from true EOF (nothing stored, so
+            // `line[0]` keeps the '\0' it was reset to) — only the latter ends
+            // the loop. Sampled here, acted on at the bottom of the iteration
+            // (matches the base run_grammar_on_text driver).
+            let hit_eof = packoff == 0 && line[0] == '\0';
+
             // Trim trailing whitespace.
             while cleaned[0] != '\0' && packoff > 0 && isspace(cleaned[packoff - 1]) {
                 cleaned[packoff - 1] = '\0';
@@ -441,8 +449,14 @@ impl FSTApplicator {
 
                     // ++space; while (space && *space && (space[0]!='+' ||
                     //   space[1]!='?' || space[2]!=0)) { ... }
+                    // In C++ the inner `(space = u_strchr(space, '+')) != 0` scan
+                    // sets `space` to nullptr when no '+' remains, which is what
+                    // terminates THIS loop after the reading is finished; an index
+                    // can't go null, so the nullptr state is a flag here.
                     space += 1;
-                    while space < cleaned.len()
+                    let mut space_null = false;
+                    while !space_null
+                        && space < cleaned.len()
                         && cleaned[space] != '\0'
                         && !(cleaned[space] == '+'
                             && cleaned[space + 1] == '?'
@@ -564,7 +578,12 @@ impl FSTApplicator {
                                     i += 1;
                                 }
                             }
-                            let Some(sp) = found else { break };
+                            // C++ `(space = u_strchr(space, '+')) != 0`: a miss
+                            // nulls `space` (exiting the enclosing reading loop too).
+                            let Some(sp) = found else {
+                                space_null = true;
+                                break;
+                            };
                             space = sp;
 
                             // if (base && base[0])
@@ -750,8 +769,9 @@ impl FSTApplicator {
             self.base.numLines = self.base.numLines.wrapping_add(1);
             line[0] = '\0';
             cleaned[0] = '\0';
-            // C++ `while (!input.eof())`: stop once a read makes no progress.
-            if packoff == 0 && line[0] == '\0' {
+            // Loop termination: the C++ `while(!input.eof())` re-check at the
+            // top of the loop, using the EOF state sampled after get_line_clean.
+            if hit_eof {
                 break 'mainloop;
             }
         }

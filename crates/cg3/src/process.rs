@@ -158,3 +158,65 @@ impl Drop for Process {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // new() constructs a Process with no child and all endpoints unset.
+    // [spec:cg3:sem:process.process.process-fn/test]
+    #[test]
+    fn new_is_unstarted() {
+        let p = Process::new();
+        assert!(p.child.is_none());
+        assert!(p.stdin.is_none());
+        assert!(p.stdout.is_none());
+    }
+
+    // Round-trip through a real child: start `cat` (echoes stdin to stdout), write
+    // bytes, flush, and read the same bytes back. Drives start/write/flush/read.
+    // [spec:cg3:sem:process.process.start-fn/test]
+    // [spec:cg3:sem:process.process.write-fn/test]
+    // [spec:cg3:sem:process.process.flush-fn/test]
+    // [spec:cg3:sem:process.process.read-fn/test]
+    #[cfg(unix)]
+    #[test]
+    fn cat_round_trip() {
+        let mut p = Process::new();
+        // `cat` copies its stdin to stdout verbatim.
+        p.start("cat").expect("cat should start");
+        assert!(p.child.is_some());
+        assert!(p.stdin.is_some());
+        assert!(p.stdout.is_some());
+
+        let payload = b"hello pipe\n";
+        p.write(payload, payload.len()).expect("write ok");
+        p.flush();
+
+        let mut buf = vec![0u8; payload.len()];
+        p.read(&mut buf, payload.len()).expect("read ok");
+        assert_eq!(&buf[..], payload);
+        // Dropping `p` kills+reaps the child.
+    }
+
+    // A failed start decorates the message via format_last_error ("strerror: ...").
+    // This drives start's error path and format_last_error together.
+    // [spec:cg3:sem:process.process.format-last-error-fn/test]
+    #[test]
+    fn start_failure_formats_error() {
+        // format_last_error appends a "strerror: " suffix to any message.
+        let p = Process::new();
+        let formatted = p.format_last_error("boom");
+        assert!(formatted.starts_with("boom "));
+        assert!(formatted.contains("strerror: "));
+
+        // read/write on an unstarted process hit the BrokenPipe error path, which
+        // also routes through format_last_error.
+        let mut p2 = Process::new();
+        let mut buf = [0u8; 4];
+        let err = p2.read(&mut buf, 4).unwrap_err();
+        assert!(err.contains("strerror: "));
+        let werr = p2.write(b"abcd", 4).unwrap_err();
+        assert!(werr.contains("strerror: "));
+    }
+}

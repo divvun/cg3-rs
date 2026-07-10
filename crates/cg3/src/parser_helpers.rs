@@ -646,3 +646,96 @@ fn scan_star_u_colon_s(s: &str) -> Option<String> {
 fn ux_str_case_compare(a: &str, b: &str) -> bool {
     a.chars().flat_map(char::to_lowercase).eq(b.chars().flat_map(char::to_lowercase))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parser() -> TextualParser {
+        TextualParser::new(Grammar::default(), false)
+    }
+
+    /// The tag text of a parsed tag id.
+    fn tag_text(p: &TextualParser, id: TagId) -> String {
+        p.grammar.single_tags_list[id.0].tag.clone()
+    }
+    fn tag_type(p: &TextualParser, id: TagId) -> u32 {
+        p.grammar.single_tags_list[id.0].r#type
+    }
+
+    // `parse_tag` builds/interns a Tag from source text: it classifies wordform
+    // vs baseform vs plain tags, consumes the `^` failfast prefix, recognizes the
+    // `*` special (T_ANY), and dedups (same text -> same TagId). Drives the whole
+    // helper on non-error inputs (no `error_near` panic).
+    // [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn/test]
+    #[test]
+    fn parse_tag_classifies_and_dedups() {
+        let mut p = parser();
+        let near: Vec<char> = "noun".chars().collect();
+
+        // Plain tag: text preserved, no textual flags.
+        let t = parse_tag("noun", &near, &mut p, true);
+        assert_eq!(tag_text(&p, t), "noun");
+        assert_eq!(tag_type(&p, t) & T_TEXTUAL, 0);
+
+        // Dedup: same source text returns the same interned id.
+        let t2 = parse_tag("noun", &near, &mut p, true);
+        assert_eq!(t, t2, "identical tag text dedups to one id");
+
+        // Baseform: "lemma" (quoted) -> T_BASEFORM | T_TEXTUAL, text keeps quotes.
+        let bsrc = "\"lemma\"";
+        let bnear: Vec<char> = bsrc.chars().collect();
+        let b = parse_tag(bsrc, &bnear, &mut p, true);
+        assert_ne!(tag_type(&p, b) & T_BASEFORM, 0, "quoted lemma is a baseform");
+        assert_ne!(tag_type(&p, b) & T_TEXTUAL, 0);
+        assert_eq!(tag_text(&p, b), "\"lemma\"");
+
+        // Wordform: "\"<word>\"" -> T_WORDFORM | T_TEXTUAL.
+        let wsrc = "\"<word>\"";
+        let wnear: Vec<char> = wsrc.chars().collect();
+        let w = parse_tag(wsrc, &wnear, &mut p, true);
+        assert_ne!(tag_type(&p, w) & T_WORDFORM, 0, "\"<...>\" is a wordform");
+        assert_ne!(tag_type(&p, w) & T_TEXTUAL, 0);
+
+        // Failfast prefix `^`: sets T_FAILFAST (and is special).
+        let fsrc = "^bad";
+        let fnear: Vec<char> = fsrc.chars().collect();
+        let f = parse_tag(fsrc, &fnear, &mut p, true);
+        assert_ne!(tag_type(&p, f) & T_FAILFAST, 0, "leading ^ is failfast");
+
+        // `*` special -> T_ANY.
+        let star: Vec<char> = "*".chars().collect();
+        let any = parse_tag("*", &star, &mut p, true);
+        assert_ne!(tag_type(&p, any) & T_ANY, 0, "* is T_ANY");
+    }
+
+    // `parse_set` resolves a set NAME to a SetId. Via the `list_tags` path: when
+    // the name isn't a known set but its plain-hash is registered in `list_tags`,
+    // parse_set parses it as a tag, allocates a fresh single-tag set, registers
+    // it, and returns it. A second call with the same name resolves the now-known
+    // set directly (get_set hit). Drives parse_set (and, transitively, parse_tag).
+    // [spec:cg3:sem:parser-helpers.cg3.parse-set-fn/test]
+    #[test]
+    fn parse_set_allocates_from_list_tag_then_resolves() {
+        let mut p = parser();
+        let name = "noun";
+        let near: Vec<char> = name.chars().collect();
+
+        // Seed list_tags with this tag's plain-hash so parse_set's not-found path
+        // will synthesize a set for it.
+        let plain = {
+            let t = parse_tag(name, &near, &mut p, true);
+            p.grammar.single_tags_list[t.0].plain_hash
+        };
+        p.list_tags.insert(plain);
+
+        // First resolution: allocates + registers a new single-tag set.
+        let s1 = parse_set(name, &near, &mut p);
+        assert_eq!(p.grammar.sets_list[s1.0].name, name);
+
+        // Second resolution: the set is now known, so get_set returns it directly
+        // — same SetId, no duplicate allocation.
+        let s2 = parse_set(name, &near, &mut p);
+        assert_eq!(s1, s2, "second parse_set resolves the existing set");
+    }
+}

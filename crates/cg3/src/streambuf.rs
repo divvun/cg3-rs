@@ -263,3 +263,94 @@ impl<R: Read> bstreambuf<R> {
         i
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    // cstreambuf get side: ctor starts with an empty get area; underflow reads one
+    // byte (returning EOF at end); xsgetn bulk-reads straight from the stream,
+    // discarding any byte previously buffered by underflow (the documented quirk).
+    // [spec:cg3:sem:streambuf.cg3.cstreambuf.cstreambuf-fn/test]
+    // [spec:cg3:sem:streambuf.cg3.cstreambuf.underflow-fn/test]
+    // [spec:cg3:sem:streambuf.cg3.cstreambuf.xsgetn-fn/test]
+    #[test]
+    fn cstreambuf_read_side() {
+        // ctor: empty get area.
+        let mut sb = cstreambuf::new(Cursor::new(b"abc".to_vec()));
+        assert!(!sb.avail);
+
+        // underflow reads bytes one at a time; EOF is -1 at end.
+        assert_eq!(sb.underflow(), b'a' as int_type);
+        assert!(sb.avail);
+        assert_eq!(sb.underflow(), b'b' as int_type);
+
+        // xsgetn resets the get area (drops the 'b' buffered in `ch`) and bulk
+        // reads straight from the FILE, so it continues from 'c'.
+        let mut buf = [0u8; 4];
+        let got = sb.xsgetn(&mut buf, 2);
+        assert!(!sb.avail); // get area reset
+        assert_eq!(got, 1); // only 'c' remains
+        assert_eq!(&buf[..1], b"c");
+
+        // underflow at true end returns EOF.
+        assert_eq!(sb.underflow(), EOF);
+    }
+
+    // cstreambuf put side: overflow writes one byte (and is a no-op flush call
+    // when given EOF); xsputn bulk-writes; sync flushes the sink.
+    // [spec:cg3:sem:streambuf.cg3.cstreambuf.overflow-fn/test]
+    // [spec:cg3:sem:streambuf.cg3.cstreambuf.xsputn-fn/test]
+    // [spec:cg3:sem:streambuf.cg3.cstreambuf.sync-fn/test]
+    #[test]
+    fn cstreambuf_write_side() {
+        let mut sb = cstreambuf::new(Vec::<u8>::new());
+
+        // overflow(EOF) is a flush-type no-op returning 0 (writes nothing).
+        assert_eq!(sb.overflow(EOF), 0);
+        // overflow of a real char writes it and echoes the byte value.
+        assert_eq!(sb.overflow(b'H' as int_type), b'H' as int_type);
+
+        // xsputn bulk-writes `count` bytes and returns the count written.
+        assert_eq!(sb.xsputn(b"ello!", 5), 5);
+
+        // sync flushes (0 == success).
+        assert_eq!(sb.sync(), 0);
+
+        // The wrapped Vec now holds everything written.
+        assert_eq!(sb.stream, b"Hello!");
+    }
+
+    // bstreambuf serves the in-memory prefix first, then falls through to the
+    // underlying stream. underflow walks the prefix then the stream; xsgetn drains
+    // the prefix then reads the remainder, and NUL-terminates at s[i] (the quirk:
+    // requires count+1 room, exercised with an oversized slice).
+    // [spec:cg3:sem:streambuf.cg3.bstreambuf.bstreambuf-fn/test]
+    // [spec:cg3:sem:streambuf.cg3.bstreambuf.underflow-fn/test]
+    // [spec:cg3:sem:streambuf.cg3.bstreambuf.xsgetn-fn/test]
+    #[test]
+    fn bstreambuf_prefix_then_stream() {
+        // ctor: prefix "AB" in front of a stream carrying "cd".
+        let mut sb = bstreambuf::new(Cursor::new(b"cd".to_vec()), b"AB".to_vec());
+        assert!(!sb.avail);
+
+        // underflow serves the prefix first (unsigned-widened), then the stream.
+        assert_eq!(sb.underflow(), b'A' as int_type);
+        assert!(sb.avail);
+        assert_eq!(sb.underflow(), b'B' as int_type);
+        assert_eq!(sb.underflow(), b'c' as int_type); // fell through to stream
+        assert_eq!(sb.underflow(), b'd' as int_type);
+        assert_eq!(sb.underflow(), EOF);
+
+        // Fresh instance for xsgetn: prefix "AB" + stream "cd".
+        let mut sb2 = bstreambuf::new(Cursor::new(b"cd".to_vec()), b"AB".to_vec());
+        // count+1 room for the always-one-past NUL write (the documented quirk).
+        let mut buf = [0u8; 5];
+        let got = sb2.xsgetn(&mut buf, 4);
+        assert_eq!(got, 4);
+        assert_eq!(&buf[..4], b"ABcd"); // prefix drained, then stream
+        assert_eq!(buf[4], 0); // NUL written one past the data (s[count])
+        assert!(!sb2.avail); // get area reset
+    }
+}

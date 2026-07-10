@@ -20,3 +20,28 @@ use std::path::PathBuf;
 pub fn path(sv: &str) -> PathBuf {
     PathBuf::from(sv)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `path` builds a `PathBuf` from the view's bytes verbatim (no transcoding).
+    // Drives the helper directly and checks the round-trip plus that path
+    // structure (components) is understood by the OS path type.
+    // [spec:cg3:sem:filesystem.path-fn/test]
+    #[test]
+    fn path_builds_from_view() {
+        // Round-trips the exact string bytes.
+        let p = path("some/dir/grammar.cg3");
+        assert_eq!(p.as_os_str(), "some/dir/grammar.cg3");
+        assert_eq!(p.to_str(), Some("some/dir/grammar.cg3"));
+
+        // The resulting PathBuf behaves like a real path (components split).
+        let names: Vec<&str> = p.iter().filter_map(|c| c.to_str()).collect();
+        assert_eq!(names, vec!["some", "dir", "grammar.cg3"]);
+        assert_eq!(p.file_name().and_then(|n| n.to_str()), Some("grammar.cg3"));
+
+        // Empty view -> empty path.
+        assert_eq!(path("").as_os_str(), "");
+    }
+}

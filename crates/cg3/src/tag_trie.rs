@@ -430,3 +430,195 @@ pub fn trie_serialize<W: Write>(trie: &trie_t, out: &mut W, grammar: &Grammar) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::grammar::Grammar;
+    use crate::tag::{T_MAPPING, Tag};
+
+    /// Intern a fresh `Tag` into the grammar arena with an explicit `hash`,
+    /// `number`, and `type`, returning its `TagId`. Building tags directly (rather
+    /// than via the parser) keeps the trie tests self-contained while still using
+    /// the real `Grammar` arena the trie functions read through.
+    fn mk_tag(g: &mut Grammar, hash: u32, number: u32, type_: u32) -> TagId {
+        let mut t = Tag::default();
+        t.hash = hash;
+        t.number = number;
+        t.r#type = type_;
+        TagId(g.single_tags_list.alloc(t))
+    }
+
+    // trie_insert builds length-N paths (creating child levels), trie_singular
+    // reports a non-branching terminal chain, trie_has_type finds a type bit
+    // anywhere in the trie, and trie_get_tag_list flattens every path. A second
+    // insert of the SAME path returns false (already terminal); a divergent path
+    // adds a branch so trie_singular becomes false.
+    // [spec:cg3:sem:tag-trie.cg3.trie-insert-fn/test]
+    // [spec:cg3:sem:tag-trie.cg3.trie-singular-fn/test]
+    // [spec:cg3:sem:tag-trie.cg3.trie-has-type-fn/test]
+    // [spec:cg3:sem:tag-trie.cg3.trie-get-tag-list-fn/test]
+    #[test]
+    fn insert_singular_has_type_and_tag_list() {
+        let mut g = Grammar::default();
+        // Distinct ascending hashes so ordering is unambiguous.
+        let a = mk_tag(&mut g, 10, 0, 0);
+        let b = mk_tag(&mut g, 20, 1, T_MAPPING);
+        let c = mk_tag(&mut g, 30, 2, 0);
+
+        let mut trie = trie_t::new();
+        // Insert the 2-tag path [a, b].
+        assert!(trie_insert(&mut trie, &vec![a, b], 0));
+        // A single non-branching chain ending in a terminal -> singular.
+        assert!(trie_singular(&trie));
+        // Re-inserting the identical path: the a-node is not terminal (it has a
+        // child), so recursion reaches the terminal b-node -> already present.
+        assert!(!trie_insert(&mut trie, &vec![a, b], 0));
+
+        // `b` carries T_MAPPING; has_type sees it through the sub-trie.
+        assert!(trie_has_type(&trie, T_MAPPING, &g));
+        assert!(!trie_has_type(&trie, crate::tag::T_FAILFAST, &g));
+
+        // trie_get_tag_list flattens the whole trie (every key at every depth),
+        // in ascending-hash order: a (10) then its child b (20).
+        let list = trie_get_tag_list(&trie, &g);
+        assert_eq!(list, vec![a, b]);
+
+        // Add a divergent path [a, c] -> the a-node now branches (b and c),
+        // so the trie is no longer a single chain.
+        assert!(trie_insert(&mut trie, &vec![a, c], 0));
+        assert!(!trie_singular(&trie));
+        // Now flattening yields a, then its children b (20) and c (30) ordered.
+        let list = trie_get_tag_list(&trie, &g);
+        assert_eq!(list, vec![a, b, c]);
+    }
+
+    // trie_get_tags reproduces the documented SORT-THEN-POP corruption: on a
+    // terminal it sorts the shared `tv` prefix by hash and pops the HIGHEST-hash
+    // element (not the just-pushed one), corrupting the prefix for later siblings.
+    // trie_get_tags_ordered does NOT sort, so its `pop` is correct.
+    // [spec:cg3:sem:tag-trie.cg3.trie-get-tags-fn/test]
+    // [spec:cg3:sem:tag-trie.cg3.trie-get-tags-ordered-fn/test]
+    #[test]
+    fn get_tags_sort_pop_corruption() {
+        let mut g = Grammar::default();
+        // Root tag `p` has a HIGHER hash than the two leaves so that sorting the
+        // shared prefix reorders it to the end and the pop removes the wrong tag.
+        let leaf_lo = mk_tag(&mut g, 5, 0, 0); // low hash leaf
+        let leaf_hi = mk_tag(&mut g, 7, 1, 0); // higher-hash leaf
+        let p = mk_tag(&mut g, 100, 2, 0); // high-hash shared prefix
+
+        // Trie shape: p -> { leaf_lo (terminal), leaf_hi (terminal) }.
+        let mut trie = trie_t::new();
+        assert!(trie_insert(&mut trie, &vec![p, leaf_lo], 0));
+        assert!(trie_insert(&mut trie, &vec![p, leaf_hi], 0));
+
+        // ORDERED variant: no sorting, faithful backtracking. Both full paths
+        // survive: [p, leaf_lo] and [p, leaf_hi].
+        let ordered = trie_get_tags_ordered(&trie, &g);
+        let mut ordered_v: Vec<TagVector> = ordered.into_iter().collect();
+        ordered_v.sort();
+        assert_eq!(ordered_v, vec![vec![p, leaf_lo], vec![p, leaf_hi]]);
+
+        // BUGGY variant: for the first terminal (leaf_lo), tv = [p, leaf_lo] is
+        // sorted by hash -> [leaf_lo(5), p(100)], inserted, then the LAST element
+        // (p, highest hash) is popped, leaving tv = [leaf_lo]. The second sibling
+        // then pushes leaf_hi onto the corrupted prefix -> [leaf_lo, leaf_hi],
+        // which is sorted -> [leaf_lo(5), leaf_hi(7)] and inserted. So the second
+        // path lost `p` entirely.
+        let buggy = trie_get_tags(&trie, &g);
+        let mut buggy_v: Vec<TagVector> = buggy.into_iter().collect();
+        buggy_v.sort();
+        // Sorted by Vec<TagId> Ord: [leaf_lo, leaf_hi] (ids [0,1]) then
+        // [leaf_lo, p] (ids [0,2]). The second path lost `p` -> corruption.
+        assert_eq!(
+            buggy_v,
+            vec![vec![leaf_lo, leaf_hi], vec![leaf_lo, p]],
+            "sort-then-pop corrupts the shared prefix for the later sibling"
+        );
+        // The corrupted result differs from the faithful ordered result.
+        assert_ne!(buggy_v, ordered_v);
+    }
+
+    // trie_rehash folds hashes order-sensitively; trie_markused sets T_USED on
+    // every tag; trie_serialize emits the big-endian byte layout in ascending-hash
+    // order. All three read/write through the grammar arena.
+    // [spec:cg3:sem:tag-trie.cg3.trie-rehash-fn/test]
+    // [spec:cg3:sem:tag-trie.cg3.trie-markused-fn/test]
+    // [spec:cg3:sem:tag-trie.cg3.trie-serialize-fn/test]
+    #[test]
+    fn rehash_markused_serialize() {
+        let mut g = Grammar::default();
+        let a = mk_tag(&mut g, 0x11, 7, 0); // number 7
+        let b = mk_tag(&mut g, 0x22, 9, 0); // number 9
+
+        let mut trie = trie_t::new();
+        // Two single-tag terminal paths: a and b (both top-level terminals).
+        assert!(trie_insert(&mut trie, &vec![a], 0));
+        assert!(trie_insert(&mut trie, &vec![b], 0));
+
+        // rehash is deterministic and non-zero for a non-empty trie.
+        let h1 = trie_rehash(&trie, &g);
+        let h2 = trie_rehash(&trie, &g);
+        assert_eq!(h1, h2);
+        assert_ne!(h1, 0);
+
+        // markused sets T_USED on every tag reachable from the trie.
+        assert_eq!(g.single_tags_list[a.0].r#type & T_USED, 0);
+        trie_markused(&trie, &mut g);
+        assert_ne!(g.single_tags_list[a.0].r#type & T_USED, 0);
+        assert_ne!(g.single_tags_list[b.0].r#type & T_USED, 0);
+
+        // serialize: two top-level terminal, childless nodes visited in
+        // ascending-hash order (a:0x11 then b:0x22). Per node the bytes are
+        // [number: u32 BE][terminal: u8 = 1][childCount: u32 BE = 0].
+        let mut buf: Vec<u8> = Vec::new();
+        trie_serialize(&trie, &mut buf, &g);
+        #[rustfmt::skip]
+        let expected: Vec<u8> = vec![
+            0, 0, 0, 7,   1,   0, 0, 0, 0, // node a: number 7, terminal, 0 children
+            0, 0, 0, 9,   1,   0, 0, 0, 0, // node b: number 9, terminal, 0 children
+        ];
+        assert_eq!(buf, expected);
+    }
+
+    // trie_copy / trie_copy_helper deep-copy node structure + terminal flags
+    // (sharing tag ids), and trie_delete frees only descendant sub-tries while
+    // keeping top-level keys/terminal flags. Copy of a nested trie exercises the
+    // recursive helper; delete then flattens the copy to its top level.
+    // [spec:cg3:sem:tag-trie.cg3.trie-copy-fn/test]
+    // [spec:cg3:sem:tag-trie.cg3.trie-copy-helper-fn/test]
+    // [spec:cg3:sem:tag-trie.cg3.trie-delete-fn/test]
+    #[test]
+    fn copy_and_delete() {
+        let mut g = Grammar::default();
+        let a = mk_tag(&mut g, 1, 0, 0);
+        let b = mk_tag(&mut g, 2, 1, 0);
+        let c = mk_tag(&mut g, 3, 2, 0);
+
+        // Two paths sharing the `a` prefix: [a, b] and [a, c] -> a has a sub-trie
+        // with two children (drives trie_copy_helper recursion).
+        let mut trie = trie_t::new();
+        trie_insert(&mut trie, &vec![a, b], 0);
+        trie_insert(&mut trie, &vec![a, c], 0);
+
+        // Deep copy: independent structure, same tag ids, same paths.
+        let mut copy = trie_copy(&trie);
+        assert_eq!(trie_get_tag_list(&copy, &g), vec![a, b, c]);
+        // The a-node in the copy owns its own (non-shared) sub-trie.
+        assert!(copy.get(&a).unwrap().trie.is_some());
+
+        // Mutating the copy's structure must not affect the original.
+        let d = mk_tag(&mut g, 4, 3, 0);
+        trie_insert(&mut copy, &vec![a, d], 0);
+        assert_eq!(trie_get_tag_list(&copy, &g), vec![a, b, c, d]);
+        assert_eq!(trie_get_tag_list(&trie, &g), vec![a, b, c]); // original intact
+
+        // trie_delete frees descendant sub-tries but keeps top-level keys.
+        trie_delete(&mut copy);
+        // The single top-level key `a` remains, but its child level is gone.
+        assert_eq!(copy.len(), 1);
+        assert!(copy.contains_key(&a));
+        assert!(copy.get(&a).unwrap().trie.is_none());
+    }
+}

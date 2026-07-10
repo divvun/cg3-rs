@@ -82,3 +82,70 @@ where
 
 // [spec:cg3:def:bloomish.cg3.uint32-bloomish]
 pub type Uint32Bloomish = Bloomish<u32>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `new()` builds a zeroed filter (via `clear`), `insert` OR-accumulates a
+    // value into the bucket chosen by its low three bits in strict priority
+    // (bit-4 > bit-2 > bit-1 > bucket 0), and `matches` reports true iff every
+    // set bit of the queried value is present in that same bucket. This one
+    // test drives the constructor, insert bucket selection, and matches subset
+    // logic together.
+    // [spec:cg3:sem:bloomish.cg3.bloomish.bloomish-fn/test]
+    // [spec:cg3:sem:bloomish.cg3.bloomish.insert-fn/test]
+    // [spec:cg3:sem:bloomish.cg3.bloomish.matches-fn/test]
+    #[test]
+    fn insert_selects_bucket_and_matches_subset() {
+        let mut b: Uint32Bloomish = Bloomish::new();
+
+        // Fresh filter: nothing (with any bit) matches, and the empty value 0
+        // trivially matches (0 & bucket == 0).
+        assert!(!b.matches(1));
+        assert!(!b.matches(2));
+        assert!(!b.matches(4));
+        assert!(b.matches(0));
+
+        // 5 = 0b101 has bit-4 set -> routed to bucket 3; it now matches itself.
+        b.insert(5);
+        assert!(b.matches(5));
+        // A different bit-4 value with a superset-in-bucket pattern: 4 (0b100)
+        // is a subset of the stored 5, so it matches (false positive is fine).
+        assert!(b.matches(4));
+        // 6 = 0b110 is bit-4 too, but bit-2 (value 2) was never OR'd into
+        // bucket 3, so it does NOT match: no false negatives.
+        assert!(!b.matches(6));
+
+        // Priority: 3 = 0b011 has bit-1 AND bit-2 set; bit-2 wins, so it lands
+        // in bucket 2 (NOT bucket 1). Querying it before insert => no match.
+        assert!(!b.matches(3));
+        b.insert(3);
+        assert!(b.matches(3));
+        // 2 (bit-2) is a subset of 3 in the same bucket 2 => matches.
+        assert!(b.matches(2));
+        // 1 (bit-1) alone routes to bucket 1, which is still empty => no match,
+        // proving 3 did not land in bucket 1.
+        assert!(!b.matches(1));
+    }
+
+    // `clear` resets every bucket to zero, so previously-inserted values stop
+    // matching. Driven directly after populating the filter.
+    // [spec:cg3:sem:bloomish.cg3.bloomish.clear-fn/test]
+    #[test]
+    fn clear_resets_all_buckets() {
+        let mut b: Uint32Bloomish = Bloomish::new();
+        b.insert(5); // bucket 3
+        b.insert(2); // bucket 2
+        b.insert(1); // bucket 1
+        assert!(b.matches(5) && b.matches(2) && b.matches(1));
+
+        b.clear();
+        assert!(!b.matches(5));
+        assert!(!b.matches(2));
+        assert!(!b.matches(1));
+        // Default is defined as new() (also clear()ed): equally empty.
+        let d: Uint32Bloomish = Bloomish::default();
+        assert!(!d.matches(5));
+    }
+}

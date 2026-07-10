@@ -534,3 +534,123 @@ fn c_strtod(s: &str) -> f64 {
         Err(_) => 0.0,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn eval(exp: &str) -> Result<f64, MathError> {
+        // Fresh parser per call so `MP_ERRNO` (thread-local) does not leak between
+        // independent expressions within a test.
+        let mut mp = MathParser::new(-1000.0, 1000.0);
+        mp.eval(exp)
+    }
+
+    // Evaluating a bare number and the four eval levels for +,-,*,/ drives the
+    // constructor (`math-parser-fn`), `eval`, `eval_assign` (falls through with no
+    // `=`), `eval_add_sub`, `eval_mul_div`, and every `get_token` tokenisation on
+    // the way down (eval_exp/eval_unary/eval_func are also transitively driven but
+    // their facets live on the dedicated tests below).
+    // [spec:cg3:sem:math-parser.cg3.math-parser.math-parser-fn/test]
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-fn/test]
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-add-sub-fn/test]
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-mul-div-fn/test]
+    // [spec:cg3:sem:math-parser.cg3.math-parser.get-token-fn/test]
+    #[test]
+    fn arithmetic_levels() {
+        // A single NUMBER token: get_token -> NUMBER -> eval_func c_strtod.
+        assert_eq!(eval("42").unwrap(), 42.0);
+        assert_eq!(eval("3.5").unwrap(), 3.5);
+
+        // Addition / subtraction (eval_add_sub), left-to-right.
+        assert_eq!(eval("2+3").unwrap(), 5.0);
+        assert_eq!(eval("10-4-3").unwrap(), 3.0);
+
+        // Multiplication / division (eval_mul_div) binds tighter than +/-.
+        assert_eq!(eval("2+3*4").unwrap(), 14.0);
+        assert_eq!(eval("20/4").unwrap(), 5.0);
+        assert_eq!(eval("1+8/2-1").unwrap(), 4.0);
+
+        // Interior/leading whitespace is skipped by get_token.
+        assert_eq!(eval("  6  *  7").unwrap(), 42.0);
+
+        // Parenthesised expression re-enters eval_add_sub from eval_func.
+        assert_eq!(eval("(2+3)*4").unwrap(), 20.0);
+
+        // QUIRK: TRAILING whitespace makes get_token leave `token` holding the
+        // pre-whitespace-skip (non-empty) view with tok_type 0, so `eval`'s final
+        // non-empty-token check fails with "Syntax error" (line-365 comment).
+        assert_eq!(eval("6*7  "), Err(MathError("Syntax error")));
+
+        // Empty expression is rejected in `eval`.
+        assert_eq!(eval(""), Err(MathError("Expression empty")));
+        // Trailing garbage leaves a non-empty token -> "Syntax error".
+        assert_eq!(eval("2 3"), Err(MathError("Syntax error")));
+    }
+
+    // Exponent (`^`) is LEFT-associative here (documented quirk), and unary
+    // minus/plus is handled by eval_unary. These drive eval_exp + eval_unary.
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-exp-fn/test]
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-unary-fn/test]
+    #[test]
+    fn exponent_and_unary() {
+        // 2^3 == 8.
+        assert_eq!(eval("2^3").unwrap(), 8.0);
+        // Left-associative quirk: 2^3^2 == (2^3)^2 == 64, NOT 2^(3^2) == 512.
+        assert_eq!(eval("2^3^2").unwrap(), 64.0);
+
+        // Unary minus negates the following value; unary plus is a no-op.
+        assert_eq!(eval("-5").unwrap(), -5.0);
+        assert_eq!(eval("+5").unwrap(), 5.0);
+        assert_eq!(eval("3+-2").unwrap(), 1.0);
+        assert_eq!(eval("-(2+3)").unwrap(), -5.0);
+        // QUIRK: unary minus (eval_unary) is BELOW eval_exp in the call chain, so
+        // it binds tighter than `^`: -2^2 == (-2)^2 == 4, NOT -(2^2) == -4.
+        assert_eq!(eval("-2^2").unwrap(), 4.0);
+    }
+
+    // Function calls (eval_func FUNCTION branch): SQRT/FLOOR are exact; an
+    // unknown function name errors. Also exercises get_token classifying an
+    // identifier followed by '(' as FUNCTION.
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-func-fn/test]
+    #[test]
+    fn functions() {
+        assert_eq!(eval("SQRT(9)").unwrap(), 3.0);
+        assert_eq!(eval("SQR(5)").unwrap(), 25.0);
+        assert_eq!(eval("FLOOR(3.9)").unwrap(), 3.0);
+        assert_eq!(eval("ROUND(2.5)").unwrap(), 3.0);
+        // ux_simplecasecmp is case-insensitive: lowercase name still matches.
+        assert_eq!(eval("sqrt(16)").unwrap(), 4.0);
+
+        // Unknown function -> "Unknown function".
+        assert_eq!(eval("NOPE(1)"), Err(MathError("Unknown function")));
+        // Unbalanced parentheses.
+        assert_eq!(eval("(1+2"), Err(MathError("Unbalanced parentheses")));
+    }
+
+    // Variable assignment drives the eval_assign `=` branch: `A=...` stores into
+    // vars[slot], and the assigned value is returned. A follow-up expression on
+    // the SAME parser then reads the stored variable back through eval_func's
+    // VARIABLE branch. MIN/MAX read the ctor bounds.
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-assign-fn/test]
+    #[test]
+    fn variable_assignment_and_bounds() {
+        let mut mp = MathParser::new(-7.0, 11.0);
+
+        // Assign: A = 2+3 -> stores 5.0 in vars['A'-'A'] and returns 5.0.
+        assert_eq!(mp.eval("A=2+3").unwrap(), 5.0);
+        // Read the stored variable back (VARIABLE branch of eval_func).
+        assert_eq!(mp.eval("A*2").unwrap(), 10.0);
+
+        // MIN / MAX resolve to the constructor bounds, not to `vars`.
+        assert_eq!(mp.eval("MIN").unwrap(), -7.0);
+        assert_eq!(mp.eval("MAX").unwrap(), 11.0);
+        assert_eq!(mp.eval("MAX-MIN").unwrap(), 18.0);
+
+        // A multi-letter (non MIN/MAX) variable name is rejected by get_token.
+        assert_eq!(
+            mp.eval("AB"),
+            Err(MathError("Variables other than MIN and MAX must be 1 letter"))
+        );
+    }
+}

@@ -508,3 +508,172 @@ impl<K: Sentinel, V: Default + Clone> FlatUnorderedMap<K, V> {
 // [spec:cg3:def:flat-unordered-map.cg3.uint32-flat-hash-map]
 /// `typedef flat_unordered_map<uint32_t, uint32_t> uint32FlatHashMap;`
 pub type Uint32FlatHashMap = FlatUnorderedMap<u32, u32>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Collect the live (key, value) pairs by driving the container's own
+    // begin()/end() and the iterator operator++ (pre_increment).
+    fn collect(m: &Uint32FlatHashMap) -> Vec<(u32, u32)> {
+        let mut out = Vec::new();
+        let mut it = m.begin();
+        let end = m.end();
+        while it != end {
+            out.push(*it.get());
+            it.pre_increment();
+        }
+        out.sort();
+        out
+    }
+
+    // The private LCG probe hashers. `hash_value_sz` is the container's OWN
+    // member `t*3663850746527583589 + 11210403176660999867` (usize wraparound)
+    // and MUST differ from `crate::inlines::hash_value_sz` (the 65599 mixer).
+    // `hash_value` widens the key via `static_cast<size_type>` then mixes.
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.hash-value-sz-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.hash-value-fn/test]
+    #[test]
+    fn lcg_probe_hash_formula() {
+        let m: Uint32FlatHashMap = FlatUnorderedMap::new();
+        // Exact LCG constants, in usize width with wrapping.
+        let expect = |t: usize| {
+            t.wrapping_mul(3663850746527583589usize)
+                .wrapping_add(11210403176660999867usize)
+        };
+        assert_eq!(m.hash_value_sz(0), expect(0));
+        assert_eq!(m.hash_value_sz(1), expect(1));
+        assert_eq!(m.hash_value_sz(1234567), expect(1234567));
+        // hash_value(key) == hash_value_sz(key as usize) (zero-extension).
+        assert_eq!(m.hash_value(7u32), m.hash_value_sz(7));
+        assert_eq!(m.hash_value(42u32), expect(42));
+
+        // Bug-for-bug: this is NOT the crate 65599 mixer. Show they diverge
+        // (the whole point of the Wave-3 fix note in the module docs).
+        let mixer = crate::inlines::hash_value_sz(0x41, 0);
+        assert_ne!(
+            m.hash_value_sz(0x41),
+            mixer,
+            "container LCG must differ from inlines mixer"
+        );
+    }
+
+    // Default ctor + insert + find/count/contains, begin/end iteration,
+    // size/capacity/empty, and the default (end) ConstIterator equality
+    // (operator== over nullptr + index). insert never overwrites an existing
+    // key's value (documented quirk).
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.insert-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.find-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.count-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.contains-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.begin-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.end-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.size-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.capacity-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.empty-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.const-iterator.const-iterator-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.const-iterator.operator-fn/test]
+    #[test]
+    fn insert_find_iterate() {
+        let mut m: Uint32FlatHashMap = FlatUnorderedMap::new();
+        assert!(m.empty());
+        assert_eq!(m.size(), 0);
+        assert_eq!(m.capacity(), 0);
+        // Two default (end) iterators compare equal (nullptr == nullptr, i==i).
+        assert!(m.begin() == m.end());
+        assert!(m.end() == ConstIterator::default());
+
+        m.insert((10, 100));
+        m.insert((20, 200));
+        m.insert((30, 300));
+        assert!(!m.empty());
+        assert_eq!(m.size(), 3);
+        assert!(m.capacity() >= 3); // grew to DEFAULT_CAP (16)
+
+        // find lands on the live slot; contains/count agree.
+        let it = m.find(20);
+        assert!(it != m.end());
+        assert_eq!(*it.get(), (20, 200));
+        assert!(m.contains(30));
+        assert_eq!(m.count(30), 1);
+        // Absent key -> find == end(), count 0.
+        assert!(m.find(99) == m.end());
+        assert!(!m.contains(99));
+        assert_eq!(m.count(99), 0);
+
+        // insert never overwrites an existing key's value (documented quirk).
+        m.insert((20, 999));
+        assert_eq!(*m.find(20).get(), (20, 200));
+        assert_eq!(m.size(), 3);
+
+        // begin/end iteration recovers exactly the live pairs.
+        assert_eq!(collect(&m), vec![(10, 100), (20, 200), (30, 300)]);
+    }
+
+    // erase tombstones a slot (find can no longer see it), reserve rehashes,
+    // clear resets, swap exchanges whole state, assign clears + range-inserts.
+    // Also confirms erasing the last live element with tombstones present
+    // triggers the internal clear (deleted reset).
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.erase-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.reserve-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.clear-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.swap-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.assign-fn/test]
+    #[test]
+    fn erase_reserve_clear_swap_assign() {
+        let mut m: Uint32FlatHashMap = FlatUnorderedMap::new();
+        for k in 1u32..=5 {
+            m.insert((k, k * 10));
+        }
+        assert_eq!(m.size(), 5);
+
+        // erase removes a key (leaves a tombstone) — find no longer sees it.
+        m.erase(3);
+        assert_eq!(m.size(), 4);
+        assert!(m.find(3) == m.end());
+        assert!(m.contains(4)); // probe still finds keys past the tombstone
+        // Erasing an absent key is a no-op.
+        m.erase(99);
+        assert_eq!(m.size(), 4);
+
+        // reserve rehashes into a larger table, preserving all live pairs.
+        let before = collect(&m);
+        m.reserve(64);
+        assert!(m.capacity() >= 64);
+        assert_eq!(m.size(), 4);
+        assert_eq!(collect(&m), before);
+
+        // swap exchanges the entire state of two maps.
+        let mut other: Uint32FlatHashMap = FlatUnorderedMap::new();
+        other.insert((100, 1));
+        m.swap(&mut other);
+        assert_eq!(collect(&m), vec![(100, 1)]);
+        assert_eq!(other.size(), 4);
+        assert_eq!(collect(&other), before);
+
+        // assign clears then range-inserts the supplied pairs.
+        m.assign([(7u32, 70u32), (8, 80), (7, 700)]);
+        // Duplicate key 7 keeps its first value (insert never overwrites).
+        assert_eq!(collect(&m), vec![(7, 70), (8, 80)]);
+
+        // clear(0) empties the map.
+        m.clear(0);
+        assert!(m.empty());
+        assert_eq!(m.size(), 0);
+        assert!(m.begin() == m.end());
+
+        // Erasing the last live element while a tombstone exists triggers the
+        // internal clear() (size and deleted both reset to 0 cleanly).
+        let mut t: Uint32FlatHashMap = FlatUnorderedMap::new();
+        t.insert((1, 1));
+        t.insert((2, 2));
+        t.erase(1); // leaves a tombstone, size 1
+        t.erase(2); // last live element removed with a tombstone present
+        assert_eq!(t.size(), 0);
+        assert!(t.empty());
+        // After the internal compaction a fresh insert works normally.
+        t.insert((5, 5));
+        assert_eq!(t.size(), 1);
+        assert!(t.contains(5));
+    }
+}

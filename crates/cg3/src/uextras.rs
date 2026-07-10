@@ -769,3 +769,264 @@ pub fn ux_bufcpy(dst: &mut [UChar], src: Option<&[UChar]>, n: usize) {
     }
     dst[i] = '\0';
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    // Pure path helpers: ux_dirname reimplements POSIX dirname(3) and guarantees
+    // a trailing separator; basename splits on the last '/' or '\\'.
+    // [spec:cg3:sem:uextras.cg3.ux-dirname-fn/test]
+    // [spec:cg3:sem:uextras.basename-fn/test]
+    #[test]
+    fn dirname_and_basename() {
+        // ux_dirname: directory portion, always ending in a separator.
+        assert_eq!(ux_dirname("/usr/lib/foo.txt"), "/usr/lib/");
+        assert_eq!(ux_dirname("foo.txt"), "./"); // no dir part -> "." + '/'
+        assert_eq!(ux_dirname("/foo"), "/"); // root already ends in sep
+        assert_eq!(ux_dirname(""), "./");
+        // trailing slashes are stripped before dropping the last component
+        assert_eq!(ux_dirname("/a/b/"), "/a/");
+
+        // basename: piece after the final separator.
+        assert_eq!(basename(Some("/usr/lib/foo.txt")), "foo.txt");
+        assert_eq!(basename(Some("bar")), "bar"); // no separator -> unchanged
+        assert_eq!(basename(Some("a\\b\\c")), "c"); // backslash separator
+        assert_eq!(basename(Some("/end/")), "/"); // trailing sep -> point at it
+        assert_eq!(basename(None), "."); // null path
+    }
+
+    // find_and_replace mutates the UString in place and returns the count; a `to`
+    // containing `from` must not loop forever (offset advances past the insert).
+    // [spec:cg3:sem:uextras.cg3.find-and-replace-fn/test]
+    #[test]
+    fn find_and_replace_counts_and_no_loop() {
+        let mut s: UString = "a.b.c".to_string();
+        assert_eq!(find_and_replace(&mut s, ".", "-"), 2);
+        assert_eq!(s, "a-b-c");
+
+        // `to` contains `from`: must terminate, one replacement.
+        let mut s2: UString = "x".to_string();
+        assert_eq!(find_and_replace(&mut s2, "x", "xx"), 1);
+        assert_eq!(s2, "xx");
+
+        // No occurrence -> 0 replacements, string unchanged.
+        let mut s3: UString = "abc".to_string();
+        assert_eq!(find_and_replace(&mut s3, "z", "!"), 0);
+        assert_eq!(s3, "abc");
+    }
+
+    // get_line_clean reads a line via u_fgets/u_fgetc, collapsing runs of spaces
+    // to a single space and stopping at a newline; it returns the cleaned length.
+    // Drives get_line_clean -> u_fgets -> u_fgetc together.
+    // [spec:cg3:sem:uextras.cg3.get-line-clean-fn/test]
+    // [spec:cg3:sem:uextras.u-fgets-fn/test]
+    // [spec:cg3:sem:uextras.u-fgetc-fn/test]
+    #[test]
+    fn get_line_clean_collapses_spaces() {
+        let mut input = Cursor::new(b"foo    bar\nnext".to_vec());
+        let mut line = vec!['\0'; 64];
+        let mut cleaned = vec!['\0'; 128];
+        let n = get_line_clean(&mut line, &mut cleaned, &mut input, false);
+        let got: String = cleaned[..n].iter().collect();
+        // The run of spaces between "foo" and "bar" collapses to one space.
+        assert_eq!(got, "foo bar");
+
+        // u_fgets directly: reads up to a newline, stores it, reports success.
+        let mut in2 = Cursor::new(b"hi\nrest".to_vec());
+        let mut buf = vec!['\0'; 16];
+        assert!(u_fgets(&mut buf, 8, &mut in2));
+        assert_eq!(buf[0], 'h');
+        assert_eq!(buf[1], 'i');
+        assert!(isnl(buf[2])); // the '\n' is stored at s[i]
+
+        // u_fgetc directly: one code point at a time; U_EOF at end.
+        let mut in3 = Cursor::new("é!".as_bytes().to_vec());
+        assert_eq!(u_fgetc(&mut in3), 'é'); // 2-byte UTF-8 decoded to one char
+        assert_eq!(u_fgetc(&mut in3), '!');
+        assert_eq!(u_fgetc(&mut in3), U_EOF);
+    }
+
+    // read_utf8 reads a byte block but never splits a multi-byte UTF-8 sequence:
+    // it completes the trailing sequence, so the returned bytes are valid UTF-8.
+    // [spec:cg3:sem:uextras.read-utf8-fn/test]
+    #[test]
+    fn read_utf8_completes_trailing_sequence() {
+        // Small text that fits entirely in the buffer.
+        let text = "abcé";
+        let mut input = Cursor::new(text.as_bytes().to_vec());
+        let out = read_utf8(&mut input, 1000);
+        assert_eq!(out, text.as_bytes());
+        // The result is valid UTF-8 (no split sequence).
+        assert_eq!(std::str::from_utf8(&out).unwrap(), text);
+    }
+
+    // ux_strip_bom consumes a leading UTF-8 BOM (EF BB BF) and returns true; on
+    // any non-BOM prefix it rewinds (Seek) so the stream is left untouched.
+    // [spec:cg3:sem:uextras.ux-strip-bom-fn/test]
+    #[test]
+    fn strip_bom_consumes_or_rewinds() {
+        // With a BOM: consumed, true, cursor now at the real content.
+        let mut with_bom = Cursor::new(vec![0xEF, 0xBB, 0xBF, b'h', b'i']);
+        assert!(ux_strip_bom(&mut with_bom));
+        let rest = read_utf8(&mut with_bom, 1000);
+        assert_eq!(rest, b"hi");
+
+        // No BOM: false, and the stream is rewound to the start (nothing eaten).
+        let mut no_bom = Cursor::new(vec![b'h', b'i']);
+        assert!(!ux_strip_bom(&mut no_bom));
+        assert_eq!(no_bom.position(), 0);
+        let rest = read_utf8(&mut no_bom, 1000);
+        assert_eq!(rest, b"hi");
+
+        // Partial BOM (EF BB then a non-BF byte): false, all three bytes put back.
+        let mut partial = Cursor::new(vec![0xEF, 0xBB, b'x']);
+        assert!(!ux_strip_bom(&mut partial));
+        assert_eq!(partial.position(), 0);
+    }
+
+    // Output helpers: u_fprintf / u_fprintf_u format Arguments to UTF-8, returning
+    // the UTF-16 code-unit count; _u_vsnprintf (private) is the shared formatter;
+    // u_fputc writes a single char; u_fflush flushes the sink.
+    // [spec:cg3:sem:uextras.u-fprintf-fn/test]
+    // [spec:cg3:sem:uextras.u-fprintf-u-fn/test]
+    // [spec:cg3:sem:uextras.u-vsnprintf-fn/test]
+    // [spec:cg3:sem:uextras.u-fputc-fn/test]
+    // [spec:cg3:sem:uextras.u-fflush-fn/test]
+    #[test]
+    fn output_helpers_write_and_count() {
+        // u_fprintf: writes the formatted UTF-8 and returns the UTF-16 unit count.
+        let mut out: Vec<u8> = Vec::new();
+        let n = u_fprintf(&mut out, format_args!("hi {}", 42));
+        assert_eq!(String::from_utf8(out.clone()).unwrap(), "hi 42");
+        assert_eq!(n, 5); // "hi 42" is 5 UTF-16 code units
+
+        // Non-BMP char counts as 2 UTF-16 units (surrogate pair).
+        let mut out2: Vec<u8> = Vec::new();
+        let n2 = u_fprintf_u(&mut out2, format_args!("{}", '\u{1F600}'));
+        assert_eq!(n2, 2);
+        assert_eq!(String::from_utf8(out2).unwrap(), "\u{1F600}");
+
+        // Private shared formatter.
+        assert_eq!(_u_vsnprintf(format_args!("{}-{}", 1, 2)), "1-2");
+
+        // u_fputc: writes one char and echoes it back; 0x7FFF is the last handled.
+        let mut out3: Vec<u8> = Vec::new();
+        assert_eq!(u_fputc('A', &mut out3), 'A');
+        assert_eq!(out3, b"A");
+        let mut out4: Vec<u8> = Vec::new();
+        assert_eq!(u_fputc('\u{7FFF}', &mut out4), '\u{7FFF}');
+        assert_eq!(out4, "\u{7FFF}".as_bytes());
+
+        // u_fflush just flushes (a Vec flush is infallible); no panic.
+        let mut sink: Vec<u8> = Vec::new();
+        u_fflush(&mut sink);
+    }
+
+    // u_fputc reproduces the >= 0x8000 panic bug (second branch cuts off at
+    // 0x7FFF). The u-fputc-fn/test facet lives on output_helpers_write_and_count.
+    #[test]
+    #[should_panic(expected = "can't handle >= 0x7FFF")]
+    fn u_fputc_panics_above_limit() {
+        let mut out: Vec<u8> = Vec::new();
+        u_fputc('\u{8000}', &mut out);
+    }
+
+    // Set-op detection: single tokens (|,+,-,^,\,U+2229,U+2206) and "OR"/case.
+    // ux_is_empty is true for empty / all-whitespace strings.
+    // [spec:cg3:sem:uextras.cg3.ux-is-set-op-fn/test]
+    // [spec:cg3:sem:uextras.cg3.ux-is-empty-fn/test]
+    #[test]
+    fn set_op_and_empty() {
+        assert_eq!(ux_is_set_op("|"), S_OR);
+        assert_eq!(ux_is_set_op("+"), S_PLUS);
+        assert_eq!(ux_is_set_op("-"), S_MINUS);
+        assert_eq!(ux_is_set_op("^"), S_FAILFAST);
+        assert_eq!(ux_is_set_op("\\"), S_SET_DIFF);
+        assert_eq!(ux_is_set_op("\u{2229}"), S_SET_ISECT_U);
+        assert_eq!(ux_is_set_op("\u{2206}"), S_SET_SYMDIFF_U);
+        assert_eq!(ux_is_set_op("OR"), S_OR); // two-char OR (any case)
+        assert_eq!(ux_is_set_op("or"), S_OR);
+        assert_eq!(ux_is_set_op("foo"), S_IGNORE);
+        assert_eq!(ux_is_set_op(""), S_IGNORE);
+
+        assert!(ux_is_empty(""));
+        assert!(ux_is_empty("   \t "));
+        assert!(!ux_is_empty("  x "));
+    }
+
+    // ux_simplecasecmp: crude ASCII case-insensitive prefix compare with the
+    // documented lowercase-of-`a` asymmetry; ux_strCaseCompare is full-Unicode.
+    // [spec:cg3:sem:uextras.cg3.ux-simplecasecmp-fn/test]
+    // [spec:cg3:sem:uextras.cg3.ux-str-case-compare-fn/test]
+    #[test]
+    fn case_compares() {
+        // ux_simplecasecmp_sv: prefix "abc" of `b`, matched case-insensitively.
+        assert!(ux_simplecasecmp_sv("abc", "abc"));
+        // ASYMMETRY: a is the lowercase form (a[i] == b[i] + 32), so "abc" matches
+        // the uppercase "ABC" prefix.
+        assert!(ux_simplecasecmp_sv("abc", "ABC"));
+        // ...but the reverse direction does NOT (b[i] + 32 != a[i]).
+        assert!(!ux_simplecasecmp_sv("ABC", "abc"));
+        // Different letters do not match.
+        assert!(!ux_simplecasecmp_sv("abc", "xyz"));
+
+        // ux_strCaseCompare: proper Unicode case-insensitive equality.
+        assert!(ux_strCaseCompare(&"Hello".to_string(), &"hello".to_string()));
+        assert!(ux_strCaseCompare(&"GRüßE".to_string(), &"grüße".to_string()));
+        assert!(!ux_strCaseCompare(&"abc".to_string(), &"abd".to_string()));
+    }
+
+    // substr / substr_t::new build a proxy; data() returns the [offset, offset+
+    // count) char slice. old_value records the char that would be overwritten.
+    // [spec:cg3:sem:uextras.cg3.substr-fn/test]
+    // [spec:cg3:sem:uextras.cg3.substr-t.substr-t-fn/test]
+    // [spec:cg3:sem:uextras.cg3.substr-t.data-fn/test]
+    #[test]
+    fn substring_proxy() {
+        let s = "hello world";
+        // Factory + data(): "world".
+        let sub = substr(s, 6, 5);
+        assert_eq!(sub.data(), "world");
+
+        // Direct ctor: char-indexed offset/count over multibyte text.
+        let t = "héllo";
+        let sub2 = substr_t::new(t, 1, 3);
+        assert_eq!(sub2.data(), "éll");
+        assert_eq!(sub2.offset, 1);
+        assert_eq!(sub2.count, 3);
+        // old_value = the char at offset+count (the 'o' at char index 4).
+        assert_eq!(sub2.old_value, 'o');
+
+        // count == NPOS => old_value stays '\0'.
+        let sub3 = substr_t::new(s, 0, NPOS);
+        assert_eq!(sub3.old_value, '\0');
+    }
+
+    // ux_bufcpy copies up to n chars, mapping LF/CR to Control Pictures and
+    // NUL-terminating; a None src copies nothing.
+    // [spec:cg3:sem:uextras.cg3.ux-bufcpy-fn/test]
+    #[test]
+    fn bufcpy_maps_newlines() {
+        let src: Vec<UChar> = "a\nb".chars().collect();
+        let mut dst = vec!['X'; 8];
+        ux_bufcpy(&mut dst, Some(&src), 8);
+        assert_eq!(dst[0], 'a');
+        assert_eq!(dst[1], '\u{240A}'); // LF -> Control Picture LF
+        assert_eq!(dst[2], 'b');
+        assert_eq!(dst[3], '\0'); // NUL-terminated
+
+        // CR maps to its Control Picture too.
+        let src_cr: Vec<UChar> = "\r".chars().collect();
+        let mut dst_cr = vec!['X'; 4];
+        ux_bufcpy(&mut dst_cr, Some(&src_cr), 4);
+        assert_eq!(dst_cr[0], '\u{240D}');
+        assert_eq!(dst_cr[1], '\0');
+
+        // None src copies nothing but still NUL-terminates at index 0.
+        let mut dst_none = vec!['X'; 4];
+        ux_bufcpy(&mut dst_none, None, 4);
+        assert_eq!(dst_none[0], '\0');
+    }
+}

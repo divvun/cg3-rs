@@ -522,3 +522,117 @@ impl Drop for ASTHelper {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ASTNode::new member-initializes type/line/b/e, defaulting u=0 and cs empty;
+    // xml_encode escapes exactly &,",',<,> over a [b,e) UChar span.
+    // [spec:cg3:sem:ast.ast-node.ast-node-fn/test]
+    // [spec:cg3:sem:ast.xml-encode-fn/test]
+    #[test]
+    fn node_ctor_and_xml_encode() {
+        // A source buffer to point b/e into (kept alive for the whole test).
+        let src: Vec<UChar> = "a&b<c>\"d'e".chars().collect();
+        let b = src.as_ptr();
+        // SAFETY: within the allocation; e is one-past the last element.
+        let e = unsafe { b.add(src.len()) };
+
+        // ASTNode::new: fields set from args; u=0, cs empty.
+        let node = ASTNode::new(ASTType::AST_Tag, 7, b, e);
+        assert_eq!(node.r#type, ASTType::AST_Tag);
+        assert_eq!(node.line, 7);
+        assert_eq!(node.u, 0);
+        assert!(node.cs.is_empty());
+        assert_eq!(node.b, b);
+        assert_eq!(node.e, e);
+
+        // xml_encode escapes the five entities and passes everything else through.
+        let encoded = xml_encode(b, e);
+        assert_eq!(encoded, "a&amp;b&lt;c&gt;&quot;d&apos;e");
+
+        // Empty span (b == e) encodes to empty.
+        assert_eq!(xml_encode(b, b), "");
+    }
+
+    // print_ast renders a node subtree as indented pseudo-XML, emitting t="..."
+    // for text-bearing types and nesting children. Drives ASTNode::new too.
+    // [spec:cg3:sem:ast.print-ast-fn/test]
+    #[test]
+    fn print_ast_renders_tree() {
+        // Buffer for offsets and text spans.
+        let src: Vec<UChar> = "noun".chars().collect();
+        let base = src.as_ptr();
+        // SAFETY: within allocation.
+        let tag_e = unsafe { base.add(4) };
+
+        // A Tag child (text-bearing -> gets a t="noun" attribute), spanning [0,4).
+        let child = ASTNode::new(ASTType::AST_Tag, 2, base, tag_e);
+        // A Set parent containing the child; span [0,0) (offsets b=0,e=0).
+        let mut parent = ASTNode::new(ASTType::AST_Set, 1, base, base);
+        parent.cs.push(child);
+
+        let mut out: Vec<u8> = Vec::new();
+        print_ast(&mut out, base, 0, &parent);
+        let s = String::from_utf8(out).unwrap();
+
+        // Parent opens with its offsets, then the nested Tag with its text span,
+        // then the parent closes.
+        assert!(s.contains("<Set l=\"1\" b=\"0\" e=\"0\">"));
+        assert!(s.contains(" <Tag l=\"2\" b=\"0\" e=\"4\" t=\"noun\"/>"));
+        assert!(s.contains("</Set>"));
+
+        // A childless, non-text node self-closes with "/>".
+        let leaf = ASTNode::new(ASTType::AST_Anchor, 3, base, base);
+        let mut out2: Vec<u8> = Vec::new();
+        print_ast(&mut out2, base, 0, &leaf);
+        let s2 = String::from_utf8(out2).unwrap();
+        assert_eq!(s2, "<Anchor l=\"3\" b=\"0\" e=\"0\"/>\n");
+    }
+
+    // ASTHelper::new opens a node as a child of the current node (when parse_ast is
+    // on) and advances the cursor; destroy() closes it, restoring the parent and
+    // becoming idempotent. When parse_ast is off the helper is inert.
+    // [spec:cg3:sem:ast.ast-helper.ast-helper-fn/test]
+    // [spec:cg3:sem:ast.ast-helper.destroy-fn/test]
+    #[test]
+    fn ast_helper_open_and_close() {
+        let src: Vec<UChar> = "x".chars().collect();
+        let b = src.as_ptr();
+
+        // Disabled: helper is inert (no node created, c/h null).
+        set_parse_ast(false);
+        {
+            let h = ASTHelper::new(ASTType::AST_Rule, 1, b);
+            assert!(h.c.is_null());
+        }
+
+        // Enabled: opening pushes a child onto the current (root) node and the
+        // cursor advances to it.
+        set_parse_ast(true);
+        let root_children_before = with_ast_root(|r| r.cs.len());
+        {
+            let mut h = ASTHelper::new(ASTType::AST_Rule, 5, b);
+            assert!(!h.c.is_null()); // saved parent (the root)
+            let after = with_ast_root(|r| r.cs.len());
+            assert_eq!(after, root_children_before + 1);
+            // The newly opened child carries the type/line we passed.
+            with_ast_root(|r| {
+                let last = r.cs.last().unwrap();
+                assert_eq!(last.r#type, ASTType::AST_Rule);
+                assert_eq!(last.line, 5);
+            });
+
+            // destroy() closes: restores the parent cursor and nulls c/h.
+            h.destroy();
+            assert!(h.c.is_null());
+            // A second destroy() is an idempotent no-op (c already null).
+            h.destroy();
+            assert!(h.c.is_null());
+        }
+
+        // Reset the thread-local flag so other tests aren't affected.
+        set_parse_ast(false);
+    }
+}

@@ -174,3 +174,93 @@ pub fn u_parseArgs(argc: i32, argv: &mut [Vec<UChar>], option_count: i32, option
     }
     remaining
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opt(long: &'static str, short: UChar, has_arg: u8) -> UOption {
+        UOption {
+            long_name: Some(long),
+            short_name: short,
+            has_arg,
+            description: String::new(),
+            does_occur: false,
+            value: String::new(),
+        }
+    }
+
+    fn tok(s: &str) -> Vec<UChar> {
+        s.chars().collect()
+    }
+
+    // Drives `u_parseArgs` across its main branches: a long option flag, a short
+    // option taking its argument from the same token, a long option taking its
+    // argument from the next argv[], a bare non-option that is compacted toward
+    // the front (returned in `remaining`), and the `--` stop-processing marker.
+    // [spec:cg3:sem:icu-uoptions.u-parse-args-fn/test]
+    #[test]
+    fn parses_long_short_and_compacts() {
+        let mut options = [
+            opt("verbose", 'v', UOPT_NO_ARG),
+            opt("grammar", 'g', UOPT_REQUIRES_ARG),
+            opt("file", 'f', UOPT_REQUIRES_ARG),
+        ];
+
+        // argv[0] is the program name (skipped). Layout:
+        //   --verbose            (long flag, no arg)
+        //   -ginline.cg3         (short with same-token argument)
+        //   --file out.txt       (long with next-argv argument)
+        //   input.txt            (non-option, gets compacted)
+        let mut argv = vec![
+            tok("prog"),
+            tok("--verbose"),
+            tok("-ginline.cg3"),
+            tok("--file"),
+            tok("out.txt"),
+            tok("input.txt"),
+        ];
+        let argc = argv.len() as i32;
+        let n = options.len() as i32;
+
+        let remaining = u_parseArgs(argc, &mut argv, n, &mut options);
+
+        assert!(options[0].does_occur, "--verbose seen");
+        assert!(options[1].does_occur, "-g seen");
+        assert_eq!(options[1].value, "inline.cg3", "short-option same-token arg");
+        assert!(options[2].does_occur, "--file seen");
+        assert_eq!(options[2].value, "out.txt", "long-option next-argv arg");
+
+        // Non-options are compacted to argv[1..remaining]; here just "input.txt".
+        assert_eq!(remaining, 2);
+        assert_eq!(argv[1], tok("input.txt"));
+    }
+
+    // A required-argument option with no argument available returns the negated
+    // index of the offending argv[]. Also checks the `--` marker stops option
+    // processing so later dash tokens are treated as non-options.
+    // (u_parseArgs facet lives on the primary test above.)
+    #[test]
+    fn missing_required_arg_errors_and_dashdash_stops() {
+        // Missing required argument: -g at end with nothing after it.
+        let mut options = [opt("grammar", 'g', UOPT_REQUIRES_ARG)];
+        let mut argv = vec![tok("prog"), tok("-g")];
+        let rv = u_parseArgs(argv.len() as i32, &mut argv, 1, &mut options);
+        assert_eq!(rv, -1, "required arg missing -> -i (i==1)");
+
+        // Unknown option -> negated index too.
+        let mut options2 = [opt("verbose", 'v', UOPT_NO_ARG)];
+        let mut argv2 = vec![tok("prog"), tok("--nope")];
+        let rv2 = u_parseArgs(argv2.len() as i32, &mut argv2, 1, &mut options2);
+        assert_eq!(rv2, -1);
+
+        // `--` stops option processing: "-v" after it is kept as a plain
+        // non-option and compacted, and `verbose` is NOT marked.
+        let mut options3 = [opt("verbose", 'v', UOPT_NO_ARG)];
+        let mut argv3 = vec![tok("prog"), tok("--"), tok("-v")];
+        let remaining = u_parseArgs(argv3.len() as i32, &mut argv3, 1, &mut options3);
+        assert!(!options3[0].does_occur, "-v after -- is not an option");
+        assert_eq!(remaining, 2);
+        assert_eq!(argv3[1], tok("-v"));
+    }
+}

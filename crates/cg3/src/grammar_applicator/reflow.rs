@@ -849,10 +849,14 @@ impl super::GrammarApplicator {
         };
         let _ = tplain;
 
-        let parent = self.store.readings.get(reading.0).parent.unwrap();
+        // C++ dereferences `reading.parent` only INSIDE the branches below;
+        // a parentless reading (e.g. testPR fixtures) is fine as long as no
+        // branch actually fires (unwrap only at the touch points, faithfully).
+        let parent = self.store.readings.get(reading.0).parent;
 
         // possible_sets |= grammar->sets_by_tag[tag->hash]
         if let Some(bits) = self.grammar.sets_by_tag.get(&thash) {
+            let parent = parent.unwrap();
             let ps = &mut self.store.cohorts.get_mut(parent.0).possible_sets;
             if ps.len() < bits.len() {
                 ps.resize(bits.len(), false);
@@ -883,10 +887,10 @@ impl super::GrammarApplicator {
         }
 
         if self.grammar.parentheses.contains_key(&thash) {
-            self.store.cohorts.get_mut(parent.0).is_pleft = thash;
+            self.store.cohorts.get_mut(parent.unwrap().0).is_pleft = thash;
         }
         if self.grammar.parentheses_reverse.contains_key(&thash) {
-            self.store.cohorts.get_mut(parent.0).is_pright = thash;
+            self.store.cohorts.get_mut(parent.unwrap().0).is_pright = thash;
         }
 
         if ttype & T_MAPPING != 0 || first_char == self.grammar.mapping_prefix {
@@ -908,16 +912,16 @@ impl super::GrammarApplicator {
         }
         if ttype & T_NUMERICAL != 0 {
             self.store.readings.get_mut(reading.0).tags_numerical.insert(thash, tag);
-            self.store.cohorts.get_mut(parent.0).r#type &= !CT_NUM_CURRENT;
+            self.store.cohorts.get_mut(parent.unwrap().0).r#type &= !CT_NUM_CURRENT;
         }
         if self.store.readings.get(reading.0).baseform == 0 && (ttype & T_BASEFORM != 0) {
             self.store.readings.get_mut(reading.0).baseform = thash;
         }
         if self.parse_dep
             && (ttype & T_DEPENDENCY != 0)
-            && (self.store.cohorts.get(parent.0).r#type & CT_DEP_DONE == 0)
+            && (self.store.cohorts.get(parent.unwrap().0).r#type & CT_DEP_DONE == 0)
         {
-            let c = self.store.cohorts.get_mut(parent.0);
+            let c = self.store.cohorts.get_mut(parent.unwrap().0);
             c.dep_self = tds;
             c.dep_parent = tdp;
             if tdp == tds {
@@ -929,18 +933,18 @@ impl super::GrammarApplicator {
             if tdp != 0 && tch != 0 {
                 self.store
                     .cohorts
-                    .get_mut(parent.0)
+                    .get_mut(parent.unwrap().0)
                     .relations_input
                     .entry(tch)
                     .or_default()
                     .insert(tdp);
             }
             if tds != 0 {
-                let gn = self.store.cohorts.get(parent.0).global_number;
+                let gn = self.store.cohorts.get(parent.unwrap().0).global_number;
                 self.gWindow.relation_map.insert((tds, gn));
             }
             self.has_relations = true;
-            crate::cohort::set_related(&mut self.store, parent);
+            crate::cohort::set_related(&mut self.store, parent.unwrap());
         }
         if ttype & T_SPECIAL == 0 {
             let r = self.store.readings.get_mut(reading.0);
@@ -953,7 +957,7 @@ impl super::GrammarApplicator {
 
         if self.grammar.has_bag_of_tags {
             // bot = reading.parent->parent->bag_of_tags
-            let sw = self.store.cohorts.get(parent.0).parent.unwrap();
+            let sw = self.store.cohorts.get(parent.unwrap().0).parent.unwrap();
             // NOTE quirk: `!reading.baseform` is tested AFTER reading.baseform was
             // set above, so bot.baseform is written only when the reading ALREADY
             // had a baseform (likely-bug, reproduced).

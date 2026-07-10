@@ -1,0 +1,9 @@
+# nextest configuration for the cg3 workspace.
+#
+# Per-test hard limit: any test still running after 10 seconds is terminated
+# and reported as failed/timed-out (slow-timeout fires at 10s; terminate-after
+# = 1 period). The golden-corpus integration tests each finish in well under a
+# second, so anything hitting 10s is a hang (e.g. an engine loop bug), not a
+# slow test.
+[profile.default]
+slow-timeout = { period = "10s", terminate-after = 1 }

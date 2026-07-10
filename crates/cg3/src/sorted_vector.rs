@@ -491,3 +491,192 @@ fn merge_into<T: Clone, C: Comparator<T>>(a: &[T], b: &[T], comp: &C, out: &mut 
 // [spec:cg3:def:sorted-vector.cg3.uint32-sorted-vector]
 /// C++ `typedef sorted_vector<uint32_t> uint32SortedVector`.
 pub type uint32SortedVector = sorted_vector<u32>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A descending comparator to prove `Comp` is honoured (sort/insert/find all
+    // route through `comp`, not raw `PartialOrd`), and to exercise the reverse
+    // ordering in `is_sorted`, `swap`, `sort`, `assign`.
+    #[derive(Default, Clone, Copy)]
+    struct Greater;
+    impl<T: PartialOrd> Comparator<T> for Greater {
+        fn comp(&self, a: &T, b: &T) -> bool {
+            a > b
+        }
+    }
+
+    // Building a sorted_vector with the default ctor and populating it via the
+    // duplicate-suppressing `insert`/`push_back`, then querying with
+    // find/find_n/count/contains and the internal lower_bound/upper_bound.
+    // Also exercises begin/end/cbegin/cend (index endpoints), front/back,
+    // size/capacity/empty, and the `detail::is_sorted` free function that
+    // insert_range consults.
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.sorted-vector-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.insert-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.push-back-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.find-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.find-n-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.count-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.contains-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.lower-bound-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.upper-bound-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.begin-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.end-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.cbegin-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.cend-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.front-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.back-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.size-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.capacity-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.empty-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.detail.is-sorted-fn/test]
+    #[test]
+    fn insert_query_and_bounds() {
+        let mut v: sorted_vector<u32> = sorted_vector::new();
+        assert!(v.empty());
+        assert_eq!(v.size(), 0);
+        assert_eq!(v.begin(), 0);
+        assert_eq!(v.end(), 0);
+
+        // insert keeps the vector sorted and returns (index, inserted).
+        assert_eq!(v.insert(5), (0, true)); // empty-path
+        assert_eq!(v.insert(2), (0, true)); // goes to the front
+        assert_eq!(v.insert(8), (2, true)); // appended (push path)
+        // Duplicate is suppressed: (index_of_existing, false).
+        assert_eq!(v.insert(5), (1, false));
+        // push_back routes through insert (does NOT append).
+        v.push_back(3);
+        v.push_back(3); // duplicate suppressed
+        // Order is now [2,3,5,8].
+        assert_eq!(v.as_slice(), &[2, 3, 5, 8]);
+
+        assert!(!v.empty());
+        assert_eq!(v.size(), 4);
+        assert!(v.capacity() >= 4);
+        assert_eq!(v.front(), 2);
+        assert_eq!(v.back(), 8);
+        // Index endpoints.
+        assert_eq!(v.begin(), 0);
+        assert_eq!(v.cbegin(), 0);
+        assert_eq!(v.end(), 4);
+        assert_eq!(v.cend(), 4);
+
+        // find returns the element index; absent -> end() (== size()).
+        assert_eq!(v.find(5), 2);
+        assert_eq!(v.find(99), v.end());
+        // find_n is distance(begin(), find(t)) == the same index / size sentinel.
+        assert_eq!(v.find_n(3), 1);
+        assert_eq!(v.find_n(99), v.size());
+        // count is 0/1 (set semantics).
+        assert_eq!(v.count(5), 1);
+        assert_eq!(v.count(4), 0);
+        assert!(v.contains(8));
+        assert!(!v.contains(4));
+
+        // lower_bound: leftmost >= t; upper_bound: leftmost > t.
+        assert_eq!(v.lower_bound(3), 1); // element 3 at index 1
+        assert_eq!(v.lower_bound(4), 2); // first >= 4 is 5 at index 2
+        assert_eq!(v.upper_bound(3), 2); // first > 3 is 5 at index 2
+        assert_eq!(v.upper_bound(8), 4); // nothing > 8 -> end()
+
+        // detail::is_sorted under the default (ascending) comparator.
+        assert!(detail::is_sorted(v.as_slice(), &Less));
+        assert!(detail::is_sorted::<u32, Less>(&[], &Less)); // empty -> true
+        assert!(!detail::is_sorted(&[3u32, 1, 2], &Less));
+        // Under the reverse comparator a descending slice is "sorted".
+        assert!(detail::is_sorted(&[8u32, 5, 2], &Greater));
+    }
+
+    // erase (by value, by iterator index, by position n), pop_back, clear, and
+    // the reverse traversal that collapses C++ rbegin()/rend() into iter_rev.
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.erase-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.erase-n-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.pop-back-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.clear-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.rbegin-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.rend-fn/test]
+    #[test]
+    fn erase_pop_clear_and_reverse() {
+        let mut v: sorted_vector<u32> = sorted_vector::new();
+        for x in [1u32, 2, 3, 4, 5] {
+            v.push_back(x);
+        }
+        assert_eq!(v.as_slice(), &[1, 2, 3, 4, 5]);
+
+        // erase by value: present -> true, absent -> false.
+        assert!(v.erase(3));
+        assert!(!v.erase(3));
+        assert!(!v.erase(99));
+        assert_eq!(v.as_slice(), &[1, 2, 4, 5]);
+
+        // erase_n removes the element at index 0.
+        v.erase_n(0);
+        assert_eq!(v.as_slice(), &[2, 4, 5]);
+
+        // erase_it (by iterator/index) removes and returns the following index.
+        let next = v.erase_it(1); // removes '4'
+        assert_eq!(next, 1);
+        assert_eq!(v.as_slice(), &[2, 5]);
+
+        // Reverse traversal (rbegin..rend) yields largest -> smallest.
+        let rev: Vec<u32> = v.iter_rev().copied().collect();
+        assert_eq!(rev, vec![5, 2]);
+
+        // pop_back removes the largest.
+        v.pop_back();
+        assert_eq!(v.as_slice(), &[2]);
+
+        // clear empties but leaves capacity.
+        let cap = v.capacity();
+        v.clear();
+        assert!(v.empty());
+        assert_eq!(v.capacity(), cap);
+        // pop_back on empty is a no-op (not UB here).
+        v.pop_back();
+        assert!(v.empty());
+    }
+
+    // sort re-sorts with a *freshly default-constructed* Comp (not the stored
+    // comp), swap exchanges only the storage (comp stays per-instance), and
+    // assign clears + range-inserts (sort/unique) — driving insert_range and
+    // the merge helper indirectly.
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.sort-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.swap-fn/test]
+    // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.assign-fn/test]
+    #[test]
+    fn sort_swap_assign() {
+        // assign de-duplicates and sorts an unsorted range.
+        let mut v: sorted_vector<u32> = sorted_vector::new();
+        v.assign(&[9, 1, 5, 1, 9, 3]);
+        assert_eq!(v.as_slice(), &[1, 3, 5, 9]);
+
+        // Manually scramble the storage then sort() — it re-sorts ascending
+        // (default Comp) regardless of prior order, without de-duplicating.
+        {
+            let raw = v.get();
+            raw.clear();
+            raw.extend_from_slice(&[7, 2, 7, 4]);
+        }
+        v.sort();
+        assert_eq!(v.as_slice(), &[2, 4, 7, 7]); // sorted, duplicate NOT removed
+
+        // swap exchanges storage between two sorted_vectors.
+        let mut a: sorted_vector<u32> = sorted_vector::new();
+        a.assign(&[10, 20]);
+        let mut b: sorted_vector<u32> = sorted_vector::new();
+        b.assign(&[1, 2, 3]);
+        a.swap(&mut b);
+        assert_eq!(a.as_slice(), &[1, 2, 3]);
+        assert_eq!(b.as_slice(), &[10, 20]);
+
+        // A sorted_vector using a custom (descending) comparator: assign keeps
+        // it in the comparator's order, and sort() re-derives that order.
+        let mut d: sorted_vector<u32, Greater> = sorted_vector::new();
+        d.assign(&[3, 1, 2, 3]);
+        assert_eq!(d.as_slice(), &[3, 2, 1]);
+        d.sort();
+        assert_eq!(d.as_slice(), &[3, 2, 1]);
+    }
+}

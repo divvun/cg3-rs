@@ -112,6 +112,12 @@ impl PlaintextApplicator {
             lines += 1;
             let mut packoff = get_line_clean(&mut line, &mut cleaned, input, false);
 
+            // C++ `while (!input.eof())`: a blank line (packoff == 0 but
+            // `line[0]` holds the newline) is NOT end-of-stream; only a read
+            // that stores nothing is. Sampled here, acted on at the bottom
+            // (matches the base run_grammar_on_text driver).
+            let hit_eof = packoff == 0 && line[0] == '\0';
+
             // Trim trailing whitespace.
             while cleaned[0] != '\0' && packoff > 0 && crate::inlines::isspace(cleaned[packoff - 1]) {
                 cleaned[packoff - 1] = '\0';
@@ -388,7 +394,9 @@ impl PlaintextApplicator {
             line[0] = '\0';
             cleaned[0] = '\0';
 
-            if packoff == 0 && line[0] == '\0' {
+            // Loop termination: the C++ `while(!input.eof())` re-check at the
+            // top of the loop, using the EOF state sampled after get_line_clean.
+            if hit_eof {
                 break;
             }
         }
