@@ -17,7 +17,6 @@
 //! context / core) by their C++-matching signatures — none of which exist yet.
 
 use crate::arena::{CohortId, CtxId, ReadingId, RuleId, SetId, SwId, TagId};
-use super::regexgrps_t;
 use crate::cohort::{
     CT_ENCLOSED, CT_IGNORED, CT_NUM_CURRENT, CT_RELATED, CT_REMOVED, CohortSet, DEP_NO_PARENT,
 };
@@ -385,7 +384,7 @@ impl super::GrammarApplicator {
         if the_set.r#type & ST_SET_UNIFY != 0 {
             // usets = (*context_stack.back().unif_sets)[theSet.number]
             let unif_sets = self.context_stack.last().unwrap().unif_sets.unwrap();
-            let usets = unsafe { &(*unif_sets) }.get(&the_set.number);
+            let usets = self.unif_sets_store[unif_sets].get(&the_set.number);
             let p_set = self.grammar.set_by_number(the_set.sets[0]);
             for &iter in &p_set.sets {
                 let present = usets.map(|s| s.count(iter) != 0).unwrap_or(false);
@@ -403,7 +402,7 @@ impl super::GrammarApplicator {
             }
         } else if unif_mode {
             let unif_tags = self.context_stack.last().unwrap().unif_tags.unwrap();
-            let val = unsafe { &(*unif_tags) }.get(&the_set.number).copied();
+            let val = self.unif_tags_store[unif_tags].get(&the_set.number).copied();
             if let Some(node) = val {
                 crate::tag_trie::trie_get_tag_list_find(
                     &the_set.trie,
@@ -1878,14 +1877,11 @@ impl super::GrammarApplicator {
                     }
                 }
 
-                // Fresh per-reading regex/unif state.
+                // Fresh per-reading regex/unif state (store INDICES, wave 4).
                 {
-                    let ur = self.used_regex;
-                    let rgs: *mut regexgrps_t = &mut self.regexgrps_store[ur] as *mut regexgrps_t;
-                    let uts: *mut super::unif_tags_t =
-                        &mut self.unif_tags_store[used_unif] as *mut super::unif_tags_t;
-                    let uss: *mut super::unif_sets_t =
-                        &mut self.unif_sets_store[used_unif] as *mut super::unif_sets_t;
+                    let rgs = self.used_regex;
+                    let uts = used_unif;
+                    let uss = used_unif;
                     {
                         let f = self.context_stack.last_mut().unwrap();
                         f.regexgrp_ct = 0;
@@ -1898,10 +1894,8 @@ impl super::GrammarApplicator {
                     self.unif_tags_rs.insert(r_hash, uts);
                     self.unif_sets_rs.insert(r_hash, uss);
                     used_unif += 1;
-                    unsafe {
-                        (*uts).clear();
-                        (*uss).clear();
-                    }
+                    self.unif_tags_store[uts].clear();
+                    self.unif_sets_store[uss].clear();
                 }
 
                 self.unif_last_wordform = 0;
@@ -1998,8 +1992,8 @@ impl super::GrammarApplicator {
                             let (ut_empty, us_empty) = {
                                 let f = self.context_stack.last().unwrap();
                                 (
-                                    f.unif_tags.map(|p| unsafe { (*p).is_empty() }).unwrap_or(true),
-                                    f.unif_sets.map(|p| unsafe { (*p).is_empty() }).unwrap_or(true),
+                                    f.unif_tags.map(|i| self.unif_tags_store[i].is_empty()).unwrap_or(true),
+                                    f.unif_sets.map(|i| self.unif_sets_store[i].is_empty()).unwrap_or(true),
                                 )
                             };
                             did_test = set_type & (ST_CHILD_UNIFY | ST_SPECIAL) == 0

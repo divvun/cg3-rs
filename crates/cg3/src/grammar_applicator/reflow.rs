@@ -713,11 +713,11 @@ impl super::GrammarApplicator {
         // (3) Replace $1-$9 with the current context frame's capture groups.
         if let Some(frame) = self.context_stack.last() {
             let ct = frame.regexgrp_ct as usize;
-            let grps_ptr = frame.regexgrps;
+            let grps_idx = frame.regexgrps;
             let mut i = 0usize;
             while i < ct && i < 9 {
-                let text: String = match grps_ptr {
-                    Some(p) => unsafe { (&*p).get(i).cloned().unwrap_or_default() },
+                let text: String = match grps_idx {
+                    Some(gi) => self.regexgrps_store[gi].get(i).cloned().unwrap_or_default(),
                     None => String::new(),
                 };
                 if find_and_replace(&mut tmp, STR_VS[i], &text) > 0 {

@@ -391,8 +391,9 @@ impl super::GrammarApplicator {
                     && self.context_stack.last().unwrap().regexgrps.is_some();
                 if capture {
                     if let Some(re) = &tag.regexp {
+                        let idx = self.context_stack.last().unwrap().regexgrps.unwrap();
                         let frame = self.context_stack.last_mut().unwrap();
-                        let rg = unsafe { &mut *frame.regexgrps.unwrap() };
+                        let rg = &mut self.regexgrps_store[idx];
                         capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &itag_text);
                     }
                 } else {
@@ -472,8 +473,9 @@ impl super::GrammarApplicator {
                     && self.context_stack.last().unwrap().regexgrps.is_some();
                 if capture {
                     if let Some(re) = &tag.regexp {
+                        let idx = self.context_stack.last().unwrap().regexgrps.unwrap();
                         let frame = self.context_stack.last_mut().unwrap();
-                        let rg = unsafe { &mut *frame.regexgrps.unwrap() };
+                        let rg = &mut self.regexgrps_store[idx];
                         capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &ts);
                     }
                 } else {
@@ -583,8 +585,9 @@ impl super::GrammarApplicator {
                             && !self.context_stack.is_empty()
                             && self.context_stack.last().unwrap().regexgrps.is_some()
                         {
+                            let idx = self.context_stack.last().unwrap().regexgrps.unwrap();
                             let frame = self.context_stack.last_mut().unwrap();
-                            let rg = unsafe { &mut *frame.regexgrps.unwrap() };
+                            let rg = &mut self.regexgrps_store[idx];
                             capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &text);
                         }
                     }
@@ -1101,11 +1104,11 @@ impl super::GrammarApplicator {
             );
         } else if stype & ST_SET_UNIFY != 0 {
             // (c) &&-unified set
-            let usets_ptr = self.context_stack.last().unwrap().unif_sets.unwrap();
-            let usets_empty = {
-                let map = unsafe { &*usets_ptr };
-                map.get(&snumber).map(|v| v.empty()).unwrap_or(true)
-            };
+            let usets_idx = self.context_stack.last().unwrap().unif_sets.unwrap();
+            let usets_empty = self.unif_sets_store[usets_idx]
+                .get(&snumber)
+                .map(|v| v.empty())
+                .unwrap_or(true);
             if usets_empty {
                 // First evaluation: gather all matching sub-sets of sets[0].
                 let uset_sets = {
@@ -1116,20 +1119,19 @@ impl super::GrammarApplicator {
                     let tnum = self.grammar.set_by_number(tset_ref).number;
                     if self.does_set_match_reading(reading, tnum, bypass_index, tagunif || unif_mode)
                     {
-                        let map = unsafe { &mut *usets_ptr };
-                        map.entry(snumber).or_default().insert(tnum);
+                        self.unif_sets_store[usets_idx].entry(snumber).or_default().insert(tnum);
                     }
                 }
-                let map = unsafe { &*usets_ptr };
-                retval = !map.get(&snumber).map(|v| v.empty()).unwrap_or(true);
+                retval = !self.unif_sets_store[usets_idx]
+                    .get(&snumber)
+                    .map(|v| v.empty())
+                    .unwrap_or(true);
             } else {
                 // Subsequent evaluations: test the previously-stored sets.
-                let stored: Vec<u32> = {
-                    let map = unsafe { &*usets_ptr };
-                    map.get(&snumber)
-                        .map(|v| v.as_slice().to_vec())
-                        .unwrap_or_default()
-                };
+                let stored: Vec<u32> = self.unif_sets_store[usets_idx]
+                    .get(&snumber)
+                    .map(|v| v.as_slice().to_vec())
+                    .unwrap_or_default();
                 let mut sets = self.ss_u32sv.get();
                 for usi in stored {
                     if self.does_set_match_reading(reading, usi, bypass_index, unif_mode) {
@@ -1201,8 +1203,8 @@ impl super::GrammarApplicator {
             }
             // Propagate a unified tag across the set's members.
             if (unif_mode || tagunif) && !self.context_stack.is_empty() {
-                let ut_ptr = self.context_stack.last().unwrap().unif_tags.unwrap();
-                let ut = unsafe { &mut *ut_ptr };
+                let ut_idx = self.context_stack.last().unwrap().unif_tags.unwrap();
+                let ut = &mut self.unif_tags_store[ut_idx];
                 let mut tagptr: Option<*const ()> = None;
                 for &s in ssets.iter().take(size) {
                     if let Some(&t) = ut.get(&s) {
@@ -1323,14 +1325,12 @@ impl super::GrammarApplicator {
         let cap_unif = cur_flags & RF_CAPTURE_UNIF != 0;
 
         if context.is_some() && !cap_unif && child_unify && !self.context_stack.is_empty() {
-            let (ut_ptr, us_ptr) = {
+            let (ut_idx, us_idx) = {
                 let f = self.context_stack.last().unwrap();
                 (f.unif_tags.unwrap(), f.unif_sets.unwrap())
             };
-            unsafe {
-                *utags = (*ut_ptr).clone();
-                *usets = (*us_ptr).clone();
-            }
+            *utags = self.unif_tags_store[ut_idx].clone();
+            *usets = self.unif_sets_store[us_idx].clone();
         }
 
         let bypass = stype & (ST_CHILD_UNIFY | ST_SPECIAL) != 0;
@@ -1377,22 +1377,20 @@ impl super::GrammarApplicator {
         // Rollback on failure.
         if !retval && context.is_some() && !cap_unif && child_unify && !self.context_stack.is_empty()
         {
-            let ut_ptr = self.context_stack.last().unwrap().unif_tags.unwrap();
-            let differs = unsafe { (*utags).len() != (*ut_ptr).len() || *utags != *ut_ptr };
+            let ut_idx = self.context_stack.last().unwrap().unif_tags.unwrap();
+            let entry = &mut self.unif_tags_store[ut_idx];
+            let differs = (*utags).len() != entry.len() || *utags != *entry;
             if differs {
-                unsafe {
-                    std::mem::swap(&mut *ut_ptr, &mut *utags);
-                }
+                std::mem::swap(entry, &mut *utags);
             }
         }
         if !retval && context.is_some() && !cap_unif && child_unify && !self.context_stack.is_empty()
         {
-            let us_ptr = self.context_stack.last().unwrap().unif_sets.unwrap();
-            let differs = unsafe { (*usets).len() != (*us_ptr).len() };
+            let us_idx = self.context_stack.last().unwrap().unif_sets.unwrap();
+            let entry = &mut self.unif_sets_store[us_idx];
+            let differs = (*usets).len() != entry.len();
             if differs {
-                unsafe {
-                    std::mem::swap(&mut *us_ptr, &mut *usets);
-                }
+                std::mem::swap(entry, &mut *usets);
             }
         }
         if !retval && !self.context_stack.is_empty() {

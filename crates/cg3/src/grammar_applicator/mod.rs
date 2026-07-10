@@ -137,9 +137,10 @@ pub struct ReadingSpec {
 /// C++ `struct Rule_Context` — one frame of the applicator's `context_stack`:
 /// the matched `target`, the accumulated `context`/`dep_context` cohort
 /// positions, the `attach_to` target, the `mark` cohort, and the per-frame
-/// unification/regex-capture state. The `unif_tags`/`unif_sets`/`regexgrps`
-/// pointers alias into the applicator's `*_store` vectors, so they stay raw
-/// pointers (nullable → `Option<*mut …>`).
+/// unification/regex-capture state. The C++ `unif_tags`/`unif_sets`/
+/// `regexgrps` pointers alias into the applicator's `*_store` vectors; wave 4
+/// replaces the raw aliasing pointers with plain store INDICES (safe across
+/// `Vec` reallocation).
 #[derive(Default, Clone)]
 pub struct Rule_Context {
     pub target: ReadingSpec,
@@ -149,13 +150,13 @@ pub struct Rule_Context {
     pub dep_context: Vec<Option<CohortId>>,
     pub attach_to: ReadingSpec,
     pub mark: Option<CohortId>,
-    /// C++ `unif_tags_t* unif_tags` (aliases `unif_tags_store`).
-    pub unif_tags: Option<*mut unif_tags_t>,
-    /// C++ `unif_sets_t* unif_sets` (aliases `unif_sets_store`).
-    pub unif_sets: Option<*mut unif_sets_t>,
+    /// C++ `unif_tags_t* unif_tags` — an index into `unif_tags_store`.
+    pub unif_tags: Option<usize>,
+    /// C++ `unif_sets_t* unif_sets` — an index into `unif_sets_store`.
+    pub unif_sets: Option<usize>,
     pub regexgrp_ct: u8,
-    /// C++ `regexgrps_t* regexgrps` (aliases `regexgrps_store`).
-    pub regexgrps: Option<*mut regexgrps_t>,
+    /// C++ `regexgrps_t* regexgrps` — an index into `regexgrps_store`.
+    pub regexgrps: Option<usize>,
     pub is_with: bool,
 }
 
@@ -342,9 +343,9 @@ pub struct GrammarApplicator {
     pub regexgrps_store: Vec<regexgrps_t>,
     /// C++ `bc::flat_map<uint32_t, uint8_t> regexgrps_z`.
     pub regexgrps_z: BTreeMap<u32, u8>,
-    /// C++ `bc::flat_map<uint32_t, regexgrps_t*> regexgrps_c` (aliases
-    /// `regexgrps_store`).
-    pub regexgrps_c: BTreeMap<u32, *mut regexgrps_t>,
+    /// C++ `bc::flat_map<uint32_t, regexgrps_t*> regexgrps_c` — values are
+    /// indices into `regexgrps_store`.
+    pub regexgrps_c: BTreeMap<u32, usize>,
     pub same_basic: u32,
     pub rule_target: Option<CohortId>,
     pub context_target: Option<CohortId>,
@@ -361,11 +362,13 @@ pub struct GrammarApplicator {
     /// regexes (ICU `URegularExpression*` → `regex::Regex`).
     pub text_delimiters: Vec<regex::Regex>,
 
-    /// C++ `bc::flat_map<uint32_t, unif_tags_t*> unif_tags_rs`.
-    pub unif_tags_rs: BTreeMap<u32, *mut unif_tags_t>,
+    /// C++ `bc::flat_map<uint32_t, unif_tags_t*> unif_tags_rs` — values are
+    /// indices into `unif_tags_store`.
+    pub unif_tags_rs: BTreeMap<u32, usize>,
     pub unif_tags_store: Vec<unif_tags_t>,
-    /// C++ `bc::flat_map<uint32_t, unif_sets_t*> unif_sets_rs`.
-    pub unif_sets_rs: BTreeMap<u32, *mut unif_sets_t>,
+    /// C++ `bc::flat_map<uint32_t, unif_sets_t*> unif_sets_rs` — values are
+    /// indices into `unif_sets_store`.
+    pub unif_sets_rs: BTreeMap<u32, usize>,
     pub unif_sets_store: Vec<unif_sets_t>,
     pub unif_last_wordform: u32,
     pub unif_last_baseform: u32,

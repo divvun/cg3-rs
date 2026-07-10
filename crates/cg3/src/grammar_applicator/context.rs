@@ -116,16 +116,14 @@ impl super::GrammarApplicator {
         }
         // auto& unif_tags = *(context_stack.back().unif_tags);
         // The C++ dereferences the pointer unconditionally; a null here would be
-        // UB there, so a null pointer (`None`) faithfully panics ("crash").
-        let ptr = self
+        // UB there, so a `None` index faithfully panics ("crash").
+        let idx = self
             .context_stack
             .last()
             .unwrap()
             .unif_tags
-            .expect("check_unif_tags: active context frame has a null unif_tags pointer");
-        // SAFETY: `unif_tags` aliases a live `unif_tags_store` entry for the
-        // duration of the frame, exactly as the C++ `unif_tags_t*` does.
-        let unif_tags: &mut unif_tags_t = unsafe { &mut *ptr };
+            .expect("check_unif_tags: active context frame has a null unif_tags index");
+        let unif_tags: &mut unif_tags_t = &mut self.unif_tags_store[idx];
         if let Some(&existing) = unif_tags.get(&set) {
             return existing == val;
         }
