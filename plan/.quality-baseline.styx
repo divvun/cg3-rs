@@ -1,0 +1,637 @@
+generated_at 2026-07-07T12:17:08.692896Z
+
+files (
+    {path CMakeLists.txt, code_loc 150, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path README.md, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path cg3.pc.in, code_loc 9, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path cmake.sh, code_loc 25, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path emacs/cg.el, code_loc 1107, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path get-boost.sh, code_loc 22, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path include/getopt/getopt.cpp, code_loc 56, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path include/getopt/getopt.h, code_loc 14, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path include/posix/popen_plus.cpp, code_loc 125, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path include/posix/popen_plus.hpp, code_loc 32, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path include/uoptions.hpp, code_loc 90, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path include/wordexp/wordexp.cpp, code_loc 13, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path include/wordexp/wordexp.h, code_loc 31, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path license.icu.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/bibliography.xml, code_loc 21, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/binarygrammar.xml, code_loc 71, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/cgglossary.xml, code_loc 195, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/cgkeywords.xml, code_loc 815, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/chapterize.sh, code_loc 2, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/cmdreference.xml, code_loc 203, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/combine.sh, code_loc 1, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/compatibility.xml, code_loc 267, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/contexts.xml, code_loc 450, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/contributing.xml, code_loc 10, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/dependencies.xml, code_loc 393, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/drafts.xml, code_loc 44, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/externals.xml, code_loc 94, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/faq.xml, code_loc 85, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/generate.sh, code_loc 2, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/grammar.xml, code_loc 345, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/installation.xml, code_loc 262, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/intro.xml, code_loc 54, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/license.xml, code_loc 40, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/make-dist.sh, code_loc 22, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/manual.xml, code_loc 60, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/parentheses.xml, code_loc 123, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/pdf.sh, code_loc 2, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/probabilistic.xml, code_loc 46, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/profiling.xml, code_loc 26, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/relations.xml, code_loc 242, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/rules.xml, code_loc 1191, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/sets.xml, code_loc 358, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/singlefile.sh, code_loc 2, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/streamcmds.xml, code_loc 99, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/streamformats.xml, code_loc 234, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/subreadings.xml, code_loc 129, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/tags.xml, code_loc 450, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/templates.xml, code_loc 102, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/validate.sh, code_loc 2, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path manual/xsl-fo.sh, code_loc 2, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2007-03-29.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2007-12-04.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2008-01-24.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2008-03-06.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2008-05-20.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2008-07-15.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2008-08-25.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2008-09-11.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2008-09-20.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2008-11-10.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2009-01-08.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2009-02-21.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2009-05-13.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2009-06-30.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2009-09-27.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2010-03-18.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2010-06-06.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2010-09-22.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2010-09-23.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2010-11-11.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2011-04-30.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2011-08-01.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2012-01-06.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2012-07-02.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2012-07-29.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2013-06-19.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2014-02-18.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2014-08-07.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2015-06-23.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2017-05-20.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2019-09-29.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2023-06-01.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path newsletters/2025-03-11.md, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path plan/main.styx, code_loc 6, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path python/CMakeLists.txt, code_loc 28, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path python/cg3.py.in, code_loc 176, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path python/constraint_grammar.i.in, code_loc 118, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path python/setup.py.in, code_loc 29, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/CG3_External.pm, code_loc 173, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/cg-stabilize-relations, code_loc 15, function_count 1, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/cg3-autobin.pl.in, code_loc 148, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/clang-format.pl, code_loc 87, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/compile-profile.sh, code_loc 13, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/external.pl, code_loc 28, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/external_text.pl, code_loc 111, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/profile-apply.sh, code_loc 14, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/profile-parse.sh, code_loc 11, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/profile-revisions-tally.php, code_loc 41, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/profile-revisions.php, code_loc 65, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/todo.sh, code_loc 5, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/update-revision.pl, code_loc 9, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/vapply.sh, code_loc 10, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path scripts/vparse.sh, code_loc 7, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/AST.hpp, code_loc 205, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/ApertiumApplicator.cpp, code_loc 865, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/ApertiumApplicator.hpp, code_loc 29, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/BinaryApplicator.cpp, code_loc 541, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/BinaryApplicator.hpp, code_loc 48, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/BinaryGrammar.cpp, code_loc 34, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/BinaryGrammar.hpp, code_loc 54, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/BinaryGrammar_read.cpp, code_loc 504, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/BinaryGrammar_read_10043.cpp, code_loc 433, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/BinaryGrammar_write.cpp, code_loc 469, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/CMakeLists.txt, code_loc 226, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Cohort.cpp, code_loc 214, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Cohort.hpp, code_loc 86, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/CohortIterator.cpp, code_loc 326, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/CohortIterator.hpp, code_loc 102, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/ContextualTest.cpp, code_loc 104, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/ContextualTest.hpp, code_loc 109, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/FSTApplicator.cpp, code_loc 461, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/FSTApplicator.hpp, code_loc 20, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/FormatConverter.cpp, code_loc 239, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/FormatConverter.hpp, code_loc 27, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Grammar.cpp, code_loc 938, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Grammar.hpp, code_loc 140, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/GrammarApplicator.cpp, code_loc 954, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/GrammarApplicator.hpp, code_loc 358, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/GrammarApplicator_context.cpp, code_loc 58, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/GrammarApplicator_matchSet.cpp, code_loc 760, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/GrammarApplicator_reflow.cpp, code_loc 906, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/GrammarApplicator_runContextualTest.cpp, code_loc 546, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/GrammarApplicator_runGrammar.cpp, code_loc 708, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/GrammarApplicator_runRules.cpp, code_loc 2840, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/GrammarWriter.cpp, code_loc 150, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/GrammarWriter.hpp, code_loc 28, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/IGrammarParser.hpp, code_loc 37, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/JsonlApplicator.cpp, code_loc 673, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/JsonlApplicator.hpp, code_loc 23, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/MathParser.hpp, code_loc 262, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/MatxinApplicator.cpp, code_loc 450, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/MatxinApplicator.hpp, code_loc 41, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/MweSplitApplicator.cpp, code_loc 166, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/MweSplitApplicator.hpp, code_loc 23, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/NicelineApplicator.cpp, code_loc 420, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/NicelineApplicator.hpp, code_loc 18, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/PlaintextApplicator.cpp, code_loc 281, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/PlaintextApplicator.hpp, code_loc 16, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Profiler.cpp, code_loc 197, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Profiler.hpp, code_loc 69, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Reading.cpp, code_loc 202, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Reading.hpp, code_loc 55, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Relabeller.cpp, code_loc 300, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Relabeller.hpp, code_loc 56, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Rule.cpp, code_loc 19, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Rule.hpp, code_loc 98, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Set.cpp, code_loc 114, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Set.hpp, code_loc 75, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/SingleWindow.cpp, code_loc 135, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/SingleWindow.hpp, code_loc 49, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Strings.cpp, code_loc 5, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Strings.hpp, code_loc 355, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Tag.cpp, code_loc 357, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Tag.hpp, code_loc 129, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/TagTrie.hpp, code_loc 118, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/TextualParser.cpp, code_loc 3193, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/TextualParser.hpp, code_loc 84, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Window.cpp, code_loc 126, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/Window.hpp, code_loc 34, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/all_cg_comp.cpp, code_loc 15, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/all_cg_conv.cpp, code_loc 33, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/all_cg_proc.cpp, code_loc 29, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/all_vislcg3.cpp, code_loc 27, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/bloomish.hpp, code_loc 54, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/cg-annotate.cpp, code_loc 393, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/cg-comp.cpp, code_loc 77, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/cg-conv.cpp, code_loc 202, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/cg-merge-annotations.cpp, code_loc 39, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/cg-mwesplit.cpp, code_loc 67, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/cg-proc.cpp, code_loc 167, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/cg-relabel.cpp, code_loc 80, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/cg3.h, code_loc 69, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/filesystem.hpp, code_loc 19, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/flat_unordered_map.hpp, code_loc 294, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/flat_unordered_set.hpp, code_loc 270, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/icu_uoptions.cpp, code_loc 79, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/inlines.hpp, code_loc 151, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/interval_vector.hpp, code_loc 313, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/libcg3.cpp, code_loc 385, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/main.cpp, code_loc 389, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/options.cpp, code_loc 90, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/options.hpp, code_loc 98, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/options_conv.hpp, code_loc 86, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/options_parser.hpp, code_loc 56, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/parser_helpers.hpp, code_loc 459, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/pool.hpp, code_loc 38, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/process.hpp, code_loc 153, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/scoped_stack.hpp, code_loc 46, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/sorted_vector.hpp, code_loc 48, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/stdafx.hpp, code_loc 92, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/streambuf.hpp, code_loc 86, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/test_libcg3.c, code_loc 70, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/uextras.cpp, code_loc 283, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/uextras.hpp, code_loc 192, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path src/version.hpp, code_loc 14, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_AnyMinusSome/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_AnyMinusSome/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_AnyMinusSome/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Append/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Append/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Append/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Barrier/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Barrier/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Barrier/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_CarefulBarrier/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_CarefulBarrier/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_CarefulBarrier/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_CharsInWhiteSpace/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_CharsInWhiteSpace/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_CharsInWhiteSpace/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_CompositeSelect/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_CompositeSelect/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_CompositeSelect/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_ContextTest/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_ContextTest/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_ContextTest/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Delimit/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Delimit/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Delimit/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_DontMatchEmptySet/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_DontMatchEmptySet/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_DontMatchEmptySet/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_EndlessSelect/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_EndlessSelect/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_EndlessSelect/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Flush/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Flush/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Flush/run.pl, code_loc 50, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Generate/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Generate/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Generate/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Iff/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Iff/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Iff/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Joiner/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Joiner/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Joiner/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MapAdd_Different/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MapAdd_Different/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MapAdd_Different/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MatchBaseform/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MatchBaseform/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MatchBaseform/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MatchWordform/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MatchWordform/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MatchWordform/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MergeCohorts/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MergeCohorts/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MergeCohorts/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MultiWords/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MultiWords/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MultiWords/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MultipleSections/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MultipleSections/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MultipleSections/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MultiwordTagStaying/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MultiwordTagStaying/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_MultiwordTagStaying/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_NegatedContextTest/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_NegatedContextTest/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_NegatedContextTest/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RegExp_Map/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RegExp_Map/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RegExp_Map/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RegExp_Select/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RegExp_Select/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RegExp_Select/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RegExp_Substitute/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RegExp_Substitute/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RegExp_Substitute/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Remove/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Remove/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Remove/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RemoveSingleTag/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RemoveSingleTag/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_RemoveSingleTag/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_ScanningTests/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_ScanningTests/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_ScanningTests/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Sections/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Sections/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Sections/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Select/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Select/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Select/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SetOp_FailFast/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SetOp_FailFast/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SetOp_FailFast/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SetOp_OR/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SetOp_OR/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SetOp_OR/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SpaceInWord/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SpaceInWord/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SpaceInWord/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Substitute/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Substitute/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Substitute/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SuperBlanks/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SuperBlanks/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SuperBlanks/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SuperBlanksNewline/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SuperBlanksNewline/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SuperBlanksNewline/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SuperBlanksWithEscape/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SuperBlanksWithEscape/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_SuperBlanksWithEscape/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Unification/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Unification/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_Unification/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_UnknownWord/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_UnknownWord/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/T_UnknownWord/run.pl, code_loc 17, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/clean.sh, code_loc 6, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/Apertium/runall.pl, code_loc 64, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Active/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Active/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_AnyMinusSome/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_AnyMinusSome/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_AnyMinusSome/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Append/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Append/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Barrier/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Barrier/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_CG2Compat/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_CG2Compat/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_CG2Compat/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_CarefulBarrier/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_CarefulBarrier/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_CmdArgs/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_CmdArgs/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_ContextTest/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_ContextTest/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_ContextTestJump/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_ContextTestJump/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_CopyCohort/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_CopyCohort/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_DelayAndDelete/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_DelayAndDelete/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Delimit/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Delimit/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Delimit/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Dependency/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Dependency/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Dependency/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Dependency/prefix.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Dependency_Loops/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Dependency_Loops/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Dependency_Loops/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Dependency_OutOfRange/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Dependency_OutOfRange/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_DontMatchEmptySet/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_DontMatchEmptySet/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_EndlessSelect/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_EndlessSelect/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_External/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_External/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_External/run.pl, code_loc 33, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Iff/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Iff/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_IgnoreRestore/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_IgnoreRestore/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_IgnoreRestore/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Include/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Include/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_InputCommands/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_InputCommands/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_InputMarkup/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_InputMarkup/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_JumpExecute/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_JumpExecute/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_JumpExecute/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MapAdd_Different/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MapAdd_Different/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MapAdd_Different/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MapThenRemove/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MapThenRemove/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MapThenSelect/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MapThenSelect/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MappingPrefix/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MappingPrefix/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MappingPrefix/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MappingPrefix/prefix.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MergeCohorts/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MergeCohorts/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MergeCohorts/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Movement/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Movement/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MultipleSections/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MultipleSections/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MweSplit/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MweSplit/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_MweSplit/run.pl, code_loc 21, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_NRules/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_NRules/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_NRules/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_NegatedContextTest/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_NegatedContextTest/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_NotContextTest/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_NotContextTest/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_NumericalTags/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_NumericalTags/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_NumericalTags/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_OmniWithBarrier/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_OmniWithBarrier/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Omniscan/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Omniscan/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_OriginPassing/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_OriginPassing/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_OriginPassing/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Parentheses/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Parentheses/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Parentheses/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Protect/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Protect/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Protect/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RegExp/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RegExp/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RelabelList/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RelabelList/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RelabelList/run.pl, code_loc 47, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RelabelList_Apertium/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RelabelList_Apertium/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RelabelList_Apertium/run.pl, code_loc 48, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RelabelSet/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RelabelSet/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RelabelSet/run.pl, code_loc 46, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Relations/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Relations/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Relations/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RemCohort/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RemCohort/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RemCohort/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RemCohort_Ignore/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RemCohort_Ignore/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RemCohort_Ignore/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RemoveSingleTag/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_RemoveSingleTag/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_ScanningTests/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_ScanningTests/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SectionRanges/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SectionRanges/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SectionRanges/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Sections/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Sections/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Sections/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Select/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Select/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Select/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SetOp_FailFast/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SetOp_FailFast/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SetOp_FailFast/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SetOps/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SetOps/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SetParentChild/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SetParentChild/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SoftDelimiters/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SoftDelimiters/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SoftDelimiters/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SpaceInForms/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SpaceInForms/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SpaceInForms/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SplitCohort/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SplitCohort/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SplitCohort/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SubReadings_Apertium/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SubReadings_Apertium/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SubReadings_Apertium/run.pl, code_loc 33, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SubReadings_CG/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SubReadings_CG/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SubReadings_CG/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Substitute/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Substitute/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Substitute/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SubstituteNil/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SubstituteNil/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SwitchParent/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_SwitchParent/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Templates/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Templates/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Trace/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Trace/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Trace/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Unification/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Unification/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Unification/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Variables/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_Variables/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_With/args.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_With/expected.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/T_With/input.txt, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/clean.sh, code_loc 6, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path test/runall.pl, code_loc 162, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path wasm-demo/README.md, code_loc 0, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path wasm-demo/build-wasm.sh, code_loc 64, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path wasm-demo/cg-conv.html, code_loc 45, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path wasm-demo/index.html, code_loc 3, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+    {path wasm-demo/vislcg3.html, code_loc 37, function_count 0, max_cyclomatic 0, duplicate_memberships 0}
+)
+
+directories (
+    {path "", test_ratio_milli 0}
+    {path emacs, test_ratio_milli 0}
+    {path include, test_ratio_milli 0}
+    {path include/getopt, test_ratio_milli 0}
+    {path include/posix, test_ratio_milli 0}
+    {path include/wordexp, test_ratio_milli 0}
+    {path manual, test_ratio_milli 0}
+    {path newsletters, test_ratio_milli 0}
+    {path plan, test_ratio_milli 0}
+    {path python, test_ratio_milli 0}
+    {path scripts, test_ratio_milli 0}
+    {path src, test_ratio_milli 0}
+    {path test, test_ratio_milli 0}
+    {path test/Apertium, test_ratio_milli 0}
+    {path test/Apertium/T_AnyMinusSome, test_ratio_milli 0}
+    {path test/Apertium/T_Append, test_ratio_milli 0}
+    {path test/Apertium/T_Barrier, test_ratio_milli 0}
+    {path test/Apertium/T_CarefulBarrier, test_ratio_milli 0}
+    {path test/Apertium/T_CharsInWhiteSpace, test_ratio_milli 0}
+    {path test/Apertium/T_CompositeSelect, test_ratio_milli 0}
+    {path test/Apertium/T_ContextTest, test_ratio_milli 0}
+    {path test/Apertium/T_Delimit, test_ratio_milli 0}
+    {path test/Apertium/T_DontMatchEmptySet, test_ratio_milli 0}
+    {path test/Apertium/T_EndlessSelect, test_ratio_milli 0}
+    {path test/Apertium/T_Flush, test_ratio_milli 0}
+    {path test/Apertium/T_Generate, test_ratio_milli 0}
+    {path test/Apertium/T_Iff, test_ratio_milli 0}
+    {path test/Apertium/T_Joiner, test_ratio_milli 0}
+    {path test/Apertium/T_MapAdd_Different, test_ratio_milli 0}
+    {path test/Apertium/T_MatchBaseform, test_ratio_milli 0}
+    {path test/Apertium/T_MatchWordform, test_ratio_milli 0}
+    {path test/Apertium/T_MergeCohorts, test_ratio_milli 0}
+    {path test/Apertium/T_MultiWords, test_ratio_milli 0}
+    {path test/Apertium/T_MultipleSections, test_ratio_milli 0}
+    {path test/Apertium/T_MultiwordTagStaying, test_ratio_milli 0}
+    {path test/Apertium/T_NegatedContextTest, test_ratio_milli 0}
+    {path test/Apertium/T_RegExp_Map, test_ratio_milli 0}
+    {path test/Apertium/T_RegExp_Select, test_ratio_milli 0}
+    {path test/Apertium/T_RegExp_Substitute, test_ratio_milli 0}
+    {path test/Apertium/T_Remove, test_ratio_milli 0}
+    {path test/Apertium/T_RemoveSingleTag, test_ratio_milli 0}
+    {path test/Apertium/T_ScanningTests, test_ratio_milli 0}
+    {path test/Apertium/T_Sections, test_ratio_milli 0}
+    {path test/Apertium/T_Select, test_ratio_milli 0}
+    {path test/Apertium/T_SetOp_FailFast, test_ratio_milli 0}
+    {path test/Apertium/T_SetOp_OR, test_ratio_milli 0}
+    {path test/Apertium/T_SpaceInWord, test_ratio_milli 0}
+    {path test/Apertium/T_Substitute, test_ratio_milli 0}
+    {path test/Apertium/T_SuperBlanks, test_ratio_milli 0}
+    {path test/Apertium/T_SuperBlanksNewline, test_ratio_milli 0}
+    {path test/Apertium/T_SuperBlanksWithEscape, test_ratio_milli 0}
+    {path test/Apertium/T_Unification, test_ratio_milli 0}
+    {path test/Apertium/T_UnknownWord, test_ratio_milli 0}
+    {path test/T_Active, test_ratio_milli 0}
+    {path test/T_AnyMinusSome, test_ratio_milli 0}
+    {path test/T_Append, test_ratio_milli 0}
+    {path test/T_Barrier, test_ratio_milli 0}
+    {path test/T_CG2Compat, test_ratio_milli 0}
+    {path test/T_CarefulBarrier, test_ratio_milli 0}
+    {path test/T_CmdArgs, test_ratio_milli 0}
+    {path test/T_ContextTest, test_ratio_milli 0}
+    {path test/T_ContextTestJump, test_ratio_milli 0}
+    {path test/T_CopyCohort, test_ratio_milli 0}
+    {path test/T_DelayAndDelete, test_ratio_milli 0}
+    {path test/T_Delimit, test_ratio_milli 0}
+    {path test/T_Dependency, test_ratio_milli 0}
+    {path test/T_Dependency_Loops, test_ratio_milli 0}
+    {path test/T_Dependency_OutOfRange, test_ratio_milli 0}
+    {path test/T_DontMatchEmptySet, test_ratio_milli 0}
+    {path test/T_EndlessSelect, test_ratio_milli 0}
+    {path test/T_External, test_ratio_milli 0}
+    {path test/T_Iff, test_ratio_milli 0}
+    {path test/T_IgnoreRestore, test_ratio_milli 0}
+    {path test/T_Include, test_ratio_milli 0}
+    {path test/T_InputCommands, test_ratio_milli 0}
+    {path test/T_InputMarkup, test_ratio_milli 0}
+    {path test/T_JumpExecute, test_ratio_milli 0}
+    {path test/T_MapAdd_Different, test_ratio_milli 0}
+    {path test/T_MapThenRemove, test_ratio_milli 0}
+    {path test/T_MapThenSelect, test_ratio_milli 0}
+    {path test/T_MappingPrefix, test_ratio_milli 0}
+    {path test/T_MergeCohorts, test_ratio_milli 0}
+    {path test/T_Movement, test_ratio_milli 0}
+    {path test/T_MultipleSections, test_ratio_milli 0}
+    {path test/T_MweSplit, test_ratio_milli 0}
+    {path test/T_NRules, test_ratio_milli 0}
+    {path test/T_NegatedContextTest, test_ratio_milli 0}
+    {path test/T_NotContextTest, test_ratio_milli 0}
+    {path test/T_NumericalTags, test_ratio_milli 0}
+    {path test/T_OmniWithBarrier, test_ratio_milli 0}
+    {path test/T_Omniscan, test_ratio_milli 0}
+    {path test/T_OriginPassing, test_ratio_milli 0}
+    {path test/T_Parentheses, test_ratio_milli 0}
+    {path test/T_Protect, test_ratio_milli 0}
+    {path test/T_RegExp, test_ratio_milli 0}
+    {path test/T_RelabelList, test_ratio_milli 0}
+    {path test/T_RelabelList_Apertium, test_ratio_milli 0}
+    {path test/T_RelabelSet, test_ratio_milli 0}
+    {path test/T_Relations, test_ratio_milli 0}
+    {path test/T_RemCohort, test_ratio_milli 0}
+    {path test/T_RemCohort_Ignore, test_ratio_milli 0}
+    {path test/T_RemoveSingleTag, test_ratio_milli 0}
+    {path test/T_ScanningTests, test_ratio_milli 0}
+    {path test/T_SectionRanges, test_ratio_milli 0}
+    {path test/T_Sections, test_ratio_milli 0}
+    {path test/T_Select, test_ratio_milli 0}
+    {path test/T_SetOp_FailFast, test_ratio_milli 0}
+    {path test/T_SetOps, test_ratio_milli 0}
+    {path test/T_SetParentChild, test_ratio_milli 0}
+    {path test/T_SoftDelimiters, test_ratio_milli 0}
+    {path test/T_SpaceInForms, test_ratio_milli 0}
+    {path test/T_SplitCohort, test_ratio_milli 0}
+    {path test/T_SubReadings_Apertium, test_ratio_milli 0}
+    {path test/T_SubReadings_CG, test_ratio_milli 0}
+    {path test/T_Substitute, test_ratio_milli 0}
+    {path test/T_SubstituteNil, test_ratio_milli 0}
+    {path test/T_SwitchParent, test_ratio_milli 0}
+    {path test/T_Templates, test_ratio_milli 0}
+    {path test/T_Trace, test_ratio_milli 0}
+    {path test/T_Unification, test_ratio_milli 0}
+    {path test/T_Variables, test_ratio_milli 0}
+    {path test/T_With, test_ratio_milli 0}
+    {path wasm-demo, test_ratio_milli 0}
+)

@@ -1,0 +1,7 @@
+name cg3
+source {
+    url "/tmp/cg3"
+    ref main
+}
+
+children ()

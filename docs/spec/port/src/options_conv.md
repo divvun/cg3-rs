@@ -1,0 +1,40 @@
+# src/options_conv.hpp
+
+> [spec:cg3:def:options-conv.options-conv.options]
+> enum OPTIONS {
+>   HELP1;
+>   HELP2;
+>   MAPPING_PREFIX;
+>   IN_AUTO;
+>   IN_CG;
+>   IN_CG2;
+>   IN_NICELINE;
+>   IN_APERTIUM;
+>   IN_FST;
+>   IN_PLAIN;
+>   IN_JSONL;
+>   IN_BINARY;
+>   ADD_TAGS;
+>   OUT_CG;
+>   OUT_CG2;
+>   OUT_APERTIUM;
+>   OUT_FST;
+>   OUT_MATXIN;
+>   OUT_NICELINE;
+>   OUT_PLAIN;
+>   OUT_JSONL;
+>   OUT_BINARY;
+>   FST_WFACTOR;
+>   FST_WTAG;
+>   SUB_DELIMITER;
+>   SUB_RTL;
+>   SUB_LTR;
+>   ORDERED;
+>   PARSE_DEP;
+>   DEP_DELIMIT;
+>   UNICODE_TAGS;
+>   PIPE_DELETED;
+>   NO_BREAK;
+>   NUM_OPTIONS_CONV;
+> }
+
