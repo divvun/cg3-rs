@@ -56,9 +56,10 @@ fn tag_by_hash(grammar: &Grammar, hash: u32) -> TagId {
 
 // [spec:cg3:def:niceline-applicator.cg3.niceline-applicator]
 /// C++ `class NicelineApplicator : public virtual GrammarApplicator`.
-pub struct NicelineApplicator {
-    /// The composed engine base (C++ `public virtual GrammarApplicator`).
-    pub base: GrammarApplicator,
+pub struct NicelineApplicator<'a> {
+    /// The composed engine base (C++ `public virtual GrammarApplicator`;
+    /// wave 4: BORROWED, matching the C++ shared virtual-base subobject).
+    pub base: &'a mut GrammarApplicator,
     /// C++ `bool did_warn_statictags = false` — one-shot "cannot output static
     /// tags" warning latch.
     pub did_warn_statictags: bool,
@@ -67,7 +68,7 @@ pub struct NicelineApplicator {
     pub did_warn_subreadings: bool,
 }
 
-impl NicelineApplicator {
+impl<'a> NicelineApplicator<'a> {
     // [spec:cg3:def:niceline-applicator.cg3.niceline-applicator.niceline-applicator-fn]
     // [spec:cg3:sem:niceline-applicator.cg3.niceline-applicator.niceline-applicator-fn]
     /// C++ `NicelineApplicator::NicelineApplicator(std::ostream& ux_err)` —
@@ -77,7 +78,7 @@ impl NicelineApplicator {
     /// DIVERGENCE: the base ctor takes the owned `Grammar` (the port owns it by
     /// value at construction); the `ux_err` stream is an `Option<()>`
     /// placeholder, so it is not stored.
-    pub fn new(base: GrammarApplicator) -> Self {
+    pub fn new(base: &'a mut GrammarApplicator) -> Self {
         NicelineApplicator {
             base,
             did_warn_statictags: false,
@@ -100,8 +101,9 @@ impl NicelineApplicator {
     /// (`goto istext`, baseform fallback) are preserved. `line`/`cleaned` are
     /// `Vec<char>` scratch buffers (what `get_line_clean` expects); the C++
     /// `UChar*` pointer walks become `usize` indices over that buffer.
-    pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
+    pub fn run_grammar_on_text<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
         R: Read + Seek,
         W: Write,
     {
@@ -291,7 +293,7 @@ impl NicelineApplicator {
                     // Drain a window if enough have queued up.
                     if self.base.gWindow.next.len() > self.base.num_windows as usize {
                         self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-                        self.base.run_grammar_on_window(output);
+                        self.base.run_grammar_on_window_with(fmt, output);
                         if self.base.numWindows % reset_after == 0 {
                             self.base.reset_indexes();
                         }
@@ -464,7 +466,8 @@ impl NicelineApplicator {
                     } else if let Some(ls) = l_swindow {
                         self.base.store.single_windows.get_mut(ls.0).text.push_str(&text);
                     } else {
-                        self.base.print_plain_text_line(&text, output);
+                        // C++ virtual printPlainTextLine.
+                        fmt.print_plain_text_line(self.base, &text, output);
                     }
                 }
             }
@@ -508,13 +511,14 @@ impl NicelineApplicator {
         }
         while !self.base.gWindow.next.is_empty() {
             self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-            self.base.run_grammar_on_window(output);
+            self.base.run_grammar_on_window_with(fmt, output);
         }
 
         self.base.gWindow.shuffle_windows_down(&mut self.base.store);
         while !self.base.gWindow.previous.is_empty() {
             let tmp = self.base.gWindow.previous[0];
-            self.print_single_window(tmp, output, false);
+            // C++ virtual printSingleWindow — the most-derived format decides.
+            fmt.print_single_window(self.base, tmp, output, false);
             let mut t = Some(tmp);
             crate::single_window::free_swindow(&mut self.base.gWindow, &mut self.base.store, &mut t);
             self.base.gWindow.previous.remove(0);

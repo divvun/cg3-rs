@@ -91,13 +91,14 @@ pub fn json_to_ustring(val: &Value) -> UString {
 
 // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator]
 /// C++ `class JsonlApplicator : public virtual GrammarApplicator` — modelled as
-/// composition over [`GrammarApplicator`]. No JSONL-specific data members (the
-/// C++ subclass adds none), so `base` is the only field.
-pub struct JsonlApplicator {
-    pub base: GrammarApplicator,
+/// composition over [`GrammarApplicator`] (wave 4: the shared base is BORROWED,
+/// matching the C++ shared virtual-base subobject). No JSONL-specific data
+/// members (the C++ subclass adds none), so `base` is the only field.
+pub struct JsonlApplicator<'a> {
+    pub base: &'a mut GrammarApplicator,
 }
 
-impl JsonlApplicator {
+impl<'a> JsonlApplicator<'a> {
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.jsonl-applicator-fn]
     // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.jsonl-applicator-fn]
     /// C++ `JsonlApplicator::JsonlApplicator(std::ostream& ux_err)` — delegates to
@@ -105,7 +106,7 @@ impl JsonlApplicator {
     /// data. Here the caller constructs the base applicator (which owns the
     /// grammar); `new` just wraps it. (The C++ explicit empty destructor exists
     /// only to anchor the vtable and has no Rust analog.)
-    pub fn new(base: GrammarApplicator) -> Self {
+    pub fn new(base: &'a mut GrammarApplicator) -> Self {
         JsonlApplicator { base }
     }
 
@@ -741,8 +742,9 @@ impl JsonlApplicator {
     ///   are not triggered here.
     /// * `variables.clear()` (the member map) is reproduced; the LOCAL
     ///   `variables_set/rem/output` are NOT cleared on FLUSH (faithful).
-    pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
+    pub fn run_grammar_on_text<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
         R: Read + Seek,
         W: Write,
     {
@@ -856,7 +858,7 @@ impl JsonlApplicator {
                         // Drain buffered windows.
                         while !self.base.gWindow.next.is_empty() {
                             self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-                            self.base.run_grammar_on_window(output);
+                            self.base.run_grammar_on_window_with(fmt, output);
                             if self.base.numWindows % reset_after == 0 {
                                 self.base.reset_indexes();
                             }
@@ -865,7 +867,7 @@ impl JsonlApplicator {
                         self.base.gWindow.shuffle_windows_down(&mut self.base.store);
                         while !self.base.gWindow.previous.is_empty() {
                             let tmp = self.base.gWindow.previous[0];
-                            self.print_single_window(tmp, output, false);
+                            fmt.print_single_window(self.base, tmp, output, false);
                             let mut t = Some(tmp);
                             crate::single_window::free_swindow(
                                 &mut self.base.gWindow,
@@ -876,7 +878,7 @@ impl JsonlApplicator {
                         }
 
                         if back_swindow.is_none() {
-                            self.print_stream_command(&cmd_ustr, output);
+                            fmt.print_stream_command(self.base, &cmd_ustr, output);
                         }
 
                         self.base.variables.clear(0);
@@ -884,12 +886,12 @@ impl JsonlApplicator {
                         // u_fflush(*ux_stderr): deferred.
                     } else if cmd_ustr == STR_CMD_IGNORE {
                         ignoreinput = true;
-                        self.print_stream_command(&cmd_ustr, output);
+                        fmt.print_stream_command(self.base, &cmd_ustr, output);
                     } else if cmd_ustr == STR_CMD_RESUME {
                         ignoreinput = false;
-                        self.print_stream_command(&cmd_ustr, output);
+                        fmt.print_stream_command(self.base, &cmd_ustr, output);
                     } else if cmd_ustr == STR_CMD_EXIT {
-                        self.print_stream_command(&cmd_ustr, output);
+                        fmt.print_stream_command(self.base, &cmd_ustr, output);
                         exit_requested = true;
                         break 'mainloop; // goto CGCMD_EXIT_JSONL
                     } else if cmd_ustr.starts_with(STR_CMD_SETVAR) {
@@ -931,7 +933,7 @@ impl JsonlApplicator {
                 if let Some(t_v) = obj.get("t") {
                     let t_ustr = json_to_ustring(t_v);
                     if !t_ustr.is_empty() {
-                        self.print_plain_text_line(&t_ustr, output);
+                        fmt.print_plain_text_line(self.base, &t_ustr, output);
                     }
                 }
                 continue;
@@ -947,7 +949,7 @@ impl JsonlApplicator {
                     } else if let Some(lsw) = l_swindow {
                         self.base.store.single_windows.get_mut(lsw.0).text.push_str(&t_ustr);
                     } else {
-                        self.print_plain_text_line(&t_ustr, output);
+                        fmt.print_plain_text_line(self.base, &t_ustr, output);
                     }
                 } else {
                     tracing::warn!("Warning: Empty 't' value on line {}.", self.base.numLines);
@@ -1038,7 +1040,7 @@ impl JsonlApplicator {
                     || self.base.gWindow.next.len() > self.base.num_windows as usize
                 {
                     self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-                    self.base.run_grammar_on_window(output);
+                    self.base.run_grammar_on_window_with(fmt, output);
                     if self.base.numWindows % reset_after == 0 {
                         self.base.reset_indexes();
                     }
@@ -1062,16 +1064,16 @@ impl JsonlApplicator {
 
             while !self.base.gWindow.next.is_empty() {
                 self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-                self.base.run_grammar_on_window(output);
+                self.base.run_grammar_on_window_with(fmt, output);
             }
             if self.base.gWindow.current.is_some() {
-                self.base.run_grammar_on_window(output);
+                self.base.run_grammar_on_window_with(fmt, output);
             }
 
             self.base.gWindow.shuffle_windows_down(&mut self.base.store);
             while !self.base.gWindow.previous.is_empty() {
                 let tmp = self.base.gWindow.previous[0];
-                self.print_single_window(tmp, output, false);
+                fmt.print_single_window(self.base, tmp, output, false);
                 let mut t = Some(tmp);
                 crate::single_window::free_swindow(
                     &mut self.base.gWindow,
@@ -1113,7 +1115,7 @@ impl JsonlApplicator {
                     cmd_buf.push_str(&key);
                     cmd_buf.push('>');
                 }
-                self.print_stream_command(&cmd_buf, output);
+                fmt.print_stream_command(self.base, &cmd_buf, output);
             }
         }
 

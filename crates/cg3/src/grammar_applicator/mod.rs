@@ -47,6 +47,7 @@ use crate::tag::TagList;
 use crate::types::{UChar, UString, Uint32Vector};
 
 pub mod core;
+pub mod stream_format;
 pub mod run_rules;
 pub mod run_grammar;
 pub mod run_contextual_test;
@@ -239,18 +240,6 @@ pub struct GrammarApplicator {
     pub input_eof: bool,
     pub seen_barrier: bool,
     pub is_conv: bool,
-    /// Port infra (not a C++ member): stands in for the C++ virtual dispatch of
-    /// `MweSplitApplicator::printSingleWindow`. When set (by the MweSplit ctor),
-    /// the base `print_single_window` forwards to `mwe_print_single_window`.
-    pub mwe_split_at_print: bool,
-    /// Port infra (not a C++ member): C++ `BinaryApplicator::header_done`,
-    /// hoisted onto the shared base so the binary stream writers
-    /// (`bin_print_single_window` / `bin_print_stream_command` /
-    /// `bin_print_plain_text_line`, defined in `binary_applicator.rs`) can be
-    /// reached from the base printers' `fmt_output == CG3SF_BINARY` virtual
-    /// dispatch (the C++ `FormatConverter` override switch). A `Cell` because
-    /// `print_stream_command`/`print_plain_text_line` take `&self`.
-    pub bin_header_done: std::cell::Cell<bool>,
     pub split_mappings: bool,
     pub pipe_deleted: bool,
     pub add_spacing: bool,
@@ -438,8 +427,6 @@ impl GrammarApplicator {
             input_eof: false,
             seen_barrier: false,
             is_conv: false,
-            mwe_split_at_print: false,
-            bin_header_done: std::cell::Cell::new(false),
             split_mappings: false,
             pipe_deleted: false,
             add_spacing: true,

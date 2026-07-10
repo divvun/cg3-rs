@@ -140,32 +140,24 @@ pub struct BinaryPacket {
 
 // [spec:cg3:def:binary-applicator.cg3.binary-applicator]
 /// C++ `class BinaryApplicator : public virtual GrammarApplicator`. Composition
-/// port: the base engine is held by value; `text` takes its C++ in-class
-/// default. C++ `header_done` lives on the base (`bin_header_done`) so the
-/// base printers' binary virtual dispatch can reach it — see
-/// `grammar_applicator/mod.rs`.
-pub struct BinaryApplicator {
+/// port (wave 4): the shared base engine is BORROWED for the run (the C++
+/// virtual-base subobject is shared with the most-derived object); `text`
+/// takes its C++ in-class default. C++ `header_done` lives on
+/// [`BinaryFormat`], the binary print-vtable strategy.
+pub struct BinaryApplicator<'a> {
     /// The `GrammarApplicator` base (C++ `public virtual` inheritance).
-    pub base: GrammarApplicator,
+    pub base: &'a mut GrammarApplicator,
     /// C++ reusable `UString text` reused across TEXT packets.
     pub text: UString,
-    /// Port infra (not a C++ member): stands in for the C++ vtable. When the
-    /// most-derived object is a `FormatConverter` (which wraps the shared base
-    /// in a transient `BinaryApplicator` for BINARY input), the driver's
-    /// `print*` calls must land on the `FormatConverter` overrides — i.e.
-    /// dispatch on `fmt_output` via the base printers. When the most-derived
-    /// object is the `BinaryApplicator` itself (cg-proc `-f 3`), they always
-    /// land on the binary writers. `FormatConverter::with_binary` sets this.
-    pub print_dispatch: bool,
 }
 
-impl BinaryApplicator {
+impl<'a> BinaryApplicator<'a> {
     // [spec:cg3:def:binary-applicator.cg3.binary-applicator.binary-applicator-fn]
     // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.binary-applicator-fn]
     /// C++ `BinaryApplicator::BinaryApplicator(std::ostream& ux_err)`. Delegates
     /// to the base ctor with an empty body; `header_done = false`, `text` empty.
-    pub fn new(base: GrammarApplicator) -> Self {
-        BinaryApplicator { base, text: UString::new(), print_dispatch: false }
+    pub fn new(base: &'a mut GrammarApplicator) -> Self {
+        BinaryApplicator { base, text: UString::new() }
     }
 
     // =======================================================================
@@ -470,71 +462,50 @@ impl BinaryApplicator {
     // Writers
     // =======================================================================
 
-    // [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-plain-text-line-fn]
-    // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-plain-text-line-fn]
-    /// C++ `void BinaryApplicator::printPlainTextLine(UStringView line,
-    /// std::ostream& output)`. Delegates to the base-hosted writer
-    /// [`GrammarApplicator::bin_print_plain_text_line`].
-    pub fn print_plain_text_line<W: Write>(&mut self, line: &str, output: &mut W) {
-        self.base.bin_print_plain_text_line(line, output);
-    }
-
-    // [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-stream-command-fn]
-    // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-stream-command-fn]
-    /// C++ `void BinaryApplicator::printStreamCommand(UStringView cmd,
-    /// std::ostream& output)`. Delegates to the base-hosted writer
-    /// [`GrammarApplicator::bin_print_stream_command`].
-    pub fn print_stream_command<W: Write>(&mut self, cmd: &str, output: &mut W) {
-        self.base.bin_print_stream_command(cmd, output);
-    }
-
-    // [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-single-window-fn]
-    // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-single-window-fn]
-    /// C++ `void BinaryApplicator::printSingleWindow(SingleWindow* window,
-    /// std::ostream& output, bool profiling)`. Delegates to the base-hosted
-    /// writer [`GrammarApplicator::bin_print_single_window`].
-    pub fn print_single_window<W: Write>(
-        &mut self,
-        store: &mut crate::store::RuntimeStore,
-        window: SwId,
-        output: &mut W,
-        profiling: bool,
-    ) {
-        self.base.bin_print_single_window(store, window, output, profiling);
-    }
 }
 
-/// The binary stream WRITERS, hosted on the shared `GrammarApplicator` base so
-/// the base printers' `fmt_output == CG3SF_BINARY` virtual dispatch (the C++
-/// `FormatConverter` override switch reaching `BinaryApplicator::print*`) can
-/// call them without a wrapper — the same pattern as
-/// `mwesplit_applicator.rs`'s `mwe_print_single_window`.
-impl GrammarApplicator {
+// [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-plain-text-line-fn]
+// [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-plain-text-line-fn]
+// [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-stream-command-fn]
+// [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-stream-command-fn]
+// [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-single-window-fn]
+// [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-single-window-fn]
+/// The binary print vtable (wave 4): C++ `BinaryApplicator`'s three print
+/// virtuals (`printPlainTextLine` / `printStreamCommand` /
+/// `printSingleWindow`), with the C++ `bool header_done` member as strategy
+/// state (the literal port had hoisted it onto the base as a `Cell`).
+#[derive(Default)]
+pub struct BinaryFormat {
+    /// C++ `bool header_done = false;`.
+    pub header_done: bool,
+}
+
+impl BinaryFormat {
     /// Shared stream-header prologue: `"CGBF" + writeLE(CG3_BINARY_STREAM)` once,
-    /// then set `bin_header_done`. NOT a manifest symbol — factors the identical
+    /// then set `header_done`. NOT a manifest symbol — factors the identical
     /// prologue duplicated across the three writers.
-    fn bin_write_header<W: Write>(&self, output: &mut W) {
-        if !self.bin_header_done.get() {
+    fn bin_write_header<W: Write>(&mut self, output: &mut W) {
+        if !self.header_done {
             let _ = output.write_all(b"CGBF");
             write_le(output, CG3_BINARY_STREAM);
-            self.bin_header_done.set(true);
+            self.header_done = true;
         }
     }
 
-    /// Body of C++ `BinaryApplicator::printPlainTextLine` (see the wrapper
-    /// method for the spec anchor). Writes the stream header if needed, then a
+    /// Body of C++ `BinaryApplicator::printPlainTextLine` (spec anchors on
+    /// [`BinaryFormat`]). Writes the stream header if needed, then a
     /// `BFP_TEXT` byte + the line via `writeUTF8_LE`. No flush.
-    pub fn bin_print_plain_text_line<W: Write>(&self, line: &str, output: &mut W) {
+    pub fn bin_print_plain_text_line<W: Write>(&mut self, line: &str, output: &mut W) {
         self.bin_write_header(output);
         write_le(output, ui8(BinaryPacketType::BFP_TEXT as u32));
         write_utf8_le(output, line);
     }
 
-    /// Body of C++ `BinaryApplicator::printStreamCommand` (see the wrapper
-    /// method for the spec anchor). Header if needed, then `BFP_COMMAND` byte,
+    /// Body of C++ `BinaryApplicator::printStreamCommand` (spec anchors on
+    /// [`BinaryFormat`]). Header if needed, then `BFP_COMMAND` byte,
     /// then the mapped command byte. QUIRK (faithful): an unrecognised `cmd`
     /// writes ONLY the type byte (malformed packet). No flush.
-    pub fn bin_print_stream_command<W: Write>(&self, cmd: &str, output: &mut W) {
+    pub fn bin_print_stream_command<W: Write>(&mut self, cmd: &str, output: &mut W) {
         self.bin_write_header(output);
         write_le(output, ui8(BinaryPacketType::BFP_COMMAND as u32));
         if cmd == STR_CMD_FLUSH {
@@ -549,13 +520,14 @@ impl GrammarApplicator {
         // else: no command byte follows (malformed packet) — faithful.
     }
 
-    /// Body of C++ `BinaryApplicator::printSingleWindow` (see the wrapper
-    /// method for the spec anchor) — the exact inverse of `readWindow`.
+    /// Body of C++ `BinaryApplicator::printSingleWindow` (spec anchors on
+    /// [`BinaryFormat`]) — the exact inverse of `readWindow`.
     /// `profiling` is ignored. All integers LITTLE-ENDIAN. `store` is threaded
-    /// separately so the caller can split the `&mut self` / `&mut store`
+    /// separately so the caller can split the `&mut app` / `&mut store`
     /// borrows (matching the base print methods).
     pub fn bin_print_single_window<W: Write>(
         &mut self,
+        app: &mut GrammarApplicator,
         store: &mut crate::store::RuntimeStore,
         window: SwId,
         output: &mut W,
@@ -607,7 +579,7 @@ impl GrammarApplicator {
             .collect();
         for var in vars_output {
             var_count += 1;
-            let key = tag_by_hash(&self.grammar, var);
+            let key = tag_by_hash(&app.grammar, var);
             let value: Option<u32> = {
                 let sw = store.single_windows.get(window.0);
                 let it = sw.variables_set.find(var);
@@ -619,10 +591,10 @@ impl GrammarApplicator {
             };
             match value {
                 Some(vh) => {
-                    if vh != self.grammar.tag_any {
+                    if vh != app.grammar.tag_any {
                         var_buffer.push(BFV_SETVAR as u8);
                         write_tag(&mut tags_to_write, &mut tag_index, &mut var_buffer, key);
-                        let vtag = tag_by_hash(&self.grammar, vh);
+                        let vtag = tag_by_hash(&app.grammar, vh);
                         write_tag(&mut tags_to_write, &mut tag_index, &mut var_buffer, vtag);
                     } else {
                         var_buffer.push(BFV_SETVAR_ANY as u8);
@@ -689,7 +661,7 @@ impl GrammarApplicator {
             wu16(&mut cohort_buffer, cflags);
 
             let wf = store.cohorts.get(cohort.0).wordform.expect("cohort wordform");
-            let wf_hash = self.grammar.single_tags_list[wf.0].hash;
+            let wf_hash = app.grammar.single_tags_list[wf.0].hash;
             write_tag(&mut tags_to_write, &mut tag_index, &mut cohort_buffer, wf);
 
             // Static tags (wread), excluding the wordform hash.
@@ -701,7 +673,7 @@ impl GrammarApplicator {
                     if tter == wf_hash {
                         continue;
                     }
-                    let tid = tag_by_hash(&self.grammar, tter);
+                    let tid = tag_by_hash(&app.grammar, tter);
                     write_tag(&mut tags_to_write, &mut tag_index, &mut tag_buf, tid);
                     stag_count += 1;
                 }
@@ -719,7 +691,7 @@ impl GrammarApplicator {
             wu32(&mut cohort_buffer, global_number);
             if dep_parent == 0 || dep_parent == DEP_NO_PARENT {
                 wu32(&mut cohort_buffer, dep_parent);
-            } else if let Some(&pr) = self.gWindow.cohort_map.get(&dep_parent) {
+            } else if let Some(&pr) = app.gWindow.cohort_map.get(&dep_parent) {
                 let pr_local = store.cohorts.get(pr.0).local_number;
                 if pr_local == 0 {
                     wu32(&mut cohort_buffer, 0);
@@ -741,7 +713,7 @@ impl GrammarApplicator {
                 .map(|(k, v)| (*k, v.iter().copied().collect()))
                 .collect();
             for (name_hash, targets) in relations {
-                let tid = tag_by_hash(&self.grammar, name_hash);
+                let tid = tag_by_hash(&app.grammar, name_hash);
                 for target in targets {
                     rel_count += 1;
                     write_tag(&mut tags_to_write, &mut tag_index, &mut rel_buffer, tid);
@@ -789,7 +761,7 @@ impl GrammarApplicator {
                     }
                     wu16(&mut reading_buffer, rflags);
                     let baseform = store.readings.get(rid.0).baseform;
-                    let btid = tag_by_hash(&self.grammar, baseform);
+                    let btid = tag_by_hash(&app.grammar, baseform);
                     write_tag(&mut tags_to_write, &mut tag_index, &mut reading_buffer, btid);
 
                     let mut tag_buf: Vec<u8> = Vec::new();
@@ -800,18 +772,18 @@ impl GrammarApplicator {
                     let parent_wf_hash = {
                         let cid = store.readings.get(rid.0).parent.unwrap();
                         let w = store.cohorts.get(cid.0).wordform;
-                        w.map(|t| self.grammar.single_tags_list[t.0].hash).unwrap_or(0)
+                        w.map(|t| app.grammar.single_tags_list[t.0].hash).unwrap_or(0)
                     };
                     for tter in tags {
                         if tter == baseform || tter == parent_wf_hash {
                             continue;
                         }
-                        let tid = tag_by_hash(&self.grammar, tter);
-                        let tt = self.grammar.single_tags_list[tid.0].r#type;
+                        let tid = tag_by_hash(&app.grammar, tter);
+                        let tt = app.grammar.single_tags_list[tid.0].r#type;
                         if tt & (T_DEPENDENCY | T_RELATION) != 0 {
                             continue;
                         }
-                        if self.unique_tags {
+                        if app.unique_tags {
                             if unique.find(tter) != unique.end() {
                                 continue;
                             }
@@ -833,13 +805,13 @@ impl GrammarApplicator {
         // complete).
         let mut header_buffer: Vec<u8> = Vec::new();
         let mut wflags: u16 = 0;
-        if self.dep_has_spanned {
+        if app.dep_has_spanned {
             wflags |= BFW_DEP_SPAN as u16;
         }
         wu16(&mut header_buffer, wflags);
         wu16(&mut header_buffer, ui16(tags_to_write.len()));
         for &tag in &tags_to_write {
-            let s = self.grammar.single_tags_list[tag.0].tag.clone();
+            let s = app.grammar.single_tags_list[tag.0].tag.clone();
             write_str(&mut header_buffer, &s);
         }
         wu16(&mut header_buffer, var_count);
@@ -867,7 +839,39 @@ impl GrammarApplicator {
     }
 }
 
-impl BinaryApplicator {
+impl crate::grammar_applicator::stream_format::StreamFormat for BinaryFormat {
+    fn print_single_window<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let mut store = std::mem::take(&mut app.store);
+        self.bin_print_single_window(app, &mut store, window, output, profiling);
+        app.store = store;
+    }
+
+    fn print_stream_command<W: Write>(
+        &mut self,
+        _app: &mut GrammarApplicator,
+        cmd: &str,
+        output: &mut W,
+    ) {
+        self.bin_print_stream_command(cmd, output);
+    }
+
+    fn print_plain_text_line<W: Write>(
+        &mut self,
+        _app: &mut GrammarApplicator,
+        line: &str,
+        output: &mut W,
+    ) {
+        self.bin_print_plain_text_line(line, output);
+    }
+}
+
+impl<'x> BinaryApplicator<'x> {
     // [spec:cg3:def:binary-applicator.cg3.binary-applicator.run-grammar-on-text-fn]
     // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.run-grammar-on-text-fn]
     /// C++ `void BinaryApplicator::runGrammarOnText(std::istream& input,
@@ -878,8 +882,9 @@ impl BinaryApplicator {
     /// The C++ `while (!input.eof())` (eof becomes true only after a failed read)
     /// is reproduced by wrapping `input` in a [`std::io::BufReader`] and peeking
     /// `fill_buf()` before each packet: an empty fill means end-of-stream.
-    pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
+    pub fn run_grammar_on_text<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
         R: std::io::Read,
         W: std::io::Write,
     {
@@ -931,7 +936,7 @@ impl BinaryApplicator {
                     self.base.numWindows = self.base.numWindows.wrapping_add(1);
                     if self.base.gWindow.next.len() > self.base.num_windows as usize {
                         self.shuffle_windows_down();
-                        self.base.run_grammar_on_window(output);
+                        self.base.run_grammar_on_window_with(fmt, output);
                         if self.base.numWindows % reset_after == 0 {
                             self.base.reset_indexes();
                         }
@@ -940,78 +945,56 @@ impl BinaryApplicator {
                 BinaryPacketType::BFP_COMMAND => {
                     let cmd = packet.command;
                     if cmd == BFC_FLUSH {
-                        let back = self.flush(output, true);
+                        let back = self.flush(fmt, output, true);
                         if back.is_none() {
-                            self.v_print_stream_command(STR_CMD_FLUSH, output);
+                            fmt.print_stream_command(self.base, STR_CMD_FLUSH, output);
                         }
                     } else if cmd == BFC_EXIT {
-                        self.v_print_stream_command(STR_CMD_EXIT, output);
+                        fmt.print_stream_command(self.base, STR_CMD_EXIT, output);
                         return;
                     } else if cmd == BFC_IGNORE {
-                        self.v_print_stream_command(STR_CMD_IGNORE, output);
+                        fmt.print_stream_command(self.base, STR_CMD_IGNORE, output);
                     } else if cmd == BFC_RESUME {
-                        self.v_print_stream_command(STR_CMD_RESUME, output);
+                        fmt.print_stream_command(self.base, STR_CMD_RESUME, output);
                     }
                 }
                 BinaryPacketType::BFP_TEXT => {
                     let text = self.text.clone();
-                    self.v_print_plain_text_line(&text, output);
+                    fmt.print_plain_text_line(self.base, &text, output);
                 }
                 BinaryPacketType::BFP_INVALID => {}
             }
         }
-        self.flush(output, false);
+        self.flush(fmt, output, false);
     }
 
     /// C++ local `flush(flush_after)` lambda: set `flush_after` on the back
     /// window, drain `gWindow->next` through the grammar, then print + free every
     /// buffered `previous` window. Returns the back window (null → the caller
     /// emits a bare FLUSH command).
-    fn flush<W: std::io::Write>(&mut self, output: &mut W, flush_after: bool) -> Option<SwId> {
+    fn flush<F, W>(&mut self, fmt: &mut F, output: &mut W, flush_after: bool) -> Option<SwId>
+    where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
+        W: std::io::Write,
+    {
         let back = self.base.gWindow.back();
         if let Some(bsw) = back {
             self.base.store.single_windows.get_mut(bsw.0).flush_after = flush_after;
         }
         while !self.base.gWindow.next.is_empty() {
             self.shuffle_windows_down();
-            self.base.run_grammar_on_window(output);
+            self.base.run_grammar_on_window_with(fmt, output);
         }
         self.shuffle_windows_down();
         while !self.base.gWindow.previous.is_empty() {
             let tmp = self.base.gWindow.previous[0];
-            let mut store = std::mem::take(&mut self.base.store);
-            if self.print_dispatch {
-                self.base.print_single_window(&mut store, tmp, output, false);
-            } else {
-                self.base.bin_print_single_window(&mut store, tmp, output, false);
-            }
-            self.base.store = store;
+            // C++ virtual printSingleWindow — the most-derived format decides.
+            fmt.print_single_window(self.base, tmp, output, false);
             let mut t = Some(tmp);
             crate::single_window::free_swindow(&mut self.base.gWindow, &mut self.base.store, &mut t);
             self.base.gWindow.previous.remove(0);
         }
         back
-    }
-
-    /// C++ virtual `printStreamCommand` as called from the binary driver: when
-    /// the most-derived object is a `FormatConverter` ([`print_dispatch`]
-    /// [`BinaryApplicator::print_dispatch`] set), route through the base
-    /// printer (which switches on `fmt_output`); otherwise the binary writer.
-    fn v_print_stream_command<W: std::io::Write>(&mut self, cmd: &str, output: &mut W) {
-        if self.print_dispatch {
-            self.base.print_stream_command(cmd, output);
-        } else {
-            self.base.bin_print_stream_command(cmd, output);
-        }
-    }
-
-    /// C++ virtual `printPlainTextLine` — see [`Self::v_print_stream_command`].
-    fn v_print_plain_text_line<W: std::io::Write>(&mut self, line: &str, output: &mut W) {
-        if self.print_dispatch {
-            self.base.print_plain_text_line(line, output);
-        } else {
-            self.base.bin_print_plain_text_line(line, output);
-        }
     }
 
     /// C++ `Window::shuffleWindowsDown()` as invoked from the binary driver.

@@ -472,6 +472,20 @@ impl super::GrammarApplicator {
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
+        self.run_grammar_on_text_with(&mut super::stream_format::CgFormat, input, output)
+    }
+
+    /// [`run_grammar_on_text`](Self::run_grammar_on_text) with an explicit
+    /// [`StreamFormat`](super::stream_format::StreamFormat) strategy — the C++
+    /// virtual print dispatch for a derived most-derived object
+    /// (MweSplitApplicator, FormatConverter, ...).
+    #[allow(unused_assignments, unused_variables)]
+    pub fn run_grammar_on_text_with<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
+    where
+        F: super::stream_format::StreamFormat,
+        R: std::io::Read + std::io::Seek,
+        W: std::io::Write,
+    {
         // ux_stdin = &input; ux_stdout = &output;  (elided: Option<()> placeholders)
         // The good()/eof()/output/grammar validity checks (each CG3Quit(1) with a
         // u_fprintf diagnostic) are deferred with the I/O layer.
@@ -710,7 +724,7 @@ impl super::GrammarApplicator {
                     if self.gWindow.next.len() > (self.num_windows + 1) as usize {
                         self.shuffle_windows_down();
                         
-                        self.run_grammar_on_window(output);
+                        self.run_grammar_on_window_with(fmt, output);
                         if self.numWindows % reset_after == 0 {
                             self.reset_indexes();
                         }
@@ -888,7 +902,7 @@ impl super::GrammarApplicator {
                         while !self.gWindow.next.is_empty() {
                             self.shuffle_windows_down();
                             
-                            self.run_grammar_on_window(output);
+                            self.run_grammar_on_window_with(fmt, output);
                             if self.numWindows % reset_after == 0 {
                                 self.reset_indexes();
                             }
@@ -896,9 +910,7 @@ impl super::GrammarApplicator {
                         self.shuffle_windows_down();
                         while !self.gWindow.previous.is_empty() {
                             let tmp = self.gWindow.previous[0];
-                            let mut store = std::mem::take(&mut self.store);
-                            self.print_single_window(&mut store, tmp, output, false);
-                            self.store = store;
+                            fmt.print_single_window(self, tmp, output, false);
                             let mut t = Some(tmp);
                             crate::single_window::free_swindow(
                                 &mut self.gWindow,
@@ -908,7 +920,7 @@ impl super::GrammarApplicator {
                             self.gWindow.previous.remove(0);
                         }
                         if back_swindow.is_none() {
-                            self.print_stream_command(crate::strings::STR_CMD_FLUSH, output);
+                            fmt.print_stream_command(self, crate::strings::STR_CMD_FLUSH, output);
                         }
                         line[0] = '\0';
                         self.variables.clear(0);
@@ -917,18 +929,18 @@ impl super::GrammarApplicator {
                         // "IGNORE encountered …": deferred.
                         is_cmd = true;
                         ignoreinput = true;
-                        self.print_stream_command(crate::strings::STR_CMD_IGNORE, output);
+                        fmt.print_stream_command(self, crate::strings::STR_CMD_IGNORE, output);
                         line[0] = '\0';
                     } else if cleaned_str == crate::strings::STR_CMD_RESUME {
                         // "RESUME encountered …": deferred.
                         is_cmd = true;
                         ignoreinput = false;
-                        self.print_stream_command(crate::strings::STR_CMD_RESUME, output);
+                        fmt.print_stream_command(self, crate::strings::STR_CMD_RESUME, output);
                         line[0] = '\0';
                     } else if cleaned_str == crate::strings::STR_CMD_EXIT {
                         // "EXIT encountered …": deferred.
                         is_cmd = true;
-                        self.print_stream_command(crate::strings::STR_CMD_EXIT, output);
+                        fmt.print_stream_command(self, crate::strings::STR_CMD_EXIT, output);
                         break 'mainloop;
                     } else if cleaned_str.starts_with(crate::strings::STR_CMD_SETVAR) {
                         // <STREAMCMD:SETVAR:...> — inline parse (no parseSetVar method).
@@ -1111,7 +1123,7 @@ impl super::GrammarApplicator {
                                 sww.text.push_str(&line_str);
                             }
                         } else if !is_cmd {
-                            self.print_plain_text_line(&line_str, output);
+                            fmt.print_plain_text_line(self, &line_str, output);
                         }
                     }
                 }
@@ -1177,15 +1189,13 @@ impl super::GrammarApplicator {
         while !self.gWindow.next.is_empty() {
             self.shuffle_windows_down();
             
-            self.run_grammar_on_window(output);
+            self.run_grammar_on_window_with(fmt, output);
             // verbose progress: deferred.
         }
         self.shuffle_windows_down();
         while !self.gWindow.previous.is_empty() {
             let tmp = self.gWindow.previous[0];
-            let mut store = std::mem::take(&mut self.store);
-            self.print_single_window(&mut store, tmp, output, false);
-            self.store = store;
+            fmt.print_single_window(self, tmp, output, false);
             let mut t = Some(tmp);
             crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, &mut t);
             self.gWindow.previous.remove(0);
@@ -1223,7 +1233,7 @@ impl super::GrammarApplicator {
                 cmd_buf.push_str(&key);
                 cmd_buf.push('>');
             }
-            self.print_stream_command(&cmd_buf, output);
+            fmt.print_stream_command(self, &cmd_buf, output);
         }
 
         // CGCMD_EXIT: verbose "Did N lines, N windows, ..." summary: deferred.

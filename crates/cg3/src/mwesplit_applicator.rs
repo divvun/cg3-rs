@@ -94,10 +94,6 @@ impl MweSplitApplicator {
         base.set_grammar();
         base.owns_grammar = true;
         base.is_conv = true;
-        // The C++ virtual printSingleWindow override, modelled as a flag (see
-        // module docs): the base print_single_window forwards to
-        // mwe_print_single_window.
-        base.mwe_split_at_print = true;
         MweSplitApplicator { base }
     }
 
@@ -106,7 +102,7 @@ impl MweSplitApplicator {
     /// C++ `void MweSplitApplicator::runGrammarOnText(std::istream& input,
     /// std::ostream& output)` — a one-line delegation to the base driver. The MWE
     /// splitting happens only at print time (the base output path dispatches to
-    /// this class's overridden `printSingleWindow` via `mwe_split_at_print`).
+    /// this class's overridden `printSingleWindow` via [`MweSplitFormat`]).
     ///
     /// `input`/`output` are threaded as method params (`R: Read + Seek` /
     /// `W: Write`), matching the base
@@ -117,7 +113,43 @@ impl MweSplitApplicator {
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        self.base.run_grammar_on_text(input, output);
+        self.base.run_grammar_on_text_with(&mut MweSplitFormat, input, output);
+    }
+}
+
+/// The MweSplit print vtable (wave 4): C++ `MweSplitApplicator` overrides
+/// `printSingleWindow` only; the other slots fall through to the base.
+pub struct MweSplitFormat;
+
+impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
+    fn print_single_window<W: std::io::Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        window: crate::arena::SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let mut store = std::mem::take(&mut app.store);
+        app.mwe_print_single_window(&mut store, window, output, profiling);
+        app.store = store;
+    }
+
+    fn print_stream_command<W: std::io::Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        cmd: &str,
+        output: &mut W,
+    ) {
+        app.print_stream_command(cmd, output);
+    }
+
+    fn print_plain_text_line<W: std::io::Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        line: &str,
+        output: &mut W,
+    ) {
+        app.print_plain_text_line(line, output);
     }
 }
 

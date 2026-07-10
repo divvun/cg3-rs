@@ -106,9 +106,11 @@ fn cg_comp_end_program_usage() {
 
 // [spec:cg3:sem:cg-conv.main-fn/test]
 // cg-conv main: option-table parsing (--in-niceline), FormatConverter setup, and
-// the stdin->stdout conversion run. Niceline input is parsed and re-emitted
-// through the converter (the live niceline path of the current engine); exact
-// bytes asserted.
+// the stdin->stdout conversion run. Niceline input is CONVERTED to the default
+// CG output: the C++ niceline driver's virtual print dispatch lands on the
+// FormatConverter overrides, which emit fmt_output (CG) — wave 4's ConvFormat
+// strategy. (The pre-wave-4 port echoed niceline here — a fidelity bug.)
+// Exact bytes asserted.
 #[test]
 fn cg_conv_main_converts_niceline_stream() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_cg-conv"))
@@ -127,7 +129,7 @@ fn cg_conv_main_converts_niceline_stream() {
     let out = child.wait_with_output().expect("wait cg-conv");
     assert!(out.status.success(), "cg-conv exited with {}", out.status);
     let got = String::from_utf8_lossy(&out.stdout);
-    assert_eq!(got, "\nword\t[word] N Sg\nbirds\t[bird] N Pl\n\n");
+    assert_eq!(got, "\"<word>\"\n\t\"word\" N Sg\n\"<birds>\"\n\t\"bird\" N Pl\n");
 }
 
 // [spec:cg3:sem:cg-proc.main-fn/test]

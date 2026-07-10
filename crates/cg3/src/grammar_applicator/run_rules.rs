@@ -654,6 +654,18 @@ impl super::GrammarApplicator {
     /// C++ `void runGrammarOnWindow()`. The retired-window flush prints to
     /// `*ux_stdout` in C++; the port threads the live output writer in.
     pub fn run_grammar_on_window<W: std::io::Write>(&mut self, output: &mut W) {
+        self.run_grammar_on_window_with(&mut super::stream_format::CgFormat, output)
+    }
+
+    /// [`run_grammar_on_window`](Self::run_grammar_on_window) with an explicit
+    /// [`StreamFormat`](super::stream_format::StreamFormat) strategy (the C++
+    /// virtual print dispatch — the retired-window flush must print in the
+    /// most-derived applicator's output format).
+    pub fn run_grammar_on_window_with<F, W>(&mut self, fmt: &mut F, output: &mut W)
+    where
+        F: super::stream_format::StreamFormat,
+        W: std::io::Write,
+    {
         let mut current = self.gWindow.current.unwrap();
         self.did_final_enclosure = false;
 
@@ -802,10 +814,9 @@ impl super::GrammarApplicator {
             while !self.gWindow.previous.is_empty() && self.gWindow.previous.len() as u32 > self.num_windows {
                 let tmp = self.gWindow.previous[0];
                 // C++ `printSingleWindow(tmp, *ux_stdout)` — print to the live
-                // output writer threaded in by the driver.
-                let mut store = std::mem::take(&mut self.store);
-                self.print_single_window(&mut store, tmp, output, false);
-                self.store = store;
+                // output writer threaded in by the driver, in the most-derived
+                // applicator's format.
+                fmt.print_single_window(self, tmp, output, false);
                 let mut opt = Some(tmp);
                 crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, &mut opt);
                 self.gWindow.previous.remove(0);

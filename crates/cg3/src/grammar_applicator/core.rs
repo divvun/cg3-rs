@@ -688,14 +688,10 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-stream-command-fn]
     /// C++ `void printStreamCommand(UStringView cmd, std::ostream& output)`.
     ///
-    /// C++ virtual dispatch: under `FormatConverter` with `fmt_output ==
-    /// CG3SF_BINARY` the call lands on `BinaryApplicator::printStreamCommand`.
-    /// The composition port models that vtable slot as an `fmt_output` check
-    /// (see `binary_applicator.rs`).
+    /// (The C++ virtual dispatch to per-format overrides is the
+    /// [`StreamFormat`](super::stream_format::StreamFormat) strategy; this is
+    /// the base-class implementation.)
     pub fn print_stream_command<W: Write>(&self, cmd: &str, output: &mut W) {
-        if self.fmt_output == super::cg3_sformat::CG3SF_BINARY {
-            return self.bin_print_stream_command(cmd, output);
-        }
         let _ = write!(output, "{cmd}\n");
     }
 
@@ -703,13 +699,10 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-plain-text-line-fn]
     /// C++ `void printPlainTextLine(UStringView line, std::ostream& output)`.
     ///
-    /// C++ virtual dispatch: under `FormatConverter` with `fmt_output ==
-    /// CG3SF_BINARY` the call lands on `BinaryApplicator::printPlainTextLine`
-    /// (see `binary_applicator.rs`).
+    /// (The C++ virtual dispatch to per-format overrides is the
+    /// [`StreamFormat`](super::stream_format::StreamFormat) strategy; this is
+    /// the base-class implementation.)
     pub fn print_plain_text_line<W: Write>(&self, line: &str, output: &mut W) {
-        if self.fmt_output == super::cg3_sformat::CG3SF_BINARY {
-            return self.bin_print_plain_text_line(line, output);
-        }
         let _ = write!(output, "{line}");
     }
 
@@ -1060,18 +1053,9 @@ impl super::GrammarApplicator {
         output: &mut W,
         profiling: bool,
     ) {
-        // C++ virtual dispatch: MweSplitApplicator overrides printSingleWindow.
-        // The composition port models the vtable slot as a flag set by the
-        // MweSplit ctor (see grammar_applicator/mod.rs field docs).
-        if self.mwe_split_at_print {
-            return self.mwe_print_single_window(store, window, output, profiling);
-        }
-        // C++ virtual dispatch: under FormatConverter with fmt_output ==
-        // CG3SF_BINARY the call lands on BinaryApplicator::printSingleWindow
-        // (see binary_applicator.rs).
-        if self.fmt_output == super::cg3_sformat::CG3SF_BINARY {
-            return self.bin_print_single_window(store, window, output, profiling);
-        }
+        // (The C++ virtual dispatch to the MweSplit / FormatConverter
+        // overrides is the StreamFormat strategy; this is the base CG
+        // implementation.)
         let (vars_output, all_cohorts, text, text_post, flush_after) = {
             let w = store.single_windows.get(window.0);
             (

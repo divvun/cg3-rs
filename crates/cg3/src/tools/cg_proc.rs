@@ -399,7 +399,9 @@ pub fn main_proc(args: &[String]) -> i32 {
         Base(GrammarApplicator),
         Apertium(ApertiumApplicator),
         Matxin(MatxinApplicator),
-        Binary(BinaryApplicator),
+        /// The binary applicator borrows the base for the run (wave 4), so the
+        /// enum holds the base and the wrapper is built at the run site.
+        Binary(GrammarApplicator),
     }
 
     let mut app = if stream_format == 0 {
@@ -413,8 +415,7 @@ pub fn main_proc(args: &[String]) -> i32 {
         m.print_only_first = only_first;
         Applicator::Matxin(m)
     } else if stream_format == 3 {
-        let base = GrammarApplicator::new(grammar);
-        Applicator::Binary(BinaryApplicator::new(base))
+        Applicator::Binary(GrammarApplicator::new(grammar))
     } else {
         let base = GrammarApplicator::new(grammar);
         let mut a = ApertiumApplicator::new(base);
@@ -431,7 +432,7 @@ pub fn main_proc(args: &[String]) -> i32 {
         Applicator::Base(b) => b,
         Applicator::Apertium(a) => &mut a.base,
         Applicator::Matxin(m) => &mut m.base,
-        Applicator::Binary(b) => &mut b.base,
+        Applicator::Binary(b) => b,
     };
     base.set_grammar();
     // setOptions() (C++ default conv=nullptr) reads the `options` table.
@@ -487,7 +488,9 @@ pub fn main_proc(args: &[String]) -> i32 {
             b.run_grammar_on_text(&mut cursor, &mut out);
         }
         Applicator::Binary(mut b) => {
-            b.run_grammar_on_text(&mut cursor, &mut out);
+            // Most-derived object is the BinaryApplicator: binary print vtable.
+            let mut fmt = crate::binary_applicator::BinaryFormat::default();
+            BinaryApplicator::new(&mut b).run_grammar_on_text(&mut fmt, &mut cursor, &mut out);
         }
     }
 

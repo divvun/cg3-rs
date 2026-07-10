@@ -507,7 +507,13 @@ fn format_converter_autodetect() {
         String::from_utf8_lossy(&explicit),
         "auto-detect (niceline) diverged from --in-niceline"
     );
-    assert!(String::from_utf8_lossy(&auto).contains("word\t[word]"));
+    // Default output is CG, so the niceline input is CONVERTED: the C++
+    // niceline driver's virtual print dispatches through the FormatConverter
+    // overrides onto the CG printers (wave 4: the ConvFormat StreamFormat
+    // strategy). The pre-wave-4 port echoed niceline here — a fidelity bug.
+    let auto_s = String::from_utf8_lossy(&auto).into_owned();
+    assert!(auto_s.contains("\"<word>\""), "niceline input must convert to CG: {auto_s:?}");
+    assert!(auto_s.contains("\t\"word\" notwanted @1"), "reading line: {auto_s:?}");
 }
 
 // FormatConverter's four print dispatchers — in the current port these
