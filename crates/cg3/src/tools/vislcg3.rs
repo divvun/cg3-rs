@@ -293,9 +293,9 @@ pub fn main_run(args: &[String]) -> i32 {
             }
         }
 
-        // --profile parser wiring depends on parser internals not surfaced
-        // publicly (the profiler pointer is a parser field). That specific
-        // wiring is elided (NOTE); the parse itself is live.
+        // C++: `parser->profiler = profiler.get();` — move the profiler into
+        // the parser for the duration of the parse (taken back below).
+        parser.profiler = profiler.take();
         let buffer = match std::fs::read(&grammar_path) {
             Ok(b) => b,
             Err(_) => {
@@ -307,6 +307,7 @@ pub fn main_run(args: &[String]) -> i32 {
             tracing::error!("Error: Grammar could not be parsed - exiting!");
             cg3_quit(1, None, 0);
         }
+        profiler = parser.profiler.take();
 
         // --dump-ast prints the parse tree to *ux_stdout.
         if occ(&options, OPTIONS::DUMP_AST) {
@@ -444,12 +445,10 @@ pub fn main_run(args: &[String]) -> i32 {
             applicator.base_mut().fmt_output = cg3_sformat::CG3SF_BINARY;
         }
 
-        // if (PROFILING) applicator.profiler = profiler.get();
-        // MISMATCH (NOTE): the engine's `profiler` field is the `Option<()>`
-        // placeholder (no Profiler wiring in the engine yet), so the flag is set
-        // but per-rule data cannot be gathered; `Profiler::write` below is live.
+        // C++: `applicator.profiler = profiler.get();` — move the profiler into
+        // the engine for the run (taken back after, for the final write).
         if occ(&options, OPTIONS::PROFILING) {
-            applicator.base_mut().profiler = Some(());
+            applicator.base_mut().profiler = profiler.take();
         }
 
         // applicator.runGrammarOnText(*ux_stdin, *ux_stdout); — the ported
@@ -466,8 +465,12 @@ pub fn main_run(args: &[String]) -> i32 {
         let mut cursor = std::io::Cursor::new(input_bytes);
         applicator.run_grammar_on_text(&mut cursor, &mut ux_stdout);
 
-        // Move the grammar back out (C++ `grammar` lives in main throughout).
+        // Move the grammar back out (C++ `grammar` lives in main throughout),
+        // and the profiler (for the final `Profiler::write`).
         grammar = std::mem::replace(&mut applicator.base_mut().grammar, Grammar::default());
+        if profiler.is_none() {
+            profiler = applicator.base_mut().profiler.take();
+        }
     }
 
     // --grammar-out: write the grammar in textual form. LIVE.
@@ -502,9 +505,7 @@ pub fn main_run(args: &[String]) -> i32 {
     }
     let _ = &grammar;
 
-    // --profile: write the profiling database. LIVE (the write is faithful; the
-    // run gathers no per-rule data because the engine's `profiler` field is a
-    // placeholder — see the MISMATCH NOTE in the run block).
+    // --profile: write the profiling database.
     if let Some(p) = profiler.as_ref() {
         let _ = p.write(&options[OPTIONS::PROFILING as usize].value);
     }

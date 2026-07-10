@@ -1990,6 +1990,22 @@ impl super::GrammarApplicator {
                         }
                         self.store.readings.get_mut(reading.0).matched_tests = true;
                         num_active += 1;
+                        if self.profiler.is_some() {
+                            // Profiler::Key k{ET_RULE, rule.number + 1}; ++entries[k].num_match
+                            let rnum = self.grammar.rule_by_number.get(rule.0).number;
+                            let k = crate::profiler::Key {
+                                r#type: crate::profiler::ET_RULE,
+                                id: rnum + 1,
+                            };
+                            let p = self.profiler.as_mut().unwrap();
+                            let e = p.entries.entry(k).or_default();
+                            e.num_match += 1;
+                            if e.example_window == 0 {
+                                let mut store = std::mem::take(&mut self.store);
+                                self.add_profiling_example(&mut store, k);
+                                self.store = store;
+                            }
+                        }
                         if !self.debug_rules.empty() && self.debug_rules.contains(rline) {
                             self.rr_print_debug_rule(rule, true, true);
                         }
@@ -2017,6 +2033,16 @@ impl super::GrammarApplicator {
                     num_iff += 1;
                 } else {
                     self.context_stack.last_mut().unwrap().regexgrp_ct = orz;
+                    if self.profiler.is_some() {
+                        // Profiler::Key k{ET_RULE, rule.number + 1}; ++entries[k].num_fail
+                        let rnum = self.grammar.rule_by_number.get(rule.0).number;
+                        let k = crate::profiler::Key {
+                            r#type: crate::profiler::ET_RULE,
+                            id: rnum + 1,
+                        };
+                        let p = self.profiler.as_mut().unwrap();
+                        p.entries.entry(k).or_default().num_fail += 1;
+                    }
                     if !self.debug_rules.empty() && self.debug_rules.contains(rline) {
                         self.rr_print_debug_rule(rule, false, false);
                     }

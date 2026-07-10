@@ -280,6 +280,26 @@ impl Ast {
         self.enabled
     }
 
+    /// C++ `parse_ast = true;` — profiling enables AST building after
+    /// construction (see `TextualParser::parse_from_u_char`).
+    pub fn set_enabled(&mut self, on: bool) {
+        self.enabled = on;
+    }
+
+    /// Current cursor depth (0 = the root). Used with [`truncate_cursor`] to
+    /// mimic the C++ `ASTHelper` RAII unwinding on a parse error.
+    ///
+    /// [`truncate_cursor`]: Ast::truncate_cursor
+    pub fn cursor_depth(&self) -> usize {
+        self.cursor.len()
+    }
+
+    /// Pop the cursor back to `depth` — the analogue of C++ stack unwinding
+    /// running every in-scope `~ASTHelper()` when a parse error is thrown.
+    pub fn truncate_cursor(&mut self, depth: usize) {
+        self.cursor.truncate(depth);
+    }
+
     /// The tree root (`ast`) — the parser's `print_ast` wrapper serializes
     /// `root().cs.front()`.
     pub fn root(&self) -> &ASTNode {

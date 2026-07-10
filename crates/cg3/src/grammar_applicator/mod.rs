@@ -297,16 +297,11 @@ pub struct GrammarApplicator {
     /// `self.store.readings` / `self.store.single_windows`), and `Window`/
     /// `SingleWindow`/`Cohort` free fns are threaded `&mut self.store`.
     pub store: crate::store::RuntimeStore,
-    /// C++ `Profiler* profiler` — no Profiler module in the port; placeholder,
-    /// always null.
-    pub profiler: Option<()>,
+    /// C++ `Profiler* profiler` — the raw pointer to main's Profiler becomes
+    /// OWNED `Option<Profiler>`: the driver (vislcg3) moves the profiler in
+    /// before the run and takes it back out afterwards to write the database.
+    pub profiler: Option<crate::profiler::Profiler>,
 
-    /// C++ `std::istream* ux_stdin` — placeholder (I/O wiring is a later pass).
-    pub ux_stdin: Option<()>,
-    /// C++ `std::ostream* ux_stdout`.
-    pub ux_stdout: Option<()>,
-    /// C++ `std::ostream* ux_stderr`.
-    pub ux_stderr: Option<()>,
     /// C++ `UChar* filebase` — nullable input-file basename buffer.
     pub filebase: Option<UString>,
 
@@ -482,9 +477,6 @@ impl GrammarApplicator {
             store: crate::store::RuntimeStore::new(),
             profiler: None,
 
-            ux_stdin: None,
-            ux_stdout: None,
-            ux_stderr: None,
             filebase: None,
 
             span_pattern_latin: Default::default(),

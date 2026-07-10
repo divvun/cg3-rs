@@ -203,13 +203,10 @@ pub fn trie_copy_helper_reintern(trie: &trie_t, grammar: &mut Grammar) -> Box<tr
 /// C++ `class Relabeller`. Owns pointers to the target `grammar` (mutated) and the
 /// read-only `relabels` grammar, plus the two partitioned relabel-rule maps.
 ///
-/// The C++ `std::ostream* ux_stderr` diagnostic sink is a global-I/O concern
-/// (deferred, as elsewhere in the port) and is represented as a `()` placeholder.
-/// The two grammars are held as `&mut`/`&` borrows for the lifetime of the
-/// relabeller (the C++ raw pointers).
+/// The C++ `std::ostream* ux_stderr` diagnostic sink has no field analogue:
+/// diagnostics are tracing events (wave 4). The two grammars are held as
+/// `&mut`/`&` borrows for the lifetime of the relabeller (the C++ raw pointers).
 pub struct Relabeller<'g, 'r> {
-    /// C++ `std::ostream* ux_stderr` — deferred I/O placeholder.
-    ux_stderr: Option<()>,
     /// C++ `Grammar* grammar` — the target grammar (mutated).
     grammar: &'g mut Grammar,
     /// C++ `const Grammar* relabels` — the relabel-rules grammar (read-only).
@@ -295,7 +292,6 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         }
 
         Relabeller {
-            ux_stderr: None,
             grammar: res,
             relabels,
             relabel_as_list: as_list,

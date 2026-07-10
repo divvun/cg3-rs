@@ -145,12 +145,6 @@ pub type parentheses_t = BTreeMap<u32, u32>;
 /// The parsed/loaded grammar: owner of all static tags, sets, rules and
 /// contextual tests, plus every runtime lookup index built by `reindex`.
 pub struct Grammar {
-    // --- I/O streams ---
-    // C++ `std::ostream* ux_stderr / ux_stdout`. Placeholder only; actual I/O
-    // wiring (which sink to write diagnostics to) is a later concern.
-    pub ux_stderr: Option<()>,
-    pub ux_stdout: Option<()>,
-
     /// Wave-4 grammar-owned PRNG state for `Set::set_name`'s `to == 0`
     /// fallback (the C++ used the process-global libc `rand()`). Non-zero
     /// xorshift32 state, stepped by [`crate::set::rand_step`].
@@ -274,8 +268,6 @@ impl Default for Grammar {
     /// `'@'`.
     fn default() -> Self {
         Grammar {
-            ux_stderr: None,
-            ux_stdout: None,
             rand_state: 1,
             has_dep: false,
             has_bag_of_tags: false,

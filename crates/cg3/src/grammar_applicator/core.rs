@@ -31,6 +31,7 @@ use std::io::{Read, Write};
 use regex::RegexBuilder;
 
 use crate::arena::{CohortId, CtxId, ReadingId, RuleId, SwId, TagId};
+use crate::contextual_test::POS_NEGATE;
 use crate::cohort::{CT_RELATED, CT_REMOVED, DEP_NO_PARENT, unignore_all};
 use crate::grammar::Grammar;
 use crate::inlines::{
@@ -1701,9 +1702,8 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn]
     /// C++ inline `void printDebugRule(const Rule& rule, bool target, bool cntx)`.
     /// Renders the whole in-flight window set (profiling mode) with `trace`
-    /// force-disabled, into a buffer destined for `ux_stderr`. `ux_stderr` is a
-    /// placeholder, so the buffer is built faithfully and its emission deferred
-    /// (the C++ `swapper<bool>` is a manual save/restore of `trace`).
+    /// force-disabled, into a buffer written to stderr (the C++ `ux_stderr`);
+    /// the C++ `swapper<bool>` is a manual save/restore of `trace`.
     pub fn print_debug_rule(&mut self, store: &mut RuntimeStore, rule: RuleId, target: bool, cntx: bool) {
         let saved_trace = self.trace;
         self.trace = false; // swapper<bool>(true, trace, ttrace=false)
@@ -1730,30 +1730,82 @@ impl super::GrammarApplicator {
 
         let _ = write!(&mut buf, "# ===== END RULE {line} =====\n");
 
-        // u_fprintf(ux_stderr, "%s", buf): ux_stderr is a placeholder; deferred.
-        let _ = buf;
+        // u_fprintf(ux_stderr, "%s", buf) — a raw stream dump (window data),
+        // not a log event: write it straight to stderr like the C++.
+        let _ = std::io::stderr().write_all(&buf);
         self.trace = saved_trace;
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
-    /// C++ template `void addProfilingExample(T& item)`. UNRESOLVED: no Profiler
-    /// module (`self.profiler` is a placeholder `Option<()>`); this is only ever
-    /// invoked from within a `profiler`-guarded block (never, here), so it is a
-    /// no-op stub. The C++ renders the whole window set into `profiler->buf` and
-    /// stores `item.example_window = profiler->addString(buf)`.
-    fn add_profiling_example<T>(&mut self, _store: &mut RuntimeStore, _item: &mut T) {}
+    /// C++ template `void addProfilingExample(T& item)`. Renders the whole
+    /// in-flight window set (previous / current / next, trace force-disabled via
+    /// the C++ `swapper<bool>`) into a buffer, interns it in the profiler string
+    /// table, and stores the id into `entries[key].example_window`. (The C++
+    /// passes the entry by reference; the port passes its `key` — same entry,
+    /// borrow-checker-friendly.) Caller guarantees `self.profiler` is `Some` and
+    /// the entry exists.
+    pub(super) fn add_profiling_example(&mut self, store: &mut RuntimeStore, key: crate::profiler::Key) {
+        let saved_trace = self.trace;
+        self.trace = false; // swapper<bool> _st(true, trace, ttrace=false)
+
+        let mut buf: Vec<u8> = Vec::new();
+        let _ = write!(&mut buf, "# PREVIOUS WINDOWS\n");
+        for s in self.gWindow.previous.clone() {
+            self.print_single_window(store, s, &mut buf, true);
+        }
+        let _ = write!(&mut buf, "# CURRENT WINDOW\n");
+        if let Some(cur) = self.gWindow.current {
+            self.print_single_window(store, cur, &mut buf, true);
+        }
+        let _ = write!(&mut buf, "# NEXT WINDOWS\n");
+        for s in self.gWindow.next.clone() {
+            self.print_single_window(store, s, &mut buf, true);
+        }
+        self.trace = saved_trace;
+
+        let p = self.profiler.as_mut().unwrap();
+        let sz = p.add_string(&String::from_utf8_lossy(&buf));
+        if let Some(e) = p.entries.get_mut(&key) {
+            e.example_window = sz;
+        }
+    }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.profile-rule-context-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.profile-rule-context-fn]
     /// C++ inline `void profileRuleContext(bool test_good, const Rule* rule,
-    /// const ContextualTest* test)`. Guarded on `profiler`; a no-op because
-    /// `self.profiler` is always `None` (Profiler not ported).
-    pub fn profile_rule_context(&mut self, _test_good: bool, _rule: RuleId, _test: CtxId) {
-        if self.profiler.is_some() {
-            // UNRESOLVED: Profiler not ported. C++ bumps num_match/num_fail on
-            // profiler->entries[{ET_CONTEXT, test->hash}], seeds an example via
-            // addProfilingExample, and increments profiler->rule_contexts.
+    /// const ContextualTest* test)`. Guarded on `profiler`: looks up the
+    /// `{ET_CONTEXT, test->hash}` entry (parser-registered; a miss is a no-op),
+    /// and — when the test outcome agrees with its `POS_NEGATE` polarity — bumps
+    /// `num_match`, seeds `example_window` via [`add_profiling_example`], and
+    /// increments `rule_contexts[(rule->number + 1, test->hash)]`; otherwise
+    /// bumps `num_fail`.
+    ///
+    /// [`add_profiling_example`]: GrammarApplicator::add_profiling_example
+    pub fn profile_rule_context(&mut self, test_good: bool, rule: RuleId, test: CtxId) {
+        if self.profiler.is_none() {
+            return;
+        }
+        let test_hash = self.grammar.contexts_arena[test.0].hash;
+        let test_pos = self.grammar.contexts_arena[test.0].pos;
+        let rule_number = self.grammar.rule_by_number.get(rule.0).number;
+        let key = crate::profiler::Key { r#type: crate::profiler::ET_CONTEXT, id: test_hash };
+        let p = self.profiler.as_mut().unwrap();
+        let Some(t) = p.entries.get_mut(&key) else {
+            return;
+        };
+        if (test_good && (test_pos & POS_NEGATE == 0)) || (!test_good && (test_pos & POS_NEGATE != 0)) {
+            t.num_match += 1;
+            let need_example = t.example_window == 0;
+            *p.rule_contexts.entry((rule_number + 1, test_hash)).or_insert(0) += 1;
+            if need_example {
+                // print_single_window needs `store` distinct from `&mut self`.
+                let mut store = std::mem::take(&mut self.store);
+                self.add_profiling_example(&mut store, key);
+                self.store = store;
+            }
+        } else {
+            t.num_fail += 1;
         }
     }
 }

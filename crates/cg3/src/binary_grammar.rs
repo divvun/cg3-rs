@@ -132,14 +132,12 @@ pub type deferred_ors_t = HashMap<CtxId, Vec<u32>>;
 /// C++ holds `Grammar* grammar` aliasing the externally-owned `result`. The port
 /// OWNS its result `grammar` (per the brief: "the struct holds/builds a
 /// `grammar: Grammar` (read) or references one (write)"). The inherited
-/// `IGrammarParser` members (`ux_stderr`, `nrules`, `nrules_inv`, `verbosity`)
-/// live here as fields (a Rust trait has no fields). `ux_stderr` is a placeholder
-/// (diagnostics go to `eprintln!`, the Wave-2 stderr stand-in).
+/// `IGrammarParser` members (`nrules`, `nrules_inv`, `verbosity`) live here as
+/// fields (a Rust trait has no fields). The C++ base `std::ostream* ux_stderr`
+/// has no field analogue: diagnostics are tracing events (wave 4).
 pub struct BinaryGrammar {
     /// C++ `Grammar* grammar` (aliases `result`); OWNED here.
     pub grammar: Grammar,
-    /// C++ base `std::ostream* ux_stderr` — placeholder (see `eprintln!`).
-    ux_stderr: Option<()>,
     /// C++ base `URegularExpression* nrules` — the `--nrules` name filter.
     /// Public: C++ main.cpp sets `parser->nrules` on the IGrammarParser base
     /// for BOTH the textual and binary parsers.
@@ -159,13 +157,12 @@ impl BinaryGrammar {
     /// C++ `BinaryGrammar(Grammar& res, std::ostream& ux_err)`. Delegates to the
     /// base `IGrammarParser(res, ux_err)` (sets `ux_stderr = &ux_err`, `result =
     /// &res`; `nrules`/`nrules_inv` null; `verbosity` 0), then sets `grammar =
-    /// result`. The port OWNS `res` (so `grammar` == `result` == the owned field);
-    /// the `ux_err` sink is the Wave-2 `eprintln!` stand-in (no `std::ostream`).
-    /// No allocation or I/O occurs.
+    /// result`. The port OWNS `res` (so `grammar` == `result` == the owned
+    /// field); the `ux_err` diagnostic sink is tracing (wave 4). No allocation
+    /// or I/O occurs.
     pub fn binary_grammar(res: Grammar) -> BinaryGrammar {
         BinaryGrammar {
             grammar: res,
-            ux_stderr: Some(()),
             nrules: None,
             nrules_inv: None,
             verbosity: 0,

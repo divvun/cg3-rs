@@ -232,10 +232,9 @@ macro_rules! w {
 ///
 /// The C++ `const Grammar* grammar` member is NOT stored (see the module note on
 /// arena-model signature reconciliation); `grammar` is threaded through the
-/// methods instead. `ux_stderr` is the deferred diagnostics sink (placeholder,
-/// same precedent as `crate::grammar`).
+/// methods instead. The C++ `ux_stderr` diagnostics sink has no field analogue:
+/// diagnostics are tracing events (wave 4).
 pub struct GrammarWriter {
-    ux_stderr: Option<()>,
     used_sets: Uint32FlatHashSet,
     seen_rules: Uint32FlatHashSet,
     /// C++ `std::multimap<uint32_t, uint32_t> anchors`: rule-number → anchor-tag
@@ -246,8 +245,8 @@ pub struct GrammarWriter {
 impl GrammarWriter {
     // [spec:cg3:def:grammar-writer.cg3.grammar-writer.grammar-writer-fn]
     // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.grammar-writer-fn]
-    /// Constructor `GrammarWriter(Grammar& res, std::ostream& ux_err)`. Stores
-    /// `ux_stderr` (deferred sink) and builds the `anchors` multimap by INVERTING
+    /// Constructor `GrammarWriter(Grammar& res, std::ostream& ux_err)`. Builds
+    /// the `anchors` multimap by INVERTING
     /// `res.anchors` (anchor-tag-hash → rule-number): for each pair
     /// `(first, second)` it inserts `(second, first)`, so the multimap is keyed by
     /// rule number with anchor-tag-hash values, which `print_rule` later queries
@@ -265,7 +264,6 @@ impl GrammarWriter {
         }
 
         GrammarWriter {
-            ux_stderr: Some(()),
             used_sets: Uint32FlatHashSet::new(),
             seen_rules: Uint32FlatHashSet::new(),
             anchors,
@@ -354,7 +352,6 @@ impl GrammarWriter {
     /// rule-section emission.
     pub fn write_grammar<W: Write>(&mut self, grammar: &mut Grammar, output: &mut W) -> i32 {
         // (!output) / (!grammar): non-null references in the port; checks elided.
-        let _ = self.ux_stderr;
 
         w!(
             output,

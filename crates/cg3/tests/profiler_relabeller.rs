@@ -325,15 +325,30 @@ fn profiler_via_vislcg3_and_cg_annotate() {
     let bytes = std::fs::read(&db).expect("--profile did not write a database");
     assert!(bytes.starts_with(b"SQLite format 3\0"), "not a SQLite database");
 
-    // The grammar AST capture is interned into the string table and stored
-    // under key 0 (the grammar_ast override). NOTE: the string itself is empty
-    // because the --profile parser wiring is elided in the port (documented
-    // MISMATCH in tools/vislcg3.rs) — AST building is only enabled by
-    // --dump-ast, and print_ast emits nothing for an empty AST root.
+    // Wave 4 (w4-io-sinks-profiler): the profiler is fully wired. The parse
+    // registers the grammar text (add_grammar) and every rule/context span
+    // (add_rule/add_context); --profile force-enables AST building, so the AST
+    // capture interned as `grammar_ast` is non-empty; and the run gathers
+    // per-rule match/fail counters with example windows.
     let mut p = Profiler::default();
     p.read(db.to_str().unwrap()).expect("Profiler::read failed");
-    assert_eq!(p.strings.len(), 1);
-    assert_eq!(*p.strings.values().next().unwrap(), 0);
+    assert!(!p.grammars.is_empty(), "parse registered the grammar text");
+    // `write` stores the grammar_ast-carrying string under key 0.
+    let ast_text = p
+        .strings
+        .iter()
+        .find(|&(_, &id)| id == 0)
+        .map(|(s, _)| s.clone())
+        .expect("the grammar AST string (key 0) is present");
+    assert!(ast_text.contains("<Grammar"), "AST capture holds the parse tree");
+    assert!(
+        p.entries.keys().any(|k| k.r#type == ET_RULE),
+        "parse registered rule entries"
+    );
+    assert!(
+        p.entries.values().any(|e| e.num_match + e.num_fail > 0),
+        "run gathered per-rule match/fail data"
+    );
 
     // cg-annotate consumes the profile database and writes the report.
     let annot = tmp("annotate-out");

@@ -449,6 +449,10 @@ pub struct TextualParser {
     pub nrules_inv: Option<Regex>,
     /// Wave-4 owned AST builder (C++ `thread_local parse_ast/ast/cur_ast`).
     ast: Ast,
+    /// C++ `Profiler* profiler` (raw pointer to main's Profiler) — OWNED here:
+    /// the driver moves the profiler in before `parse_grammar` and takes it
+    /// back afterwards.
+    pub profiler: Option<crate::profiler::Profiler>,
 }
 
 impl TextualParser {
@@ -495,6 +499,7 @@ impl TextualParser {
             parse_end_break: false,
             nrules: None,
             nrules_inv: None,
+            profiler: None,
         }
     }
 
@@ -1302,6 +1307,10 @@ impl TextualParser {
         rule_flags: Option<u64>,
         in_tmpl: bool,
     ) -> CtxId {
+        // C++ `AST_OPEN(Context)` — also the profiler's context span start.
+        let ast_ctx_b = *pos;
+        let mut ast_context =
+            ASTHelper::new(&mut self.ast, ASTType::AST_Context, self.grammar.lines as usize, pptr(buf, *pos));
         let ot = self.grammar.allocate_contextual_test();
         let mut t_cur = ot;
         self.grammar.contexts_arena[ot.0].line = self.grammar.lines;
@@ -1480,12 +1489,21 @@ impl TextualParser {
         }
 
         let t = self.grammar.add_contextual_test(Some(ot)).unwrap();
-        // profiler skipped.
+        if let Some(prof) = self.profiler.as_mut() {
+            // profiler->addContext(t->hash, cur_grammar_n,
+            //                      cur_ast->b - cur_grammar, p - cur_grammar)
+            let th = self.grammar.contexts_arena[t.0].hash;
+            prof.add_context(th, self.cur_grammar_n, ast_ctx_b - 4, *pos - 4);
+        }
         if self.grammar.contexts_arena[t.0].tmpl.is_some() {
             if let Some(td) = tmpl_data {
                 self.deferred_tmpls.insert(t, td);
             }
         }
+
+        // C++ `AST_CLOSE_ID(p, t->hash)`.
+        let t_hash = self.grammar.contexts_arena[t.0].hash;
+        ast_context.close_id(&mut self.ast, pptr(buf, *pos), t_hash);
 
         t
     }
@@ -1717,29 +1735,34 @@ impl TextualParser {
 impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.add-rule-to-grammar-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.add-rule-to-grammar-fn]
-    fn add_rule_to_grammar(&mut self, mut rule: Rule) {
+    fn add_rule_to_grammar(&mut self, mut rule: Rule) -> RuleId {
         if self.in_nested_rule {
             rule.section = -3;
             let rid = self.grammar.add_rule(rule);
             self.nested_subrules.push(rid);
+            rid
         } else if self.in_section {
             rule.section = self.grammar.sections.len() as i32 - 1;
-            self.grammar.add_rule(rule);
+            self.grammar.add_rule(rule)
         } else if self.in_after_sections {
             rule.section = -2;
-            self.grammar.add_rule(rule);
+            self.grammar.add_rule(rule)
         } else if self.in_null_section {
             rule.section = -3;
-            self.grammar.add_rule(rule);
+            self.grammar.add_rule(rule)
         } else {
             rule.section = -1;
-            self.grammar.add_rule(rule);
+            self.grammar.add_rule(rule)
         }
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn]
     fn parse_rule(&mut self, buf: &[char], pos: &mut usize, key: KEYWORDS) {
+        // C++ `AST_OPEN(Rule)` — also the profiler's rule span start.
+        let ast_rule_b = *pos;
+        let mut ast_rule =
+            ASTHelper::new(&mut self.ast, ASTType::AST_Rule, self.grammar.lines as usize, pptr(buf, *pos));
         let mut rule = self.grammar.allocate_rule();
         rule.line = self.grammar.lines;
         rule.r#type = key;
@@ -2207,8 +2230,20 @@ impl TextualParser {
 
         if destroy {
             // `destroyRule` on a heap Rule*; the port's local value is just dropped.
+            // C++ `AST_CLOSE(p)`.
+            ast_rule.close(&mut self.ast, pptr(buf, *pos));
         } else {
-            self.add_rule_to_grammar(rule);
+            let rid = self.add_rule_to_grammar(rule);
+            if let Some(prof) = self.profiler.as_mut() {
+                // profiler->addRule(rule->number + 1, cur_grammar_n,
+                //                   cur_ast->b - cur_grammar, p - cur_grammar)
+                // Offsets are relative to the grammar text (buffer index - 4).
+                let rnum = self.grammar.rule_by_number.get(rid.0).number;
+                prof.add_rule(rnum + 1, self.cur_grammar_n, ast_rule_b - 4, *pos - 4);
+            }
+            // C++ `AST_CLOSE_ID(p, rule->number + 1)`.
+            let rnum = self.grammar.rule_by_number.get(rid.0).number;
+            ast_rule.close_id(&mut self.ast, pptr(buf, *pos), rnum + 1);
         }
     }
 }
@@ -3089,6 +3124,20 @@ impl TextualParser {
             self.grammar.contexts_arena[orc.0].ors.push(unsafec2);
             let orc = self.grammar.add_contextual_test(Some(orc)).unwrap();
 
+            if let Some(prof) = self.profiler.as_mut() {
+                // Copy the profiler span of the original (unsafe) context onto
+                // the OR'd replacement, keyed by the old hash's entry.
+                let tmp_hash = self.grammar.contexts_arena[tmp.0].hash;
+                let k = crate::profiler::Key {
+                    r#type: crate::profiler::ET_CONTEXT,
+                    id: tmp_hash,
+                };
+                if let Some(pc) = prof.entries.get(&k).copied() {
+                    let orc_hash = self.grammar.contexts_arena[orc.0].hash;
+                    prof.add_context(orc_hash, self.cur_grammar_n, pc.b, pc.e);
+                }
+            }
+
             let ctx_ids: Vec<CtxId> = self.grammar.contexts.values().copied().collect();
             for v in ctx_ids {
                 if self.grammar.contexts_arena[v.0].linked == Some(tmp) {
@@ -3138,10 +3187,23 @@ impl TextualParser {
             cg3_quit(1, None, 0);
         }
 
-        let id = {
+        // C++: `if (profiler) { parse_ast = true; }` — profiling implies AST
+        // building (the AST capture is interned into the profile database).
+        if self.profiler.is_some() {
+            self.ast.set_enabled(true);
+        }
+
+        let mut id = {
             self.num_grammars += 1;
             self.num_grammars
         };
+        if let Some(prof) = self.profiler.as_mut() {
+            // id = profiler->addGrammar(fname, utf8) — register the grammar
+            // text (from the 4-char lookbehind pad up to the NUL).
+            let end = buf[4..].iter().position(|&c| c == '\0').map(|i| i + 4).unwrap_or(len);
+            let utf8: String = buf[4..end].iter().collect();
+            id = prof.add_grammar(&fname, &utf8);
+        }
         self.cur_grammar = unsafe { buf.as_ptr().add(4) };
         self.cur_grammar_n = id;
         let mut pos = 4usize;
@@ -3152,11 +3214,15 @@ impl TextualParser {
         self.parse_end_break = false;
 
         while buf[pos] != '\0' {
+            let ast_depth = self.ast.cursor_depth();
             let r = panic::catch_unwind(AssertUnwindSafe(|| {
                 self.parse_directive(buf, &mut pos, &fname);
             }));
             if let Err(e) = r {
                 if e.is::<ParseError>() {
+                    // C++ stack unwinding runs every in-scope ~ASTHelper();
+                    // restore the AST cursor to the pre-directive depth.
+                    self.ast.truncate_cursor(ast_depth);
                     self.grammar.lines += skipln(buf, &mut pos);
                 } else {
                     panic::resume_unwind(e);
