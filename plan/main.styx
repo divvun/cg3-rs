@@ -1,7 +1,94 @@
 name cg3
+
 source {
-    url "/tmp/cg3"
+    url /tmp/cg3
     ref main
 }
 
-children ()
+children (
+    {
+        id wave-4-idiomatize
+        title "Wave 4: idiomatize the literal Rust port (sem rules + 159-test corpus as oracle)"
+        children (
+            {
+                id w4-deglobalize-ast
+                title "De-globalize AST parser state: ast.rs thread_locals (PARSE_AST/AST_ROOT/CUR_AST, leaked root, raw-ptr cursor) become a TextualParser-owned Ast builder; ASTHelper holds borrows not globals"
+            }
+
+            {
+                id w4-deglobalize-prng-errno
+                title "De-globalize remaining non-regex state: set.rs RAND_STATE into Grammar; math_parser.rs MP_ERRNO thread_local into a MathParser field (compiled Regex statics are the sanctioned exception)"
+            }
+
+            {
+                id w4-bitflags
+                title "Bit-soup ints to typed flags: Tag.type u32 (T_*), Set.type u16 (ST_*), Cohort.type u8 (CT_*), Rule.flags u64 (RF_*), ContextualTest.pos u64 (POS_*) become bitflags! types; RF exclusivity (FLAGS_EXCLS) enforced at construction"
+            }
+
+            {
+                id w4-sentinels-newtypes
+                title "Sentinels to Option/newtypes: DEP_NO_PARENT=u32::MAX, dep_self==0, baseform==0, seed probing; TagHash/SetNumber/GlobalNumber newtypes so untyped u32 keys cannot cross-assign; flat-container illegal-key invariant typed away"
+            }
+
+            {
+                id w4-arena-generations
+                title "Generational arena ids: freed slots currently re-resolve silently (faithful dangling-pointer analog); add generation counters so stale CohortId/ReadingId/SwId access is detected instead of aliasing recycled objects"
+            }
+
+            {
+                id w4-rule-context-indices
+                title "Rule_Context raw aliasing pointers (unif_tags/unif_sets/regexgrps Option<*mut> into the *_store vecs) become store indices"
+            }
+
+            {
+                id w4-tag-union-enum
+                title "Tag anonymous-union field (dep_parent doubling as variable_hash/context_ref_pos/comparison_offset) becomes an enum carrying the variant the tag actually is"
+            }
+
+            {
+                id w4-io-sinks-profiler
+                title "Replace the 33 Option<()> I/O placeholders with real diagnostic Write sinks and an actually-wired Option<Profiler> (kills the '--profile gathers nothing' state)"
+            }
+
+            {
+                id w4-library-errors
+                title "Library error handling: Cg3Error + Result across parse/load/run APIs; ~508 panic-as-UB sites triaged (kept quirks documented + test-pinned); no process::exit outside src/bin (grammar.rs reindex exit, matxin exit(-1), library cg3_quit paths)"
+            }
+
+            {
+                id w4-stream-format-trait
+                title "StreamFormat trait replaces the C++-vtable stand-ins: mwe_split_at_print/print_dispatch/bin_header_done flags, fmt_output switches in base printers, and the base:GrammarApplicator composition move-dances"
+            }
+
+            {
+                id w4-unsafe-elimination
+                title "Unsafe elimination (target near-zero outside flat containers): run_rules Box<dyn FnMut>+raw-this callbacks (30 blocks), mem::take store swap dance (10 sites), scoped_stack *mut proxy, inlines Linked/reverse and voidp, trie borrow-laundering"
+            }
+
+            {
+                id w4-outparams-goto
+                title "Out-params and goto emulations: spaces_in_added_wf &mut usize, st_retvals bit-returns, &mut Option<Id>-nulling free fns, GotReading fall-through, 'scan_parentheses/'run_begin labels become returns and extracted functions"
+            }
+
+            {
+                id w4-utf8-native-strings
+                title "Native UTF-8 strings per policy: Vec<char>+NUL-sentinel scan buffers and &[char]+&mut usize pointer-walk parsers become &str/String parsing (keep code-unit forms only where symbols are rebuilt into strings, e.g. UTF-16 hashing units)"
+            }
+
+            {
+                id w4-printf-removal-tracing
+                title "Remove C-isms per policy: u_fprintf/u_vsnprintf/format_args! shims and u_sscanf reproductions deleted (plain write!/typed parsers); ALL logging + diagnostics move to the tracing crate"
+            }
+
+            {
+                id w4-container-iterators
+                title "Container ergonomics: ConstIterator pre_increment/get objects implement real Iterator; misleading names fixed (sorted push_back); C++ iterator-index begin()/end() usize conventions replaced at call sites"
+            }
+
+            {
+                id w4-file-split-fmt
+                title "Close the bypassed quality gates: split run_rules.rs (4.2k LOC/82 fns) + other oversize files, rustfmt the crate, burn down the ~20 inherited warnings (RRState privacy etc.), consolidate flagged duplicate groups"
+            }
+        )
+    }
+)
