@@ -298,12 +298,12 @@ impl super::GrammarApplicator {
                     if base < cleaned.len() && cleaned[base] != '\0' {
                         let base_text: String =
                             cleaned[base..].iter().take_while(|&&c| c != '\0').collect();
-                        let tag = self.add_tag(&base_text, 0);
+                        let tag = self.add_tag(&base_text, crate::tag::TagType::empty());
                         let (ttype, first_char) = {
                             let t = &self.grammar.single_tags_list[tag.0];
                             (t.r#type, t.tag.chars().next().unwrap_or('\0'))
                         };
-                        if ttype & crate::tag::T_MAPPING != 0
+                        if ttype.intersects(crate::tag::T_MAPPING)
                             || first_char == self.grammar.mapping_prefix
                         {
                             // tag->type |= T_MAPPING;
@@ -323,12 +323,12 @@ impl super::GrammarApplicator {
         }
         if base < cleaned.len() && cleaned[base] != '\0' {
             let base_text: String = cleaned[base..].iter().take_while(|&&c| c != '\0').collect();
-            let tag = self.add_tag(&base_text, 0);
+            let tag = self.add_tag(&base_text, crate::tag::TagType::empty());
             let (ttype, first_char) = {
                 let t = &self.grammar.single_tags_list[tag.0];
                 (t.r#type, t.tag.chars().next().unwrap_or('\0'))
             };
-            if ttype & crate::tag::T_MAPPING != 0 || first_char == self.grammar.mapping_prefix {
+            if ttype.intersects(crate::tag::T_MAPPING) || first_char == self.grammar.mapping_prefix {
                 self.grammar.single_tags_list[tag.0].r#type |= crate::tag::T_MAPPING;
                 all_mappings.entry(c_reading).or_default().push(tag);
             } else {
@@ -749,7 +749,7 @@ impl super::GrammarApplicator {
                     // wordform = addTag(&cleaned[0]) (up to the NUL at space+1).
                     let wf_text: String =
                         cleaned.iter().take_while(|&&c| c != '\0').collect();
-                    let wf = self.add_tag(&wf_text, 0);
+                    let wf = self.add_tag(&wf_text, crate::tag::TagType::empty());
                     {
                         let c = self.store.cohorts.get_mut(cc.0);
                         c.global_number = gn;
@@ -779,7 +779,7 @@ impl super::GrammarApplicator {
                             cleaned[n] = '\0';
                             let tag_text: String =
                                 cleaned[space..].iter().take_while(|&&c| c != '\0').collect();
-                            let tag = self.add_tag(&tag_text, 0);
+                            let tag = self.add_tag(&tag_text, crate::tag::TagType::empty());
                             self.add_tag_to_reading(wread, tag);
                             space = n + 1;
                         }
@@ -931,7 +931,7 @@ impl super::GrammarApplicator {
                         if c.is_none() && d.is_none() {
                             let s_text: String =
                                 cleaned[s.unwrap()..].iter().take_while(|&&ch| ch != '\0').collect();
-                            let tag = self.add_tag(&s_text, 0);
+                            let tag = self.add_tag(&s_text, crate::tag::TagType::empty());
                             let h = self.grammar.single_tags_list[tag.0].hash;
                             *variables_set.index_or_insert(h) = self.grammar.tag_any;
                             variables_rem.erase(h);
@@ -954,7 +954,7 @@ impl super::GrammarApplicator {
                                             .iter()
                                             .take_while(|&&ch| ch != '\0')
                                             .collect();
-                                        let atag = self.add_tag(&s_text, 0);
+                                        let atag = self.add_tag(&s_text, crate::tag::TagType::empty());
                                         a = self.grammar.single_tags_list[atag.0].hash;
                                     }
                                     if let Some(ci) = c {
@@ -969,7 +969,7 @@ impl super::GrammarApplicator {
                                             .iter()
                                             .take_while(|&&ch| ch != '\0')
                                             .collect();
-                                        let btag = self.add_tag(&d_text, 0);
+                                        let btag = self.add_tag(&d_text, crate::tag::TagType::empty());
                                         b = self.grammar.single_tags_list[btag.0].hash;
                                     }
                                     if c.is_none() {
@@ -990,7 +990,7 @@ impl super::GrammarApplicator {
                                             .iter()
                                             .take_while(|&&ch| ch != '\0')
                                             .collect();
-                                        let atag = self.add_tag(&s_text, 0);
+                                        let atag = self.add_tag(&s_text, crate::tag::TagType::empty());
                                         a = self.grammar.single_tags_list[atag.0].hash;
                                     }
                                     s = Some(ci + 1);
@@ -1004,7 +1004,7 @@ impl super::GrammarApplicator {
                                     if c.is_none() && d.is_none() {
                                         let s_text: String =
                                             cleaned[si..].iter().take_while(|&&ch| ch != '\0').collect();
-                                        let atag = self.add_tag(&s_text, 0);
+                                        let atag = self.add_tag(&s_text, crate::tag::TagType::empty());
                                         a = self.grammar.single_tags_list[atag.0].hash;
                                         *variables_set.index_or_insert(a) = self.grammar.tag_any;
                                         variables_rem.erase(a);
@@ -1031,7 +1031,7 @@ impl super::GrammarApplicator {
                             if cleaned[s] != '\0' {
                                 let s_text: String =
                                     cleaned[s..].iter().take_while(|&&ch| ch != '\0').collect();
-                                let atag = self.add_tag(&s_text, 0);
+                                let atag = self.add_tag(&s_text, crate::tag::TagType::empty());
                                 let a = self.grammar.single_tags_list[atag.0].hash;
                                 variables_set.erase(a);
                                 variables_rem.insert(a);
@@ -1043,7 +1043,7 @@ impl super::GrammarApplicator {
                         if cleaned[s] != '\0' {
                             let s_text: String =
                                 cleaned[s..].iter().take_while(|&&ch| ch != '\0').collect();
-                            let atag = self.add_tag(&s_text, 0);
+                            let atag = self.add_tag(&s_text, crate::tag::TagType::empty());
                             let a = self.grammar.single_tags_list[atag.0].hash;
                             variables_set.erase(a);
                             variables_rem.insert(a);

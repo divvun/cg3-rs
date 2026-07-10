@@ -31,54 +31,109 @@ pub type ContextList = VecDeque<CtxId>;
 // accumulate into `ContextualTest::pos` (a `u64`). The header enum is unnamed and
 // carries no `[spec:cg3:def]` id, so the constants are reproduced verbatim here
 // without an annotation, mirroring the un-annotated source.
-pub const POS_CAREFUL: u64 = 1 << 0; // C
-pub const POS_NEGATE: u64 = 1 << 1; // Prefix NEGATE
-pub const POS_NOT: u64 = 1 << 2; // Prefix NOT
-pub const POS_SCANFIRST: u64 = 1 << 3; // *
-pub const POS_SCANALL: u64 = 1 << 4; // **
-pub const POS_ABSOLUTE: u64 = 1 << 5; // @
-pub const POS_SPAN_RIGHT: u64 = 1 << 6; // >
-pub const POS_SPAN_LEFT: u64 = 1 << 7; // <
-pub const POS_SPAN_BOTH: u64 = 1 << 8; // W
-pub const POS_DEP_PARENT: u64 = 1 << 9; // p
-pub const POS_DEP_SIBLING: u64 = 1 << 10; // s
-pub const POS_DEP_CHILD: u64 = 1 << 11; // c
-pub const POS_PASS_ORIGIN: u64 = 1 << 12; // o
-pub const POS_NO_PASS_ORIGIN: u64 = 1 << 13; // O
-pub const POS_LEFT_PAR: u64 = 1 << 14; // L
-pub const POS_RIGHT_PAR: u64 = 1 << 15; // R
-pub const POS_SELF: u64 = 1 << 16; // S
-pub const POS_NONE: u64 = 1 << 17; // Prefix NONE
-pub const POS_ALL: u64 = 1 << 18; // Prefix ALL
-pub const POS_DEP_DEEP: u64 = 1 << 19; // * or **
-pub const POS_MARK_SET: u64 = 1 << 20; // X
-pub const POS_JUMP: u64 = 1 << 21; // x, jM, jA, jT, jCn
-pub const POS_LOOK_DELETED: u64 = 1 << 22; // D
-pub const POS_LOOK_DELAYED: u64 = 1 << 23; // d
-pub const POS_TMPL_OVERRIDE: u64 = 1 << 24;
-pub const POS_UNKNOWN: u64 = 1 << 25; // ?
-pub const POS_RELATION: u64 = 1 << 26; // r:
-pub const POS_ATTACH_TO: u64 = 1 << 27; // A
-pub const POS_NUMERIC_BRANCH: u64 = 1 << 28; // f
-pub const POS_BAG_OF_TAGS: u64 = 1 << 29; // B
-pub const POS_DEP_GLOB: u64 = 1 << 30; // pp or cc
-pub const POS_64BIT: u64 = 1 << 31;
-pub const POS_LEFT: u64 = 1 << 32; // l
-pub const POS_RIGHT: u64 = 1 << 33; // r
-pub const POS_LEFTMOST: u64 = 1 << 34; // ll
-pub const POS_RIGHTMOST: u64 = 1 << 35; // rr
-pub const POS_NO_BARRIER: u64 = 1 << 36; // N
-pub const POS_WITH: u64 = 1 << 37; // w
-pub const POS_LOOK_IGNORED: u64 = 1 << 38; // I
-pub const POS_INACTIVE: u64 = 1 << 39; // t
-pub const POS_ACTIVE: u64 = 1 << 40; // T
+bitflags::bitflags! {
+    /// C++ `POS_*` contextual-test position bits over `uint64_t` (wave 4: a
+    /// typed `bitflags` set instead of a bare `u64`).
+    #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+    pub struct PosFlags: u64 {
+        const CAREFUL = 1 << 0; // C
+        const NEGATE = 1 << 1; // Prefix NEGATE
+        const NOT = 1 << 2; // Prefix NOT
+        const SCANFIRST = 1 << 3; // *
+        const SCANALL = 1 << 4; // **
+        const ABSOLUTE = 1 << 5; // @
+        const SPAN_RIGHT = 1 << 6; // >
+        const SPAN_LEFT = 1 << 7; // <
+        const SPAN_BOTH = 1 << 8; // W
+        const DEP_PARENT = 1 << 9; // p
+        const DEP_SIBLING = 1 << 10; // s
+        const DEP_CHILD = 1 << 11; // c
+        const PASS_ORIGIN = 1 << 12; // o
+        const NO_PASS_ORIGIN = 1 << 13; // O
+        const LEFT_PAR = 1 << 14; // L
+        const RIGHT_PAR = 1 << 15; // R
+        const SELF = 1 << 16; // S
+        const NONE = 1 << 17; // Prefix NONE
+        const ALL = 1 << 18; // Prefix ALL
+        const DEP_DEEP = 1 << 19; // * or **
+        const MARK_SET = 1 << 20; // X
+        const JUMP = 1 << 21; // x, jM, jA, jT, jCn
+        const LOOK_DELETED = 1 << 22; // D
+        const LOOK_DELAYED = 1 << 23; // d
+        const TMPL_OVERRIDE = 1 << 24;
+        const UNKNOWN = 1 << 25; // ?
+        const RELATION = 1 << 26; // r:
+        const ATTACH_TO = 1 << 27; // A
+        const NUMERIC_BRANCH = 1 << 28; // f
+        const BAG_OF_TAGS = 1 << 29; // B
+        const DEP_GLOB = 1 << 30; // pp or cc
+        const BIT64 = 1 << 31;
+        const LEFT = 1 << 32; // l
+        const RIGHT = 1 << 33; // r
+        const LEFTMOST = 1 << 34; // ll
+        const RIGHTMOST = 1 << 35; // rr
+        const NO_BARRIER = 1 << 36; // N
+        const WITH = 1 << 37; // w
+        const LOOK_IGNORED = 1 << 38; // I
+        const INACTIVE = 1 << 39; // t
+        const ACTIVE = 1 << 40; // T
+    }
+}
 
-pub const MASK_POS_DEP: u64 = POS_DEP_PARENT | POS_DEP_SIBLING | POS_DEP_CHILD | POS_DEP_GLOB;
-pub const MASK_POS_DEPREL: u64 = MASK_POS_DEP | POS_RELATION;
-pub const MASK_POS_CDEPREL: u64 = MASK_POS_DEPREL | POS_CAREFUL;
-pub const MASK_POS_LORR: u64 = POS_LEFT | POS_RIGHT | POS_LEFTMOST | POS_RIGHTMOST;
-pub const MASK_POS_SCAN: u64 = POS_SCANFIRST | POS_SCANALL | POS_DEP_DEEP | POS_DEP_GLOB;
-pub const MASK_SELF_NB: u64 = POS_SELF | POS_NO_BARRIER;
+// The C++ constant names, kept so call sites read like the source.
+pub const POS_CAREFUL: PosFlags = PosFlags::CAREFUL;
+pub const POS_NEGATE: PosFlags = PosFlags::NEGATE;
+pub const POS_NOT: PosFlags = PosFlags::NOT;
+pub const POS_SCANFIRST: PosFlags = PosFlags::SCANFIRST;
+pub const POS_SCANALL: PosFlags = PosFlags::SCANALL;
+pub const POS_ABSOLUTE: PosFlags = PosFlags::ABSOLUTE;
+pub const POS_SPAN_RIGHT: PosFlags = PosFlags::SPAN_RIGHT;
+pub const POS_SPAN_LEFT: PosFlags = PosFlags::SPAN_LEFT;
+pub const POS_SPAN_BOTH: PosFlags = PosFlags::SPAN_BOTH;
+pub const POS_DEP_PARENT: PosFlags = PosFlags::DEP_PARENT;
+pub const POS_DEP_SIBLING: PosFlags = PosFlags::DEP_SIBLING;
+pub const POS_DEP_CHILD: PosFlags = PosFlags::DEP_CHILD;
+pub const POS_PASS_ORIGIN: PosFlags = PosFlags::PASS_ORIGIN;
+pub const POS_NO_PASS_ORIGIN: PosFlags = PosFlags::NO_PASS_ORIGIN;
+pub const POS_LEFT_PAR: PosFlags = PosFlags::LEFT_PAR;
+pub const POS_RIGHT_PAR: PosFlags = PosFlags::RIGHT_PAR;
+pub const POS_SELF: PosFlags = PosFlags::SELF;
+pub const POS_NONE: PosFlags = PosFlags::NONE;
+pub const POS_ALL: PosFlags = PosFlags::ALL;
+pub const POS_DEP_DEEP: PosFlags = PosFlags::DEP_DEEP;
+pub const POS_MARK_SET: PosFlags = PosFlags::MARK_SET;
+pub const POS_JUMP: PosFlags = PosFlags::JUMP;
+pub const POS_LOOK_DELETED: PosFlags = PosFlags::LOOK_DELETED;
+pub const POS_LOOK_DELAYED: PosFlags = PosFlags::LOOK_DELAYED;
+pub const POS_TMPL_OVERRIDE: PosFlags = PosFlags::TMPL_OVERRIDE;
+pub const POS_UNKNOWN: PosFlags = PosFlags::UNKNOWN;
+pub const POS_RELATION: PosFlags = PosFlags::RELATION;
+pub const POS_ATTACH_TO: PosFlags = PosFlags::ATTACH_TO;
+pub const POS_NUMERIC_BRANCH: PosFlags = PosFlags::NUMERIC_BRANCH;
+pub const POS_BAG_OF_TAGS: PosFlags = PosFlags::BAG_OF_TAGS;
+pub const POS_DEP_GLOB: PosFlags = PosFlags::DEP_GLOB;
+pub const POS_64BIT: PosFlags = PosFlags::BIT64;
+pub const POS_LEFT: PosFlags = PosFlags::LEFT;
+pub const POS_RIGHT: PosFlags = PosFlags::RIGHT;
+pub const POS_LEFTMOST: PosFlags = PosFlags::LEFTMOST;
+pub const POS_RIGHTMOST: PosFlags = PosFlags::RIGHTMOST;
+pub const POS_NO_BARRIER: PosFlags = PosFlags::NO_BARRIER;
+pub const POS_WITH: PosFlags = PosFlags::WITH;
+pub const POS_LOOK_IGNORED: PosFlags = PosFlags::LOOK_IGNORED;
+pub const POS_INACTIVE: PosFlags = PosFlags::INACTIVE;
+pub const POS_ACTIVE: PosFlags = PosFlags::ACTIVE;
+
+pub const MASK_POS_DEP: PosFlags = POS_DEP_PARENT
+    .union(POS_DEP_SIBLING)
+    .union(POS_DEP_CHILD)
+    .union(POS_DEP_GLOB);
+pub const MASK_POS_DEPREL: PosFlags = MASK_POS_DEP.union(POS_RELATION);
+pub const MASK_POS_CDEPREL: PosFlags = MASK_POS_DEPREL.union(POS_CAREFUL);
+pub const MASK_POS_LORR: PosFlags =
+    POS_LEFT.union(POS_RIGHT).union(POS_LEFTMOST).union(POS_RIGHTMOST);
+pub const MASK_POS_SCAN: PosFlags =
+    POS_SCANFIRST.union(POS_SCANALL).union(POS_DEP_DEEP).union(POS_DEP_GLOB);
+pub const MASK_SELF_NB: PosFlags = POS_SELF.union(POS_NO_BARRIER);
 
 // [spec:cg3:def:contextual-test.cg3.pos-jump-pos]
 /// C++ `enum POS_JUMP_POS : int8_t`. The named jump targets for
@@ -126,7 +181,7 @@ pub struct ContextualTest {
     pub line: u32,
     pub hash: u32,
     pub seed: u32,
-    pub pos: u64,
+    pub pos: PosFlags,
     pub target: u32,
     pub relation: u32,
     pub barrier: u32,
@@ -176,7 +231,7 @@ impl ContextualTest {
         // `hash = hash_value(pos)` — the `uint64_t` overload: SuperFastHash over
         // the 8 raw (little-endian) bytes of `pos`, seeded with CG3_HASH_SEED, with
         // no prior hash mixed in.
-        let mut hash = super_fast_hash(&pos.to_le_bytes(), CG3_HASH_SEED);
+        let mut hash = super_fast_hash(&pos.bits().to_le_bytes(), CG3_HASH_SEED);
         // ARG-ORDER QUIRK: every subsequent fold is `hash_value(hash, <field>)` —
         // the CURRENT hash is the value (`c`) arg and `<field>` is the seed (`h`)
         // arg (the REVERSE of `Set::rehash`).

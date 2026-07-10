@@ -15,47 +15,91 @@ use crate::strings::KEYWORDS;
 use crate::types::UString;
 use std::collections::{BTreeMap, HashMap};
 
-/// C++ `using rule_flags_t = std::underlying_type<RULE_FLAGS>::type` (`uint64_t`).
-pub type rule_flags_t = u64;
+/// C++ `using rule_flags_t = std::underlying_type<RULE_FLAGS>::type` (`uint64_t`)
+/// — wave 4: the typed [`RuleFlags`] bitflags set.
+pub type rule_flags_t = RuleFlags;
 
 // [spec:cg3:def:rule.cg3.rule-flags]
 // C++ `enum RULE_FLAGS : uint64_t`. Ported as a set of `u64` bit-flag constants
 // (the faithful literal representation of a scoped bit-flag enum). These OR into
 // `Rule::flags`. Must be kept in lock-step with Strings.hpp's `FL_*` / `g_flags`.
-pub const RF_NEAREST: rule_flags_t = 1 << 0;
-pub const RF_ALLOWLOOP: rule_flags_t = 1 << 1;
-pub const RF_DELAYED: rule_flags_t = 1 << 2;
-pub const RF_IMMEDIATE: rule_flags_t = 1 << 3;
-pub const RF_LOOKDELETED: rule_flags_t = 1 << 4;
-pub const RF_LOOKDELAYED: rule_flags_t = 1 << 5;
-pub const RF_UNSAFE: rule_flags_t = 1 << 6;
-pub const RF_SAFE: rule_flags_t = 1 << 7;
-pub const RF_REMEMBERX: rule_flags_t = 1 << 8;
-pub const RF_RESETX: rule_flags_t = 1 << 9;
-pub const RF_KEEPORDER: rule_flags_t = 1 << 10;
-pub const RF_VARYORDER: rule_flags_t = 1 << 11;
-pub const RF_ENCL_INNER: rule_flags_t = 1 << 12;
-pub const RF_ENCL_OUTER: rule_flags_t = 1 << 13;
-pub const RF_ENCL_FINAL: rule_flags_t = 1 << 14;
-pub const RF_ENCL_ANY: rule_flags_t = 1 << 15;
-pub const RF_ALLOWCROSS: rule_flags_t = 1 << 16;
-pub const RF_WITHCHILD: rule_flags_t = 1 << 17;
-pub const RF_NOCHILD: rule_flags_t = 1 << 18;
-pub const RF_ITERATE: rule_flags_t = 1 << 19;
-pub const RF_NOITERATE: rule_flags_t = 1 << 20;
-pub const RF_UNMAPLAST: rule_flags_t = 1 << 21;
-pub const RF_REVERSE: rule_flags_t = 1 << 22;
-pub const RF_SUB: rule_flags_t = 1 << 23;
-pub const RF_OUTPUT: rule_flags_t = 1 << 24;
-pub const RF_CAPTURE_UNIF: rule_flags_t = 1 << 25;
-pub const RF_REPEAT: rule_flags_t = 1 << 26;
-pub const RF_BEFORE: rule_flags_t = 1 << 27;
-pub const RF_AFTER: rule_flags_t = 1 << 28;
-pub const RF_IGNORED: rule_flags_t = 1 << 29;
-pub const RF_LOOKIGNORED: rule_flags_t = 1 << 30;
-pub const RF_NOMAPPED: rule_flags_t = 1 << 31;
-pub const RF_NOPARENT: rule_flags_t = 1 << 32;
-pub const RF_DETACH: rule_flags_t = 1 << 33;
+bitflags::bitflags! {
+    /// C++ `RF_*` rule-flag bits over `uint64_t` (wave 4: a typed `bitflags`
+    /// set instead of a bare `u64`).
+    #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+    pub struct RuleFlags: u64 {
+        const NEAREST = 1 << 0;
+        const ALLOWLOOP = 1 << 1;
+        const DELAYED = 1 << 2;
+        const IMMEDIATE = 1 << 3;
+        const LOOKDELETED = 1 << 4;
+        const LOOKDELAYED = 1 << 5;
+        const UNSAFE = 1 << 6;
+        const SAFE = 1 << 7;
+        const REMEMBERX = 1 << 8;
+        const RESETX = 1 << 9;
+        const KEEPORDER = 1 << 10;
+        const VARYORDER = 1 << 11;
+        const ENCL_INNER = 1 << 12;
+        const ENCL_OUTER = 1 << 13;
+        const ENCL_FINAL = 1 << 14;
+        const ENCL_ANY = 1 << 15;
+        const ALLOWCROSS = 1 << 16;
+        const WITHCHILD = 1 << 17;
+        const NOCHILD = 1 << 18;
+        const ITERATE = 1 << 19;
+        const NOITERATE = 1 << 20;
+        const UNMAPLAST = 1 << 21;
+        const REVERSE = 1 << 22;
+        const SUB = 1 << 23;
+        const OUTPUT = 1 << 24;
+        const CAPTURE_UNIF = 1 << 25;
+        const REPEAT = 1 << 26;
+        const BEFORE = 1 << 27;
+        const AFTER = 1 << 28;
+        const IGNORED = 1 << 29;
+        const LOOKIGNORED = 1 << 30;
+        const NOMAPPED = 1 << 31;
+        const NOPARENT = 1 << 32;
+        const DETACH = 1 << 33;
+    }
+}
+
+// The C++ constant names, kept so call sites read like the source.
+pub const RF_NEAREST: RuleFlags = RuleFlags::NEAREST;
+pub const RF_ALLOWLOOP: RuleFlags = RuleFlags::ALLOWLOOP;
+pub const RF_DELAYED: RuleFlags = RuleFlags::DELAYED;
+pub const RF_IMMEDIATE: RuleFlags = RuleFlags::IMMEDIATE;
+pub const RF_LOOKDELETED: RuleFlags = RuleFlags::LOOKDELETED;
+pub const RF_LOOKDELAYED: RuleFlags = RuleFlags::LOOKDELAYED;
+pub const RF_UNSAFE: RuleFlags = RuleFlags::UNSAFE;
+pub const RF_SAFE: RuleFlags = RuleFlags::SAFE;
+pub const RF_REMEMBERX: RuleFlags = RuleFlags::REMEMBERX;
+pub const RF_RESETX: RuleFlags = RuleFlags::RESETX;
+pub const RF_KEEPORDER: RuleFlags = RuleFlags::KEEPORDER;
+pub const RF_VARYORDER: RuleFlags = RuleFlags::VARYORDER;
+pub const RF_ENCL_INNER: RuleFlags = RuleFlags::ENCL_INNER;
+pub const RF_ENCL_OUTER: RuleFlags = RuleFlags::ENCL_OUTER;
+pub const RF_ENCL_FINAL: RuleFlags = RuleFlags::ENCL_FINAL;
+pub const RF_ENCL_ANY: RuleFlags = RuleFlags::ENCL_ANY;
+pub const RF_ALLOWCROSS: RuleFlags = RuleFlags::ALLOWCROSS;
+pub const RF_WITHCHILD: RuleFlags = RuleFlags::WITHCHILD;
+pub const RF_NOCHILD: RuleFlags = RuleFlags::NOCHILD;
+pub const RF_ITERATE: RuleFlags = RuleFlags::ITERATE;
+pub const RF_NOITERATE: RuleFlags = RuleFlags::NOITERATE;
+pub const RF_UNMAPLAST: RuleFlags = RuleFlags::UNMAPLAST;
+pub const RF_REVERSE: RuleFlags = RuleFlags::REVERSE;
+pub const RF_SUB: RuleFlags = RuleFlags::SUB;
+pub const RF_OUTPUT: RuleFlags = RuleFlags::OUTPUT;
+pub const RF_CAPTURE_UNIF: RuleFlags = RuleFlags::CAPTURE_UNIF;
+pub const RF_REPEAT: RuleFlags = RuleFlags::REPEAT;
+pub const RF_BEFORE: RuleFlags = RuleFlags::BEFORE;
+pub const RF_AFTER: RuleFlags = RuleFlags::AFTER;
+pub const RF_IGNORED: RuleFlags = RuleFlags::IGNORED;
+pub const RF_LOOKIGNORED: RuleFlags = RuleFlags::LOOKIGNORED;
+pub const RF_NOMAPPED: RuleFlags = RuleFlags::NOMAPPED;
+pub const RF_NOPARENT: RuleFlags = RuleFlags::NOPARENT;
+pub const RF_DETACH: RuleFlags = RuleFlags::DETACH;
 
 /// Mirrors Strings.hpp's `FLAGS_COUNT` (the `FL_NEAREST..=FL_DETACH` enum tail —
 /// 34 flags). Kept local to this module (the `strings` port does not export it)
@@ -65,16 +109,16 @@ pub const FLAGS_COUNT: usize = 34;
 // C++ `constexpr rule_flags_t flag_excls[]`: each entry ORs together a group of
 // mutually-exclusive rule flags. Un-annotated in the spec (a supporting
 // declaration), like the header's raw table.
-const FLAG_EXCLS: [rule_flags_t; 9] = [
-    RF_NEAREST | RF_ALLOWLOOP,
-    RF_DELAYED | RF_IMMEDIATE | RF_IGNORED,
-    RF_UNSAFE | RF_SAFE,
-    RF_REMEMBERX | RF_RESETX,
-    RF_KEEPORDER | RF_VARYORDER,
-    RF_ENCL_INNER | RF_ENCL_OUTER | RF_ENCL_FINAL | RF_ENCL_ANY,
-    RF_WITHCHILD | RF_NOCHILD,
-    RF_ITERATE | RF_NOITERATE,
-    RF_BEFORE | RF_AFTER,
+const FLAG_EXCLS: [RuleFlags; 9] = [
+    RF_NEAREST.union(RF_ALLOWLOOP),
+    RF_DELAYED.union(RF_IMMEDIATE).union(RF_IGNORED),
+    RF_UNSAFE.union(RF_SAFE),
+    RF_REMEMBERX.union(RF_RESETX),
+    RF_KEEPORDER.union(RF_VARYORDER),
+    RF_ENCL_INNER.union(RF_ENCL_OUTER).union(RF_ENCL_FINAL).union(RF_ENCL_ANY),
+    RF_WITHCHILD.union(RF_NOCHILD),
+    RF_ITERATE.union(RF_NOITERATE),
+    RF_BEFORE.union(RF_AFTER),
 ];
 
 // [spec:cg3:def:rule.cg3.init-flag-excls-fn]
@@ -83,16 +127,16 @@ const FLAG_EXCLS: [rule_flags_t; 9] = [
 /// [`FLAG_EXCLS`]; returns the first group whose members include bit `v`, else 0.
 /// `constexpr` → `const fn` (the C++ `for` becomes an index `while`, since `for`
 /// is not permitted in a `const fn`).
-pub const fn init_flag_excls(v: rule_flags_t) -> rule_flags_t {
+pub const fn init_flag_excls(v: u64) -> RuleFlags {
     let mut i = 0;
     while i < FLAG_EXCLS.len() {
         let excl = FLAG_EXCLS[i];
-        if excl & ((1 as rule_flags_t) << v) != 0 {
+        if excl.bits() & (1u64 << v) != 0 {
             return excl;
         }
         i += 1;
     }
-    0
+    RuleFlags::empty()
 }
 
 /// C++ `constexpr auto _flags_excls = make_array<FLAGS_COUNT>(init_flag_excls)`:
@@ -100,11 +144,11 @@ pub const fn init_flag_excls(v: rule_flags_t) -> rule_flags_t {
 /// flag `v`. The crate's [`crate::inlines::make_array`] is a runtime fn (unusable
 /// in a `const`), so the compile-time `make_array` expansion is inlined as a const
 /// block calling the `const fn` [`init_flag_excls`] for each index — same result.
-pub const FLAGS_EXCLS: [rule_flags_t; FLAGS_COUNT] = {
-    let mut a = [0 as rule_flags_t; FLAGS_COUNT];
+pub const FLAGS_EXCLS: [RuleFlags; FLAGS_COUNT] = {
+    let mut a = [RuleFlags::empty(); FLAGS_COUNT];
     let mut v = 0;
     while v < FLAGS_COUNT {
-        a[v] = init_flag_excls(v as rule_flags_t);
+        a[v] = init_flag_excls(v as u64);
         v += 1;
     }
     a
@@ -132,7 +176,7 @@ pub struct Rule {
     pub number: u32,
     pub varname: u32,
     pub varvalue: u32, // ToDo: varvalue is unused
-    pub flags: u64,
+    pub flags: RuleFlags,
     pub section: i32,
     pub sub_reading: i32,
     pub r#type: KEYWORDS,
@@ -162,7 +206,7 @@ impl Default for Rule {
             number: 0,
             varname: 0,
             varvalue: 0,
-            flags: 0,
+            flags: RuleFlags::empty(),
             section: 0,
             sub_reading: 0,
             r#type: KEYWORDS::K_IGNORE,

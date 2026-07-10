@@ -167,16 +167,16 @@ const KEYWORDS_STR: [&str; 72] = [
 ];
 
 /// C++ `flag_excls[]` — the 9 mutually-exclusive rule-flag groups.
-const FLAG_EXCLS_GROUPS: [u64; 9] = [
-    RF_NEAREST | RF_ALLOWLOOP,
-    RF_DELAYED | RF_IMMEDIATE | RF_IGNORED,
-    RF_UNSAFE | RF_SAFE,
-    RF_REMEMBERX | RF_RESETX,
-    RF_KEEPORDER | RF_VARYORDER,
-    RF_ENCL_INNER | RF_ENCL_OUTER | RF_ENCL_FINAL | RF_ENCL_ANY,
-    RF_WITHCHILD | RF_NOCHILD,
-    RF_ITERATE | RF_NOITERATE,
-    RF_BEFORE | RF_AFTER,
+const FLAG_EXCLS_GROUPS: [crate::rule::RuleFlags; 9] = [
+    RF_NEAREST.union(RF_ALLOWLOOP),
+    RF_DELAYED.union(RF_IMMEDIATE).union(RF_IGNORED),
+    RF_UNSAFE.union(RF_SAFE),
+    RF_REMEMBERX.union(RF_RESETX),
+    RF_KEEPORDER.union(RF_VARYORDER),
+    RF_ENCL_INNER.union(RF_ENCL_OUTER).union(RF_ENCL_FINAL).union(RF_ENCL_ANY),
+    RF_WITHCHILD.union(RF_NOCHILD),
+    RF_ITERATE.union(RF_NOITERATE),
+    RF_BEFORE.union(RF_AFTER),
 ];
 
 /// C++ `struct flags_t { rule_flags_t flags = 0; int32_t sub_reading = 0; }`
@@ -184,7 +184,7 @@ const FLAG_EXCLS_GROUPS: [u64; 9] = [
 /// return payload of `parseRuleFlags`.
 #[derive(Clone, Copy, Default)]
 struct flags_t {
-    flags: u64,
+    flags: crate::rule::RuleFlags,
     sub_reading: i32,
 }
 
@@ -255,7 +255,7 @@ fn is_mapping_list(grammar: &Grammar, s: SetId) -> bool {
     let st = grammar.sets_list[s.0].r#type;
     let trie_empty = grammar.sets_list[s.0].trie.is_empty();
     let trie_sp_empty = grammar.sets_list[s.0].trie_special.is_empty();
-    if !(trie_empty && trie_sp_empty && (st & (ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY)) == 0) {
+    if !(trie_empty && trie_sp_empty && !st.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY)) {
         let tries = [
             grammar.sets_list[s.0].trie.clone(),
             grammar.sets_list[s.0].trie_special.clone(),
@@ -267,7 +267,7 @@ fn is_mapping_list(grammar: &Grammar, s: SetId) -> bool {
             let ctags = trie_get_tags(trie, grammar);
             for it in &ctags {
                 for &tag in it {
-                    if grammar.single_tags_list[tag.0].r#type & (T_FAILFAST | T_REGEXP_LINE) != 0 {
+                    if grammar.single_tags_list[tag.0].r#type.intersects(T_FAILFAST | T_REGEXP_LINE) {
                         return false;
                     }
                 }
@@ -596,12 +596,11 @@ impl TextualParser {
             let t = &self.grammar.single_tags_list[tag.0];
             (t.r#type, t.tag.clone(), t.plain_hash)
         };
-        if ty & T_VARSTRING != 0 && !tagstr.contains('{') && !tagstr.contains('$') {
+        if ty.intersects(T_VARSTRING) && !tagstr.contains('{') && !tagstr.contains('$') {
             self.error_near(near); // "Varstring tag had no variables"
         }
         if !self.strict_tags.empty() && self.strict_tags.count(plain) == 0 {
-            if ty
-                & (T_ANY
+            if ty.intersects(T_ANY
                     | T_VARSTRING
                     | T_VSTR
                     | T_META
@@ -615,24 +614,23 @@ impl TextualParser {
                     | T_MARK
                     | T_ATTACHTO
                     | T_SAME_BASIC)
-                != 0
             {
                 // Always allow...
             } else if tagstr == ">>>" || tagstr == "<<<" {
                 // Always allow >>> and <<<
-            } else if ty & (T_REGEXP | T_REGEXP_ANY) != 0 {
+            } else if ty.intersects(T_REGEXP | T_REGEXP_ANY) {
                 if self.strict_regex {
                     self.error_near(near);
                 }
-            } else if ty & T_CASE_INSENSITIVE != 0 {
+            } else if ty.intersects(T_CASE_INSENSITIVE) {
                 if self.strict_icase {
                     self.error_near(near);
                 }
-            } else if ty & T_WORDFORM != 0 {
+            } else if ty.intersects(T_WORDFORM) {
                 if self.strict_wforms {
                     self.error_near(near);
                 }
-            } else if ty & T_BASEFORM != 0 {
+            } else if ty.intersects(T_BASEFORM) {
                 if self.strict_bforms {
                     self.error_near(near);
                 }
@@ -724,7 +722,7 @@ impl TextualParser {
             }
             let mut special = false;
             for &tag in &tv {
-                if self.grammar.single_tags_list[tag.0].r#type & T_SPECIAL != 0 {
+                if self.grammar.single_tags_list[tag.0].r#type.intersects(T_SPECIAL) {
                     special = true;
                     break;
                 }
@@ -786,7 +784,7 @@ impl TextualParser {
                         } else {
                             let mut special = false;
                             for &tag in &tags {
-                                if self.grammar.single_tags_list[tag.0].r#type & T_SPECIAL != 0 {
+                                if self.grammar.single_tags_list[tag.0].r#type.intersects(T_SPECIAL) {
                                     special = true;
                                     break;
                                 }
@@ -872,7 +870,7 @@ impl TextualParser {
                             tvm.sort_by(|&a, &b| tag_freq[&b].cmp(&tag_freq[&a]));
                             let mut special = false;
                             for &tag in &tvm {
-                                if self.grammar.single_tags_list[tag.0].r#type & T_SPECIAL != 0 {
+                                if self.grammar.single_tags_list[tag.0].r#type.intersects(T_SPECIAL) {
                                     special = true;
                                     break;
                                 }
@@ -965,7 +963,7 @@ impl TextualParser {
 
         let n = *pos;
 
-        let mut posb: u64 = self.grammar.contexts_arena[t.0].pos;
+        let mut posb = self.grammar.contexts_arena[t.0].pos;
         let mut offset: i32 = self.grammar.contexts_arena[t.0].offset;
         let mut jump_pos: i8 = self.grammar.contexts_arena[t.0].jump_pos;
 
@@ -988,7 +986,7 @@ impl TextualParser {
                 posb |= POS_DEP_CHILD;
                 *pos += 1;
             }
-            if buf[*pos] == 'c' && (posb & POS_DEP_CHILD != 0) {
+            if buf[*pos] == 'c' && (posb.intersects(POS_DEP_CHILD)) {
                 posb &= !POS_DEP_CHILD;
                 posb |= POS_DEP_GLOB;
                 *pos += 1;
@@ -997,7 +995,7 @@ impl TextualParser {
                 posb |= POS_DEP_PARENT;
                 *pos += 1;
             }
-            if buf[*pos] == 'p' && (posb & POS_DEP_PARENT != 0) {
+            if buf[*pos] == 'p' && (posb.intersects(POS_DEP_PARENT)) {
                 posb |= POS_DEP_GLOB;
                 *pos += 1;
             }
@@ -1120,7 +1118,7 @@ impl TextualParser {
                 posb |= POS_RIGHT;
                 *pos += 1;
             }
-            if buf[*pos] == 'r' && (posb & POS_RIGHT != 0) {
+            if buf[*pos] == 'r' && (posb.intersects(POS_RIGHT)) {
                 posb &= !POS_RIGHT;
                 posb |= POS_RIGHTMOST;
                 *pos += 1;
@@ -1129,7 +1127,7 @@ impl TextualParser {
                 posb |= POS_LEFT;
                 *pos += 1;
             }
-            if buf[*pos] == 'l' && (posb & POS_LEFT != 0) {
+            if buf[*pos] == 'l' && (posb.intersects(POS_LEFT)) {
                 posb &= !POS_LEFT;
                 posb |= POS_LEFTMOST;
                 *pos += 1;
@@ -1193,16 +1191,16 @@ impl TextualParser {
         }
         self.grammar.contexts_arena[t.0].offset_sub = offset_sub;
 
-        if self.self_no_barrier && (posb & POS_SELF != 0) {
-            if posb & POS_NO_BARRIER != 0 {
+        if self.self_no_barrier && (posb.intersects(POS_SELF)) {
+            if posb.intersects(POS_NO_BARRIER) {
                 posb &= !POS_NO_BARRIER;
             } else {
                 posb |= POS_NO_BARRIER;
             }
         }
 
-        if (posb & (POS_DEP_CHILD | POS_DEP_SIBLING) != 0)
-            && (posb & (POS_SCANFIRST | POS_SCANALL) != 0)
+        if (posb.intersects(POS_DEP_CHILD | POS_DEP_SIBLING))
+            && (posb.intersects(POS_SCANFIRST | POS_SCANALL))
         {
             posb &= !POS_SCANFIRST;
             posb &= !POS_SCANALL;
@@ -1222,52 +1220,51 @@ impl TextualParser {
         }
 
         if had_digits {
-            if posb & (POS_DEP_CHILD | POS_DEP_SIBLING | POS_DEP_PARENT) != 0 {
+            if posb.intersects(POS_DEP_CHILD | POS_DEP_SIBLING | POS_DEP_PARENT) {
                 self.error_near(&buf[n..]);
             }
-            if posb & (POS_LEFT_PAR | POS_RIGHT_PAR) != 0 {
+            if posb.intersects(POS_LEFT_PAR | POS_RIGHT_PAR) {
                 self.error_near(&buf[n..]);
             }
-            if posb & POS_RELATION != 0 {
+            if posb.intersects(POS_RELATION) {
                 self.error_near(&buf[n..]);
             }
         }
-        if (posb & POS_BAG_OF_TAGS != 0)
-            && ((posb
-                & !(POS_BAG_OF_TAGS
+        if (posb.intersects(POS_BAG_OF_TAGS))
+            && (posb.intersects(
+                !(POS_BAG_OF_TAGS
                     | POS_NOT
                     | POS_NEGATE
                     | POS_SPAN_BOTH
                     | POS_SPAN_LEFT
-                    | POS_SPAN_RIGHT)
-                != 0)
-                || had_digits)
+                    | POS_SPAN_RIGHT),
+            ) || had_digits)
         {
             self.error_near(&buf[n..]);
         }
-        if (posb & POS_DEP_PARENT != 0)
-            && (posb & POS_DEP_GLOB == 0)
-            && (posb & (POS_LEFTMOST | POS_RIGHTMOST) != 0)
+        if (posb.intersects(POS_DEP_PARENT))
+            && (!posb.intersects(POS_DEP_GLOB))
+            && (posb.intersects(POS_LEFTMOST | POS_RIGHTMOST))
         {
             self.error_near(&buf[n..]);
         }
-        if (posb & POS_PASS_ORIGIN != 0) && (posb & POS_NO_PASS_ORIGIN != 0) {
+        if (posb.intersects(POS_PASS_ORIGIN)) && (posb.intersects(POS_NO_PASS_ORIGIN)) {
             self.error_near(&buf[n..]);
         }
-        if (posb & POS_LEFT_PAR != 0) && (posb & POS_RIGHT_PAR != 0) {
+        if (posb.intersects(POS_LEFT_PAR)) && (posb.intersects(POS_RIGHT_PAR)) {
             self.error_near(&buf[n..]);
         }
-        if (posb & POS_ALL != 0) && (posb & POS_NONE != 0) {
+        if (posb.intersects(POS_ALL)) && (posb.intersects(POS_NONE)) {
             self.error_near(&buf[n..]);
         }
-        if (posb & POS_UNKNOWN != 0) && (posb != POS_UNKNOWN || had_digits) {
+        if (posb.intersects(POS_UNKNOWN)) && (posb != POS_UNKNOWN || had_digits) {
             self.error_near(&buf[n..]);
         }
-        if (posb & POS_SCANALL != 0) && (posb & POS_NOT != 0) {
+        if (posb.intersects(POS_SCANALL)) && (posb.intersects(POS_NOT)) {
             tracing::warn!("{}: Warning: mixing NOT and ** ...", self.filebase);
         }
 
-        if posb > POS_64BIT {
+        if posb.bits() > POS_64BIT.bits() {
             posb |= POS_64BIT;
         }
 
@@ -1304,7 +1301,7 @@ impl TextualParser {
         &mut self,
         buf: &[char],
         pos: &mut usize,
-        rule_flags: Option<u64>,
+        rule_flags: Option<crate::rule::RuleFlags>,
         in_tmpl: bool,
     ) -> CtxId {
         // C++ `AST_OPEN(Context)` — also the profiler's context span start.
@@ -1405,10 +1402,10 @@ impl TextualParser {
                 self.parse_contextual_test_position(buf, pos, t_cur);
                 *pos = n_peek;
                 let pb = self.grammar.contexts_arena[t_cur.0].pos;
-                if pb & (POS_DEP_CHILD | POS_DEP_PARENT | POS_DEP_SIBLING) != 0 {
+                if pb.intersects(POS_DEP_CHILD | POS_DEP_PARENT | POS_DEP_SIBLING) {
                     self.grammar.has_dep = true;
                 }
-                if pb & POS_RELATION != 0 {
+                if pb.intersects(POS_RELATION) {
                     self.grammar.has_relations = true;
                 }
                 self.grammar.lines += skipws(buf, pos, '\0', '\0', false);
@@ -1445,7 +1442,7 @@ impl TextualParser {
                 let c = &self.grammar.contexts_arena[t_cur.0];
                 (c.barrier, c.cbarrier, c.pos)
             };
-            if (barrier != 0 || cbarrier != 0) && (pb & (MASK_POS_SCAN | POS_SELF) == 0) {
+            if (barrier != 0 || cbarrier != 0) && (!pb.intersects(MASK_POS_SCAN | POS_SELF)) {
                 tracing::warn!("{}: Warning: Barriers only make sense for scanning or self tests.", self.filebase);
                 self.grammar.contexts_arena[t_cur.0].barrier = 0;
                 self.grammar.contexts_arena[t_cur.0].cbarrier = 0;
@@ -1466,24 +1463,24 @@ impl TextualParser {
         if linked {
             let l = self.parse_contextual_test_list(buf, pos, rule_flags, in_tmpl);
             self.grammar.contexts_arena[t_cur.0].linked = Some(l);
-            if self.grammar.contexts_arena[t_cur.0].pos & POS_NONE != 0 {
+            if self.grammar.contexts_arena[t_cur.0].pos.intersects(POS_NONE) {
                 self.error_near(&buf[*pos..]); // LINK from a NONE test
             }
         } else if !in_tmpl
-            && (self.grammar.contexts_arena[t_cur.0].pos & POS_SCANALL != 0)
-            && (self.grammar.contexts_arena[t_cur.0].pos & POS_CAREFUL == 0)
+            && (self.grammar.contexts_arena[t_cur.0].pos.intersects(POS_SCANALL))
+            && (!self.grammar.contexts_arena[t_cur.0].pos.intersects(POS_CAREFUL))
         {
             tracing::warn!("{}: Warning: ** without LINK or C doesn't make sense.", self.filebase);
         }
 
         if let Some(rf) = rule_flags {
-            if rf & RF_LOOKDELETED != 0 {
+            if rf.intersects(RF_LOOKDELETED) {
                 self.grammar.contexts_arena[t_cur.0].pos |= POS_LOOK_DELETED;
             }
-            if rf & RF_LOOKDELAYED != 0 {
+            if rf.intersects(RF_LOOKDELAYED) {
                 self.grammar.contexts_arena[t_cur.0].pos |= POS_LOOK_DELAYED;
             }
-            if rf & RF_LOOKIGNORED != 0 {
+            if rf.intersects(RF_LOOKIGNORED) {
                 self.grammar.contexts_arena[t_cur.0].pos |= POS_LOOK_IGNORED;
             }
         }
@@ -1513,7 +1510,7 @@ impl TextualParser {
     fn parse_contextual_tests(&mut self, buf: &[char], pos: &mut usize, rule: &mut Rule) {
         let rf = rule.flags;
         let t = self.parse_contextual_test_list(buf, pos, Some(rf), false);
-        if self.option_vislcg_compat && (self.grammar.contexts_arena[t.0].pos & POS_NOT != 0) {
+        if self.option_vislcg_compat && (self.grammar.contexts_arena[t.0].pos.intersects(POS_NOT)) {
             self.grammar.contexts_arena[t.0].pos &= !POS_NOT;
             self.grammar.contexts_arena[t.0].pos |= POS_NEGATE;
         }
@@ -1525,7 +1522,7 @@ impl TextualParser {
     fn parse_contextual_dependency_tests(&mut self, buf: &[char], pos: &mut usize, rule: &mut Rule) {
         let rf = rule.flags;
         let t = self.parse_contextual_test_list(buf, pos, Some(rf), false);
-        if self.option_vislcg_compat && (self.grammar.contexts_arena[t.0].pos & POS_NOT != 0) {
+        if self.option_vislcg_compat && (self.grammar.contexts_arena[t.0].pos.intersects(POS_NOT)) {
             self.grammar.contexts_arena[t.0].pos &= !POS_NOT;
             self.grammar.contexts_arena[t.0].pos |= POS_NEGATE;
         }
@@ -1549,7 +1546,7 @@ impl TextualParser {
                 let op = *pos;
                 if simplecasecmp(buf, *pos, G_FLAGS[i]) {
                     *pos += slen(G_FLAGS[i]);
-                    rv.flags |= 1u64 << i;
+                    rv.flags |= crate::rule::RuleFlags::from_bits_retain(1u64 << i);
                     setflag = true;
 
                     let mut undo = false;
@@ -1575,7 +1572,7 @@ impl TextualParser {
                     }
 
                     if undo {
-                        rv.flags &= !(1u64 << i);
+                        rv.flags &= !crate::rule::RuleFlags::from_bits_retain(1u64 << i);
                         *pos = op;
                         setflag = false;
                         break;
@@ -1587,29 +1584,29 @@ impl TextualParser {
                     break;
                 }
             }
-            if rv.flags & (RF_WITHCHILD | RF_NOCHILD | RF_BEFORE | RF_AFTER) != 0 {
+            if rv.flags.intersects(RF_WITHCHILD | RF_NOCHILD | RF_BEFORE | RF_AFTER) {
                 break;
             }
         }
 
         for excl in FLAG_EXCLS_GROUPS {
             let bits = rv.flags & excl;
-            if bits.count_ones() > 1 {
+            if bits.bits().count_ones() > 1 {
                 self.error_near(&buf[lp..]);
             }
         }
 
-        if rv.flags & RF_UNMAPLAST != 0 && rv.flags & RF_SAFE != 0 {
+        if rv.flags.intersects(RF_UNMAPLAST) && rv.flags.intersects(RF_SAFE) {
             self.error_near(&buf[lp..]);
         }
 
-        if rv.flags & RF_UNMAPLAST != 0 {
+        if rv.flags.intersects(RF_UNMAPLAST) {
             rv.flags |= RF_UNSAFE;
         }
-        if rv.flags & RF_REMEMBERX != 0 {
+        if rv.flags.intersects(RF_REMEMBERX) {
             rv.flags |= RF_KEEPORDER;
         }
-        if rv.flags & RF_ENCL_FINAL != 0 {
+        if rv.flags.intersects(RF_ENCL_FINAL) {
             self.grammar.has_encl_final = true;
         }
         self.grammar.lines += skipws(buf, pos, '\0', '\0', false);
@@ -1833,10 +1830,10 @@ impl TextualParser {
         rule.flags = flags.flags;
         rule.sub_reading = flags.sub_reading;
 
-        if self.section_flags.flags != 0 {
+        if !self.section_flags.flags.is_empty() {
             for i in 0..FLAGS_COUNT {
-                let f = 1u64 << i;
-                if (self.section_flags.flags & f) != 0 && (rule.flags & FLAGS_EXCLS[i]) == 0 {
+                let f = crate::rule::RuleFlags::from_bits_retain(1u64 << i);
+                if self.section_flags.flags.intersects(f) && !rule.flags.intersects(FLAGS_EXCLS[i]) {
                     rule.flags |= f;
                 }
             }
@@ -1845,7 +1842,7 @@ impl TextualParser {
             rule.sub_reading = self.section_flags.sub_reading;
         }
 
-        if rule.flags & (RF_ITERATE | RF_NOITERATE) == 0
+        if !rule.flags.intersects(RF_ITERATE | RF_NOITERATE)
             && key != KEYWORDS::K_SELECT
             && key != KEYWORDS::K_REMOVE
             && key != KEYWORDS::K_IFF
@@ -1856,19 +1853,19 @@ impl TextualParser {
         {
             rule.flags |= RF_NOITERATE;
         }
-        if key == KEYWORDS::K_UNMAP && rule.flags & (RF_SAFE | RF_UNSAFE) == 0 {
+        if key == KEYWORDS::K_UNMAP && !rule.flags.intersects(RF_SAFE | RF_UNSAFE) {
             rule.flags |= RF_SAFE;
         }
-        if key == KEYWORDS::K_SETPARENT && rule.flags & (RF_SAFE | RF_UNSAFE) == 0 {
+        if key == KEYWORDS::K_SETPARENT && !rule.flags.intersects(RF_SAFE | RF_UNSAFE) {
             rule.flags |= if self.safe_setparent { RF_SAFE } else { RF_UNSAFE };
         }
 
-        if rule.flags & RF_WITHCHILD != 0 {
+        if rule.flags.intersects(RF_WITHCHILD) {
             self.grammar.has_dep = true;
             let s = self.parse_set_inline_wrapper(buf, pos);
             rule.childset1 = self.grammar.sets_list[s.0].hash;
             self.grammar.lines += skipws(buf, pos, '\0', '\0', false);
-        } else if rule.flags & RF_NOCHILD != 0 {
+        } else if rule.flags.intersects(RF_NOCHILD) {
             rule.childset1 = 0;
         }
 
@@ -1993,7 +1990,7 @@ impl TextualParser {
                 *pos += slen(STR_BEFORE);
                 rule.flags |= RF_BEFORE;
             }
-            if key != KEYWORDS::K_COPYCOHORT && (rule.flags & (RF_BEFORE | RF_AFTER) != 0) {
+            if key != KEYWORDS::K_COPYCOHORT && (rule.flags.intersects(RF_BEFORE | RF_AFTER)) {
                 let s = self.parse_set_inline_wrapper(buf, pos);
                 rule.childset1 = self.grammar.sets_list[s.0].hash;
             }
@@ -2084,7 +2081,7 @@ impl TextualParser {
             }
             self.grammar.lines += skipws(buf, pos, '\0', '\0', false);
 
-            if key == KEYWORDS::K_COPYCOHORT && (rule.flags & RF_REVERSE == 0) {
+            if key == KEYWORDS::K_COPYCOHORT && (!rule.flags.intersects(RF_REVERSE)) {
                 if simplecasecmp(buf, *pos, STR_AFTER) {
                     *pos += slen(STR_AFTER);
                     rule.flags |= RF_AFTER;
@@ -2146,29 +2143,29 @@ impl TextualParser {
         {
             self.grammar.has_relations = true;
         }
-        if key == KEYWORDS::K_COPYCOHORT && (rule.flags & (RF_BEFORE | RF_AFTER) == 0) {
+        if key == KEYWORDS::K_COPYCOHORT && (!rule.flags.intersects(RF_BEFORE | RF_AFTER)) {
             rule.flags |= RF_AFTER;
         }
 
-        if rule.flags & RF_REMEMBERX == 0 {
+        if !rule.flags.intersects(RF_REMEMBERX) {
             let mut found = false;
             if let Some(dt) = rule.dep_target {
                 let c = &self.grammar.contexts_arena[dt.0];
-                if c.pos & POS_JUMP != 0 && c.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
+                if c.pos.intersects(POS_JUMP) && c.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
                     found = true;
                 }
             }
             if !found {
                 for &it in rule.tests.iter() {
                     let c = &self.grammar.contexts_arena[it.0];
-                    if c.pos & POS_JUMP != 0 && c.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
+                    if c.pos.intersects(POS_JUMP) && c.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
                         found = true;
                         break;
                     }
                 }
                 for &it in rule.dep_tests.iter() {
                     let c = &self.grammar.contexts_arena[it.0];
-                    if c.pos & POS_JUMP != 0 && c.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
+                    if c.pos.intersects(POS_JUMP) && c.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
                         found = true;
                         break;
                     }
@@ -2333,7 +2330,7 @@ impl TextualParser {
             crate::tag_trie::trie_get_tag_list_append(&trie, &mut the_tags, &self.grammar);
             crate::tag_trie::trie_get_tag_list_append(&trie_sp, &mut the_tags, &self.grammar);
             for tag in the_tags {
-                if self.grammar.single_tags_list[tag.0].r#type & T_REGEXP == 0 {
+                if !self.grammar.single_tags_list[tag.0].r#type.intersects(T_REGEXP) {
                     self.error_bare();
                 }
             }
@@ -2809,7 +2806,7 @@ impl TextualParser {
         if existing.is_some() {
             // verbosity dup warning skipped
         } else if self.grammar.sets_list[s0.0].sets.len() == 1
-            && (self.grammar.sets_list[s0.0].r#type & ST_TAG_UNIFY == 0)
+            && (!self.grammar.sets_list[s0.0].r#type.intersects(ST_TAG_UNIFY))
         {
             let back = *self.grammar.sets_list[s0.0].sets.last().unwrap();
             let tmp = self.grammar.get_set(back).unwrap();
@@ -3088,7 +3085,7 @@ impl TextualParser {
         let mut sets_cache: BTreeMap<u32, u32> = BTreeMap::new();
         loop {
             let found = self.grammar.contexts.iter().find_map(|(&k, &v)| {
-                if self.grammar.contexts_arena[v.0].pos & POS_NUMERIC_BRANCH != 0 {
+                if self.grammar.contexts_arena[v.0].pos.intersects(POS_NUMERIC_BRANCH) {
                     Some((k, v))
                 } else {
                     None
@@ -3305,7 +3302,7 @@ impl TextualParser {
                     let t = &self.grammar.single_tags_list[to.0];
                     (t.r#type, t.hash)
                 };
-                if tty & T_SPECIAL != 0 {
+                if tty.intersects(T_SPECIAL) {
                     continue;
                 }
                 if self.grammar.anchors.find(thash) == self.grammar.anchors.end() {
@@ -3322,10 +3319,10 @@ impl TextualParser {
             .collect();
         for tid in &tag_ids {
             let ty = self.grammar.single_tags_list[tid.0].r#type;
-            if ty & T_REGEXP_LINE != 0 {
+            if ty.intersects(T_REGEXP_LINE) {
                 self.grammar.ordered = true;
             }
-            if ty & T_VARSTRING == 0 {
+            if !ty.intersects(T_VARSTRING) {
                 continue;
             }
             self.resolve_varstring(*tid);

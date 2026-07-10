@@ -109,11 +109,11 @@ impl super::GrammarApplicator {
                 // `&mut self` matcher calls do not alias the grammar borrow.
                 let rword_tag = self.grammar.single_tags_list.get(rw.0).clone();
                 let chash = cword.map(|c| self.grammar.single_tags_list.get(c.0).hash).unwrap_or(0);
-                if rword_tag.r#type & crate::tag::T_REGEXP != 0 {
+                if rword_tag.r#type.intersects(crate::tag::T_REGEXP) {
                     if self.does_tag_match_regexp(chash, &rword_tag, false) == 0 {
                         return false;
                     }
-                } else if rword_tag.r#type & crate::tag::T_CASE_INSENSITIVE != 0 {
+                } else if rword_tag.r#type.intersects(crate::tag::T_CASE_INSENSITIVE) {
                     if self.does_tag_match_icase(chash, &rword_tag, false) == 0 {
                         return false;
                     }
@@ -381,7 +381,7 @@ impl super::GrammarApplicator {
     /// C++ `void getTagList(const Set& theSet, TagList& theTags, bool unif_mode)
     /// const` — the by-reference overload (appends to `the_tags`).
     pub fn get_tag_list(&self, the_set: &Set, the_tags: &mut TagList, unif_mode: bool) {
-        if the_set.r#type & ST_SET_UNIFY != 0 {
+        if the_set.r#type.intersects(ST_SET_UNIFY) {
             // usets = (*context_stack.back().unif_sets)[theSet.number]
             let unif_sets = self.context_stack.last().unwrap().unif_sets.unwrap();
             let usets = self.unif_sets_store[unif_sets].get(&the_set.number);
@@ -392,7 +392,7 @@ impl super::GrammarApplicator {
                     self.get_tag_list(self.grammar.set_by_number(iter), the_tags, false);
                 }
             }
-        } else if the_set.r#type & ST_TAG_UNIFY != 0 {
+        } else if the_set.r#type.intersects(ST_TAG_UNIFY) {
             for &iter in &the_set.sets {
                 self.get_tag_list(self.grammar.set_by_number(iter), the_tags, true);
             }
@@ -748,7 +748,7 @@ impl super::GrammarApplicator {
                         let mut la = i;
                         while la > 0 {
                             let prev = self.store.single_windows.get(current.0).all_cohorts[la - 1];
-                            if self.store.cohorts.get(prev.0).r#type & (CT_ENCLOSED | CT_REMOVED | CT_IGNORED) == 0 {
+                            if !self.store.cohorts.get(prev.0).r#type.intersects(CT_ENCLOSED | CT_REMOVED | CT_IGNORED) {
                                 la -= 1;
                                 break;
                             }
@@ -763,7 +763,7 @@ impl super::GrammarApplicator {
                         let mut ne = 0usize;
                         while ra < nc {
                             let rac = self.store.single_windows.get(current.0).all_cohorts[ra];
-                            if self.store.cohorts.get(rac.0).r#type & (CT_ENCLOSED | CT_REMOVED | CT_IGNORED) == 0 {
+                            if !self.store.cohorts.get(rac.0).r#type.intersects(CT_ENCLOSED | CT_REMOVED | CT_IGNORED) {
                                 break;
                             }
                             {
@@ -911,11 +911,11 @@ impl super::GrammarApplicator {
         let mut i = self.store.single_windows.get(current.0).all_cohorts.len();
         while i > 0 {
             let cohort = self.store.single_windows.get(current.0).all_cohorts[i - 1];
-            if self.store.cohorts.get(cohort.0).r#type & CT_IGNORED != 0 {
+            if self.store.cohorts.get(cohort.0).r#type.intersects(CT_IGNORED) {
                 let mut ins = i;
                 while ins > 0 {
                     let prev = self.store.single_windows.get(current.0).all_cohorts[ins - 1];
-                    if self.store.cohorts.get(prev.0).r#type & (CT_REMOVED | CT_ENCLOSED | CT_IGNORED) == 0 {
+                    if !self.store.cohorts.get(prev.0).r#type.intersects(CT_REMOVED | CT_ENCLOSED | CT_IGNORED) {
                         let pos = self.store.cohorts.get(prev.0).local_number as usize + 1;
                         self.store.single_windows.get_mut(current.0).cohorts.insert(pos, cohort);
                         self.store.cohorts.get_mut(cohort.0).r#type &= !CT_IGNORED;
@@ -1130,10 +1130,10 @@ impl super::GrammarApplicator {
                     break 'repeat;
                 }
                 if has_enclosures {
-                    if (rflags & RF_ENCL_FINAL != 0) && !self.did_final_enclosure {
+                    if (rflags.intersects(RF_ENCL_FINAL)) && !self.did_final_enclosure {
                         break 'repeat;
                     }
-                    if self.did_final_enclosure && (rflags & RF_ENCL_FINAL == 0) {
+                    if self.did_final_enclosure && (!rflags.intersects(RF_ENCL_FINAL)) {
                         break 'repeat;
                     }
                 }
@@ -1154,7 +1154,7 @@ impl super::GrammarApplicator {
 
                 let rv = self.run_single_rule(current, RuleId(j), reading_cb, cohort_cb);
                 if rv || st.readings_changed {
-                    if !((rflags & RF_NOITERATE != 0) && self.section_max_count != 1) {
+                    if !((rflags.intersects(RF_NOITERATE)) && self.section_max_count != 1) {
                         section_did_something = true;
                     }
                     rule_did_something = true;
@@ -1185,7 +1185,7 @@ impl super::GrammarApplicator {
                     brk_outer = true;
                     break 'repeat;
                 }
-                if rule_did_something && (rflags & RF_REPEAT != 0) {
+                if rule_did_something && (rflags.intersects(RF_REPEAT)) {
                     self.index_ruleCohort_no.clear(0);
                     cur = j;
                     continue 'repeat;
@@ -1292,7 +1292,7 @@ impl super::GrammarApplicator {
         let tmp: UString = format!("R:{}:{}", base, id);
         // C++ `addTag(tmp)` is the `addTag(const UChar*)` convenience overload →
         // `addTag(str, 0)`.
-        self.add_tag(&tmp, 0)
+        self.add_tag(&tmp, crate::tag::TagType::empty())
     }
 
     /// `add_relation_rtag(cohort, tag, id)`.
@@ -1358,7 +1358,7 @@ impl super::GrammarApplicator {
         let mapping_prefix = self.grammar.mapping_prefix;
         for &tag0 in taglist {
             let mut tag = tag0;
-            if self.grammar.single_tags_list.get(tag.0).r#type & T_VARSTRING != 0 {
+            if self.grammar.single_tags_list.get(tag.0).r#type.intersects(T_VARSTRING) {
                 tag = self.generate_varstring_tag_id(tag);
             }
             let (thash, ttype, first_char) = {
@@ -1368,7 +1368,7 @@ impl super::GrammarApplicator {
             if thash == self.grammar.tag_any {
                 break;
             }
-            if ttype & T_MAPPING != 0 || first_char == Some(mapping_prefix) {
+            if ttype.intersects(T_MAPPING) || first_char == Some(mapping_prefix) {
                 mappings.push(tag);
             } else {
                 self.store.readings.get_mut(reading.0).tags_list.insert(at, thash);
@@ -1495,7 +1495,7 @@ impl super::GrammarApplicator {
         for (&tid, _) in trie_special.iter() {
             let t = self.grammar.single_tags_list.get(tid.0);
             let crp = t.context_ref_pos();
-            if t.r#type & crate::tag::T_CONTEXT != 0 && (crp as usize) <= ctx_len {
+            if t.r#type.intersects(crate::tag::T_CONTEXT) && (crp as usize) <= ctx_len {
                 if let Some(Some(c)) = self
                     .context_stack
                     .last()
@@ -1585,7 +1585,7 @@ impl super::GrammarApplicator {
             }
             let gac_type = self.store.cohorts.get(gac.0).r#type;
             let new_size = unsafe { (*cs).size() };
-            if gac_type & (CT_REMOVED | CT_IGNORED) == 0 && *rocit < new_size {
+            if !gac_type.intersects(CT_REMOVED | CT_IGNORED) && *rocit < new_size {
                 *rocit += 1;
             }
         }
@@ -1630,12 +1630,12 @@ impl super::GrammarApplicator {
                 continue;
             }
             // Skip removed/ignored cohorts.
-            if self.store.cohorts.get(cohort.0).r#type & (CT_REMOVED | CT_IGNORED) != 0 {
+            if self.store.cohorts.get(cohort.0).r#type.intersects(CT_REMOVED | CT_IGNORED) {
                 continue;
             }
             let c = self.store.cohorts.get(cohort.0).local_number;
             // Skip parentheses-enclosed or foreign-parented cohorts.
-            if self.store.cohorts.get(cohort.0).r#type & CT_ENCLOSED != 0
+            if self.store.cohorts.get(cohort.0).r#type.intersects(CT_ENCLOSED)
                 || self.store.cohorts.get(cohort.0).parent != Some(current)
             {
                 continue;
@@ -1647,11 +1647,11 @@ impl super::GrammarApplicator {
             // RESTORE with nothing to restore.
             if rtype0 == K_RESTORE {
                 let cc = self.store.cohorts.get(cohort.0);
-                if (rflags & RF_DELAYED != 0) && cc.delayed.is_empty() {
+                if (rflags.intersects(RF_DELAYED)) && cc.delayed.is_empty() {
                     continue;
-                } else if (rflags & RF_IGNORED != 0) && cc.ignored.is_empty() {
+                } else if (rflags.intersects(RF_IGNORED)) && cc.ignored.is_empty() {
                     continue;
-                } else if rflags & (RF_DELAYED | RF_IGNORED) == 0 && cc.deleted.is_empty() {
+                } else if !rflags.intersects(RF_DELAYED | RF_IGNORED) && cc.deleted.is_empty() {
                     continue;
                 }
             }
@@ -1675,11 +1675,11 @@ impl super::GrammarApplicator {
                     if self.store.readings.get(front.0).noprint {
                         continue;
                     }
-                    if (!self.r#unsafe || (rflags & RF_SAFE != 0)) && rflags & RF_UNSAFE == 0 {
+                    if (!self.r#unsafe || (rflags.intersects(RF_SAFE))) && !rflags.intersects(RF_UNSAFE) {
                         continue;
                     }
                 }
-            } else if r#type == K_UNMAP && rflags & RF_SAFE != 0 {
+            } else if r#type == K_UNMAP && rflags.intersects(RF_SAFE) {
                 continue;
             }
             // Delimit at final cohort.
@@ -1690,7 +1690,7 @@ impl super::GrammarApplicator {
             }
 
             // Enclosure inner/outer gating.
-            if rflags & RF_ENCL_INNER != 0 {
+            if rflags.intersects(RF_ENCL_INNER) {
                 if self.par_left_pos == 0 {
                     continue;
                 }
@@ -1698,7 +1698,7 @@ impl super::GrammarApplicator {
                 if ln < self.par_left_pos || ln > self.par_right_pos {
                     continue;
                 }
-            } else if rflags & RF_ENCL_OUTER != 0 {
+            } else if rflags.intersects(RF_ENCL_OUTER) {
                 let ln = self.store.cohorts.get(cohort.0).local_number;
                 if self.par_left_pos != 0 && ln >= self.par_left_pos && ln <= self.par_right_pos {
                     continue;
@@ -1707,10 +1707,10 @@ impl super::GrammarApplicator {
 
             // SETPARENT SAFE / NOPARENT with existing parent.
             let dep_parent = self.store.cohorts.get(cohort.0).dep_parent;
-            if r#type == K_SETPARENT && (rflags & RF_SAFE != 0) && dep_parent != DEP_NO_PARENT {
+            if r#type == K_SETPARENT && (rflags.intersects(RF_SAFE)) && dep_parent != DEP_NO_PARENT {
                 continue;
             }
-            if (rflags & RF_NOPARENT != 0) && dep_parent != DEP_NO_PARENT {
+            if (rflags.intersects(RF_NOPARENT)) && dep_parent != DEP_NO_PARENT {
                 continue;
             }
             // REMPARENT / SWITCHPARENT with no parent.
@@ -1808,7 +1808,7 @@ impl super::GrammarApplicator {
                     i += 1;
                     continue;
                 }
-                if r_mapped && (rflags & RF_NOMAPPED != 0) {
+                if r_mapped && (rflags.intersects(RF_NOMAPPED)) {
                     i += 1;
                     continue;
                 }
@@ -1838,7 +1838,7 @@ impl super::GrammarApplicator {
 
                 // Plain-signature cache.
                 did_test = false;
-                if set_type & (ST_SPECIAL | ST_MAPPING | ST_CHILD_UNIFY) == 0
+                if !set_type.intersects(ST_SPECIAL | ST_MAPPING | ST_CHILD_UNIFY)
                     && !self.readings_plain.is_empty()
                 {
                     if let Some(&cached) = self.readings_plain.get(&r_hash_plain) {
@@ -1926,7 +1926,7 @@ impl super::GrammarApplicator {
 
                 // First check: does the rule target match?
                 let target_matches = rtarget != 0 && {
-                    let bypass = set_type & (ST_CHILD_UNIFY | ST_SPECIAL) != 0;
+                    let bypass = set_type.intersects(ST_CHILD_UNIFY | ST_SPECIAL);
                     self.does_set_match_reading(reading, rtarget, bypass, false)
                 };
                 if target_matches {
@@ -1947,7 +1947,7 @@ impl super::GrammarApplicator {
                         let mut ti = 0usize;
                         while ti < tests.len() {
                             let test = tests[ti];
-                            if rflags & RF_RESETX != 0 || rflags & RF_REMEMBERX == 0 {
+                            if rflags.intersects(RF_RESETX) || !rflags.intersects(RF_REMEMBERX) {
                                 self.set_mark(Some(cohort));
                             }
                             self.seen_barrier = false;
@@ -1964,8 +1964,8 @@ impl super::GrammarApplicator {
                             }
                             let deep_ptr: Option<*mut Option<CohortId>> =
                                 if with_deep { Some(&mut result as *mut _) } else { None };
-                            let next_test = if tpos & POS_PASS_ORIGIN == 0
-                                && (self.no_pass_origin || (tpos & POS_NO_PASS_ORIGIN != 0))
+                            let next_test = if !tpos.intersects(POS_PASS_ORIGIN)
+                                && (self.no_pass_origin || (tpos.intersects(POS_NO_PASS_ORIGIN)))
                             {
                                 self.run_contextual_test(Some(current), c, test, deep_ptr, Some(cohort))
                             } else {
@@ -1982,7 +1982,7 @@ impl super::GrammarApplicator {
                             if !test_good {
                                 good = false;
                                 // Self-reorder quirk: move failing test to front.
-                                if ti != 0 && rflags & RF_KEEPORDER == 0 {
+                                if ti != 0 && !rflags.intersects(RF_KEEPORDER) {
                                     let r = self.grammar.rule_by_number.get_mut(rule.0);
                                     r.tests.remove(ti);
                                     r.tests.push_front(test);
@@ -1996,7 +1996,7 @@ impl super::GrammarApplicator {
                                     f.unif_sets.map(|i| self.unif_sets_store[i].is_empty()).unwrap_or(true),
                                 )
                             };
-                            did_test = set_type & (ST_CHILD_UNIFY | ST_SPECIAL) == 0
+                            did_test = !set_type.intersects(ST_CHILD_UNIFY | ST_SPECIAL)
                                 && ut_empty
                                 && us_empty;
                             ti += 1;
@@ -2142,8 +2142,8 @@ impl super::GrammarApplicator {
                     continue;
                 }
                 if r#type == K_REMOVE
-                    && (!self.r#unsafe || (rflags & RF_SAFE != 0))
-                    && rflags & RF_UNSAFE == 0
+                    && (!self.r#unsafe || (rflags.intersects(RF_SAFE)))
+                    && !rflags.intersects(RF_UNSAFE)
                 {
                     self.context_stack.pop();
                     continue;
@@ -2400,7 +2400,7 @@ impl super::GrammarApplicator {
         let list = self.get_tag_list_of_set(set, false);
         let first = list.first().copied()?;
         let ttype = self.grammar.single_tags_list.get(first.0).r#type;
-        if ttype & T_VARSTRING != 0 {
+        if ttype.intersects(T_VARSTRING) {
             Some(self.generate_varstring_tag_id(first))
         } else {
             Some(first)
@@ -2460,9 +2460,9 @@ impl super::GrammarApplicator {
                     let sel = st.selected.clone();
                     self.store.cohorts.get_mut(target.0).readings = sel;
                 }
-                if rflags & RF_DELAYED != 0 {
+                if rflags.intersects(RF_DELAYED) {
                     self.store.cohorts.get_mut(target.0).delayed.extend(drop.iter().copied());
-                } else if rflags & RF_IGNORED != 0 {
+                } else if rflags.intersects(RF_IGNORED) {
                     self.store.cohorts.get_mut(target.0).ignored.extend(drop.iter().copied());
                 } else {
                     self.store.cohorts.get_mut(target.0).deleted.extend(drop.iter().copied());
@@ -2475,12 +2475,12 @@ impl super::GrammarApplicator {
             let treadings = self.store.cohorts.get(target.0).readings.len();
             let cond = !st.removed.is_empty()
                 && (st.removed.len() < treadings
-                    || (self.r#unsafe && rflags & RF_SAFE == 0)
-                    || rflags & RF_UNSAFE != 0);
+                    || (self.r#unsafe && !rflags.intersects(RF_SAFE))
+                    || rflags.intersects(RF_UNSAFE));
             if cond {
-                if rflags & RF_DELAYED != 0 {
+                if rflags.intersects(RF_DELAYED) {
                     self.store.cohorts.get_mut(target.0).delayed.extend(st.removed.iter().copied());
-                } else if rflags & RF_IGNORED != 0 {
+                } else if rflags.intersects(RF_IGNORED) {
                     self.store.cohorts.get_mut(target.0).ignored.extend(st.removed.iter().copied());
                 } else {
                     self.store.cohorts.get_mut(target.0).deleted.extend(st.removed.iter().copied());
@@ -2532,14 +2532,14 @@ impl super::GrammarApplicator {
                 for tag0 in names {
                     let mut tag = tag0;
                     let ttype = self.grammar.single_tags_list.get(tag.0).r#type;
-                    if ttype & T_VARSTRING != 0 {
+                    if ttype.intersects(T_VARSTRING) {
                         tag = self.generate_varstring_tag_id(tag);
                     }
                     let (tt, th) = {
                         let t = self.grammar.single_tags_list.get(tag.0);
                         (t.r#type, t.hash)
                     };
-                    let found: Option<u32> = if tt & crate::tag::T_REGEXP != 0 {
+                    let found: Option<u32> = if tt.intersects(crate::tag::T_REGEXP) {
                         let tagv = self.grammar.single_tags_list.get(tag.0).clone();
                         let vars: Vec<(u32, u32)> = self.variables_entries();
                         let mut f = None;
@@ -2550,7 +2550,7 @@ impl super::GrammarApplicator {
                             }
                         }
                         f
-                    } else if tt & crate::tag::T_CASE_INSENSITIVE != 0 {
+                    } else if tt.intersects(crate::tag::T_CASE_INSENSITIVE) {
                         let tagv = self.grammar.single_tags_list.get(tag.0).clone();
                         let vars: Vec<(u32, u32)> = self.variables_entries();
                         let mut f = None;
@@ -2567,7 +2567,7 @@ impl super::GrammarApplicator {
                         None
                     };
                     if let Some(key) = found {
-                        if rflags & RF_OUTPUT != 0 {
+                        if rflags.intersects(RF_OUTPUT) {
                             self.store.single_windows.get_mut(current.0).variables_output.insert(key);
                         }
                         self.variables.erase(key);
@@ -2584,7 +2584,7 @@ impl super::GrammarApplicator {
                 let vh = self.grammar.single_tags_list.get(value.0).hash;
                 // C++ `variables[nh] = vh` overwrites; flat `insert()` does not.
                 *self.variables.index_or_insert(nh) = vh;
-                if rflags & RF_OUTPUT != 0 {
+                if rflags.intersects(RF_OUTPUT) {
                     self.store.single_windows.get_mut(st.current.0).variables_output.insert(nh);
                 }
             }
@@ -2666,7 +2666,7 @@ impl super::GrammarApplicator {
             self.reset_cohorts_for_loop = true;
         } else if rtype == K_REMCOHORT {
             let apply = self.get_apply_to().cohort.unwrap();
-            if rflags & RF_IGNORED != 0 {
+            if rflags.intersects(RF_IGNORED) {
                 let childset1 = self.grammar.rule_by_number.get(rule.0).childset1;
                 let mut cohorts = CohortSet::new();
                 self.rr_collect_subtree(st.current, &mut cohorts, apply, childset1);
@@ -2727,7 +2727,7 @@ impl super::GrammarApplicator {
             let cohort_readings =
                 self.store.cohorts.get(self.get_apply_to().cohort.unwrap().0).readings.len();
             if rtype == K_REMOVE
-                && (rflags & RF_UNMAPLAST != 0)
+                && (rflags.intersects(RF_UNMAPLAST))
                 && st.removed.len() == cohort_readings - 1
             {
                 let sr = self.get_apply_to().subreading.unwrap();
@@ -2774,7 +2774,7 @@ impl super::GrammarApplicator {
         st: &mut RRState,
         rule: RuleId,
         rtype: KEYWORDS,
-        rflags: u64,
+        rflags: crate::rule::RuleFlags,
         rnumber: u32,
         rsub_reading: i32,
     ) {
@@ -2864,7 +2864,7 @@ impl super::GrammarApplicator {
             let raw = self.get_tag_list_of_set(ml, false);
             for &t0 in &raw {
                 let mut t = t0;
-                while self.grammar.single_tags_list.get(t.0).r#type & T_VARSTRING != 0 {
+                while self.grammar.single_tags_list.get(t.0).r#type.intersects(T_VARSTRING) {
                     t = self.generate_varstring_tag_id(t);
                 }
                 out.push(t);
@@ -2875,7 +2875,7 @@ impl super::GrammarApplicator {
 
     /// K_WITH: mark TRACE, then run each sub-rule (repeating while `RF_REPEAT`),
     /// aggregating `readings_changed`. `in_nested` is toggled around the block.
-    fn rr_with(&mut self, st: &mut RRState, rule: RuleId, _rflags: u64) {
+    fn rr_with(&mut self, st: &mut RRState, rule: RuleId, _rflags: crate::rule::RuleFlags) {
         let mut any_readings_changed = false;
         st.readings_changed = false;
         self.in_nested = true;
@@ -2900,7 +2900,7 @@ impl super::GrammarApplicator {
                     Box::new(move || unsafe { (*this_ptr).cohort_cb_dispatch(&mut *st_ptr) });
                 let result = self.run_single_rule(current, sr, reading_cb, cohort_cb);
                 any_readings_changed = any_readings_changed || result || st.readings_changed;
-                if !((result || st.readings_changed) && (sr_flags & RF_REPEAT != 0)) {
+                if !((result || st.readings_changed) && (sr_flags.intersects(RF_REPEAT))) {
                     break;
                 }
             }
@@ -2946,7 +2946,7 @@ impl super::GrammarApplicator {
 
     /// K_RESTORE: move readings back from `deleted`/`delayed`/`ignored` whose
     /// analysis matches `rule.maplist`.
-    fn rr_restore(&mut self, rule: RuleId, rflags: u64, rnumber: u32, rsub_reading: i32) {
+    fn rr_restore(&mut self, rule: RuleId, rflags: crate::rule::RuleFlags, rnumber: u32, rsub_reading: i32) {
         let cohort = self.get_apply_to().cohort.unwrap();
         let maplist_num = self
             .grammar
@@ -2955,9 +2955,9 @@ impl super::GrammarApplicator {
             .maplist
             .map(|s| self.grammar.sets_list[s.0].number)
             .unwrap_or(0);
-        let which = if rflags & RF_DELAYED != 0 {
+        let which = if rflags.intersects(RF_DELAYED) {
             0
-        } else if rflags & RF_IGNORED != 0 {
+        } else if rflags.intersects(RF_IGNORED) {
             1
         } else {
             2
@@ -3006,7 +3006,7 @@ impl super::GrammarApplicator {
         let mapping_prefix = self.grammar.mapping_prefix;
         for &t0 in taglist {
             let mut tter = t0;
-            while self.grammar.single_tags_list.get(tter.0).r#type & T_VARSTRING != 0 {
+            while self.grammar.single_tags_list.get(tter.0).r#type.intersects(T_VARSTRING) {
                 tter = self.generate_varstring_tag_id(tter);
             }
             let (ttype, thash, first) = {
@@ -3014,7 +3014,7 @@ impl super::GrammarApplicator {
                 (t.r#type, t.hash, t.tag.chars().next())
             };
             let mut hash = thash;
-            if ttype & T_MAPPING != 0 || first == Some(mapping_prefix) {
+            if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                 mappings.push(tter);
             } else {
                 hash = self.add_tag_to_reading(reading, tter);
@@ -3042,7 +3042,7 @@ impl super::GrammarApplicator {
             };
             if present {
                 out.push(tt);
-            } else if ttype & T_SPECIAL != 0 {
+            } else if ttype.intersects(T_SPECIAL) {
                 let tagv = self.grammar.single_tags_list.get(tt.0).clone();
                 let stag = self.does_tag_match_reading(reading, &tagv, false, true);
                 if stag != 0 {
@@ -3059,7 +3059,7 @@ impl super::GrammarApplicator {
         st: &mut RRState,
         rule: RuleId,
         rtype: KEYWORDS,
-        rflags: u64,
+        rflags: crate::rule::RuleFlags,
         rnumber: u32,
         rsub_reading: i32,
     ) {
@@ -3095,7 +3095,7 @@ impl super::GrammarApplicator {
                 break;
             }
             if let Some(mut at) = found_at {
-                if rflags & RF_AFTER != 0 {
+                if rflags.intersects(RF_AFTER) {
                     at += spot_tags.len();
                 }
                 if at < self.store.readings.get(reading.0).tags_list.len() {
@@ -3182,7 +3182,7 @@ impl super::GrammarApplicator {
         let mut have_bf = false;
         for tter in the_tags {
             let ttype = self.grammar.single_tags_list.get(tter.0).r#type;
-            if ttype & T_BASEFORM != 0 {
+            if ttype.intersects(T_BASEFORM) {
                 have_bf = true;
                 readings.push(TagList::new());
             }
@@ -3212,14 +3212,14 @@ impl super::GrammarApplicator {
             for t0 in rit {
                 let mut tter = t0;
                 let mut hash = self.grammar.single_tags_list.get(tter.0).hash;
-                while self.grammar.single_tags_list.get(tter.0).r#type & T_VARSTRING != 0 {
+                while self.grammar.single_tags_list.get(tter.0).r#type.intersects(T_VARSTRING) {
                     tter = self.generate_varstring_tag_id(tter);
                 }
                 let (ttype, first) = {
                     let t = self.grammar.single_tags_list.get(tter.0);
                     (t.r#type, t.tag.chars().next())
                 };
-                if ttype & T_MAPPING != 0 || first == Some(mapping_prefix) {
+                if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                     mappings.push(tter);
                 } else {
                     hash = self.add_tag_to_reading(creading, tter);
@@ -3308,7 +3308,7 @@ impl super::GrammarApplicator {
                 at = start;
                 break;
             }
-            if rflags & RF_AFTER != 0 {
+            if rflags.intersects(RF_AFTER) {
                 let mut cnt = 0;
                 while at < self.store.readings.get(creading.0).tags_list.len() && cnt != spot_tags.len() {
                     at += 1;
@@ -3440,7 +3440,7 @@ impl super::GrammarApplicator {
                     tpos = idx;
                     for t0 in &map_tags {
                         let mut tag = *t0;
-                        if self.grammar.single_tags_list.get(tag.0).r#type & T_VARSTRING != 0 {
+                        if self.grammar.single_tags_list.get(tag.0).r#type.intersects(T_VARSTRING) {
                             tag = self.generate_varstring_tag_id(tag);
                         }
                         let (thash, ttype, first) = {
@@ -3450,10 +3450,10 @@ impl super::GrammarApplicator {
                         if thash == self.grammar.tag_any {
                             break;
                         }
-                        if ttype & T_MAPPING != 0 || first == Some(mapping_prefix) {
+                        if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                             mappings.push(tag);
                         } else {
-                            if ttype & T_WORDFORM != 0 {
+                            if ttype.intersects(T_WORDFORM) {
                                 wf = Some(tag);
                             }
                             self.store.readings.get_mut(sr.0).tags_list.insert(tpos, thash);
@@ -3537,7 +3537,7 @@ impl super::GrammarApplicator {
             };
             if present {
                 out.push(tt);
-            } else if ttype & T_SPECIAL != 0 {
+            } else if ttype.intersects(T_SPECIAL) {
                 let tagv = self.grammar.single_tags_list.get(tt.0).clone();
                 let stag = self.does_tag_match_reading(reading, &tagv, false, true);
                 if stag != 0 {
@@ -3598,7 +3598,7 @@ impl super::GrammarApplicator {
             if res.is_some() && attach_out.is_some() {
                 let mut attach = attach_out.unwrap();
                 self.profile_rule_context(true, rule, dep_target);
-                let break_after = self.seen_barrier || (rflags & RF_NEAREST != 0);
+                let break_after = self.seen_barrier || (rflags.intersects(RF_NEAREST));
                 if let Some(at) = self.get_attach_to().cohort {
                     attach = at;
                 }
@@ -3677,7 +3677,7 @@ impl super::GrammarApplicator {
         let rflags = self.grammar.rule_by_number.get(rule.0).flags;
         let mut target = self.context_stack.last().unwrap().target.cohort.unwrap();
         let mut attach = self.context_stack.last().unwrap().attach_to.cohort.unwrap();
-        if rflags & RF_REVERSE != 0 {
+        if rflags.intersects(RF_REVERSE) {
             std::mem::swap(&mut target, &mut attach);
         }
 
@@ -3687,15 +3687,15 @@ impl super::GrammarApplicator {
                 self.attach_parent_child(
                     attach,
                     target,
-                    rflags & RF_ALLOWLOOP != 0,
-                    rflags & RF_ALLOWCROSS != 0,
+                    rflags.intersects(RF_ALLOWLOOP),
+                    rflags.intersects(RF_ALLOWCROSS),
                 )
             } else {
                 self.attach_parent_child(
                     target,
                     attach,
-                    rflags & RF_ALLOWLOOP != 0,
-                    rflags & RF_ALLOWCROSS != 0,
+                    rflags.intersects(RF_ALLOWLOOP),
+                    rflags.intersects(RF_ALLOWCROSS),
                 )
             };
             if attached {
@@ -3723,7 +3723,7 @@ impl super::GrammarApplicator {
         };
         for t0 in map_tags {
             let mut tter = t0;
-            while self.grammar.single_tags_list.get(tter.0).r#type & T_VARSTRING != 0 {
+            while self.grammar.single_tags_list.get(tter.0).r#type.intersects(T_VARSTRING) {
                 tter = self.generate_varstring_tag_id(tter);
             }
             let thash = self.grammar.single_tags_list.get(tter.0).hash;
@@ -3764,7 +3764,7 @@ impl super::GrammarApplicator {
             let target_gn = self.store.cohorts.get(target.0).global_number;
             for t0 in sub_tags {
                 let mut tter = t0;
-                while self.grammar.single_tags_list.get(tter.0).r#type & T_VARSTRING != 0 {
+                while self.grammar.single_tags_list.get(tter.0).r#type.intersects(T_VARSTRING) {
                     tter = self.generate_varstring_tag_id(tter);
                 }
                 let thash = self.grammar.single_tags_list.get(tter.0).hash;
@@ -3861,7 +3861,7 @@ impl super::GrammarApplicator {
 
         // swapper<Cohort*>(RF_REVERSE, attach, cohort)
         let (mut a, mut b) = (attach, cohort);
-        if rflags & RF_REVERSE != 0 {
+        if rflags.intersects(RF_REVERSE) {
             std::mem::swap(&mut a, &mut b);
         }
         let (attach, cohort) = (a, b);
@@ -4054,7 +4054,7 @@ impl super::GrammarApplicator {
         let mut readings: Vec<TagList> = Vec::new();
         for tter in the_tags {
             let ttype = self.grammar.single_tags_list.get(tter.0).r#type;
-            if ttype & T_WORDFORM != 0 {
+            if ttype.intersects(T_WORDFORM) {
                 self.store.cohorts.get_mut(ccohort.0).wordform = Some(tter);
                 // C++: spacesInAddedWf = count of ' ' in tter->tag.
                 spaces_in_added_wf = self
@@ -4072,7 +4072,7 @@ impl super::GrammarApplicator {
                 // Error: wordform must precede other tags (I/O omitted).
                 continue;
             }
-            if ttype & T_BASEFORM != 0 {
+            if ttype.intersects(T_BASEFORM) {
                 readings.push(vec![wf.unwrap()]);
             }
             if let Some(last) = readings.last_mut() {
@@ -4095,7 +4095,7 @@ impl super::GrammarApplicator {
                     let mut kk = 1usize;
                     for j in 3..nt_list.len() {
                         let tid = self.tag_by_hash(nt_list[j]);
-                        if self.grammar.single_tags_list.get(tid.0).r#type & T_DEPENDENCY != 0 {
+                        if self.grammar.single_tags_list.get(tid.0).r#type.intersects(T_DEPENDENCY) {
                             continue;
                         }
                         tags.insert(k + kk, tid);
@@ -4125,14 +4125,14 @@ impl super::GrammarApplicator {
             for t0 in rit {
                 let mut tter = t0;
                 let mut hash = self.grammar.single_tags_list.get(tter.0).hash;
-                while self.grammar.single_tags_list.get(tter.0).r#type & T_VARSTRING != 0 {
+                while self.grammar.single_tags_list.get(tter.0).r#type.intersects(T_VARSTRING) {
                     tter = self.generate_varstring_tag_id(tter);
                 }
                 let (ttype, first) = {
                     let t = self.grammar.single_tags_list.get(tter.0);
                     (t.r#type, t.tag.chars().next())
                 };
-                if ttype & T_MAPPING != 0 || first == Some(mapping_prefix) {
+                if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                     mappings.push(tter);
                 } else {
                     hash = self.add_tag_to_reading(creading, tter);
@@ -4156,7 +4156,7 @@ impl super::GrammarApplicator {
             && (rtype == K_ADDCOHORT_BEFORE || rtype == K_ADDCOHORT_AFTER)
         {
             self.attach_parent_child(insertion, ccohort, false, false);
-        } else if rtype == K_MERGECOHORTS && self.grammar.rule_by_number.get(rule.0).flags & RF_DETACH == 0 {
+        } else if rtype == K_MERGECOHORTS && !self.grammar.rule_by_number.get(rule.0).flags.intersects(RF_DETACH) {
             self.rr_mergecohorts_attach(insertion, ccohort, withs);
         }
 
@@ -4252,7 +4252,7 @@ impl super::GrammarApplicator {
             for &c in withs.as_slice() {
                 let cgn = self.store.cohorts.get(c.0).global_number;
                 ps.insert(cgn);
-                if self.store.cohorts.get(c.0).r#type & CT_RELATED != 0 {
+                if self.store.cohorts.get(c.0).r#type.intersects(CT_RELATED) {
                     // cCohort->relations[key].insert(begin, end) for each key.
                     let rels: Vec<(u32, Vec<u32>)> = self
                         .store
@@ -4509,7 +4509,7 @@ impl super::GrammarApplicator {
         let mut cohort = cohort;
         let mut attach = attach;
         let mut childset = self.grammar.rule_by_number.get(rule.0).childset2;
-        if rflags & RF_REVERSE != 0 {
+        if rflags.intersects(RF_REVERSE) {
             std::mem::swap(&mut cohort, &mut attach);
             childset = self.grammar.rule_by_number.get(rule.0).childset1;
         }
@@ -4566,7 +4566,7 @@ impl super::GrammarApplicator {
                         let t = self.grammar.single_tags_list.get(tter.0);
                         (t.r#type, t.tag.chars().next())
                     };
-                    if ttype & T_MAPPING != 0 || first == Some(mapping_prefix) {
+                    if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                         mappings.push(tter);
                     } else {
                         hash = self.add_tag_to_reading(creading, tter);
@@ -4584,7 +4584,7 @@ impl super::GrammarApplicator {
                         let t = self.grammar.single_tags_list.get(tter.0);
                         (t.r#type, t.tag.chars().next())
                     };
-                    if ttype & T_MAPPING != 0 || first == Some(mapping_prefix) {
+                    if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                         mappings.push(tter);
                     } else {
                         hash = self.add_tag_to_reading(creading, tter);
@@ -4648,7 +4648,7 @@ impl super::GrammarApplicator {
         let mut edges = CohortSet::new();
         self.rr_collect_subtree(attach_parent, &mut edges, attach, childset);
 
-        if rflags & RF_BEFORE != 0 {
+        if rflags.intersects(RF_BEFORE) {
             let front = edges.front();
             let ln = self.store.cohorts.get(front.0).local_number as usize;
             self.store.single_windows.get_mut(attach_parent.0).cohorts.insert(ln, ccohort);
@@ -4690,7 +4690,7 @@ impl super::GrammarApplicator {
         let mut wf: Option<TagId> = None;
         for &tter in &the_tags {
             let ttype = self.grammar.single_tags_list.get(tter.0).r#type;
-            if ttype & T_WORDFORM != 0 {
+            if ttype.intersects(T_WORDFORM) {
                 let cid = crate::cohort::alloc_cohort(&mut self.store, Some(current));
                 let gn = self.gWindow.cohort_counter;
                 self.gWindow.cohort_counter = self.gWindow.cohort_counter.wrapping_add(1);
@@ -4726,12 +4726,12 @@ impl super::GrammarApplicator {
         let mut bf: Option<TagId> = None;
         for &tter in &the_tags {
             let ttype = self.grammar.single_tags_list.get(tter.0).r#type;
-            if ttype & T_WORDFORM != 0 {
+            if ttype.intersects(T_WORDFORM) {
                 i += 1;
                 bf = None;
                 continue;
             }
-            if ttype & T_BASEFORM != 0 {
+            if ttype.intersects(T_BASEFORM) {
                 let wfid = self.store.cohorts.get(cohort_ids[i - 1].0).wordform.unwrap();
                 groups[i - 1].push(vec![wfid]);
                 bf = Some(tter);
@@ -4821,7 +4821,7 @@ impl super::GrammarApplicator {
                         let mut kk = 1usize;
                         for j in 3..nt_list.len() {
                             let tid = self.tag_by_hash(nt_list[j]);
-                            if self.grammar.single_tags_list.get(tid.0).r#type & T_DEPENDENCY != 0 {
+                            if self.grammar.single_tags_list.get(tid.0).r#type.intersects(T_DEPENDENCY) {
                                 continue;
                             }
                             tags.insert(k + kk, tid);
@@ -4837,7 +4837,7 @@ impl super::GrammarApplicator {
                         let t = self.grammar.single_tags_list.get(tter.0);
                         (t.r#type, t.tag.chars().next())
                     };
-                    if ttype & T_MAPPING != 0 || first == Some(mapping_prefix) {
+                    if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                         mappings.push(tter);
                     } else {
                         hash = self.add_tag_to_reading(creading, tter);
@@ -4913,7 +4913,7 @@ impl super::GrammarApplicator {
             }
 
             // Re-attach all named relations to the dependency tail / R:* cohort.
-            if rel_trg == ui32(idx) && (self.store.cohorts.get(apply.0).r#type & CT_RELATED != 0) {
+            if rel_trg == ui32(idx) && (self.store.cohorts.get(apply.0).r#type.intersects(CT_RELATED)) {
                 crate::cohort::set_related(&mut self.store, ccohort);
                 {
                     let mut src_rels = std::mem::take(&mut self.store.cohorts.get_mut(apply.0).relations);

@@ -355,7 +355,7 @@ impl BinaryGrammar {
                 t.seed = read_be(input);
             }
             if tfields & (1 << 4) != 0 {
-                t.r#type = read_be(input);
+                t.r#type = crate::tag::TagType::from_bits_retain(read_be(input));
             }
             if tfields & (1 << 5) != 0 {
                 t.comparison_hash = read_be(input);
@@ -397,7 +397,7 @@ impl BinaryGrammar {
                     // T_CASE_INSENSITIVE. RegexBuilder keeps `as_str()` == the bare
                     // pattern (matching uregex_pattern round-trip).
                     let built = RegexBuilder::new(&pattern)
-                        .case_insensitive(t.r#type & T_CASE_INSENSITIVE != 0)
+                        .case_insensitive(t.r#type.intersects(T_CASE_INSENSITIVE))
                         .build();
                     match built {
                         Ok(re) => t.regexp = Some(re),
@@ -524,10 +524,10 @@ impl BinaryGrammar {
                 s.number = read_be(input);
             }
             if sfields & (1 << 1) != 0 {
-                s.r#type = ui16(read_be::<u32, _>(input));
+                s.r#type = crate::set::SetType::from_bits_retain(ui16(read_be::<u32, _>(input)));
             }
             if sfields & (1 << 2) != 0 {
-                s.r#type = read_be::<u8, _>(input) as u16;
+                s.r#type = crate::set::SetType::from_bits_retain(read_be::<u8, _>(input) as u16);
             }
             if sfields & (1 << 3) != 0 {
                 let n1 = read_be::<u32, _>(input);
@@ -629,9 +629,10 @@ impl BinaryGrammar {
             }
             if rfields & (1 << 3) != 0 {
                 if rfields & (1 << 16) != 0 {
-                    r.flags = read_be::<u64, _>(input);
+                    r.flags = crate::rule::RuleFlags::from_bits_retain(read_be::<u64, _>(input));
                 } else {
-                    r.flags = read_be::<u32, _>(input) as u64;
+                    r.flags =
+                        crate::rule::RuleFlags::from_bits_retain(read_be::<u32, _>(input) as u64);
                 }
             }
             if rfields & (1 << 4) != 0 {
@@ -770,11 +771,11 @@ impl BinaryGrammar {
         }
         if fields & (1 << 1) != 0 {
             let mut pos = read_be::<u32, _>(input) as u64;
-            if pos & POS_64BIT != 0 {
+            if pos & POS_64BIT.bits() != 0 {
                 let hi = read_be::<u32, _>(input);
                 pos |= (hi as u64) << 32;
             }
-            self.grammar.contexts_arena[t.0].pos = pos;
+            self.grammar.contexts_arena[t.0].pos = crate::contextual_test::PosFlags::from_bits_retain(pos);
         }
         if fields & (1 << 2) != 0 {
             self.grammar.contexts_arena[t.0].offset = read_be(input);
@@ -1012,9 +1013,9 @@ impl BinaryGrammar {
                 tfields |= 1 << 3;
                 write_be(&mut buffer, seed);
             }
-            if ttype != 0 {
+            if !ttype.is_empty() {
                 tfields |= 1 << 4;
-                write_be(&mut buffer, ttype);
+                write_be(&mut buffer, ttype.bits());
             }
             if comparison_hash != 0 {
                 tfields |= 1 << 5;
@@ -1059,11 +1060,11 @@ impl BinaryGrammar {
                 }
             }
             // 1<<12 used above.
-            if (ttype & (T_VARIABLE | T_LOCAL_VARIABLE)) != 0 && dep_parent != 0 {
+            if ttype.intersects(T_VARIABLE | T_LOCAL_VARIABLE) && dep_parent != 0 {
                 tfields |= 1 << 13;
                 write_be(&mut buffer, dep_parent);
             }
-            if ttype & T_CONTEXT != 0 {
+            if ttype.intersects(T_CONTEXT) {
                 tfields |= 1 << 14;
                 write_be(&mut buffer, dep_parent);
             }
@@ -1143,12 +1144,12 @@ impl BinaryGrammar {
                 write_be(&mut buffer, number);
             }
             // ST_ORDERED == 1<<8: 16-bit type when >= it, else 8-bit (exactly one).
-            if stype >= crate::set::ST_ORDERED {
+            if stype.bits() >= crate::set::ST_ORDERED.bits() {
                 sfields |= 1 << 1;
-                write_be(&mut buffer, stype as u32);
+                write_be(&mut buffer, stype.bits() as u32);
             } else {
                 sfields |= 1 << 2;
-                write_be(&mut buffer, stype as u8);
+                write_be(&mut buffer, stype.bits() as u8);
             }
             // getNonEmpty() non-empty == at least one trie non-empty.
             if !trie.is_empty() || !trie_special.is_empty() {
@@ -1172,7 +1173,7 @@ impl BinaryGrammar {
                     write_be(&mut buffer, v);
                 }
             }
-            if stype & crate::set::ST_STATIC != 0 {
+            if stype.intersects(crate::set::ST_STATIC) {
                 sfields |= 1 << 6;
                 let b = name.as_bytes();
                 write_be(&mut buffer, b.len() as i32);
@@ -1269,13 +1270,13 @@ impl BinaryGrammar {
                 rfields |= 1 << 2;
                 write_be(&mut buffer, line);
             }
-            if flags != 0 {
+            if !flags.is_empty() {
                 rfields |= 1 << 3;
-                if flags > u32::MAX as u64 {
+                if flags.bits() > u32::MAX as u64 {
                     rfields |= 1 << 16;
-                    write_be(&mut buffer, flags);
+                    write_be(&mut buffer, flags.bits());
                 } else {
-                    write_be(&mut buffer, flags as u32);
+                    write_be(&mut buffer, flags.bits() as u32);
                 }
             }
             if !name.is_empty() {
@@ -1429,11 +1430,11 @@ impl BinaryGrammar {
             tracing::error!("Error: Context on line {} had hash 0!", line);
             cg3_quit(1, None, 0);
         }
-        if pos != 0 {
+        if !pos.is_empty() {
             fields |= 1 << 1;
-            write_be(&mut buffer, ui32(pos & 0xFFFFFFFF));
-            if pos & POS_64BIT != 0 {
-                write_be(&mut buffer, ui32((pos >> 32) & 0xFFFFFFFF));
+            write_be(&mut buffer, ui32(pos.bits() & 0xFFFFFFFF));
+            if pos.intersects(POS_64BIT) {
+                write_be(&mut buffer, ui32((pos.bits() >> 32) & 0xFFFFFFFF));
             }
         }
         if offset != 0 {

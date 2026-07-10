@@ -36,17 +36,36 @@ impl Comparator<TagId> for compare_Tag {
 
 // C++ anonymous `enum` of `Set::type` bit flags. No spec:def id; reproduced as
 // `u16` constants to match the `uint16_t type` field they are OR'd into.
-pub const ST_ANY: u16 = 1 << 0;
-pub const ST_SPECIAL: u16 = 1 << 1;
-pub const ST_TAG_UNIFY: u16 = 1 << 2;
-pub const ST_SET_UNIFY: u16 = 1 << 3;
-pub const ST_CHILD_UNIFY: u16 = 1 << 4;
-pub const ST_MAPPING: u16 = 1 << 5;
-pub const ST_USED: u16 = 1 << 6;
-pub const ST_STATIC: u16 = 1 << 7;
-pub const ST_ORDERED: u16 = 1 << 8;
+bitflags::bitflags! {
+    /// C++ `enum` of `ST_*` set-type bit flags over `uint16_t` (wave 4: a
+    /// typed `bitflags` set instead of a bare `u16`).
+    #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+    pub struct SetType: u16 {
+        const ANY = 1 << 0;
+        const SPECIAL = 1 << 1;
+        const TAG_UNIFY = 1 << 2;
+        const SET_UNIFY = 1 << 3;
+        const CHILD_UNIFY = 1 << 4;
+        const MAPPING = 1 << 5;
+        const USED = 1 << 6;
+        const STATIC = 1 << 7;
+        const ORDERED = 1 << 8;
+    }
+}
 
-pub const MASK_ST_UNIFY: u16 = ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY;
+// The C++ constant names, kept so call sites read like the source.
+pub const ST_ANY: SetType = SetType::ANY;
+pub const ST_SPECIAL: SetType = SetType::SPECIAL;
+pub const ST_TAG_UNIFY: SetType = SetType::TAG_UNIFY;
+pub const ST_SET_UNIFY: SetType = SetType::SET_UNIFY;
+pub const ST_CHILD_UNIFY: SetType = SetType::CHILD_UNIFY;
+pub const ST_MAPPING: SetType = SetType::MAPPING;
+pub const ST_USED: SetType = SetType::USED;
+pub const ST_STATIC: SetType = SetType::STATIC;
+pub const ST_ORDERED: SetType = SetType::ORDERED;
+
+pub const MASK_ST_UNIFY: SetType =
+    SetType::TAG_UNIFY.union(SetType::SET_UNIFY).union(SetType::CHILD_UNIFY);
 
 /// C++ `trie_t` (`bc::flat_map<Tag*, trie_node_t, compare_Tag>`) — the real
 /// port lives in the `tag_trie` module.
@@ -64,7 +83,7 @@ pub use crate::tag_trie::trie_t;
 pub struct Set {
     /// `uint16_t type = 0;` — stored as 32-bit in the binary format, so safe to
     /// bump when needed. (`type` is a Rust keyword → raw identifier.)
-    pub r#type: u16,
+    pub r#type: SetType,
     /// `uint32_t line = 0;`
     pub line: u32,
     /// `uint32_t hash = 0;`
@@ -173,11 +192,11 @@ impl Set {
         let mut retval: u32 = 0;
 
         let ty = grammar.sets_list[id.0].r#type;
-        if ty & (ST_TAG_UNIFY | ST_SET_UNIFY) != 0 {
-            if ty & ST_TAG_UNIFY != 0 {
+        if ty.intersects(ST_TAG_UNIFY | ST_SET_UNIFY) {
+            if ty.intersects(ST_TAG_UNIFY) {
                 retval = hash_value(5153, retval);
             }
-            if ty & ST_SET_UNIFY != 0 {
+            if ty.intersects(ST_SET_UNIFY) {
                 retval = hash_value(5171, retval);
             }
 
@@ -247,10 +266,10 @@ impl Set {
 
         let trie = grammar.sets_list[id.0].trie.clone();
         let r_trie = trie_reindex(&trie, grammar);
-        grammar.sets_list[id.0].r#type |= r_trie as u16;
+        grammar.sets_list[id.0].r#type |= r_trie;
         let trie_special = grammar.sets_list[id.0].trie_special.clone();
         let r_special = trie_reindex(&trie_special, grammar);
-        grammar.sets_list[id.0].r#type |= r_special as u16;
+        grammar.sets_list[id.0].r#type |= r_special;
 
         let sets = grammar.sets_list[id.0].sets.clone();
         for s in sets {
@@ -258,18 +277,18 @@ impl Set {
             let set = grammar.sets_by_contents[&s];
             Set::reindex(grammar, set);
             let set_type = grammar.sets_list[set.0].r#type;
-            if set_type & ST_SPECIAL != 0 {
+            if set_type.intersects(ST_SPECIAL) {
                 grammar.sets_list[id.0].r#type |= ST_SPECIAL;
             }
-            if set_type & (ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) != 0 {
+            if set_type.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) {
                 grammar.sets_list[id.0].r#type |= ST_CHILD_UNIFY;
             }
-            if set_type & ST_MAPPING != 0 {
+            if set_type.intersects(ST_MAPPING) {
                 grammar.sets_list[id.0].r#type |= ST_MAPPING;
             }
         }
 
-        if grammar.sets_list[id.0].r#type & (ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) != 0 {
+        if grammar.sets_list[id.0].r#type.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) {
             grammar.sets_list[id.0].r#type |= ST_SPECIAL;
             grammar.sets_list[id.0].r#type |= ST_CHILD_UNIFY;
         }
@@ -335,15 +354,15 @@ impl Drop for Set {
 /// 256), so the `u8` return is lossless. Order-independent (OR accumulation),
 /// so the `BTreeMap` is iterated directly; `grammar` resolves each `TagId`'s
 /// `Tag::type`.
-pub fn trie_reindex(trie: &trie_t, grammar: &Grammar) -> u8 {
-    let mut type_: u8 = 0;
+pub fn trie_reindex(trie: &trie_t, grammar: &Grammar) -> SetType {
+    let mut type_ = SetType::empty();
     for (k, node) in trie.iter() {
         let tag_type = grammar.single_tags_list[k.0].r#type;
-        if tag_type & T_SPECIAL != 0 {
-            type_ |= ST_SPECIAL as u8;
+        if tag_type.intersects(T_SPECIAL) {
+            type_ |= ST_SPECIAL;
         }
-        if tag_type & T_MAPPING != 0 {
-            type_ |= ST_MAPPING as u8;
+        if tag_type.intersects(T_MAPPING) {
+            type_ |= ST_MAPPING;
         }
         if let Some(sub) = &node.trie {
             type_ |= trie_reindex(sub, grammar);

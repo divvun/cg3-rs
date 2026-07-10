@@ -123,7 +123,7 @@ fn constructor_trait_surface_and_compat_mode() {
 
     // vislcg-compat rewrote the NOT context to NEGATE.
     let negated = (0..g.contexts_arena.capacity()).any(|i| {
-        g.contexts_arena.try_get(i).is_some_and(|c| c.pos & POS_NEGATE != 0)
+        g.contexts_arena.try_get(i).is_some_and(|c| c.pos.intersects(POS_NEGATE))
     });
     assert!(negated, "compat mode should turn NOT into NEGATE");
     // `g` and the parser's grammar drop here -> the ~Grammar() analog runs.
@@ -290,7 +290,7 @@ fn rules_sections_anchors_and_jump() {
     assert_eq!(r_jump.r#type, KEYWORDS::K_JUMP);
 
     // parseRuleFlags: SAFE was consumed into the rule's flags.
-    assert_ne!(r_select.flags & RF_SAFE, 0, "SELECT SAFE must carry RF_SAFE");
+    assert!(r_select.flags.intersects(RF_SAFE), "SELECT SAFE must carry RF_SAFE");
 
     // addRuleToGrammar section assignment: SELECT in section 0, rest in 1.
     assert_eq!(r_select.section, 0);

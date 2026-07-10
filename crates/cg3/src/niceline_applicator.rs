@@ -309,7 +309,7 @@ impl<'a> NicelineApplicator<'a> {
                     let gn = self.base.gWindow.cohort_counter;
                     self.base.gWindow.cohort_counter =
                         self.base.gWindow.cohort_counter.wrapping_add(1);
-                    let wf = self.base.add_tag(&wf_text, 0);
+                    let wf = self.base.add_tag(&wf_text, crate::tag::TagType::empty());
                     {
                         let c = self.base.store.cohorts.get_mut(cc.0);
                         c.global_number = gn;
@@ -374,12 +374,12 @@ impl<'a> NicelineApplicator<'a> {
                                     cleaned[space - 1] = '"';
                                 }
                                 let tok: String = cleaned[base..space].iter().collect();
-                                let tag = self.base.add_tag(&tok, 0);
+                                let tag = self.base.add_tag(&tok, crate::tag::TagType::empty());
                                 let (ttype, first) = {
                                     let t = &self.base.grammar.single_tags_list[tag.0];
                                     (t.r#type, t.tag.chars().next().unwrap_or('\0'))
                                 };
-                                if ttype & T_MAPPING != 0
+                                if ttype.intersects(T_MAPPING)
                                     || first == self.base.grammar.mapping_prefix
                                 {
                                     mappings.push(tag);
@@ -410,12 +410,12 @@ impl<'a> NicelineApplicator<'a> {
                                 cleaned[end - 1] = '"';
                             }
                             let tok: String = cleaned[base..end].iter().collect();
-                            let tag = self.base.add_tag(&tok, 0);
+                            let tag = self.base.add_tag(&tok, crate::tag::TagType::empty());
                             let (ttype, first) = {
                                 let t = &self.base.grammar.single_tags_list[tag.0];
                                 (t.r#type, t.tag.chars().next().unwrap_or('\0'))
                             };
-                            if ttype & T_MAPPING != 0 || first == self.base.grammar.mapping_prefix
+                            if ttype.intersects(T_MAPPING) || first == self.base.grammar.mapping_prefix
                             {
                                 mappings.push(tag);
                             } else {
@@ -575,10 +575,10 @@ impl<'a> NicelineApplicator<'a> {
             }
             let tid = tag_by_hash(&self.base.grammar, tter);
             let ttype = self.base.grammar.single_tags_list[tid.0].r#type;
-            if ttype & T_DEPENDENCY != 0 && self.base.has_dep && !self.base.dep_original {
+            if ttype.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.dep_original {
                 continue;
             }
-            if ttype & T_RELATION != 0 && self.base.has_relations {
+            if ttype.intersects(T_RELATION) && self.base.has_relations {
                 continue;
             }
             let _ = write!(output, " {}", self.base.grammar.single_tags_list[tid.0].tag);
@@ -586,7 +586,7 @@ impl<'a> NicelineApplicator<'a> {
 
         // Dependency block.
         let parent_removed =
-            self.base.store.cohorts.get(parent_cid.0).r#type & CT_REMOVED != 0;
+            self.base.store.cohorts.get(parent_cid.0).r#type.intersects(CT_REMOVED);
         if self.base.has_dep && !parent_removed {
             {
                 let c = self.base.store.cohorts.get_mut(parent_cid.0);
@@ -625,7 +625,7 @@ impl<'a> NicelineApplicator<'a> {
         // Relations block.
         let (p_related, p_global2, relations) = {
             let c = self.base.store.cohorts.get(parent_cid.0);
-            (c.r#type & CT_RELATED != 0, c.global_number, c.relations.clone())
+            (c.r#type.intersects(CT_RELATED), c.global_number, c.relations.clone())
         };
         if p_related {
             let _ = write!(output, " ID:{p_global2}");
@@ -660,7 +660,7 @@ impl<'a> NicelineApplicator<'a> {
     /// std::ostream& output, bool profiling = false)`.
     pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
         let local_number = self.base.store.cohorts.get(cohort.0).local_number;
-        let removed = self.base.store.cohorts.get(cohort.0).r#type & CT_REMOVED != 0;
+        let removed = self.base.store.cohorts.get(cohort.0).r#type.intersects(CT_REMOVED);
 
         // `goto removed` from local_number == 0 or CT_REMOVED skips the body.
         if local_number != 0 && !removed {

@@ -159,7 +159,7 @@ impl super::GrammarApplicator {
         }
         let s: String = n.into_iter().collect();
         // addTag(n) — the type-less overload interns the raw text (type 0).
-        self.add_tag(&s, 0)
+        self.add_tag(&s, crate::tag::TagType::empty())
     }
 
     // =======================================================================
@@ -423,7 +423,7 @@ impl super::GrammarApplicator {
                     let co = self.store.cohorts.get(c.0);
                     (co.r#type, co.dep_self)
                 };
-                if ty & CT_DEP_DONE != 0 || ds == 0 {
+                if ty.intersects(CT_DEP_DONE) || ds == 0 {
                     begin += 1;
                 } else {
                     break;
@@ -439,7 +439,7 @@ impl super::GrammarApplicator {
                     let co = self.store.cohorts.get(cohort.0);
                     (co.r#type, co.dep_self, co.global_number)
                 };
-                if ty & CT_DEP_DONE != 0 {
+                if ty.intersects(CT_DEP_DONE) {
                     end += 1;
                     continue;
                 }
@@ -479,13 +479,13 @@ impl super::GrammarApplicator {
                 }
                 if ds == gn {
                     let dp_present = self.gWindow.dep_map.find(dp) != self.gWindow.dep_map.end();
-                    if ty & CT_DEP_DONE == 0 && !dp_present {
+                    if !ty.intersects(CT_DEP_DONE) && !dp_present {
                         if self.verbosity_level > 0 {
                             let _ = ln; // "Warning: Parent %u of dep %u ..." — I/O deferred.
                         }
                         self.store.cohorts.get_mut(cohort.0).dep_parent = DEP_NO_PARENT;
                     } else {
-                        if ty & CT_DEP_DONE == 0 {
+                        if !ty.intersects(CT_DEP_DONE) {
                             let dep_real = self.gWindow.dep_map.find(dp).get().1;
                             self.store.cohorts.get_mut(cohort.0).dep_parent = dep_real;
                         }
@@ -689,7 +689,7 @@ impl super::GrammarApplicator {
                     let the_set = self.grammar.sets_list.get(set_id.0);
                     // get_tag_list borrows &self.grammar; clone the set out first
                     // to avoid aliasing while it appends into `tl`.
-                    let set_clone = the_set.clone();
+                    let set_clone = the_set;
                     self.get_tag_list(&set_clone, &mut tl, false);
                     tl
                 };
@@ -794,10 +794,10 @@ impl super::GrammarApplicator {
         }
 
         // (5) Re-append type suffixes so the regenerated string re-parses.
-        if tag.r#type & T_CASE_INSENSITIVE != 0 {
+        if tag.r#type.intersects(T_CASE_INSENSITIVE) {
             tmp.push('i');
         }
-        if tag.r#type & T_REGEXP != 0 {
+        if tag.r#type.intersects(T_REGEXP) {
             tmp.push('r');
         }
 
@@ -829,7 +829,7 @@ impl super::GrammarApplicator {
     /// cohort's flags, and (when `grammar->has_bag_of_tags`) the window
     /// bag-of-tags; returns the (possibly varstring-substituted) tag's hash.
     pub fn add_tag_to_reading_rehash(&mut self, reading: ReadingId, mut tag: TagId, rehash: bool) -> u32 {
-        if self.grammar.single_tags_list[tag.0].r#type & T_VARSTRING != 0 {
+        if self.grammar.single_tags_list[tag.0].r#type.intersects(T_VARSTRING) {
             let tval = self.grammar.single_tags_list[tag.0].clone();
             tag = self.generate_varstring_tag(&tval);
         }
@@ -893,7 +893,7 @@ impl super::GrammarApplicator {
             self.store.cohorts.get_mut(parent.unwrap().0).is_pright = thash;
         }
 
-        if ttype & T_MAPPING != 0 || first_char == self.grammar.mapping_prefix {
+        if ttype.intersects(T_MAPPING) || first_char == self.grammar.mapping_prefix {
             self.grammar.single_tags_list[tag.0].r#type |= T_MAPPING;
             let existing = self.store.readings.get(reading.0).mapping;
             if let Some(m) = existing {
@@ -905,21 +905,21 @@ impl super::GrammarApplicator {
             }
             self.store.readings.get_mut(reading.0).mapping = Some(tag);
         }
-        if ttype & (T_TEXTUAL | T_WORDFORM | T_BASEFORM) != 0 {
+        if ttype.intersects(T_TEXTUAL | T_WORDFORM | T_BASEFORM) {
             let r = self.store.readings.get_mut(reading.0);
             r.tags_textual.insert(thash);
             r.tags_textual_bloom.insert(thash);
         }
-        if ttype & T_NUMERICAL != 0 {
+        if ttype.intersects(T_NUMERICAL) {
             self.store.readings.get_mut(reading.0).tags_numerical.insert(thash, tag);
             self.store.cohorts.get_mut(parent.unwrap().0).r#type &= !CT_NUM_CURRENT;
         }
-        if self.store.readings.get(reading.0).baseform == 0 && (ttype & T_BASEFORM != 0) {
+        if self.store.readings.get(reading.0).baseform == 0 && (ttype.intersects(T_BASEFORM)) {
             self.store.readings.get_mut(reading.0).baseform = thash;
         }
         if self.parse_dep
-            && (ttype & T_DEPENDENCY != 0)
-            && (self.store.cohorts.get(parent.unwrap().0).r#type & CT_DEP_DONE == 0)
+            && (ttype.intersects(T_DEPENDENCY))
+            && (!self.store.cohorts.get(parent.unwrap().0).r#type.intersects(CT_DEP_DONE))
         {
             let c = self.store.cohorts.get_mut(parent.unwrap().0);
             c.dep_self = tds;
@@ -929,7 +929,7 @@ impl super::GrammarApplicator {
             }
             self.has_dep = true;
         }
-        if self.grammar.has_relations && (ttype & T_RELATION != 0) {
+        if self.grammar.has_relations && (ttype.intersects(T_RELATION)) {
             if tdp != 0 && tch != 0 {
                 self.store
                     .cohorts
@@ -946,7 +946,7 @@ impl super::GrammarApplicator {
             self.has_relations = true;
             crate::cohort::set_related(&mut self.store, parent.unwrap());
         }
-        if ttype & T_SPECIAL == 0 {
+        if !ttype.intersects(T_SPECIAL) {
             let r = self.store.readings.get_mut(reading.0);
             r.tags_plain.insert(thash);
             r.tags_plain_bloom.insert(thash);
@@ -966,17 +966,17 @@ impl super::GrammarApplicator {
             bot.tags.insert(thash);
             bot.tags_list.push(thash);
             bot.tags_bloom.insert(thash);
-            if ttype & (T_TEXTUAL | T_WORDFORM | T_BASEFORM) != 0 {
+            if ttype.intersects(T_TEXTUAL | T_WORDFORM | T_BASEFORM) {
                 bot.tags_textual.insert(thash);
                 bot.tags_textual_bloom.insert(thash);
             }
-            if ttype & T_NUMERICAL != 0 {
+            if ttype.intersects(T_NUMERICAL) {
                 bot.tags_numerical.insert(thash, tag);
             }
-            if reading_baseform == 0 && (ttype & T_BASEFORM != 0) {
+            if reading_baseform == 0 && (ttype.intersects(T_BASEFORM)) {
                 bot.baseform = thash;
             }
-            if ttype & T_SPECIAL == 0 {
+            if !ttype.intersects(T_SPECIAL) {
                 bot.tags_plain.insert(thash);
                 bot.tags_plain_bloom.insert(thash);
             }
@@ -1108,7 +1108,7 @@ impl super::GrammarApplicator {
         let mut idx = 0usize;
         while idx < mappings.len() {
             let mut t = mappings[idx];
-            while self.grammar.single_tags_list[t.0].r#type & T_VARSTRING != 0 {
+            while self.grammar.single_tags_list[t.0].r#type.intersects(T_VARSTRING) {
                 let tval = self.grammar.single_tags_list[t.0].clone();
                 t = self.generate_varstring_tag(&tval);
                 mappings[idx] = t;
@@ -1117,7 +1117,7 @@ impl super::GrammarApplicator {
                 let tg = &self.grammar.single_tags_list[t.0];
                 (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
             };
-            if !(ttype & T_MAPPING != 0 || first_char == mapping_prefix) {
+            if !(ttype.intersects(T_MAPPING) || first_char == mapping_prefix) {
                 self.add_tag_to_reading(reading, t);
                 mappings.remove(idx);
             } else {
@@ -1489,7 +1489,7 @@ impl super::GrammarApplicator {
         for c in all_tail {
             self.store.cohorts.get_mut(c.0).parent = Some(nwin);
             let ty = self.store.cohorts.get(c.0).r#type;
-            if ty & (CT_ENCLOSED | CT_REMOVED | CT_IGNORED) != 0 {
+            if ty.intersects(CT_ENCLOSED | CT_REMOVED | CT_IGNORED) {
                 self.store.single_windows.get_mut(nwin.0).all_cohorts.push(c);
             } else {
                 crate::single_window::append_cohort(&mut self.gWindow, &mut self.store, nwin, c);
@@ -1541,7 +1541,7 @@ impl super::GrammarApplicator {
         let tags: Vec<u32> = self.store.readings.get(r.0).tags.as_slice().to_vec();
         for it in tags {
             let tid = self.grammar.single_tags.find(it).get().1;
-            if self.grammar.single_tags_list[tid.0].r#type & T_TEXTUAL != 0 {
+            if self.grammar.single_tags_list[tid.0].r#type.intersects(T_TEXTUAL) {
                 let rr = self.store.readings.get_mut(r.0);
                 rr.tags_textual.insert(it);
                 rr.tags_textual_bloom.insert(it);

@@ -261,7 +261,7 @@ impl<'a> BinaryApplicator<'a> {
         for _ in 0..tag_count {
             let tg = read_str!();
             let first = tg.chars().next().unwrap_or('\0');
-            let tid = self.base.add_tag(&tg, 0);
+            let tid = self.base.add_tag(&tg, crate::tag::TagType::empty());
             // tg[0] == grammar->mapping_prefix ? |= T_MAPPING : &= ~T_MAPPING.
             let t = self.base.grammar.single_tags_list.get_mut(tid.0);
             if first == self.base.grammar.mapping_prefix {
@@ -401,7 +401,7 @@ impl<'a> BinaryApplicator<'a> {
                 for _ in 0..rtag_count {
                     let ti = read_u16!() as usize;
                     let tid = window_tags[ti];
-                    if self.base.grammar.single_tags_list[tid.0].r#type & T_MAPPING != 0 {
+                    if self.base.grammar.single_tags_list[tid.0].r#type.intersects(T_MAPPING) {
                         mappings.push(tid);
                     } else {
                         self.base.add_tag_to_reading(c_reading, tid);
@@ -620,14 +620,14 @@ impl BinaryFormat {
                 let c = store.cohorts.get(cohort.0);
                 (c.local_number, c.r#type, !c.text.is_empty())
             };
-            if (ln == 0 || (ty & CT_REMOVED != 0)) && has_text {
+            if (ln == 0 || (ty.intersects(CT_REMOVED))) && has_text {
                 for j in (1..=i).rev() {
                     let prior = all_cohorts[j - 1];
                     let (pln, pty) = {
                         let c = store.cohorts.get(prior.0);
                         (c.local_number, c.r#type)
                     };
-                    if pln == 0 || (pty & CT_REMOVED != 0) {
+                    if pln == 0 || (pty.intersects(CT_REMOVED)) {
                         continue;
                     }
                     let txt = store.cohorts.get(cohort.0).text.clone();
@@ -648,14 +648,14 @@ impl BinaryFormat {
                 let c = store.cohorts.get(cohort.0);
                 (c.local_number, c.r#type)
             };
-            if ln == 0 || (ty & CT_REMOVED != 0) {
+            if ln == 0 || (ty.intersects(CT_REMOVED)) {
                 continue;
             }
             crate::cohort::unignore_all(store, cohort);
             cohort_count += 1;
 
             let mut cflags: u16 = 0;
-            if store.cohorts.get(cohort.0).r#type & CT_RELATED != 0 {
+            if store.cohorts.get(cohort.0).r#type.intersects(CT_RELATED) {
                 cflags |= BFC_RELATED as u16;
             }
             wu16(&mut cohort_buffer, cflags);
@@ -780,7 +780,7 @@ impl BinaryFormat {
                         }
                         let tid = tag_by_hash(&app.grammar, tter);
                         let tt = app.grammar.single_tags_list[tid.0].r#type;
-                        if tt & (T_DEPENDENCY | T_RELATION) != 0 {
+                        if tt.intersects(T_DEPENDENCY | T_RELATION) {
                             continue;
                         }
                         if app.unique_tags {

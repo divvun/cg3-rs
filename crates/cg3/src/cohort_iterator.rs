@@ -204,7 +204,7 @@ fn cs_find(store: &RuntimeStore, v: &[CohortId], t: CohortId) -> usize {
 /// C++ deref pattern.
 fn span_good(
     store: &RuntimeStore,
-    pos: u64,
+    pos: crate::contextual_test::PosFlags,
     current: CohortId,
     cohort_parent: Option<SwId>,
     cohort_win: u32,
@@ -212,9 +212,9 @@ fn span_good(
     let cur_parent = store.cohorts[current.0].parent;
     if cur_parent != cohort_parent {
         let cur_win = store.single_windows[cur_parent.unwrap().0].number;
-        if (pos & (POS_SPAN_BOTH | POS_SPAN_LEFT)) == 0 && cur_win < cohort_win {
+        if !pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT) && cur_win < cohort_win {
             return false;
-        } else if (pos & (POS_SPAN_BOTH | POS_SPAN_RIGHT)) == 0 && cur_win > cohort_win {
+        } else if !pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT) && cur_win > cohort_win {
             return false;
         }
     }
@@ -283,7 +283,7 @@ impl TopologyLeftIter {
         let boundary = match store.cohorts[cur_id.0].prev {
             Some(prev) => {
                 store.cohorts[prev.0].parent != cur_parent
-                    && !((pos & (POS_SPAN_BOTH | POS_SPAN_LEFT)) != 0 || self.base.m_span)
+                    && !(pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT) || self.base.m_span)
             }
             None => false,
         };
@@ -294,7 +294,7 @@ impl TopologyLeftIter {
             loop {
                 mc = store.cohorts[mc.unwrap().0].prev;
                 match mc {
-                    Some(id) if (store.cohorts[id.0].r#type & CT_ENCLOSED) != 0 => continue,
+                    Some(id) if store.cohorts[id.0].r#type.intersects(CT_ENCLOSED) => continue,
                     _ => break,
                 }
             }
@@ -325,7 +325,7 @@ impl TopologyRightIter {
         let boundary = match store.cohorts[cur_id.0].next {
             Some(next) => {
                 store.cohorts[next.0].parent != cur_parent
-                    && !((pos & (POS_SPAN_BOTH | POS_SPAN_RIGHT)) != 0 || self.base.m_span)
+                    && !(pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT) || self.base.m_span)
             }
             None => false,
         };
@@ -336,7 +336,7 @@ impl TopologyRightIter {
             loop {
                 mc = store.cohorts[mc.unwrap().0].next;
                 match mc {
-                    Some(id) if (store.cohorts[id.0].r#type & CT_ENCLOSED) != 0 => continue,
+                    Some(id) if store.cohorts[id.0].r#type.intersects(CT_ENCLOSED) => continue,
                     _ => break,
                 }
             }
@@ -377,7 +377,7 @@ impl DepParentIter {
         let dep_parent = store.cohorts[cur_id.0].dep_parent;
         if dep_parent != DEP_NO_PARENT {
             if let Some(&p_id) = window.cohort_map.get(&dep_parent) {
-                if (store.cohorts[p_id.0].r#type & CT_REMOVED) != 0 {
+                if store.cohorts[p_id.0].r#type.intersects(CT_REMOVED) {
                     self.base.m_cohort = None;
                     return;
                 }
@@ -385,14 +385,14 @@ impl DepParentIter {
                     cs_insert(store, &mut self.m_seen, cur_id);
                     let cur_parent = store.cohorts[cur_id.0].parent;
                     let p_parent = store.cohorts[p_id.0].parent;
-                    if p_parent == cur_parent || (pos & POS_SPAN_BOTH) != 0 || self.base.m_span {
+                    if p_parent == cur_parent || pos.intersects(POS_SPAN_BOTH) || self.base.m_span {
                         self.base.m_cohort = Some(p_id);
                     } else {
                         let cur_win = store.single_windows[cur_parent.unwrap().0].number;
                         let p_win = store.single_windows[p_parent.unwrap().0].number;
-                        if p_win < cur_win && (pos & POS_SPAN_LEFT) != 0 {
+                        if p_win < cur_win && pos.intersects(POS_SPAN_LEFT) {
                             self.base.m_cohort = Some(p_id);
-                        } else if p_win > cur_win && (pos & POS_SPAN_RIGHT) != 0 {
+                        } else if p_win > cur_win && pos.intersects(POS_SPAN_RIGHT) {
                             self.base.m_cohort = Some(p_id);
                         } else {
                             self.base.m_cohort = None;
@@ -521,18 +521,18 @@ impl DepDescendentIter {
             }
 
             // Position filtering (separate `if`s, applied in order).
-            if (pos & POS_LEFT) != 0 {
+            if pos.intersects(POS_LEFT) {
                 let lb = cs_lower_bound(store, &self.m_descendents, cohort_id);
                 self.m_descendents = self.m_descendents[..lb].to_vec();
             }
-            if (pos & POS_RIGHT) != 0 {
+            if pos.intersects(POS_RIGHT) {
                 let lb = cs_lower_bound(store, &self.m_descendents, cohort_id);
                 self.m_descendents = self.m_descendents[lb..].to_vec();
             }
-            if (pos & POS_SELF) != 0 {
+            if pos.intersects(POS_SELF) {
                 cs_insert(store, &mut self.m_descendents, cohort_id);
             }
-            if (pos & POS_RIGHTMOST) != 0 && !self.m_descendents.is_empty() {
+            if pos.intersects(POS_RIGHTMOST) && !self.m_descendents.is_empty() {
                 self.m_descendents.reverse();
             }
         }
@@ -614,18 +614,18 @@ impl DepAncestorIter {
                 }
             }
 
-            if (pos & POS_LEFT) != 0 {
+            if pos.intersects(POS_LEFT) {
                 let lb = cs_lower_bound(store, &self.m_ancestors, cohort_id);
                 self.m_ancestors = self.m_ancestors[..lb].to_vec();
             }
-            if (pos & POS_RIGHT) != 0 {
+            if pos.intersects(POS_RIGHT) {
                 let lb = cs_lower_bound(store, &self.m_ancestors, cohort_id);
                 self.m_ancestors = self.m_ancestors[lb..].to_vec();
             }
-            if (pos & POS_SELF) != 0 {
+            if pos.intersects(POS_SELF) {
                 cs_insert(store, &mut self.m_ancestors, cohort_id);
             }
-            if (pos & POS_RIGHTMOST) != 0 && !self.m_ancestors.is_empty() {
+            if pos.intersects(POS_RIGHTMOST) && !self.m_ancestors.is_empty() {
                 self.m_ancestors.reverse();
             }
         }
@@ -671,16 +671,16 @@ impl CohortSetIter {
             let c_parent = store.cohorts[c.0].parent;
             let orig_parent = store.cohorts[self.m_origcohort.unwrap().0].parent;
             let pos = grammar.contexts_arena[self.base.m_test.unwrap().0].pos;
-            if c_parent == orig_parent || (pos & POS_SPAN_BOTH) != 0 || self.base.m_span {
+            if c_parent == orig_parent || pos.intersects(POS_SPAN_BOTH) || self.base.m_span {
                 self.base.m_cohort = Some(c);
                 break;
             } else {
                 let c_win = store.single_windows[c_parent.unwrap().0].number;
                 let orig_win = store.single_windows[orig_parent.unwrap().0].number;
-                if c_win < orig_win && (pos & POS_SPAN_LEFT) != 0 {
+                if c_win < orig_win && pos.intersects(POS_SPAN_LEFT) {
                     self.base.m_cohort = Some(c);
                     break;
-                } else if c_win > orig_win && (pos & POS_SPAN_RIGHT) != 0 {
+                } else if c_win > orig_win && pos.intersects(POS_SPAN_RIGHT) {
                     self.base.m_cohort = Some(c);
                     break;
                 }

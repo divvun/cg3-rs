@@ -329,7 +329,7 @@ impl PlaintextApplicator {
                         self.base.gWindow.cohort_counter.wrapping_add(1);
                     let token_str: String = token.iter().collect();
                     let wf_text = format!("\"<{token_str}>\"");
-                    let wf = self.base.add_tag(&wf_text, 0);
+                    let wf = self.base.add_tag(&wf_text, crate::tag::TagType::empty());
                     {
                         let c = self.base.store.cohorts.get_mut(cc.0);
                         c.global_number = gn;
@@ -342,7 +342,7 @@ impl PlaintextApplicator {
                     c_reading = Some(cr);
                     self.base.store.readings.get_mut(cr.0).noprint = !self.add_tags;
                     if self.add_tags {
-                        let tag = self.base.add_tag("<cg-conv>", 0);
+                        let tag = self.base.add_tag("<cg-conv>", crate::tag::TagType::empty());
                         self.base.add_tag_to_reading(cr, tag);
                     }
                     if self.add_tags && (first_upper || all_upper || mixed_upper) {
@@ -350,18 +350,18 @@ impl PlaintextApplicator {
                         self.base.del_tag_from_reading_hash(cr, baseform);
                         let lowered: String = token_str.to_lowercase();
                         let base_tag_text = format!("\"{lowered}\"");
-                        let bt = self.base.add_tag(&base_tag_text, 0);
+                        let bt = self.base.add_tag(&base_tag_text, crate::tag::TagType::empty());
                         self.base.add_tag_to_reading(cr, bt);
                         if all_upper {
-                            let t = self.base.add_tag("<all-upper>", 0);
+                            let t = self.base.add_tag("<all-upper>", crate::tag::TagType::empty());
                             self.base.add_tag_to_reading(cr, t);
                         }
                         if first_upper {
-                            let t = self.base.add_tag("<first-upper>", 0);
+                            let t = self.base.add_tag("<first-upper>", crate::tag::TagType::empty());
                             self.base.add_tag_to_reading(cr, t);
                         }
                         if mixed_upper && !all_upper {
-                            let t = self.base.add_tag("<mixed-upper>", 0);
+                            let t = self.base.add_tag("<mixed-upper>", crate::tag::TagType::empty());
                             self.base.add_tag_to_reading(cr, t);
                         }
                     }
@@ -453,7 +453,7 @@ impl PlaintextApplicator {
     pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, _profiling: bool) {
         let (local_number, removed, wf) = {
             let c = self.base.store.cohorts.get(cohort.0);
-            (c.local_number, c.r#type & CT_REMOVED != 0, c.wordform)
+            (c.local_number, c.r#type.intersects(CT_REMOVED), c.wordform)
         };
         if local_number == 0 {
             return;

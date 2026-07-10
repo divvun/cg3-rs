@@ -545,7 +545,7 @@ fn format_converter_print_dispatch() {
         let sw = b.gWindow.alloc_append_single_window(&mut b.store);
         b.init_empty_single_window(sw);
         let c = cg3::cohort::alloc_cohort(&mut b.store, Some(sw));
-        let wf = b.add_tag("\"<word>\"", 0);
+        let wf = b.add_tag("\"<word>\"", cg3::tag::TagType::empty());
         {
             let co = b.store.cohorts.get_mut(c.0);
             co.wordform = Some(wf);
@@ -553,9 +553,9 @@ fn format_converter_print_dispatch() {
         }
         let r = cg3::reading::alloc_reading(&mut b.store, Some(c));
         b.add_tag_to_reading(r, wf);
-        let bf = b.add_tag("\"word\"", 0);
+        let bf = b.add_tag("\"word\"", cg3::tag::TagType::empty());
         b.add_tag_to_reading(r, bf);
-        let t = b.add_tag("X", 0);
+        let t = b.add_tag("X", cg3::tag::TagType::empty());
         b.add_tag_to_reading(r, t);
         cg3::cohort::append_reading(&mut b.store, c, r);
         cg3::single_window::append_cohort(&mut b.gWindow, &mut b.store, sw, c);

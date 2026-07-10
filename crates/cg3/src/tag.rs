@@ -47,59 +47,97 @@ impl Default for C_OPS {
 
 // C++ anonymous `enum : uint32_t` of `Tag::type` bit flags. No spec:def id; the
 // bits are reproduced verbatim as `u32` constants.
-pub const T_ANY: u32 = 1 << 0;
-pub const T_NUMERICAL: u32 = 1 << 1;
-pub const T_MAPPING: u32 = 1 << 2;
-pub const T_VARIABLE: u32 = 1 << 3;
-pub const T_META: u32 = 1 << 4;
-pub const T_WORDFORM: u32 = 1 << 5;
-pub const T_BASEFORM: u32 = 1 << 6;
-pub const T_TEXTUAL: u32 = 1 << 7;
-pub const T_DEPENDENCY: u32 = 1 << 8;
-pub const T_SAME_BASIC: u32 = 1 << 9;
-pub const T_FAILFAST: u32 = 1 << 10;
-pub const T_CASE_INSENSITIVE: u32 = 1 << 11;
-pub const T_REGEXP: u32 = 1 << 12;
-pub const T_PAR_LEFT: u32 = 1 << 13;
-pub const T_PAR_RIGHT: u32 = 1 << 14;
-pub const T_REGEXP_ANY: u32 = 1 << 15;
-pub const T_VARSTRING: u32 = 1 << 16;
-pub const T_TARGET: u32 = 1 << 17;
-pub const T_MARK: u32 = 1 << 18;
-pub const T_ATTACHTO: u32 = 1 << 19;
-pub const T_SPECIAL: u32 = 1 << 20;
-pub const T_USED: u32 = 1 << 21;
-pub const T_LOCAL_VARIABLE: u32 = 1 << 22;
-pub const T_SET: u32 = 1 << 23;
-pub const T_VSTR: u32 = 1 << 24;
-pub const T_ENCL: u32 = 1 << 25;
-pub const T_RELATION: u32 = 1 << 26;
-pub const T_CONTEXT: u32 = 1 << 27;
-pub const T_NUMERIC_MATH: u32 = 1 << 28;
-pub const T_PRESERVE_ESC: u32 = 1 << 29;
+bitflags::bitflags! {
+    /// C++ `T_*` tag-type bits over `uint32_t` (wave 4: a typed `bitflags`
+    /// set instead of a bare `u32`).
+    #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+    pub struct TagType: u32 {
+        const ANY = 1 << 0;
+        const NUMERICAL = 1 << 1;
+        const MAPPING = 1 << 2;
+        const VARIABLE = 1 << 3;
+        const META = 1 << 4;
+        const WORDFORM = 1 << 5;
+        const BASEFORM = 1 << 6;
+        const TEXTUAL = 1 << 7;
+        const DEPENDENCY = 1 << 8;
+        const SAME_BASIC = 1 << 9;
+        const FAILFAST = 1 << 10;
+        const CASE_INSENSITIVE = 1 << 11;
+        const REGEXP = 1 << 12;
+        const PAR_LEFT = 1 << 13;
+        const PAR_RIGHT = 1 << 14;
+        const REGEXP_ANY = 1 << 15;
+        const VARSTRING = 1 << 16;
+        const TARGET = 1 << 17;
+        const MARK = 1 << 18;
+        const ATTACHTO = 1 << 19;
+        const SPECIAL = 1 << 20;
+        const USED = 1 << 21;
+        const LOCAL_VARIABLE = 1 << 22;
+        const SET = 1 << 23;
+        const VSTR = 1 << 24;
+        const ENCL = 1 << 25;
+        const RELATION = 1 << 26;
+        const CONTEXT = 1 << 27;
+        const NUMERIC_MATH = 1 << 28;
+        const PRESERVE_ESC = 1 << 29;
+        const REGEXP_LINE = 1 << 31;
+    }
+}
 
-/// `T_REGEXP_LINE` — ToDo (per C++): remove for real ordered mode.
-pub const T_REGEXP_LINE: u32 = 1u32 << 31;
+// The C++ constant names, kept so call sites read like the source.
+pub const T_ANY: TagType = TagType::ANY;
+pub const T_NUMERICAL: TagType = TagType::NUMERICAL;
+pub const T_MAPPING: TagType = TagType::MAPPING;
+pub const T_VARIABLE: TagType = TagType::VARIABLE;
+pub const T_META: TagType = TagType::META;
+pub const T_WORDFORM: TagType = TagType::WORDFORM;
+pub const T_BASEFORM: TagType = TagType::BASEFORM;
+pub const T_TEXTUAL: TagType = TagType::TEXTUAL;
+pub const T_DEPENDENCY: TagType = TagType::DEPENDENCY;
+pub const T_SAME_BASIC: TagType = TagType::SAME_BASIC;
+pub const T_FAILFAST: TagType = TagType::FAILFAST;
+pub const T_CASE_INSENSITIVE: TagType = TagType::CASE_INSENSITIVE;
+pub const T_REGEXP: TagType = TagType::REGEXP;
+pub const T_PAR_LEFT: TagType = TagType::PAR_LEFT;
+pub const T_PAR_RIGHT: TagType = TagType::PAR_RIGHT;
+pub const T_REGEXP_ANY: TagType = TagType::REGEXP_ANY;
+pub const T_VARSTRING: TagType = TagType::VARSTRING;
+pub const T_TARGET: TagType = TagType::TARGET;
+pub const T_MARK: TagType = TagType::MARK;
+pub const T_ATTACHTO: TagType = TagType::ATTACHTO;
+pub const T_SPECIAL: TagType = TagType::SPECIAL;
+pub const T_USED: TagType = TagType::USED;
+pub const T_LOCAL_VARIABLE: TagType = TagType::LOCAL_VARIABLE;
+pub const T_SET: TagType = TagType::SET;
+pub const T_VSTR: TagType = TagType::VSTR;
+pub const T_ENCL: TagType = TagType::ENCL;
+pub const T_RELATION: TagType = TagType::RELATION;
+pub const T_CONTEXT: TagType = TagType::CONTEXT;
+pub const T_NUMERIC_MATH: TagType = TagType::NUMERIC_MATH;
+pub const T_PRESERVE_ESC: TagType = TagType::PRESERVE_ESC;
+pub const T_REGEXP_LINE: TagType = TagType::REGEXP_LINE;
 
-pub const MASK_TAG_SPECIAL: u32 = T_ANY
-    | T_TARGET
-    | T_MARK
-    | T_ATTACHTO
-    | T_PAR_LEFT
-    | T_PAR_RIGHT
-    | T_NUMERICAL
-    | T_VARIABLE
-    | T_LOCAL_VARIABLE
-    | T_META
-    | T_FAILFAST
-    | T_CASE_INSENSITIVE
-    | T_REGEXP
-    | T_REGEXP_ANY
-    | T_VARSTRING
-    | T_SET
-    | T_ENCL
-    | T_SAME_BASIC
-    | T_CONTEXT;
+pub const MASK_TAG_SPECIAL: TagType = T_ANY
+    .union(T_TARGET)
+    .union(T_MARK)
+    .union(T_ATTACHTO)
+    .union(T_PAR_LEFT)
+    .union(T_PAR_RIGHT)
+    .union(T_NUMERICAL)
+    .union(T_VARIABLE)
+    .union(T_LOCAL_VARIABLE)
+    .union(T_META)
+    .union(T_FAILFAST)
+    .union(T_CASE_INSENSITIVE)
+    .union(T_REGEXP)
+    .union(T_REGEXP_ANY)
+    .union(T_VARSTRING)
+    .union(T_SET)
+    .union(T_ENCL)
+    .union(T_SAME_BASIC)
+    .union(T_CONTEXT);
 
 // [spec:cg3:def:tag.cg3.tag]
 /// C++ `class Tag`. A single grammar tag: its type-flag mask, cached hashes,
@@ -116,7 +154,7 @@ pub struct Tag {
     /// `double comparison_val = 0;`
     pub comparison_val: f64,
     /// `uint32_t type = 0;` (`type` is a Rust keyword → raw identifier).
-    pub r#type: u32,
+    pub r#type: TagType,
     /// `uint32_t comparison_hash = 0;`
     pub comparison_hash: u32,
     /// `uint32_t dep_self = 0;`
@@ -312,20 +350,20 @@ impl Tag {
         self.hash = 0;
         self.plain_hash = 0;
 
-        if self.r#type & T_FAILFAST != 0 {
+        if self.r#type.intersects(T_FAILFAST) {
             self.hash = hash_value_ustring("^", self.hash);
         }
 
-        if self.r#type & T_META != 0 {
+        if self.r#type.intersects(T_META) {
             self.hash = hash_value_ustring("META:", self.hash);
         }
-        if self.r#type & T_VARIABLE != 0 {
+        if self.r#type.intersects(T_VARIABLE) {
             self.hash = hash_value_ustring("VAR:", self.hash);
         }
-        if self.r#type & T_LOCAL_VARIABLE != 0 {
+        if self.r#type.intersects(T_LOCAL_VARIABLE) {
             self.hash = hash_value_ustring("LVAR:", self.hash);
         }
-        if self.r#type & T_SET != 0 {
+        if self.r#type.intersects(T_SET) {
             self.hash = hash_value_ustring("SET:", self.hash);
         }
 
@@ -336,20 +374,20 @@ impl Tag {
             self.hash = self.plain_hash;
         }
 
-        if self.r#type & T_CASE_INSENSITIVE != 0 {
+        if self.r#type.intersects(T_CASE_INSENSITIVE) {
             self.hash = hash_value_ustring("i", self.hash);
         }
-        if self.r#type & T_REGEXP != 0 {
+        if self.r#type.intersects(T_REGEXP) {
             self.hash = hash_value_ustring("r", self.hash);
         }
-        if self.r#type & T_VARSTRING != 0 {
+        if self.r#type.intersects(T_VARSTRING) {
             self.hash = hash_value_ustring("v", self.hash);
         }
 
         self.hash = self.hash.wrapping_add(self.seed);
 
         self.r#type &= !T_SPECIAL;
-        if self.r#type & MASK_TAG_SPECIAL != 0 {
+        if self.r#type.intersects(MASK_TAG_SPECIAL) {
             self.r#type |= T_SPECIAL;
         }
 
@@ -539,26 +577,26 @@ impl Tag {
         let mut str = UString::new();
         str.reserve(self.tag.len());
 
-        if self.r#type & T_FAILFAST != 0 {
+        if self.r#type.intersects(T_FAILFAST) {
             str.push('^');
         }
-        if self.r#type & T_META != 0 {
+        if self.r#type.intersects(T_META) {
             str.push_str("META:");
         }
-        if self.r#type & T_VARIABLE != 0 {
+        if self.r#type.intersects(T_VARIABLE) {
             str.push_str("VAR:");
         }
-        if self.r#type & T_LOCAL_VARIABLE != 0 {
+        if self.r#type.intersects(T_LOCAL_VARIABLE) {
             str.push_str("LVAR:");
         }
-        if self.r#type & T_SET != 0 {
+        if self.r#type.intersects(T_SET) {
             str.push_str("SET:");
         }
-        if self.r#type & T_VSTR != 0 {
+        if self.r#type.intersects(T_VSTR) {
             str.push_str("VSTR:");
         }
 
-        if self.r#type & (T_CASE_INSENSITIVE | T_REGEXP) != 0 && !is_textual(&self.tag) {
+        if self.r#type.intersects(T_CASE_INSENSITIVE | T_REGEXP) && !is_textual(&self.tag) {
             str.push('/');
         }
 
@@ -575,18 +613,18 @@ impl Tag {
             str.push_str(&self.tag);
         }
 
-        if self.r#type & (T_CASE_INSENSITIVE | T_REGEXP) != 0 && !is_textual(&self.tag) {
+        if self.r#type.intersects(T_CASE_INSENSITIVE | T_REGEXP) && !is_textual(&self.tag) {
             str.push('/');
         }
-        if self.r#type & T_REGEXP_LINE != 0 {
+        if self.r#type.intersects(T_REGEXP_LINE) {
             str.push('l');
-        } else if self.r#type & (T_REGEXP | T_REGEXP_ANY) != 0 {
+        } else if self.r#type.intersects(T_REGEXP | T_REGEXP_ANY) {
             str.push('r');
         }
-        if self.r#type & T_CASE_INSENSITIVE != 0 {
+        if self.r#type.intersects(T_CASE_INSENSITIVE) {
             str.push('i');
         }
-        if (self.r#type & T_VARSTRING != 0) && (self.r#type & T_VSTR == 0) {
+        if (self.r#type.intersects(T_VARSTRING)) && (!self.r#type.intersects(T_VSTR)) {
             str.push('v');
         }
         str
@@ -652,7 +690,7 @@ impl Clone for Tag {
 /// parser layer). `grammar->icase_tags` uses `ux_str_case_compare` (ICU
 /// `u_strCaseCompare`, approximated with Unicode lowercase folding).
 pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
-    this.r#type = 0;
+    this.r#type = TagType::empty();
     let to_chars: Vec<char> = to.chars().collect();
     let length = to_chars.len();
     debug_assert!(length != 0, "parseTagRaw() will not work with empty strings.");
@@ -755,7 +793,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     }
 
     this.r#type &= !T_SPECIAL;
-    if this.r#type & T_NUMERICAL != 0 {
+    if this.r#type.intersects(T_NUMERICAL) {
         this.r#type |= T_SPECIAL;
     }
 }
@@ -811,10 +849,10 @@ pub fn fill_tagvector(
 ) {
     for &tag in in_ {
         let ty = grammar.single_tags_list[tag.0].r#type;
-        if ty & T_NUMERICAL != 0 {
+        if ty.intersects(T_NUMERICAL) {
             *did = true;
         } else {
-            if ty & T_SPECIAL != 0 {
+            if ty.intersects(T_SPECIAL) {
                 *special = true;
             }
             tags.push(tag);

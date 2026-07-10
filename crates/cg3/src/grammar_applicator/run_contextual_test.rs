@@ -203,10 +203,10 @@ impl super::GrammarApplicator {
             (t.pos, t.target, t.offset, t.barrier, t.cbarrier)
         };
 
-        if test_pos & POS_MARK_SET != 0 {
+        if test_pos.intersects(POS_MARK_SET) {
             self.set_mark(Some(cid));
         }
-        if test_pos & POS_ATTACH_TO != 0 {
+        if test_pos.intersects(POS_ATTACH_TO) {
             if self.get_attach_to().cohort != Some(cid) {
                 // Clear readings for rules that care about readings.
                 let lists = self.rst_gather_lists(cid, test_pos);
@@ -219,7 +219,7 @@ impl super::GrammarApplicator {
                 }
             }
         }
-        if test_pos & POS_WITH != 0 {
+        if test_pos.intersects(POS_WITH) {
             self.merge_with = Some(cid);
         }
         if let Some(d) = deep {
@@ -240,9 +240,9 @@ impl super::GrammarApplicator {
             in_barrier: false,
         };
 
-        if test_pos & POS_CAREFUL != 0 {
+        if test_pos.intersects(POS_CAREFUL) {
             *retval = self.does_set_match_cohort_careful(cid, test_target, Some(&mut context));
-            if !context.matched_target && (test_pos & POS_SCANFIRST != 0) {
+            if !context.matched_target && (test_pos.intersects(POS_SCANFIRST)) {
                 context.did_test = true;
                 // Intentionally ignoring the return value to populate matched_target.
                 self.does_set_match_cohort_normal(cid, test_target, Some(&mut context));
@@ -253,7 +253,7 @@ impl super::GrammarApplicator {
 
         // origin loop-back detection.
         if let Some(org) = origin {
-            let scan = test_pos & (POS_SCANALL | POS_SCANFIRST) != 0;
+            let scan = test_pos.intersects(POS_SCANALL | POS_SCANFIRST);
             if (test_offset != 0 || scan)
                 && Some(org) == cohort
                 && self.store.cohorts.get(org.0).local_number != 0
@@ -262,9 +262,9 @@ impl super::GrammarApplicator {
                 *rvs |= TRV_BREAK;
             }
         }
-        if context.matched_target && (test_pos & POS_SCANFIRST != 0) {
+        if context.matched_target && (test_pos.intersects(POS_SCANFIRST)) {
             *rvs |= TRV_BREAK;
-        } else if test_pos & (POS_SCANALL | POS_SCANFIRST | POS_DEP_DEEP | POS_DEP_GLOB) == 0 {
+        } else if !test_pos.intersects(POS_SCANALL | POS_SCANFIRST | POS_DEP_DEEP | POS_DEP_GLOB) {
             *rvs |= TRV_BREAK | TRV_BREAK_DEFAULT;
         }
 
@@ -316,7 +316,7 @@ impl super::GrammarApplicator {
         if context.matched_target && *retval {
             *rvs |= TRV_BREAK;
         }
-        if !broken && (*rvs & TRV_BARRIER != 0) && (test_pos & MASK_SELF_NB) == MASK_SELF_NB {
+        if !broken && (*rvs & TRV_BARRIER != 0) && test_pos.contains(MASK_SELF_NB) {
             *rvs &= !(TRV_BREAK | TRV_BARRIER);
         }
         if !*retval && !self.context_stack.is_empty() {
@@ -353,18 +353,18 @@ impl super::GrammarApplicator {
     fn rst_gather_lists(
         &self,
         cohort: CohortId,
-        pos: u64,
+        pos: crate::contextual_test::PosFlags,
     ) -> [Option<Vec<crate::arena::ReadingId>>; 4] {
         let c = self.store.cohorts.get(cohort.0);
         let mut lists: [Option<Vec<crate::arena::ReadingId>>; 4] =
             [Some(c.readings.clone()), None, None, None];
-        if pos & POS_LOOK_DELETED != 0 {
+        if pos.intersects(POS_LOOK_DELETED) {
             lists[1] = Some(c.deleted.clone());
         }
-        if pos & POS_LOOK_DELAYED != 0 {
+        if pos.intersects(POS_LOOK_DELAYED) {
             lists[2] = Some(c.delayed.clone());
         }
-        if pos & POS_LOOK_IGNORED != 0 {
+        if pos.intersects(POS_LOOK_IGNORED) {
             lists[3] = Some(c.ignored.clone());
         }
         lists
@@ -416,7 +416,7 @@ impl super::GrammarApplicator {
         };
 
         // If the override included * or @, offsets are irrelevant.
-        if test_pos & (POS_SCANFIRST | POS_SCANALL | POS_ABSOLUTE) != 0 {
+        if test_pos.intersects(POS_SCANFIRST | POS_SCANALL | POS_ABSOLUTE) {
             good = true;
         } else {
             let cs0_ln = self.store.cohorts.get(cs[0].0).local_number;
@@ -428,14 +428,14 @@ impl super::GrammarApplicator {
             }
         }
         // Deep result left the window (no span flag).
-        if test_pos & (POS_SPAN_BOTH | POS_SPAN_LEFT | POS_SPAN_RIGHT) == 0 {
+        if !test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT | POS_SPAN_RIGHT) {
             let cdeep_parent = self.store.cohorts.get(cdeep.0).parent;
             if cdeep_parent != Some(sw) {
                 good = false;
             }
         }
         // Origin-straddle vetoes (raw unsigned local_number).
-        if test_pos & POS_PASS_ORIGIN == 0 {
+        if !test_pos.intersects(POS_PASS_ORIGIN) {
             let cs0_ln = self.store.cohorts.get(cs[0].0).local_number;
             let cs3_ln = self.store.cohorts.get(cs[3].0).local_number;
             if test_offset < 0 && cs3_ln > position {
@@ -486,14 +486,14 @@ impl super::GrammarApplicator {
             (t.pos, t.offset, t.cbarrier, t.barrier)
         };
 
-        let override_applied = test_pos & POS_TMPL_OVERRIDE != 0;
+        let override_applied = test_pos.intersects(POS_TMPL_OVERRIDE);
         if override_applied {
             let t = &mut self.grammar.contexts_arena[tmpl.0];
             t.pos = test_pos;
             t.pos &= !(POS_NEGATE | POS_NOT | POS_JUMP);
             t.offset = test_offset;
             if test_offset != 0
-                && test_pos & (POS_SCANFIRST | POS_SCANALL | POS_ABSOLUTE) == 0
+                && !test_pos.intersects(POS_SCANFIRST | POS_SCANALL | POS_ABSOLUTE)
             {
                 t.pos |= POS_SCANALL;
             }
@@ -561,7 +561,7 @@ impl super::GrammarApplicator {
         let mut origin = origin;
 
         let test_pos = self.grammar.contexts_arena[test.0].pos;
-        if test_pos & POS_UNKNOWN != 0 {
+        if test_pos.intersects(POS_UNKNOWN) {
             // u_fprintf(...); CG3Quit(1);
             panic!(
                 "Error: Contextual tests with position '?' cannot be used directly. Provide an override position."
@@ -572,7 +572,7 @@ impl super::GrammarApplicator {
         let mut retval = true;
         let org_swin = sw;
 
-        if test_pos & POS_JUMP != 0 {
+        if test_pos.intersects(POS_JUMP) {
             let jump_pos = self.grammar.contexts_arena[test.0].jump_pos;
             let mut j: Option<CohortId> = None;
             if jump_pos == JUMP_MARK as i8 {
@@ -648,7 +648,7 @@ impl super::GrammarApplicator {
             let cid = cohort.unwrap();
             let sw_id = sw.unwrap();
 
-            if test_pos & POS_PASS_ORIGIN != 0 {
+            if test_pos.intersects(POS_PASS_ORIGIN) {
                 origin = Some(self.store.single_windows.get(sw_id.0).cohorts[0]);
             }
             if let Some(d) = deep {
@@ -669,28 +669,28 @@ impl super::GrammarApplicator {
             self.ensure_ci_depths();
             let mut it: Option<ItSel> = None;
 
-            if (test_pos & POS_DEP_PARENT != 0) && (test_pos & POS_DEP_GLOB != 0) {
+            if (test_pos.intersects(POS_DEP_PARENT)) && (test_pos.intersects(POS_DEP_GLOB)) {
                 let key = self.ci_depths[5];
                 self.ci_depths[5] += 1;
                 let (store, grammar, window) = self.split_for_iters();
                 let iter = DepAncestorIter::new(Some(cid), Some(test), self.always_span, store, grammar, window);
                 self.depAncestorIters.insert(key, iter);
                 it = Some(ItSel::DepAncestor(key));
-            } else if test_pos & POS_DEP_PARENT != 0 {
+            } else if test_pos.intersects(POS_DEP_PARENT) {
                 let key = self.ci_depths[3];
                 self.ci_depths[3] += 1;
                 let (store, grammar, window) = self.split_for_iters();
                 let iter = DepParentIter::new(Some(cid), Some(test), self.always_span, store, grammar, window);
                 self.depParentIters.insert(key, iter);
                 it = Some(ItSel::DepParent(key));
-            } else if test_pos & POS_DEP_GLOB != 0 {
+            } else if test_pos.intersects(POS_DEP_GLOB) {
                 let key = self.ci_depths[4];
                 self.ci_depths[4] += 1;
                 let (store, grammar, window) = self.split_for_iters();
                 let iter = DepDescendentIter::new(Some(cid), Some(test), self.always_span, store, grammar, window);
                 self.depDescendentIters.insert(key, iter);
                 it = Some(ItSel::DepGlob(key));
-            } else if test_pos & (POS_DEP_CHILD | POS_DEP_SIBLING) != 0 {
+            } else if test_pos.intersects(POS_DEP_CHILD | POS_DEP_SIBLING) {
                 let nc = self.run_dependency_test(sw_id, cid, test, deep, origin, None);
                 if let Some(nc) = nc {
                     cohort = Some(nc);
@@ -699,10 +699,10 @@ impl super::GrammarApplicator {
                 } else {
                     retval = false;
                 }
-                if test_pos & POS_NONE != 0 {
+                if test_pos.intersects(POS_NONE) {
                     retval = !retval;
                 }
-            } else if test_pos & (POS_LEFT_PAR | POS_RIGHT_PAR) != 0 {
+            } else if test_pos.intersects(POS_LEFT_PAR | POS_RIGHT_PAR) {
                 let nc = self.run_parenthesis_test(sw_id, cid, test, deep, origin);
                 if let Some(nc) = nc {
                     cohort = Some(nc);
@@ -710,7 +710,7 @@ impl super::GrammarApplicator {
                 } else {
                     retval = false;
                 }
-            } else if test_pos & POS_RELATION != 0 {
+            } else if test_pos.intersects(POS_RELATION) {
                 let nc = self.run_relation_test(sw_id, cid, test, deep, origin);
                 if let Some(nc) = nc {
                     cohort = Some(nc);
@@ -718,24 +718,24 @@ impl super::GrammarApplicator {
                 } else {
                     retval = false;
                 }
-                if test_pos & POS_NONE != 0 {
+                if test_pos.intersects(POS_NONE) {
                     retval = !retval;
                 }
-            } else if test_pos & POS_BAG_OF_TAGS != 0 {
+            } else if test_pos.intersects(POS_BAG_OF_TAGS) {
                 let test_target = self.grammar.contexts_arena[test.0].target;
                 let mut m = self.match_bag_of_tags(sw_id, test_target);
-                if !m && (test_pos & (POS_SPAN_BOTH | POS_SPAN_LEFT | POS_SPAN_RIGHT) != 0) {
+                if !m && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT | POS_SPAN_RIGHT)) {
                     let mut left = self.store.single_windows.get(sw_id.0).previous;
                     let mut right = self.store.single_windows.get(sw_id.0).next;
                     while left.is_some() || right.is_some() {
-                        if left.is_some() && (test_pos & (POS_SPAN_BOTH | POS_SPAN_LEFT) != 0) {
+                        if left.is_some() && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) {
                             let lw = left.unwrap();
                             m = self.match_bag_of_tags(lw, test_target);
                             left = self.store.single_windows.get(lw.0).previous;
                         } else {
                             left = None;
                         }
-                        if right.is_some() && (test_pos & (POS_SPAN_BOTH | POS_SPAN_RIGHT) != 0) {
+                        if right.is_some() && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) {
                             let rw = right.unwrap();
                             m = self.match_bag_of_tags(rw, test_target);
                             right = self.store.single_windows.get(rw.0).next;
@@ -747,7 +747,7 @@ impl super::GrammarApplicator {
                         }
                     }
                 }
-                if test_pos & POS_NOT != 0 {
+                if test_pos.intersects(POS_NOT) {
                     m = !m;
                 }
                 if m {
@@ -758,7 +758,7 @@ impl super::GrammarApplicator {
                 } else {
                     retval = false;
                 }
-            } else if test_offset == 0 && (test_pos & (POS_SCANFIRST | POS_SCANALL) != 0) {
+            } else if test_offset == 0 && (test_pos.intersects(POS_SCANFIRST | POS_SCANALL)) {
                 // Symmetric bidirectional scan.
                 let (c, rv) = self.run_scan(sw_id, cid, test, pos, deep, origin, retval);
                 cohort = c;
@@ -809,10 +809,10 @@ impl super::GrammarApplicator {
         if cohort.is_none() {
             retval = false;
         }
-        if cohort.is_none() && (test_pos & POS_NOT != 0) && test_linked.is_none() {
+        if cohort.is_none() && (test_pos.intersects(POS_NOT)) && test_linked.is_none() {
             retval = !retval;
         }
-        if test_pos & POS_NEGATE != 0 {
+        if test_pos.intersects(POS_NEGATE) {
             retval = !retval;
         }
 
@@ -882,9 +882,9 @@ impl super::GrammarApplicator {
         let mut seen: usize = 0;
 
         // POS_SELF probe on the origin cohort.
-        let self_probe = (test_pos & POS_SELF != 0)
-            && (test_pos & MASK_POS_LORR == 0
-                || ((test_pos & POS_DEP_PARENT != 0) && (test_pos & POS_DEP_GLOB == 0)));
+        let self_probe = (test_pos.intersects(POS_SELF))
+            && (!test_pos.intersects(MASK_POS_LORR)
+                || ((test_pos.intersects(POS_DEP_PARENT)) && (!test_pos.intersects(POS_DEP_GLOB))));
         if self_probe {
             seen += 1;
             let org = org_swin.expect("run_iter: POS_SELF probe needs the origin window");
@@ -909,22 +909,22 @@ impl super::GrammarApplicator {
                     None => break, // *it == CohortIterator(0)
                 };
                 seen += 1;
-                if (test_pos & POS_LEFT != 0) && less_cohort(&self.store, current, itc) {
+                if (test_pos.intersects(POS_LEFT)) && less_cohort(&self.store, current, itc) {
                     nc = None;
                     retval = false;
                     break;
                 }
-                if (test_pos & POS_RIGHT != 0) && !less_cohort(&self.store, current, itc) {
+                if (test_pos.intersects(POS_RIGHT)) && !less_cohort(&self.store, current, itc) {
                     nc = None;
                     retval = false;
                     break;
                 }
                 (nc, retval) = self.run_single_test(itc, test, &mut rvs, deep, origin);
-                if (test_pos & POS_ALL != 0) && !retval {
+                if (test_pos.intersects(POS_ALL)) && !retval {
                     nc = None;
                     break;
                 }
-                if (test_pos & POS_NONE != 0) && retval {
+                if (test_pos.intersects(POS_NONE)) && retval {
                     nc = None;
                     break;
                 }
@@ -938,7 +938,7 @@ impl super::GrammarApplicator {
         if seen == 0 {
             retval = false;
         }
-        if !retval && (test_pos & POS_NONE != 0) {
+        if !retval && (test_pos.intersects(POS_NONE)) {
             retval = true;
             nc = Some(cohort);
         }
@@ -1022,7 +1022,7 @@ impl super::GrammarApplicator {
         let mut cohort: Option<CohortId> = Some(start_cohort);
         let mut rvs: u8 = 0;
 
-        if test_pos & POS_SELF != 0 {
+        if test_pos.intersects(POS_SELF) {
             (cohort, retval) = self.run_single_test(start_cohort, test, &mut rvs, deep, origin);
             if !retval && (rvs & TRV_BREAK_DEFAULT != 0) {
                 rvs &= !(TRV_BREAK | TRV_BREAK_DEFAULT);
@@ -1041,11 +1041,11 @@ impl super::GrammarApplicator {
                     return (cohort, retval);
                 } else if rvs & TRV_BREAK != 0 {
                     left = None;
-                    if test_pos & POS_NOT != 0 {
+                    if test_pos.intersects(POS_NOT) {
                         right = None;
                     }
                 } else if lpos - i == 0 {
-                    if (test_pos & (POS_SPAN_BOTH | POS_SPAN_LEFT) != 0) || self.always_span {
+                    if (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) || self.always_span {
                         left = self.store.single_windows.get(lw.0).previous;
                         if let Some(nl) = left {
                             lpos = i + self.store.single_windows.get(nl.0).cohorts.len() as i32;
@@ -1062,13 +1062,13 @@ impl super::GrammarApplicator {
                     return (cohort, retval);
                 } else if rvs & TRV_BREAK != 0 {
                     right = None;
-                    if test_pos & POS_NOT != 0 {
+                    if test_pos.intersects(POS_NOT) {
                         left = None;
                     }
                 } else {
                     let rlen = self.store.single_windows.get(rw.0).cohorts.len() as i32;
                     if rpos + i == rlen - 1 {
-                        if (test_pos & (POS_SPAN_BOTH | POS_SPAN_RIGHT) != 0) || self.always_span {
+                        if (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) || self.always_span {
                             right = self.store.single_windows.get(rw.0).next;
                             rpos = (0 - i) - 1;
                         } else {
@@ -1106,12 +1106,12 @@ impl super::GrammarApplicator {
 
         let cur = sw.expect("getCohortInWindow: sWindow is null");
 
-        if (test_pos & POS_ABSOLUTE != 0) && (test_pos & (POS_SPAN_LEFT | POS_SPAN_RIGHT) != 0) {
+        if (test_pos.intersects(POS_ABSOLUTE)) && (test_pos.intersects(POS_SPAN_LEFT | POS_SPAN_RIGHT)) {
             let prev = self.store.single_windows.get(cur.0).previous;
             let next = self.store.single_windows.get(cur.0).next;
-            if prev.is_some() && (test_pos & POS_SPAN_LEFT != 0) {
+            if prev.is_some() && (test_pos.intersects(POS_SPAN_LEFT)) {
                 *sw = prev;
-            } else if next.is_some() && (test_pos & POS_SPAN_RIGHT != 0) {
+            } else if next.is_some() && (test_pos.intersects(POS_SPAN_RIGHT)) {
                 *sw = next;
             } else {
                 return cohort;
@@ -1120,7 +1120,7 @@ impl super::GrammarApplicator {
 
         let mut cur = sw.unwrap();
 
-        if test_pos & POS_ABSOLUTE != 0 {
+        if test_pos.intersects(POS_ABSOLUTE) {
             if test_offset < 0 {
                 *pos = self.store.single_windows.get(cur.0).cohorts.len() as i32 + test_offset;
             } else {
@@ -1131,7 +1131,7 @@ impl super::GrammarApplicator {
         let cur_len = self.store.single_windows.get(cur.0).cohorts.len() as i32;
         if *pos >= 0 {
             if *pos >= cur_len
-                && (test_pos & (POS_SPAN_RIGHT | POS_SPAN_BOTH) != 0)
+                && (test_pos.intersects(POS_SPAN_RIGHT | POS_SPAN_BOTH))
                 && self.store.single_windows.get(cur.0).next.is_some()
             {
                 cur = self.store.single_windows.get(cur.0).next.unwrap();
@@ -1139,7 +1139,7 @@ impl super::GrammarApplicator {
                 *pos = 0;
             }
         } else {
-            if (test_pos & (POS_SPAN_LEFT | POS_SPAN_BOTH) != 0)
+            if (test_pos.intersects(POS_SPAN_LEFT | POS_SPAN_BOTH))
                 && self.store.single_windows.get(cur.0).previous.is_some()
             {
                 cur = self.store.single_windows.get(cur.0).previous.unwrap();
@@ -1193,7 +1193,7 @@ impl super::GrammarApplicator {
             (t.pos, t.hash)
         };
 
-        if test_pos & POS_DEP_DEEP != 0 {
+        if test_pos.intersects(POS_DEP_DEEP) {
             let key = (test_hash, self.store.cohorts.get(current.0).global_number);
             if self.dep_deep_seen.contains(key) {
                 return None;
@@ -1201,7 +1201,7 @@ impl super::GrammarApplicator {
             self.dep_deep_seen.insert(key);
         }
 
-        if (test_pos & POS_SELF != 0) && (test_pos & MASK_POS_LORR == 0) {
+        if (test_pos.intersects(POS_SELF)) && (!test_pos.intersects(MASK_POS_LORR)) {
             let mut rvs: u8 = 0;
             let (tmc, retval) = self.run_single_test(current, test, &mut rvs, deep, origin);
             if retval {
@@ -1214,7 +1214,7 @@ impl super::GrammarApplicator {
 
         // Select the walked dependency global-number set.
         let mut deps: Vec<u32>;
-        if test_pos & POS_DEP_CHILD != 0 {
+        if test_pos.intersects(POS_DEP_CHILD) {
             deps = self.store.cohorts.get(current.0).dep_children.as_slice().to_vec();
         } else {
             if self.store.cohorts.get(current.0).dep_parent == 0 {
@@ -1245,18 +1245,18 @@ impl super::GrammarApplicator {
             }
         }
 
-        if test_pos & MASK_POS_LORR != 0 {
+        if test_pos.intersects(MASK_POS_LORR) {
             // Rebuild `deps` by scanning the whole cohort_map (slower container).
             let mut tmp_deps = uint32SortedVector::new();
             let map: Vec<CohortId> = self.gWindow.cohort_map.values().copied().collect();
             for citer in map {
                 let gnum = self.store.cohorts.get(citer.0).global_number;
                 if deps.contains(&gnum) {
-                    if test_pos & POS_LEFT != 0 {
+                    if test_pos.intersects(POS_LEFT) {
                         if less_cohort(&self.store, citer, current) {
                             tmp_deps.insert(gnum);
                         }
-                    } else if test_pos & POS_RIGHT != 0 {
+                    } else if test_pos.intersects(POS_RIGHT) {
                         if less_cohort(&self.store, current, citer) {
                             tmp_deps.insert(gnum);
                         }
@@ -1265,12 +1265,12 @@ impl super::GrammarApplicator {
                     }
                 }
             }
-            if test_pos & POS_SELF != 0 {
+            if test_pos.intersects(POS_SELF) {
                 let gnum = self.store.cohorts.get(current.0).global_number;
                 tmp_deps.insert(gnum);
             }
             let mut tmp_vec = tmp_deps.as_slice().to_vec();
-            if (test_pos & POS_RIGHTMOST != 0) && !tmp_vec.is_empty() {
+            if (test_pos.intersects(POS_RIGHTMOST)) && !tmp_vec.is_empty() {
                 tmp_vec.reverse();
             }
             deps = tmp_vec;
@@ -1278,7 +1278,7 @@ impl super::GrammarApplicator {
 
         let cur_gnum = self.store.cohorts.get(current.0).global_number;
         for dter in deps {
-            if dter == cur_gnum && (test_pos & POS_SELF == 0) {
+            if dter == cur_gnum && (!test_pos.intersects(POS_SELF)) {
                 continue;
             }
             let mapped = self.gWindow.cohort_map.get(&dter).copied();
@@ -1286,7 +1286,7 @@ impl super::GrammarApplicator {
                 None => {
                     if self.verbosity_level > 0 {
                         let ds = self.store.cohorts.get(current.0).dep_self;
-                        if test_pos & POS_DEP_CHILD != 0 {
+                        if test_pos.intersects(POS_DEP_CHILD) {
                             tracing::warn!(
                                 "Warning: Child dependency {} -> {} does not exist - ignoring.",
                                 ds, dter
@@ -1302,7 +1302,7 @@ impl super::GrammarApplicator {
                 }
                 Some(c) => c,
             };
-            if self.store.cohorts.get(cohort.0).r#type & CT_REMOVED != 0 {
+            if self.store.cohorts.get(cohort.0).r#type.intersects(CT_REMOVED) {
                 continue;
             }
             let mut good = true;
@@ -1315,9 +1315,9 @@ impl super::GrammarApplicator {
             if cur_parent != coh_parent {
                 let cur_win = self.store.single_windows.get(cur_parent.unwrap().0).number;
                 let coh_win = self.store.single_windows.get(coh_parent.unwrap().0).number;
-                if (test_pos & (POS_SPAN_BOTH | POS_SPAN_LEFT) == 0) && coh_win < cur_win {
+                if (!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) && coh_win < cur_win {
                     good = false;
-                } else if (test_pos & (POS_SPAN_BOTH | POS_SPAN_RIGHT) == 0) && coh_win > cur_win {
+                } else if (!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) && coh_win > cur_win {
                     good = false;
                 }
             }
@@ -1326,7 +1326,7 @@ impl super::GrammarApplicator {
             if good {
                 (_, retval) = self.run_single_test(cohort, test, &mut rvs, deep, origin);
             }
-            if test_pos & POS_ALL != 0 {
+            if test_pos.intersects(POS_ALL) {
                 if !retval {
                     rv = None;
                     break;
@@ -1338,7 +1338,7 @@ impl super::GrammarApplicator {
                 break;
             } else if rvs & TRV_BARRIER != 0 {
                 continue;
-            } else if test_pos & POS_DEP_DEEP != 0 {
+            } else if test_pos.intersects(POS_DEP_DEEP) {
                 let coh_parent = self.store.cohorts.get(cohort.0).parent.unwrap();
                 let tmc =
                     self.run_dependency_test(coh_parent, cohort, test, deep, origin, Some(selfc));
@@ -1375,7 +1375,7 @@ impl super::GrammarApplicator {
 
         let mut rvs: u8 = 0;
         let test_pos = self.grammar.contexts_arena[test.0].pos;
-        let cohort = if test_pos & POS_LEFT_PAR != 0 {
+        let cohort = if test_pos.intersects(POS_LEFT_PAR) {
             self.store.single_windows.get(sw.0).cohorts[self.par_left_pos as usize]
         } else {
             self.store.single_windows.get(sw.0).cohorts[self.par_right_pos as usize]
@@ -1407,7 +1407,7 @@ impl super::GrammarApplicator {
     ) -> Option<CohortId> {
         {
             let c = self.store.cohorts.get(current.0);
-            if (c.r#type & CT_RELATED == 0) || c.relations.is_empty() {
+            if (!c.r#type.intersects(CT_RELATED)) || c.relations.is_empty() {
                 return None;
             }
         }
@@ -1423,7 +1423,7 @@ impl super::GrammarApplicator {
         };
         loop {
             let ttype = self.grammar.single_tags_list[rtag_id.0].r#type;
-            if ttype & T_VARSTRING == 0 {
+            if !ttype.intersects(T_VARSTRING) {
                 break;
             }
             let tclone = self.grammar.single_tags_list[rtag_id.0].clone();
@@ -1454,7 +1454,7 @@ impl super::GrammarApplicator {
                     }
                 }
             }
-        } else if rtag_type & crate::tag::T_REGEXP != 0 {
+        } else if rtag_type.intersects(crate::tag::T_REGEXP) {
             let caps = {
                 let t = &self.grammar.single_tags_list[rtag_id.0];
                 t.regexp.as_ref().map(|re| re.captures_len() as i32 - 1).unwrap_or(0)
@@ -1484,23 +1484,23 @@ impl super::GrammarApplicator {
         }
 
         // Order/filter `rels`.
-        if test_pos & POS_LEFT != 0 {
+        if test_pos.intersects(POS_LEFT) {
             let lb = cs_lower_bound(&self.store, &rels, current);
             rels = rels[..lb].to_vec();
         }
-        if test_pos & POS_RIGHT != 0 {
+        if test_pos.intersects(POS_RIGHT) {
             let lb = cs_lower_bound(&self.store, &rels, current);
             rels = rels[lb..].to_vec();
         }
-        if test_pos & POS_SELF != 0 {
+        if test_pos.intersects(POS_SELF) {
             cs_insert(&self.store, &mut rels, current);
         }
-        if (test_pos & POS_LEFTMOST != 0) && !rels.is_empty() {
+        if (test_pos.intersects(POS_LEFTMOST)) && !rels.is_empty() {
             let c = rels[0];
             rels.clear();
             rels.push(c);
         }
-        if (test_pos & POS_RIGHTMOST != 0) && !rels.is_empty() {
+        if (test_pos.intersects(POS_RIGHTMOST)) && !rels.is_empty() {
             let c = *rels.last().unwrap();
             rels.clear();
             rels.push(c);
@@ -1510,7 +1510,7 @@ impl super::GrammarApplicator {
         for iter in rels {
             let mut rvs: u8 = 0;
             let (_, retval) = self.run_single_test(iter, test, &mut rvs, deep, origin);
-            if test_pos & POS_ALL != 0 {
+            if test_pos.intersects(POS_ALL) {
                 if !retval {
                     rv = None;
                     break;

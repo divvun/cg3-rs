@@ -220,7 +220,7 @@ fn engine_external_pipe_protocol() {
 #[test]
 fn engine_inprocess_error_getters_and_dead_helpers() {
     use cg3::arena::ReadingId;
-    use cg3::contextual_test::POS_CAREFUL;
+    use cg3::contextual_test::{POS_CAREFUL, PosFlags};
     use cg3::grammar::Grammar;
     use cg3::grammar_applicator::GrammarApplicator;
     use cg3::grammar_applicator::match_set::{check_options, tag_set_subset_of_t_set};
@@ -246,8 +246,8 @@ fn engine_inprocess_error_getters_and_dead_helpers() {
     // _check_options: CAREFUL demands all readings matched; DEPREL bypasses;
     // otherwise any match suffices.
     let rv = [ReadingId(0), ReadingId(1)];
-    assert!(check_options(&rv, 0, 3), "plain: non-empty rv matches");
-    assert!(!check_options(&[], 0, 3), "plain: empty rv fails");
+    assert!(check_options(&rv, PosFlags::empty(), 3), "plain: non-empty rv matches");
+    assert!(!check_options(&[], PosFlags::empty(), 3), "plain: empty rv fails");
     assert!(!check_options(&rv, POS_CAREFUL, 3), "careful: 2 of 3 fails");
     assert!(check_options(&rv, POS_CAREFUL, 2), "careful: all match");
 

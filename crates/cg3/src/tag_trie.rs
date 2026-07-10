@@ -237,9 +237,9 @@ pub fn trie_markused(trie: &trie_t, grammar: &mut Grammar) {
 /// its own `type` mask. Order-independent for the boolean result, but reads
 /// `Tag::type`, so `grammar` is required. (C++ takes `trie_t&`; the port takes
 /// `&trie_t` since it never mutates.)
-pub fn trie_has_type(trie: &trie_t, type_: u32, grammar: &Grammar) -> bool {
+pub fn trie_has_type(trie: &trie_t, type_: crate::tag::TagType, grammar: &Grammar) -> bool {
     for (k, node) in trie.iter() {
-        if grammar.single_tags_list[k.0].r#type & type_ != 0 {
+        if grammar.single_tags_list[k.0].r#type.intersects(type_) {
             return true;
         }
         if let Some(sub) = &node.trie {
@@ -441,7 +441,7 @@ mod tests {
     /// `number`, and `type`, returning its `TagId`. Building tags directly (rather
     /// than via the parser) keeps the trie tests self-contained while still using
     /// the real `Grammar` arena the trie functions read through.
-    fn mk_tag(g: &mut Grammar, hash: u32, number: u32, type_: u32) -> TagId {
+    fn mk_tag(g: &mut Grammar, hash: u32, number: u32, type_: crate::tag::TagType) -> TagId {
         let mut t = Tag::default();
         t.hash = hash;
         t.number = number;
@@ -462,9 +462,9 @@ mod tests {
     fn insert_singular_has_type_and_tag_list() {
         let mut g = Grammar::default();
         // Distinct ascending hashes so ordering is unambiguous.
-        let a = mk_tag(&mut g, 10, 0, 0);
+        let a = mk_tag(&mut g, 10, 0, crate::tag::TagType::empty());
         let b = mk_tag(&mut g, 20, 1, T_MAPPING);
-        let c = mk_tag(&mut g, 30, 2, 0);
+        let c = mk_tag(&mut g, 30, 2, crate::tag::TagType::empty());
 
         let mut trie = trie_t::new();
         // Insert the 2-tag path [a, b].
@@ -504,9 +504,9 @@ mod tests {
         let mut g = Grammar::default();
         // Root tag `p` has a HIGHER hash than the two leaves so that sorting the
         // shared prefix reorders it to the end and the pop removes the wrong tag.
-        let leaf_lo = mk_tag(&mut g, 5, 0, 0); // low hash leaf
-        let leaf_hi = mk_tag(&mut g, 7, 1, 0); // higher-hash leaf
-        let p = mk_tag(&mut g, 100, 2, 0); // high-hash shared prefix
+        let leaf_lo = mk_tag(&mut g, 5, 0, crate::tag::TagType::empty()); // low hash leaf
+        let leaf_hi = mk_tag(&mut g, 7, 1, crate::tag::TagType::empty()); // higher-hash leaf
+        let p = mk_tag(&mut g, 100, 2, crate::tag::TagType::empty()); // high-hash shared prefix
 
         // Trie shape: p -> { leaf_lo (terminal), leaf_hi (terminal) }.
         let mut trie = trie_t::new();
@@ -549,8 +549,8 @@ mod tests {
     #[test]
     fn rehash_markused_serialize() {
         let mut g = Grammar::default();
-        let a = mk_tag(&mut g, 0x11, 7, 0); // number 7
-        let b = mk_tag(&mut g, 0x22, 9, 0); // number 9
+        let a = mk_tag(&mut g, 0x11, 7, crate::tag::TagType::empty()); // number 7
+        let b = mk_tag(&mut g, 0x22, 9, crate::tag::TagType::empty()); // number 9
 
         let mut trie = trie_t::new();
         // Two single-tag terminal paths: a and b (both top-level terminals).
@@ -564,10 +564,10 @@ mod tests {
         assert_ne!(h1, 0);
 
         // markused sets T_USED on every tag reachable from the trie.
-        assert_eq!(g.single_tags_list[a.0].r#type & T_USED, 0);
+        assert!(!g.single_tags_list[a.0].r#type.intersects(T_USED));
         trie_markused(&trie, &mut g);
-        assert_ne!(g.single_tags_list[a.0].r#type & T_USED, 0);
-        assert_ne!(g.single_tags_list[b.0].r#type & T_USED, 0);
+        assert!(g.single_tags_list[a.0].r#type.intersects(T_USED));
+        assert!(g.single_tags_list[b.0].r#type.intersects(T_USED));
 
         // serialize: two top-level terminal, childless nodes visited in
         // ascending-hash order (a:0x11 then b:0x22). Per node the bytes are
@@ -592,9 +592,9 @@ mod tests {
     #[test]
     fn copy_and_delete() {
         let mut g = Grammar::default();
-        let a = mk_tag(&mut g, 1, 0, 0);
-        let b = mk_tag(&mut g, 2, 1, 0);
-        let c = mk_tag(&mut g, 3, 2, 0);
+        let a = mk_tag(&mut g, 1, 0, crate::tag::TagType::empty());
+        let b = mk_tag(&mut g, 2, 1, crate::tag::TagType::empty());
+        let c = mk_tag(&mut g, 3, 2, crate::tag::TagType::empty());
 
         // Two paths sharing the `a` prefix: [a, b] and [a, c] -> a has a sub-trie
         // with two children (drives trie_copy_helper recursion).
@@ -609,7 +609,7 @@ mod tests {
         assert!(copy.get(&a).unwrap().trie.is_some());
 
         // Mutating the copy's structure must not affect the original.
-        let d = mk_tag(&mut g, 4, 3, 0);
+        let d = mk_tag(&mut g, 4, 3, crate::tag::TagType::empty());
         trie_insert(&mut copy, &vec![a, d], 0);
         assert_eq!(trie_get_tag_list(&copy, &g), vec![a, b, c, d]);
         assert_eq!(trie_get_tag_list(&trie, &g), vec![a, b, c]); // original intact

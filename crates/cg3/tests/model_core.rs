@@ -147,9 +147,8 @@ fn cohort_append_readings() {
     append_reading(&mut store, c, r1);
     // post-push size 1 -> 1*1000+1000 = 2000
     assert_eq!(store.readings.get(r1.0).number, 2000);
-    assert_eq!(
-        store.cohorts.get(c.0).r#type & CT_NUM_CURRENT,
-        0,
+    assert!(
+        !store.cohorts.get(c.0).r#type.intersects(CT_NUM_CURRENT),
         "append clears CT_NUM_CURRENT"
     );
 
@@ -197,7 +196,7 @@ fn cohort_numeric_min_max() {
     store.readings.get_mut(r2.0).tags_numerical.insert(h10, t10);
 
     update_min_max(&mut store, &g, c);
-    assert_ne!(store.cohorts.get(c.0).r#type & CT_NUM_CURRENT, 0);
+    assert!(store.cohorts.get(c.0).r#type.intersects(CT_NUM_CURRENT));
     assert_eq!(get_min(&mut store, &g, c, key), 5.0);
     assert_eq!(get_max(&mut store, &g, c, key), 10.0);
     // Absent key -> sentinel extremes.
@@ -258,7 +257,7 @@ fn cohort_children_relations_related_unignore() {
     let r = allocate_append_reading(&mut store, co);
     store.readings.get_mut(r.0).noprint = true;
     set_related(&mut store, co);
-    assert_ne!(store.cohorts.get(co.0).r#type & CT_RELATED, 0);
+    assert!(store.cohorts.get(co.0).r#type.intersects(CT_RELATED));
     assert!(!store.readings.get(r.0).noprint);
 
     unignore_all(&mut store, co); // empty ignored -> no-op
@@ -677,23 +676,23 @@ fn set_name_hash_reindex_markused_drop() {
     // reindex: numeric tag (T_SPECIAL) in trie_special -> ST_SPECIAL; a
     // T_MAPPING tag in the plain trie -> ST_MAPPING (via trie_reindex).
     let tnum = g.allocate_tag("<n=5>");
-    assert_ne!(g.single_tags_list[tnum.0].r#type & T_SPECIAL, 0);
+    assert!(g.single_tags_list[tnum.0].r#type.intersects(T_SPECIAL));
     g.add_tag_to_set(tnum, s);
     g.single_tags_list.get_mut(tx.0).r#type |= T_MAPPING;
     cg3::set::Set::reindex(&mut g, s);
     let sty = g.sets_list[s.0].r#type;
-    assert_ne!(sty & ST_SPECIAL, 0);
-    assert_ne!(sty & ST_MAPPING, 0);
+    assert!(sty.intersects(ST_SPECIAL));
+    assert!(sty.intersects(ST_MAPPING));
 
     // trie_reindex directly on each trie.
-    assert_eq!(trie_reindex(&g.sets_list[s.0].trie, &g), ST_MAPPING as u8);
-    assert_eq!(trie_reindex(&g.sets_list[s.0].trie_special, &g), ST_SPECIAL as u8);
+    assert_eq!(trie_reindex(&g.sets_list[s.0].trie, &g), ST_MAPPING);
+    assert_eq!(trie_reindex(&g.sets_list[s.0].trie_special, &g), ST_SPECIAL);
 
     // markUsed: the set and every referenced tag.
     cg3::set::Set::mark_used(&mut g, s);
-    assert_ne!(g.sets_list[s.0].r#type & ST_USED, 0);
-    assert_ne!(g.single_tags_list[tx.0].r#type & T_USED, 0);
-    assert_ne!(g.single_tags_list[tnum.0].r#type & T_USED, 0);
+    assert!(g.sets_list[s.0].r#type.intersects(ST_USED));
+    assert!(g.single_tags_list[tx.0].r#type.intersects(T_USED));
+    assert!(g.single_tags_list[tnum.0].r#type.intersects(T_USED));
 
     // ~Set: destroy_set frees the arena slot, dropping the populated Set (the
     // Drop impl runs trie_delete on both tries).
@@ -718,7 +717,7 @@ fn set_name_hash_reindex_markused_drop() {
 fn rule_defaults_name_tests_flags() {
     let mut r = Rule::default();
     assert_eq!(r.r#type, KEYWORDS::K_IGNORE);
-    assert_eq!(r.flags, 0);
+    assert_eq!(r.flags, cg3::rule::RuleFlags::empty());
     assert_eq!(r.section, 0);
     assert!(r.name.is_empty() && r.maplist.is_none() && r.dep_target.is_none());
 
@@ -742,7 +741,7 @@ fn rule_defaults_name_tests_flags() {
     assert_eq!(init_flag_excls(0), RF_NEAREST | RF_ALLOWLOOP);
     assert_eq!(init_flag_excls(1), RF_NEAREST | RF_ALLOWLOOP);
     assert_eq!(init_flag_excls(27), RF_BEFORE | RF_AFTER);
-    assert_eq!(init_flag_excls(23), 0);
+    assert_eq!(init_flag_excls(23), cg3::rule::RuleFlags::empty());
     assert_eq!(FLAGS_EXCLS[28], RF_BEFORE | RF_AFTER, "make_array expansion");
 }
 
@@ -761,26 +760,26 @@ fn tag_parse_raw_and_numeric() {
 
     let wf = g.allocate_tag("\"<word>\"");
     let wt = g.single_tags_list[wf.0].r#type;
-    assert_ne!(wt & T_WORDFORM, 0);
-    assert_ne!(wt & T_TEXTUAL, 0);
+    assert!(wt.intersects(T_WORDFORM));
+    assert!(wt.intersects(T_TEXTUAL));
     let bf = g.allocate_tag("\"base\"");
-    assert_ne!(g.single_tags_list[bf.0].r#type & T_BASEFORM, 0);
+    assert!(g.single_tags_list[bf.0].r#type.intersects(T_BASEFORM));
 
     // Dependency tag (both ASCII and the code path via parse_tag_raw directly).
     let dep = g.allocate_tag("#2->1");
     let d = &g.single_tags_list[dep.0];
-    assert_ne!(d.r#type & T_DEPENDENCY, 0);
+    assert!(d.r#type.intersects(T_DEPENDENCY));
     assert_eq!((d.dep_self, d.dep_parent()), (2, 1));
 
     let mut t = Tag::default();
     parse_tag_raw(&mut t, "ID:5", &mut g);
-    assert_ne!(t.r#type & T_RELATION, 0);
+    assert!(t.r#type.intersects(T_RELATION));
     assert_eq!(t.dep_self, 5);
 
     // R:name:n interns the relation-name tag and caches its hash.
     let mut t = Tag::default();
     parse_tag_raw(&mut t, "R:mark:4", &mut g);
-    assert_ne!(t.r#type & T_RELATION, 0);
+    assert!(t.r#type.intersects(T_RELATION));
     assert_eq!(t.dep_parent(), 4);
     let mark = g.allocate_tag("mark"); // dedups to the tag interned above
     assert_eq!(t.comparison_hash, g.single_tags_list[mark.0].hash);
@@ -791,7 +790,7 @@ fn tag_parse_raw_and_numeric() {
     t.parse_numeric(false);
     assert_eq!(t.comparison_op, C_OPS::OP_GREATEREQUALS);
     assert_eq!(t.comparison_val, 12.0);
-    assert_ne!(t.r#type & T_NUMERICAL, 0);
+    assert!(t.r#type.intersects(T_NUMERICAL));
     assert_eq!(t.comparison_hash, hash_value_ustring("w", 0));
 
     let mut t = Tag::default();
@@ -808,7 +807,7 @@ fn tag_parse_raw_and_numeric() {
     let mut t = Tag::default();
     t.tag = "<w=abc>".to_string();
     t.parse_numeric(false);
-    assert_eq!(t.r#type & T_NUMERICAL, 0, "non-numeric value rejected");
+    assert!(!t.r#type.intersects(T_NUMERICAL), "non-numeric value rejected");
     assert_eq!(t.comparison_op, C_OPS::OP_NOP);
 }
 
@@ -835,10 +834,10 @@ fn tag_ctor_rehash_markused_vs_tostring() {
     t.r#type |= T_CASE_INSENSITIVE;
     let icase_hash = t.rehash();
     assert_ne!(icase_hash, base, "flag markers change the hash");
-    assert_ne!(t.r#type & T_SPECIAL, 0, "rehash re-derives T_SPECIAL");
+    assert!(t.r#type.intersects(T_SPECIAL), "rehash re-derives T_SPECIAL");
 
     t.mark_used();
-    assert_ne!(t.r#type & T_USED, 0);
+    assert!(t.r#type.intersects(T_USED));
 
     t.allocate_vs_names();
     t.vs_names.as_mut().unwrap().push("n1".to_string());
@@ -929,7 +928,8 @@ fn contextual_test_ctor_rehash_equals_copy() {
     let d = ContextualTest::default();
     assert_eq!(d.jump_pos, 0, "JUMP_MARK");
     assert!(d.tmpl.is_none() && d.linked.is_none() && d.ors.is_empty());
-    assert_eq!((d.offset, d.target, d.hash, d.pos), (0, 0, 0, 0));
+    assert_eq!((d.offset, d.target, d.hash), (0, 0, 0));
+    assert!(d.pos.is_empty());
 
     let mut arena: Arena<ContextualTest> = Arena::new();
     let mut ct = ContextualTest::default();

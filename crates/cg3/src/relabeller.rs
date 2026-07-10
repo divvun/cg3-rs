@@ -276,7 +276,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
 
             let from_tag = from_tags[0];
             for toit in &to_tags {
-                if relabels.single_tags_list[toit.0].r#type & T_SPECIAL != 0 {
+                if relabels.single_tags_list[toit.0].r#type.intersects(T_SPECIAL) {
                     // "Warning: Special tags (%S) not supported yet.\n" — warning
                     // only; the rule is still recorded. Diagnostic deferred.
                 }
@@ -385,7 +385,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
             tv.sort_by(|&a, &b| fs.cmp(a, b));
             let mut special = false;
             for &tag in &tv {
-                if self.grammar.single_tags_list[tag.0].r#type & T_SPECIAL != 0 {
+                if self.grammar.single_tags_list[tag.0].r#type.intersects(T_SPECIAL) {
                     special = true;
                     break;
                 }
@@ -484,8 +484,8 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         let r_special = trie_reindex(&trie_special, self.grammar);
         {
             let node = self.grammar.sets_list.get_mut(s.0);
-            node.r#type |= r_trie as u16;
-            node.r#type |= r_special as u16;
+            node.r#type |= r_trie;
+            node.r#type |= r_special;
         }
 
         let sets = self.grammar.sets_list[s.0].sets.clone();
@@ -495,19 +495,19 @@ impl<'g, 'r> Relabeller<'g, 'r> {
             self.reindex_set(set);
             let set_type = self.grammar.sets_list[set.0].r#type;
             let node = self.grammar.sets_list.get_mut(s.0);
-            if set_type & ST_SPECIAL != 0 {
+            if set_type.intersects(ST_SPECIAL) {
                 node.r#type |= ST_SPECIAL;
             }
-            if set_type & (ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) != 0 {
+            if set_type.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) {
                 node.r#type |= ST_CHILD_UNIFY;
             }
-            if set_type & ST_MAPPING != 0 {
+            if set_type.intersects(ST_MAPPING) {
                 node.r#type |= ST_MAPPING;
             }
         }
 
         let node = self.grammar.sets_list.get_mut(s.0);
-        if node.r#type & (ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) != 0 {
+        if node.r#type.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) {
             node.r#type |= ST_SPECIAL;
             node.r#type |= ST_CHILD_UNIFY;
         }

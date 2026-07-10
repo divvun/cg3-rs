@@ -188,7 +188,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
     }
 
     let mut tag = Tag::default();
-    tag.r#type = 0;
+    tag.r#type = crate::tag::TagType::empty();
 
     let to_chars: Vec<char> = to_owned.chars().collect();
 
@@ -275,7 +275,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
         if !jumped_varstring {
             // Textual / suffix detection.
             if tget(tmp_off, 0, &to_chars) != '\0'
-                && (tag.r#type & (T_VARIABLE | T_LOCAL_VARIABLE)) == 0
+                && !tag.r#type.intersects(T_VARIABLE | T_LOCAL_VARIABLE)
                 && (tget(tmp_off, 0, &to_chars) == '"'
                     || tget(tmp_off, 0, &to_chars) == '<'
                     || tget(tmp_off, 0, &to_chars) == '/')
@@ -288,28 +288,28 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
                     if !(last == 'i' || last == 'r' || last == 'v' || last == 'l' || last == 'p') {
                         break;
                     }
-                    if (tag.r#type & T_VARSTRING) == 0 && last == 'v' {
+                    if !tag.r#type.intersects(T_VARSTRING) && last == 'v' {
                         tag.r#type |= T_VARSTRING;
                         length -= 1;
                         continue;
                     }
-                    if (tag.r#type & T_REGEXP) == 0 && last == 'r' {
+                    if !tag.r#type.intersects(T_REGEXP) && last == 'r' {
                         tag.r#type |= T_REGEXP;
                         length -= 1;
                         continue;
                     }
-                    if (tag.r#type & T_CASE_INSENSITIVE) == 0 && last == 'i' {
+                    if !tag.r#type.intersects(T_CASE_INSENSITIVE) && last == 'i' {
                         tag.r#type |= T_CASE_INSENSITIVE;
                         length -= 1;
                         continue;
                     }
-                    if (tag.r#type & T_REGEXP_LINE) == 0 && last == 'l' {
+                    if !tag.r#type.intersects(T_REGEXP_LINE) && last == 'l' {
                         tag.r#type |= T_REGEXP;
                         tag.r#type |= T_REGEXP_LINE;
                         length -= 1;
                         continue;
                     }
-                    if (tag.r#type & T_PRESERVE_ESC) == 0 && last == 'p' {
+                    if !tag.r#type.intersects(T_PRESERVE_ESC) && last == 'p' {
                         tag.r#type |= T_VARSTRING;
                         tag.r#type |= T_PRESERVE_ESC;
                         length -= 1;
@@ -367,7 +367,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
             }
 
             // ToDo: T_REGEXP_LINE `__` substitution.
-            if tag.r#type & T_REGEXP_LINE != 0 {
+            if tag.r#type.intersects(T_REGEXP_LINE) {
                 while let Some(pos) = tag.tag.find("__") {
                     tag.tag.replace_range(pos..pos + 2, "(?:^|$| | .+? )");
                     length += 15 - 2;
@@ -393,7 +393,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
             }
 
             // Variable split.
-            if tag.r#type & (T_VARIABLE | T_LOCAL_VARIABLE) != 0 {
+            if tag.r#type.intersects(T_VARIABLE | T_LOCAL_VARIABLE) {
                 let tag_tag = tag.tag.clone();
                 if let Some(bpos) = tag_tag.find('=') {
                     tag.comparison_op = C_OPS::OP_EQUALS;
@@ -425,9 +425,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
                 let tchars: Vec<char> = tag.tag.chars().collect();
                 if cat(&tchars, 0) == '<'
                     && cat(&tchars, length.wrapping_sub(1)) == '>'
-                    && (tag.r#type
-                        & (T_CASE_INSENSITIVE | T_REGEXP | T_REGEXP_LINE | T_VARSTRING))
-                        == 0
+                    && !tag.r#type.intersects(T_CASE_INSENSITIVE | T_REGEXP | T_REGEXP_LINE | T_VARSTRING)
                 {
                     tag.parse_numeric(true);
                 }
@@ -480,7 +478,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
             }
 
             // Regex compile.
-            if tag.r#type & T_REGEXP != 0 {
+            if tag.r#type.intersects(T_REGEXP) {
                 if tag.tag == STR_RXTEXT_ANY || tag.tag == STR_RXBASE_ANY || tag.tag == STR_RXWORD_ANY {
                     tag.r#type |= T_REGEXP_ANY;
                     tag.r#type &= !T_REGEXP;
@@ -495,7 +493,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
                         s.push('$');
                         s
                     };
-                    let pat = if tag.r#type & T_CASE_INSENSITIVE != 0 {
+                    let pat = if tag.r#type.intersects(T_CASE_INSENSITIVE) {
                         format!("(?i){rt}")
                     } else {
                         rt
@@ -506,7 +504,7 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
                     }
                 }
             }
-            if tag.r#type & (T_CASE_INSENSITIVE | T_REGEXP) != 0 {
+            if tag.r#type.intersects(T_CASE_INSENSITIVE | T_REGEXP) {
                 let tchars: Vec<char> = tag.tag.chars().collect();
                 if cat(&tchars, 0) == '/' && cat(&tchars, length - 1) == '/' {
                     // resize(-1) + erase(begin()) → drop first and last char.
@@ -519,12 +517,12 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
     }
 
     tag.r#type &= !T_SPECIAL;
-    if tag.r#type & MASK_TAG_SPECIAL != 0 {
+    if tag.r#type.intersects(MASK_TAG_SPECIAL) {
         tag.r#type |= T_SPECIAL;
     }
 
-    if tag.r#type & T_VARSTRING != 0
-        && tag.r#type & (T_REGEXP | T_REGEXP_ANY | T_VARIABLE | T_LOCAL_VARIABLE | T_META) != 0
+    if tag.r#type.intersects(T_VARSTRING)
+        && tag.r#type.intersects(T_REGEXP | T_REGEXP_ANY | T_VARIABLE | T_LOCAL_VARIABLE | T_META)
     {
         state.error_near(near); // "cannot mix varstring with any other special feature"
     }
@@ -659,7 +657,7 @@ mod tests {
     fn tag_text(p: &TextualParser, id: TagId) -> String {
         p.grammar.single_tags_list[id.0].tag.clone()
     }
-    fn tag_type(p: &TextualParser, id: TagId) -> u32 {
+    fn tag_type(p: &TextualParser, id: TagId) -> crate::tag::TagType {
         p.grammar.single_tags_list[id.0].r#type
     }
 
@@ -676,7 +674,7 @@ mod tests {
         // Plain tag: text preserved, no textual flags.
         let t = parse_tag("noun", &near, &mut p, true);
         assert_eq!(tag_text(&p, t), "noun");
-        assert_eq!(tag_type(&p, t) & T_TEXTUAL, 0);
+        assert!(!tag_type(&p, t).intersects(T_TEXTUAL));
 
         // Dedup: same source text returns the same interned id.
         let t2 = parse_tag("noun", &near, &mut p, true);
@@ -686,27 +684,27 @@ mod tests {
         let bsrc = "\"lemma\"";
         let bnear: Vec<char> = bsrc.chars().collect();
         let b = parse_tag(bsrc, &bnear, &mut p, true);
-        assert_ne!(tag_type(&p, b) & T_BASEFORM, 0, "quoted lemma is a baseform");
-        assert_ne!(tag_type(&p, b) & T_TEXTUAL, 0);
+        assert!(tag_type(&p, b).intersects(T_BASEFORM), "quoted lemma is a baseform");
+        assert!(tag_type(&p, b).intersects(T_TEXTUAL));
         assert_eq!(tag_text(&p, b), "\"lemma\"");
 
         // Wordform: "\"<word>\"" -> T_WORDFORM | T_TEXTUAL.
         let wsrc = "\"<word>\"";
         let wnear: Vec<char> = wsrc.chars().collect();
         let w = parse_tag(wsrc, &wnear, &mut p, true);
-        assert_ne!(tag_type(&p, w) & T_WORDFORM, 0, "\"<...>\" is a wordform");
-        assert_ne!(tag_type(&p, w) & T_TEXTUAL, 0);
+        assert!(tag_type(&p, w).intersects(T_WORDFORM), "\"<...>\" is a wordform");
+        assert!(tag_type(&p, w).intersects(T_TEXTUAL));
 
         // Failfast prefix `^`: sets T_FAILFAST (and is special).
         let fsrc = "^bad";
         let fnear: Vec<char> = fsrc.chars().collect();
         let f = parse_tag(fsrc, &fnear, &mut p, true);
-        assert_ne!(tag_type(&p, f) & T_FAILFAST, 0, "leading ^ is failfast");
+        assert!(tag_type(&p, f).intersects(T_FAILFAST), "leading ^ is failfast");
 
         // `*` special -> T_ANY.
         let star: Vec<char> = "*".chars().collect();
         let any = parse_tag("*", &star, &mut p, true);
-        assert_ne!(tag_type(&p, any) & T_ANY, 0, "* is T_ANY");
+        assert!(tag_type(&p, any).intersects(T_ANY), "* is T_ANY");
     }
 
     // `parse_set` resolves a set NAME to a SetId. Via the `list_tags` path: when

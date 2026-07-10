@@ -33,13 +33,29 @@ use crate::window::Window;
 
 // Cohort `type` bit flags (C++ anonymous enum, OR'd into the `uint8_t type`
 // field — kept as `u8` constants to match that field's width). No spec def id.
-pub const CT_ENCLOSED: u8 = 1 << 0;
-pub const CT_RELATED: u8 = 1 << 1;
-pub const CT_REMOVED: u8 = 1 << 2;
-pub const CT_NUM_CURRENT: u8 = 1 << 3;
-pub const CT_DEP_DONE: u8 = 1 << 4;
-pub const CT_AP_UNKNOWN: u8 = 1 << 5;
-pub const CT_IGNORED: u8 = 1 << 6;
+bitflags::bitflags! {
+    /// C++ `enum` of `CT_*` cohort-type bit flags over `uint8_t` (wave 4:
+    /// a typed `bitflags` set instead of a bare `u8`).
+    #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+    pub struct CohortType: u8 {
+        const ENCLOSED = 1 << 0;
+        const RELATED = 1 << 1;
+        const REMOVED = 1 << 2;
+        const NUM_CURRENT = 1 << 3;
+        const DEP_DONE = 1 << 4;
+        const AP_UNKNOWN = 1 << 5;
+        const IGNORED = 1 << 6;
+    }
+}
+
+// The C++ constant names, kept so call sites read like the source.
+pub const CT_ENCLOSED: CohortType = CohortType::ENCLOSED;
+pub const CT_RELATED: CohortType = CohortType::RELATED;
+pub const CT_REMOVED: CohortType = CohortType::REMOVED;
+pub const CT_NUM_CURRENT: CohortType = CohortType::NUM_CURRENT;
+pub const CT_DEP_DONE: CohortType = CohortType::DEP_DONE;
+pub const CT_AP_UNKNOWN: CohortType = CohortType::AP_UNKNOWN;
+pub const CT_IGNORED: CohortType = CohortType::IGNORED;
 
 /// C++ `constexpr auto DEP_NO_PARENT = std::numeric_limits<uint32_t>::max()`.
 pub const DEP_NO_PARENT: u32 = u32::MAX;
@@ -90,7 +106,7 @@ pub type uint32ToCohortsMap = HashMap<u32, CohortSet>;
 /// A cohort: one surface token with its competing [`Reading`](crate::reading::Reading)s.
 pub struct Cohort {
     /// C++ `uint8_t type` (Rust keyword → `r#type`); holds the `CT_*` bit flags.
-    pub r#type: u8,
+    pub r#type: CohortType,
     // ToDo (C++): Get rid of global_number in favour of Cohort* relations
     pub global_number: u32,
     pub local_number: u32,
@@ -132,7 +148,7 @@ impl Default for Cohort {
     /// constructor additionally sets `parent = p`; that wiring is a later pass.
     fn default() -> Self {
         Cohort {
-            r#type: 0,
+            r#type: CohortType::empty(),
             global_number: 0,
             local_number: 0,
             enclosed: 0,
@@ -311,7 +327,7 @@ pub fn cohort_clear(store: &mut RuntimeStore, window: Option<&mut Window>, this:
 
     {
         let c = store.cohorts.get_mut(this.0);
-        c.r#type = 0;
+        c.r#type = CohortType::empty();
         c.global_number = 0;
         c.local_number = 0;
         c.enclosed = 0;
@@ -461,7 +477,7 @@ pub fn allocate_append_reading_copy(store: &mut RuntimeStore, this: CohortId, r:
 /// simply inserted, never default-read). Sets `CT_NUM_CURRENT` at the end.
 pub fn update_min_max(store: &mut RuntimeStore, grammar: &Grammar, this: CohortId) {
     let RuntimeStore { cohorts, readings, .. } = store;
-    if cohorts.get(this.0).r#type & CT_NUM_CURRENT != 0 {
+    if cohorts.get(this.0).r#type.intersects(CT_NUM_CURRENT) {
         return;
     }
     {

@@ -629,13 +629,13 @@ impl Grammar {
     pub fn add_tag_to_set(&mut self, rtag: TagId, set: SetId) {
         let rtype = self.single_tags_list[rtag.0].r#type;
         let s = self.sets_list.get_mut(set.0);
-        if rtype & T_ANY != 0 {
+        if rtype.intersects(T_ANY) {
             s.r#type |= ST_ANY;
         }
-        if rtype & T_FAILFAST != 0 {
+        if rtype.intersects(T_FAILFAST) {
             s.ff_tags.insert(rtag);
         }
-        if rtype & T_SPECIAL != 0 {
+        if rtype.intersects(T_SPECIAL) {
             s.r#type |= ST_SPECIAL;
             s.trie_special.entry(rtag).or_default().terminal = true;
         } else {
@@ -784,7 +784,7 @@ impl Grammar {
         // (3) SET→LIST folding.
         let to_sets = self.sets_list[to.0].sets.clone();
         let to_type = self.sets_list[to.0].r#type;
-        if !to_sets.is_empty() && (to_type & (ST_TAG_UNIFY | ST_CHILD_UNIFY | ST_SET_UNIFY)) == 0 {
+        if !to_sets.is_empty() && !to_type.intersects(ST_TAG_UNIFY | ST_CHILD_UNIFY | ST_SET_UNIFY) {
             let to_set_ops = self.sets_list[to.0].set_ops.clone();
             let mut all_tags = true;
             for i in 0..to_sets.len() {
@@ -835,7 +835,7 @@ impl Grammar {
                     } else {
                         let mut special = false;
                         for &tag in &tv {
-                            if self.single_tags_list[tag.0].r#type & T_SPECIAL != 0 {
+                            if self.single_tags_list[tag.0].r#type.intersects(T_SPECIAL) {
                                 special = true;
                                 break;
                             }
@@ -1156,7 +1156,7 @@ impl Grammar {
     /// flatten both tries (every key at every depth, incl. non-terminals).
     pub fn get_tag_list_any(&self, set: SetId, the_tags: &mut TagList) {
         let ty = self.sets_list[set.0].r#type;
-        if ty & (ST_SET_UNIFY | ST_TAG_UNIFY) != 0 {
+        if ty.intersects(ST_SET_UNIFY | ST_TAG_UNIFY) {
             the_tags.clear();
             // single_tags.find(tag_any)->second — null-deref crash if absent.
             let tid = {
@@ -1273,7 +1273,7 @@ impl Grammar {
                 for (tagvec, special) in &ntags {
                     if *special {
                         if tagvec.len() == 1
-                            && self.single_tags_list[tagvec[0].0].r#type & T_FAILFAST != 0
+                            && self.single_tags_list[tagvec[0].0].r#type.intersects(T_FAILFAST)
                         {
                             self.sets_list.get_mut(ns_id.0).ff_tags.insert(tagvec[0]);
                         } else {
@@ -1341,7 +1341,7 @@ impl Grammar {
     /// child (unlike `indexSets`, it does NOT stop for special sets).
     pub fn index_set_to_rule(&mut self, r: u32, s: SetId) {
         let ty = self.sets_list[s.0].r#type;
-        if ty & (ST_SPECIAL | ST_TAG_UNIFY) != 0 {
+        if ty.intersects(ST_SPECIAL | ST_TAG_UNIFY) {
             let ta = self.tag_any;
             self.index_tag_to_rule(ta, r);
         }
@@ -1364,7 +1364,7 @@ impl Grammar {
     /// descent — the key difference from `indexSetToRule`).
     pub fn index_sets(&mut self, r: u32, s: SetId) {
         let ty = self.sets_list[s.0].r#type;
-        if ty & (ST_SPECIAL | ST_TAG_UNIFY) != 0 {
+        if ty.intersects(ST_SPECIAL | ST_TAG_UNIFY) {
             let ta = self.tag_any;
             self.index_tag_to_set(ta, r);
             return;
@@ -1387,7 +1387,7 @@ impl Grammar {
     /// per set (`ST_USED` is the visited marker, cleared on entry). No presence
     /// check on the content-hash lookup (C++ UB → HashMap index panic).
     pub fn set_adjust_sets(&mut self, s: SetId) {
-        if self.sets_list[s.0].r#type & ST_USED == 0 {
+        if !self.sets_list[s.0].r#type.intersects(ST_USED) {
             return;
         }
         self.sets_list.get_mut(s.0).r#type &= !ST_USED;
@@ -1496,7 +1496,7 @@ impl Grammar {
                 s.r#type |= ST_USED;
                 continue;
             }
-            if s.r#type & ST_STATIC == 0 {
+            if !s.r#type.intersects(ST_STATIC) {
                 s.r#type &= !ST_USED;
             }
             s.number = 0;
@@ -1555,7 +1555,7 @@ impl Grammar {
                 (
                     t.regexp.is_some(),
                     is_textual(&t.tag),
-                    t.r#type & T_CASE_INSENSITIVE != 0,
+                    t.r#type.intersects(T_CASE_INSENSITIVE),
                     t.vs_sets.clone(),
                 )
             };
@@ -1580,7 +1580,7 @@ impl Grammar {
         let regex_tag_ids: Vec<TagId> = self.regex_tags.iter().copied().collect();
         let icase_tag_ids: Vec<TagId> = self.icase_tags.iter().copied().collect();
         for tid in &all_tag_ids {
-            if self.single_tags_list[tid.0].r#type & T_TEXTUAL != 0 {
+            if self.single_tags_list[tid.0].r#type.intersects(T_TEXTUAL) {
                 continue;
             }
             let ttext = self.single_tags_list[tid.0].tag.clone();
@@ -1728,7 +1728,7 @@ impl Grammar {
         // (10) Build sets_list (depth-first numbering) for used sets.
         let content_sets: Vec<SetId> = self.sets_by_contents.values().copied().collect();
         for sid in content_sets {
-            if self.sets_list[sid.0].r#type & ST_USED != 0 {
+            if self.sets_list[sid.0].r#type.intersects(ST_USED) {
                 self.add_set_to_list(sid);
             }
         }
@@ -1812,12 +1812,12 @@ impl Grammar {
             };
             let mut cap = false;
             if let Some(m) = maplist {
-                if self.sets_list[m.0].r#type & ST_CHILD_UNIFY != 0 {
+                if self.sets_list[m.0].r#type.intersects(ST_CHILD_UNIFY) {
                     cap = true;
                 }
             }
             if let Some(sl) = sublist {
-                if self.sets_list[sl.0].r#type & ST_CHILD_UNIFY != 0 {
+                if self.sets_list[sl.0].r#type.intersects(ST_CHILD_UNIFY) {
                     cap = true;
                 }
             }
@@ -1871,7 +1871,7 @@ impl Grammar {
 
         // (17) Re-register static-set names by NUMBER.
         for &to in &sl_ids {
-            if self.sets_list[to.0].r#type & ST_STATIC != 0 {
+            if self.sets_list[to.0].r#type.intersects(ST_STATIC) {
                 let nm = self.sets_list[to.0].name.clone();
                 let nhash = hash_value_ustring(&nm, 0);
                 let cnum = self.sets_list[to.0].number;
@@ -1969,7 +1969,7 @@ impl Grammar {
                         continue;
                     }
                 }
-                if target != 0 && self.set_by_number(target).r#type & MASK_ST_UNIFY != 0 {
+                if target != 0 && self.set_by_number(target).r#type.intersects(MASK_ST_UNIFY) {
                     if nk.insert(t) {
                         did = true;
                     }
@@ -1981,7 +1981,7 @@ impl Grammar {
                     }
                     continue;
                 }
-                if barrier != 0 && self.set_by_number(barrier).r#type & MASK_ST_UNIFY != 0 {
+                if barrier != 0 && self.set_by_number(barrier).r#type.intersects(MASK_ST_UNIFY) {
                     if nk.insert(t) {
                         did = true;
                     }
@@ -1993,7 +1993,7 @@ impl Grammar {
                     }
                     continue;
                 }
-                if cbarrier != 0 && self.set_by_number(cbarrier).r#type & MASK_ST_UNIFY != 0 {
+                if cbarrier != 0 && self.set_by_number(cbarrier).r#type.intersects(MASK_ST_UNIFY) {
                     if nk.insert(t) {
                         did = true;
                     }
@@ -2021,7 +2021,7 @@ impl Grammar {
                     r.dep_tests.clone(),
                 )
             };
-            if flags & RF_KEEPORDER != 0 {
+            if flags.intersects(RF_KEEPORDER) {
                 continue;
             }
             let mut needs = false;

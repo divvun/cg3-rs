@@ -167,10 +167,10 @@ impl FSTApplicator {
             }
             let tid = tag_by_hash(&self.base.grammar, tter);
             let tag = &self.base.grammar.single_tags_list[tid.0];
-            if tag.r#type & T_DEPENDENCY != 0 && self.base.has_dep && !self.base.dep_original {
+            if tag.r#type.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.dep_original {
                 continue;
             }
-            if tag.r#type & T_RELATION != 0 && self.base.has_relations {
+            if tag.r#type.intersects(T_RELATION) && self.base.has_relations {
                 continue;
             }
             let _ = write!(output, "+{}", tag.tag);
@@ -195,7 +195,7 @@ impl FSTApplicator {
             (c.local_number, c.r#type)
         };
         // if (local_number == 0 || (type & CT_REMOVED)) goto removed;
-        let goto_removed = local_number == 0 || (ctype & CT_REMOVED != 0);
+        let goto_removed = local_number == 0 || (ctype.intersects(CT_REMOVED));
 
         if !goto_removed {
             let wblank = store.cohorts.get(cohort.0).wblank.clone();
@@ -432,7 +432,7 @@ impl FSTApplicator {
                         let gn = self.base.gWindow.cohort_counter;
                         self.base.gWindow.cohort_counter =
                             self.base.gWindow.cohort_counter.wrapping_add(1);
-                        let wf = self.base.add_tag(&tag, 0);
+                        let wf = self.base.add_tag(&tag, crate::tag::TagType::empty());
                         {
                             let c = self.base.store.cohorts.get_mut(cc.0);
                             c.global_number = gn;
@@ -534,7 +534,7 @@ impl FSTApplicator {
                             wtag_buf.push(':');
                             wtag_buf.push_str(&formatted);
                             wtag_buf.push('>');
-                            wtag_tag = Some(self.base.add_tag(&wtag_buf, 0));
+                            wtag_tag = Some(self.base.add_tag(&wtag_buf, crate::tag::TagType::empty()));
                         }
 
                         // Initial baseform, because it may end on '+'.
@@ -640,12 +640,12 @@ impl FSTApplicator {
                                     Some(s) => s.clone(),
                                     None => cleaned_cstr(&cleaned, base_idx),
                                 };
-                                let t = self.base.add_tag(&base_text, 0);
+                                let t = self.base.add_tag(&base_text, crate::tag::TagType::empty());
                                 let (ttype, tfirst) = {
                                     let tg = self.base.grammar.single_tags_list.get(t.0);
                                     (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
                                 };
-                                if ttype & T_MAPPING != 0
+                                if ttype.intersects(T_MAPPING)
                                     || tfirst == self.base.grammar.mapping_prefix
                                 {
                                     mappings.push(t);
@@ -698,12 +698,12 @@ impl FSTApplicator {
                                 Some(s) => s.clone(),
                                 None => cleaned_cstr(&cleaned, base_idx),
                             };
-                            let t = self.base.add_tag(&base_text, 0);
+                            let t = self.base.add_tag(&base_text, crate::tag::TagType::empty());
                             let (ttype, tfirst) = {
                                 let tg = self.base.grammar.single_tags_list.get(t.0);
                                 (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
                             };
-                            if ttype & T_MAPPING != 0 || tfirst == self.base.grammar.mapping_prefix {
+                            if ttype.intersects(T_MAPPING) || tfirst == self.base.grammar.mapping_prefix {
                                 mappings.push(t);
                             } else {
                                 self.base.add_tag_to_reading(c_reading, t);

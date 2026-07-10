@@ -185,7 +185,7 @@ impl GrammarApplicator {
                 continue;
             }
             let tid = tag_by_hash(&self.grammar, tter);
-            if self.grammar.single_tags_list[tid.0].r#type & T_WORDFORM != 0 {
+            if self.grammar.single_tags_list[tid.0].r#type.intersects(T_WORDFORM) {
                 return Some(tid);
             }
         }
@@ -290,7 +290,7 @@ impl GrammarApplicator {
                             return cos;
                         }
                     }
-                    let wf_id = self.add_tag(&wf, 0);
+                    let wf_id = self.add_tag(&wf, crate::tag::TagType::empty());
                     store.cohorts.get_mut(c.0).wordform = Some(wf_id);
 
                     // Blank/text handling.

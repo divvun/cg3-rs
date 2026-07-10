@@ -116,7 +116,7 @@ pub struct dSMC_Context {
     pub deep: Option<*mut Option<CohortId>>,
     /// C++ `Cohort* origin`.
     pub origin: Option<CohortId>,
-    pub options: u64,
+    pub options: crate::contextual_test::PosFlags,
     pub did_test: bool,
     pub matched_target: bool,
     pub matched_tests: bool,

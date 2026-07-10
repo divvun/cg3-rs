@@ -259,7 +259,7 @@ impl MatxinApplicator {
         }
         base.push('"');
 
-        let tag = self.base.add_tag(&base, 0);
+        let tag = self.base.add_tag(&base, crate::tag::TagType::empty());
 
         if unknown {
             let h = self.base.grammar.single_tags_list.get(tag.0).hash;
@@ -305,7 +305,7 @@ impl MatxinApplicator {
                             bf.push_str(&tmptag);
                         }
                         bf.push('"');
-                        let t = self.base.add_tag(&bf, 0);
+                        let t = self.base.add_tag(&bf, crate::tag::TagType::empty());
                         taglist.push(t);
                         tmptag.clear();
                         joiner = false;
@@ -320,7 +320,7 @@ impl MatxinApplicator {
                         continue;
                     }
                     intag = false;
-                    let t = self.base.add_tag(&tmptag, 0);
+                    let t = self.base.add_tag(&tmptag, crate::tag::TagType::empty());
                     taglist.push(t);
                     tmptag.clear();
                     joiner = false;
@@ -343,7 +343,7 @@ impl MatxinApplicator {
             while ri > 0 {
                 ri -= 1;
                 let riter = taglist[ri];
-                if self.base.grammar.single_tags_list.get(riter.0).r#type & T_BASEFORM != 0 {
+                if self.base.grammar.single_tags_list.get(riter.0).r#type.intersects(T_BASEFORM) {
                     if self.base.store.readings.get(reading.0).baseform != 0 {
                         // Sub-reading — NOTE: Matxin does NOT re-add the wordform.
                         let parent = self.base.store.readings.get(reading.0).parent;
@@ -356,7 +356,7 @@ impl MatxinApplicator {
                     for k in ri..taglist.len() {
                         let iter = taglist[k];
                         let t = self.base.grammar.single_tags_list.get(iter.0);
-                        let is_mapping = t.r#type & T_MAPPING != 0
+                        let is_mapping = t.r#type.intersects(T_MAPPING)
                             || t.tag.chars().next() == Some(mprefix);
                         if is_mapping {
                             mappings.push(iter);
@@ -369,7 +369,7 @@ impl MatxinApplicator {
                         self.base.split_mappings(&mut mappings, parent, reading, true);
                     }
                     while let Some(&last) = taglist.last() {
-                        if self.base.grammar.single_tags_list.get(last.0).r#type & T_BASEFORM != 0 {
+                        if self.base.grammar.single_tags_list.get(last.0).r#type.intersects(T_BASEFORM) {
                             break;
                         }
                         taglist.pop();
@@ -419,7 +419,7 @@ impl MatxinApplicator {
             let tag = self.base.grammar.single_tags_list.get(tag_by_hash(&self.base.grammar, tter).0);
             if tag.tag.chars().next() == Some('+') {
                 multi = true;
-            } else if tag.r#type & T_MAPPING != 0 {
+            } else if tag.r#type.intersects(T_MAPPING) {
                 multi = false;
             }
             if multi {
@@ -445,7 +445,7 @@ impl MatxinApplicator {
                 continue;
             }
             let tag = self.base.grammar.single_tags_list.get(tag_by_hash(&self.base.grammar, tter).0);
-            if tag.r#type & T_BASEFORM == 0 && tag.r#type & T_WORDFORM == 0 {
+            if !tag.r#type.intersects(T_BASEFORM) && !tag.r#type.intersects(T_WORDFORM) {
                 let firstc = tag.tag.chars().next();
                 if firstc == Some('+') {
                     let _ = write!(output, "{}", tag.tag);
@@ -477,7 +477,7 @@ impl MatxinApplicator {
                 let c = self.base.store.cohorts.get(cohort.0);
                 (c.local_number, c.r#type)
             };
-            if local_number == 0 || (ctype & CT_REMOVED != 0) {
+            if local_number == 0 || (ctype.intersects(CT_REMOVED)) {
                 continue;
             }
 
@@ -665,11 +665,11 @@ impl MatxinApplicator {
         let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
 
         self.base.begintag = {
-            let t = self.base.add_tag(STR_BEGINTAG, 0);
+            let t = self.base.add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
             self.base.grammar.single_tags_list.get(t.0).hash
         };
         self.base.endtag = {
-            let t = self.base.add_tag(STR_ENDTAG, 0);
+            let t = self.base.add_tag(STR_ENDTAG, crate::tag::TagType::empty());
             self.base.grammar.single_tags_list.get(t.0).hash
         };
 
@@ -838,7 +838,7 @@ impl MatxinApplicator {
                 }
             }
             wordform.push_str(">\"");
-            let wf_tid = self.base.add_tag(&wordform, 0);
+            let wf_tid = self.base.add_tag(&wordform, crate::tag::TagType::empty());
             self.base.store.cohorts.get_mut(cc.0).wordform = Some(wf_tid);
             self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
 
@@ -861,7 +861,7 @@ impl MatxinApplicator {
                         continue;
                     }
                     if inchar == '>' {
-                        let t = self.base.add_tag(&tagbuf, 0);
+                        let t = self.base.add_tag(&tagbuf, crate::tag::TagType::empty());
                         self.base.add_tag_to_reading(wread, t);
                         tagbuf.clear();
                         continue;

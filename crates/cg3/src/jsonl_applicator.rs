@@ -63,7 +63,7 @@ const STR_CMD_RESUME: &str = "<STREAMCMD:RESUME>";
 const STR_CMD_SETVAR: &str = "<STREAMCMD:SETVAR:";
 const STR_CMD_REMVAR: &str = "<STREAMCMD:REMVAR:";
 
-const CT_REMOVED: u8 = crate::cohort::CT_REMOVED;
+const CT_REMOVED: crate::cohort::CohortType = crate::cohort::CT_REMOVED;
 const DEP_NO_PARENT: u32 = crate::cohort::DEP_NO_PARENT;
 
 // [spec:cg3:def:jsonl-applicator.cg3.ustring-to-utf8-fn]
@@ -159,10 +159,10 @@ impl<'a> JsonlApplicator<'a> {
                 (t.r#type, t.tag.clone())
             };
 
-            if ttype & T_DEPENDENCY != 0 && self.base.has_dep && !self.base.dep_original {
+            if ttype.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.dep_original {
                 continue;
             }
-            if ttype & T_RELATION != 0 && self.base.has_relations {
+            if ttype.intersects(T_RELATION) && self.base.has_relations {
                 continue;
             }
 
@@ -265,7 +265,7 @@ impl<'a> JsonlApplicator<'a> {
                 base_tag.push('"');
                 base_tag.push_str(&base_str);
                 base_tag.push('"');
-                let tid = self.base.add_tag(&base_tag, 0);
+                let tid = self.base.add_tag(&base_tag, crate::tag::TagType::empty());
                 self.base.add_tag_to_reading(c_reading, tid);
             } else {
                 tracing::warn!("Warning: Empty 'l' (baseform) in reading on line {}.",
@@ -283,12 +283,12 @@ impl<'a> JsonlApplicator<'a> {
             for tag_val in tags_arr {
                 let tag_str = json_to_ustring(tag_val);
                 if !tag_str.is_empty() {
-                    let tag = self.base.add_tag(&tag_str, 0);
+                    let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty());
                     let (ttype, first_char) = {
                         let t = self.base.grammar.single_tags_list.get(tag.0);
                         (t.r#type, tag_str.chars().next().unwrap_or('\0'))
                     };
-                    if ttype & T_MAPPING != 0 || (!tag_str.is_empty() && first_char == mapping_prefix)
+                    if ttype.intersects(T_MAPPING) || (!tag_str.is_empty() && first_char == mapping_prefix)
                     {
                         mappings.push(tag);
                     } else {
@@ -357,7 +357,7 @@ impl<'a> JsonlApplicator<'a> {
         wform_tag.push_str("\"<");
         wform_tag.push_str(&wform_str);
         wform_tag.push_str(">\"");
-        let wf = self.base.add_tag(&wform_tag, 0);
+        let wf = self.base.add_tag(&wform_tag, crate::tag::TagType::empty());
         self.base.store.cohorts.get_mut(c_cohort.0).wordform = Some(wf);
 
         // Text ("z").
@@ -379,7 +379,7 @@ impl<'a> JsonlApplicator<'a> {
             for tag_val in sts {
                 let tag_str = json_to_ustring(tag_val);
                 if !tag_str.is_empty() {
-                    let tag = self.base.add_tag(&tag_str, 0);
+                    let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty());
                     let hash = self.base.grammar.single_tags_list.get(tag.0).hash;
                     // Pushed directly to the list, NOT via addTagToReading.
                     self.base.store.readings.get_mut(wread.0).tags_list.push(hash);
@@ -491,7 +491,7 @@ impl<'a> JsonlApplicator<'a> {
             let c = self.base.store.cohorts.get(cohort.0);
             (c.local_number, c.r#type)
         };
-        if local_number == 0 || (ctype & CT_REMOVED != 0) {
+        if local_number == 0 || (ctype.intersects(CT_REMOVED)) {
             return;
         }
 
@@ -585,7 +585,7 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         // Dependency ("ds" / "dp").
-        if self.base.has_dep && (ctype & CT_REMOVED == 0) {
+        if self.base.has_dep && (!ctype.intersects(CT_REMOVED)) {
             let (dep_self, global_number, dep_parent) = {
                 let c = self.base.store.cohorts.get(cohort.0);
                 (c.dep_self, c.global_number, c.dep_parent)
@@ -901,11 +901,11 @@ impl<'a> JsonlApplicator<'a> {
                         if let Some(eq) = payload.find('=') {
                             let key_str = &payload[..eq];
                             let value_str = &payload[eq + '='.len_utf8()..];
-                            key_tag = self.base.add_tag(key_str, 0);
-                            let vt = self.base.add_tag(value_str, 0);
+                            key_tag = self.base.add_tag(key_str, crate::tag::TagType::empty());
+                            let vt = self.base.add_tag(value_str, crate::tag::TagType::empty());
                             value_hash = self.base.grammar.single_tags_list.get(vt.0).hash;
                         } else {
-                            key_tag = self.base.add_tag(&payload, 0);
+                            key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty());
                             value_hash = self.base.grammar.tag_any;
                         }
                         let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash;
@@ -915,7 +915,7 @@ impl<'a> JsonlApplicator<'a> {
                         variables_output.insert(key_hash);
                     } else if cmd_ustr.starts_with(STR_CMD_REMVAR) {
                         let payload = substr_strip_prefix_and_last(&cmd_ustr, STR_CMD_REMVAR);
-                        let key_tag = self.base.add_tag(&payload, 0);
+                        let key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty());
                         let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash;
                         variables_set.erase(key_hash);
                         variables_rem.insert(key_hash);

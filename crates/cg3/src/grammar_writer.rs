@@ -287,7 +287,7 @@ impl GrammarWriter {
         let sets_empty = grammar.sets_list[id.0].sets.is_empty();
         if sets_empty {
             self.used_sets.insert(number);
-            if grammar.sets_list[id.0].r#type & ST_ORDERED != 0 {
+            if grammar.sets_list[id.0].r#type.intersects(ST_ORDERED) {
                 w!(output, "O");
             }
             w!(output, "LIST {} = ", grammar.sets_list[id.0].name);
@@ -324,7 +324,7 @@ impl GrammarWriter {
             if (n0 == b'$' && n1 == b'$') || (n0 == b'&' && n1 == b'&') {
                 w!(output, "# ");
             }
-            if grammar.sets_list[id.0].r#type & ST_ORDERED != 0 {
+            if grammar.sets_list[id.0].r#type.intersects(ST_ORDERED) {
                 w!(output, "O");
             }
             w!(output, "SET {} = ", name);
@@ -567,7 +567,7 @@ impl GrammarWriter {
             if i == FL_BEFORE || i == FL_AFTER || i == FL_WITHCHILD {
                 continue;
             }
-            if rule.flags & (1u64 << i) != 0 {
+            if rule.flags.intersects(crate::rule::RuleFlags::from_bits_retain(1u64 << i)) {
                 if i == FL_SUB {
                     w!(to, "{}:{} ", G_FLAGS[i], rule.sub_reading);
                 } else {
@@ -576,7 +576,7 @@ impl GrammarWriter {
             }
         }
 
-        if rule.flags & RF_WITHCHILD != 0 {
+        if rule.flags.intersects(RF_WITHCHILD) {
             w!(to, "WITHCHILD {} ", grammar.set_by_number(rule.childset1).name);
         }
 
@@ -608,10 +608,10 @@ impl GrammarWriter {
             || rule.r#type == KEYWORDS::K_COPY
             || rule.r#type == KEYWORDS::K_COPYCOHORT
         {
-            if rule.flags & RF_BEFORE != 0 {
+            if rule.flags.intersects(RF_BEFORE) {
                 w!(to, "BEFORE ");
             }
-            if rule.flags & RF_AFTER != 0 {
+            if rule.flags.intersects(RF_AFTER) {
                 w!(to, "AFTER ");
             }
             if rule.childset1 != 0 {
@@ -696,65 +696,64 @@ impl GrammarWriter {
         to: &mut W,
         test: &ContextualTest,
     ) {
-        if test.pos & POS_NEGATE != 0 {
+        if test.pos.intersects(POS_NEGATE) {
             w!(to, "NEGATE ");
         }
-        if (test.pos & POS_TMPL_OVERRIDE != 0) || (test.tmpl.is_none() && test.ors.is_empty()) {
-            if test.pos & POS_ALL != 0 {
+        if (test.pos.intersects(POS_TMPL_OVERRIDE)) || (test.tmpl.is_none() && test.ors.is_empty()) {
+            if test.pos.intersects(POS_ALL) {
                 w!(to, "ALL ");
             }
-            if test.pos & POS_NONE != 0 {
+            if test.pos.intersects(POS_NONE) {
                 w!(to, "NONE ");
             }
-            if test.pos & POS_NOT != 0 {
+            if test.pos.intersects(POS_NOT) {
                 w!(to, "NOT ");
             }
-            if test.pos & POS_ABSOLUTE != 0 {
+            if test.pos.intersects(POS_ABSOLUTE) {
                 w!(to, "@");
             }
-            if test.pos & POS_SCANALL != 0 {
+            if test.pos.intersects(POS_SCANALL) {
                 w!(to, "**");
-            } else if test.pos & (POS_SCANFIRST | POS_DEP_DEEP) != 0 {
+            } else if test.pos.intersects(POS_SCANFIRST | POS_DEP_DEEP) {
                 w!(to, "*");
             }
 
-            if test.pos & POS_LEFTMOST != 0 {
+            if test.pos.intersects(POS_LEFTMOST) {
                 w!(to, "ll");
             }
-            if test.pos & POS_LEFT != 0 {
+            if test.pos.intersects(POS_LEFT) {
                 w!(to, "l");
             }
-            if test.pos & POS_RIGHTMOST != 0 {
+            if test.pos.intersects(POS_RIGHTMOST) {
                 w!(to, "rr");
             }
-            if test.pos & POS_RIGHT != 0 {
+            if test.pos.intersects(POS_RIGHT) {
                 w!(to, "r");
             }
-            if test.pos & POS_DEP_CHILD != 0 {
+            if test.pos.intersects(POS_DEP_CHILD) {
                 w!(to, "c");
             }
-            if test.pos & POS_DEP_PARENT != 0 {
-                if test.pos & POS_DEP_GLOB != 0 {
+            if test.pos.intersects(POS_DEP_PARENT) {
+                if test.pos.intersects(POS_DEP_GLOB) {
                     w!(to, "p");
                 }
                 w!(to, "p");
-            } else if test.pos & POS_DEP_GLOB != 0 {
+            } else if test.pos.intersects(POS_DEP_GLOB) {
                 w!(to, "cc");
             }
-            if test.pos & POS_DEP_SIBLING != 0 {
+            if test.pos.intersects(POS_DEP_SIBLING) {
                 w!(to, "s");
             }
-            if test.pos & POS_SELF != 0 {
+            if test.pos.intersects(POS_SELF) {
                 w!(to, "S");
             }
-            if test.pos & POS_NO_BARRIER != 0 {
+            if test.pos.intersects(POS_NO_BARRIER) {
                 w!(to, "N");
             }
 
-            if test.pos & POS_UNKNOWN != 0 {
+            if test.pos.intersects(POS_UNKNOWN) {
                 w!(to, "?");
-            } else if test.pos
-                & (POS_DEP_CHILD
+            } else if !test.pos.intersects(POS_DEP_CHILD
                     | POS_DEP_SIBLING
                     | POS_DEP_PARENT
                     | POS_DEP_GLOB
@@ -762,39 +761,38 @@ impl GrammarWriter {
                     | POS_RIGHT_PAR
                     | POS_RELATION
                     | POS_BAG_OF_TAGS)
-                == 0
             {
                 w!(to, "{}", test.offset);
             }
 
-            if test.pos & POS_CAREFUL != 0 {
+            if test.pos.intersects(POS_CAREFUL) {
                 w!(to, "C");
             }
-            if test.pos & POS_SPAN_BOTH != 0 {
+            if test.pos.intersects(POS_SPAN_BOTH) {
                 w!(to, "W");
             }
-            if test.pos & POS_SPAN_LEFT != 0 {
+            if test.pos.intersects(POS_SPAN_LEFT) {
                 w!(to, "<");
             }
-            if test.pos & POS_SPAN_RIGHT != 0 {
+            if test.pos.intersects(POS_SPAN_RIGHT) {
                 w!(to, ">");
             }
-            if test.pos & POS_PASS_ORIGIN != 0 {
+            if test.pos.intersects(POS_PASS_ORIGIN) {
                 w!(to, "o");
             }
-            if test.pos & POS_NO_PASS_ORIGIN != 0 {
+            if test.pos.intersects(POS_NO_PASS_ORIGIN) {
                 w!(to, "O");
             }
-            if test.pos & POS_LEFT_PAR != 0 {
+            if test.pos.intersects(POS_LEFT_PAR) {
                 w!(to, "L");
             }
-            if test.pos & POS_RIGHT_PAR != 0 {
+            if test.pos.intersects(POS_RIGHT_PAR) {
                 w!(to, "R");
             }
-            if test.pos & POS_MARK_SET != 0 {
+            if test.pos.intersects(POS_MARK_SET) {
                 w!(to, "X");
             }
-            if test.pos & POS_JUMP != 0 {
+            if test.pos.intersects(POS_JUMP) {
                 if test.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
                     w!(to, "x");
                 } else if test.jump_pos == POS_JUMP_POS::JUMP_ATTACH as i8 {
@@ -805,31 +803,31 @@ impl GrammarWriter {
                     w!(to, "jC{}", test.jump_pos);
                 }
             }
-            if test.pos & POS_LOOK_DELETED != 0 {
+            if test.pos.intersects(POS_LOOK_DELETED) {
                 w!(to, "D");
             }
-            if test.pos & POS_LOOK_DELAYED != 0 {
+            if test.pos.intersects(POS_LOOK_DELAYED) {
                 w!(to, "d");
             }
-            if test.pos & POS_ACTIVE != 0 {
+            if test.pos.intersects(POS_ACTIVE) {
                 w!(to, "T");
             }
-            if test.pos & POS_INACTIVE != 0 {
+            if test.pos.intersects(POS_INACTIVE) {
                 w!(to, "t");
             }
-            if test.pos & POS_LOOK_IGNORED != 0 {
+            if test.pos.intersects(POS_LOOK_IGNORED) {
                 w!(to, "I");
             }
-            if test.pos & POS_ATTACH_TO != 0 {
+            if test.pos.intersects(POS_ATTACH_TO) {
                 w!(to, "A");
             }
-            if test.pos & POS_WITH != 0 {
+            if test.pos.intersects(POS_WITH) {
                 w!(to, "w");
             }
-            if test.pos & POS_BAG_OF_TAGS != 0 {
+            if test.pos.intersects(POS_BAG_OF_TAGS) {
                 w!(to, "B");
             }
-            if test.pos & POS_RELATION != 0 {
+            if test.pos.intersects(POS_RELATION) {
                 w!(to, "r:");
                 let tid = grammar.single_tags.find(test.relation).get().1;
                 self.print_tag(to, &grammar.single_tags_list[tid.0]);
