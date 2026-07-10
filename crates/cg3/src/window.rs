@@ -86,15 +86,13 @@ impl Window {
     /// fn — Rust `Drop` cannot take the store, so this is invoked explicitly.
     pub fn destroy(&mut self, store: &mut RuntimeStore) {
         for iter in self.previous.clone() {
-            let mut s = Some(iter);
-            free_swindow(self, store, &mut s);
+            free_swindow(self, store, Some(iter));
         }
-        let mut current = self.current;
-        free_swindow(self, store, &mut current);
-        self.current = current;
+        let current = self.current;
+        free_swindow(self, store, current);
+        self.current = None; // C++ passes `current` by reference: nulled.
         for iter in self.next.clone() {
-            let mut s = Some(iter);
-            free_swindow(self, store, &mut s);
+            free_swindow(self, store, Some(iter));
         }
     }
 

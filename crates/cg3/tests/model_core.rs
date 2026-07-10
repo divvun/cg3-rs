@@ -124,10 +124,9 @@ fn cohort_alloc_detach_clear_dtor_free() {
     assert!(!w.dep_window.contains_key(&1));
     assert_eq!(store.cohorts.get(c1.0).global_number, 1, "dtor keeps fields");
 
-    // free_cohort: nulls the handle; the slot is recycled LIFO by the next alloc.
-    let mut h = Some(c2);
-    free_cohort(&mut store, Some(&mut w), &mut h);
-    assert_eq!(h, None, "handle nulled like the C++ Cohort*&");
+    // free_cohort: consumes the handle (wave 4 — the C++ Cohort*& null-out is
+    // by-value ownership); the slot is recycled LIFO by the next alloc.
+    free_cohort(&mut store, Some(&mut w), Some(c2));
     let reused = alloc_cohort(&mut store, Some(sw));
     assert_eq!(reused, c2, "freed slot reused (pool semantics)");
 }
@@ -531,10 +530,8 @@ fn reading_alloc_copy_free_clear() {
     }
 
     // Copy-alloc, pooled branch: a reused slot forces immutable/active false.
-    let mut junk = Some(alloc_reading(&mut store, None));
-    let junk_id = junk.unwrap();
-    free_reading(&mut store, &mut junk);
-    assert_eq!(junk, None, "free_reading nulls the handle");
+    let junk_id = alloc_reading(&mut store, None);
+    free_reading(&mut store, Some(junk_id));
     let mut src2 = Reading::default();
     src2.immutable = true;
     src2.active = true;
@@ -1113,13 +1110,10 @@ fn single_window_alloc_append_clear_destroy() {
     assert_eq!(store.single_windows.get(c.0).previous, Some(a));
     assert!(store.single_windows.try_get(b.0).is_some(), "dtor does not free");
 
-    // free_swindow: clear + recycle + handle null; None is a no-op.
-    let mut h = Some(c);
-    free_swindow(&mut w, &mut store, &mut h);
-    assert_eq!(h, None);
+    // free_swindow: clear + recycle (handle consumed by value); None is a no-op.
+    free_swindow(&mut w, &mut store, Some(c));
     assert!(store.single_windows.try_get(c.0).is_none());
-    let mut none: Option<SwId> = None;
-    free_swindow(&mut w, &mut store, &mut none); // must not panic
+    free_swindow(&mut w, &mut store, None); // must not panic
 }
 
 // ===========================================================================

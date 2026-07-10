@@ -275,8 +275,8 @@ impl super::GrammarApplicator {
             if !indents.is_empty() && self.store.readings.get(indents.last().unwrap().1 .0).next == Some(c_reading) {
                 self.store.readings.get_mut(indents.last().unwrap().1 .0).next = None;
             }
-            let mut cr = Some(c_reading);
-            crate::reading::free_reading(&mut self.store, &mut cr);
+            let cr = Some(c_reading);
+            crate::reading::free_reading(&mut self.store, cr);
             if is_deleted {
                 cleaned.insert(0, ';');
                 line.insert(0, ';');
@@ -785,9 +785,21 @@ impl super::GrammarApplicator {
                         }
                     }
                 }
-            } else if cleaned[0] == ' ' && cleaned[1] == '"' && c_cohort.is_some() {
-                // (2) Reading line.
-                is_deleted = false;
+            } else if (cleaned[0] == ' ' && cleaned[1] == '"' && c_cohort.is_some())
+                || (self.pipe_deleted
+                    && cleaned[0] == ';'
+                    && cleaned[1] == ' '
+                    && cleaned[2] == '"'
+                    && c_cohort.is_some())
+            {
+                // (2)/(3) Reading line — a deleted-reading line (leading "; ")
+                // strips the ';' and FALLS INTO the reading handler (the C++
+                // `goto got_reading` fall-through, expressed as one arm).
+                is_deleted = cleaned[0] == ';';
+                if is_deleted {
+                    cleaned.remove(0);
+                    line.remove(0);
+                }
                 match self.got_reading(
                     &mut cleaned,
                     &mut line,
@@ -806,41 +818,6 @@ impl super::GrammarApplicator {
                         // C++ `cReading = nullptr; continue;` — the `continue`
                         // re-enters the read loop WITHOUT running the trailing
                         // `++numLines; line[0]=cleaned[0]=0;`.
-                        c_reading = None;
-                        continue 'mainloop;
-                    }
-                    GotReading::Istext => {
-                        is_text = true;
-                    }
-                    GotReading::Normal => {}
-                }
-            } else if self.pipe_deleted
-                && cleaned[0] == ';'
-                && cleaned[1] == ' '
-                && cleaned[2] == '"'
-                && c_cohort.is_some()
-            {
-                // (3) Deleted-reading line: strip the leading ';' and fall into (2).
-                is_deleted = true;
-                cleaned.remove(0);
-                line.remove(0);
-                match self.got_reading(
-                    &mut cleaned,
-                    &mut line,
-                    &mut indents,
-                    &mut all_mappings,
-                    &mut variables_set,
-                    &mut variables_rem,
-                    &mut variables_output,
-                    &mut c_swindow,
-                    c_cohort.unwrap(),
-                    &mut l_swindow,
-                    &mut did_soft_lookback,
-                    is_deleted,
-                ) {
-                    GotReading::Continue => {
-                        // C++ `cReading = nullptr; continue;` (skips the trailing
-                        // `++numLines; line[0]=cleaned[0]=0;`).
                         c_reading = None;
                         continue 'mainloop;
                     }
@@ -911,11 +888,10 @@ impl super::GrammarApplicator {
                         while !self.gWindow.previous.is_empty() {
                             let tmp = self.gWindow.previous[0];
                             fmt.print_single_window(self, tmp, output, false);
-                            let mut t = Some(tmp);
                             crate::single_window::free_swindow(
                                 &mut self.gWindow,
                                 &mut self.store,
-                                &mut t,
+                                Some(tmp),
                             );
                             self.gWindow.previous.remove(0);
                         }
@@ -1196,8 +1172,8 @@ impl super::GrammarApplicator {
         while !self.gWindow.previous.is_empty() {
             let tmp = self.gWindow.previous[0];
             fmt.print_single_window(self, tmp, output, false);
-            let mut t = Some(tmp);
-            crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, &mut t);
+            let t = Some(tmp);
+            crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, t);
             self.gWindow.previous.remove(0);
         }
 

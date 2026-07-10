@@ -990,8 +990,8 @@ impl<'x> BinaryApplicator<'x> {
             let tmp = self.base.gWindow.previous[0];
             // C++ virtual printSingleWindow — the most-derived format decides.
             fmt.print_single_window(self.base, tmp, output, false);
-            let mut t = Some(tmp);
-            crate::single_window::free_swindow(&mut self.base.gWindow, &mut self.base.store, &mut t);
+            let t = Some(tmp);
+            crate::single_window::free_swindow(&mut self.base.gWindow, &mut self.base.store, t);
             self.base.gWindow.previous.remove(0);
         }
         back

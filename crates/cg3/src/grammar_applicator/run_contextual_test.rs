@@ -172,19 +172,23 @@ impl super::GrammarApplicator {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-test-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-test-fn]
     /// The atomic "does this one cohort match the test" step; also computes the
-    /// barrier/scan-break signals into the by-reference `rvs`/`retval`.
+    /// barrier/scan-break signals into the `rvs` accumulator.
     /// C++ `Cohort* runSingleTest(Cohort* cohort, const ContextualTest*, uint8_t&
-    /// rvs, bool* retval, Cohort** deep, Cohort* origin)`. Returns the (possibly
-    /// nulled-out) cohort; `rvs`/`retval` are out-params (`&mut`).
+    /// rvs, bool* retval, Cohort** deep, Cohort* origin)`. Returns
+    /// `(cohort, matched)` — the C++ `bool* retval` out-param is the second
+    /// return (wave 4); `rvs` stays a by-ref accumulator because callers
+    /// genuinely thread barrier state ACROSS calls (set and cleared between
+    /// iterations).
     pub fn run_single_test(
         &mut self,
         cohort: CohortId,
         test: CtxId,
         rvs: &mut u8,
-        retval: &mut bool,
         deep: Option<*mut Option<CohortId>>,
         origin: Option<CohortId>,
-    ) -> Option<CohortId> {
+    ) -> (Option<CohortId>, bool) {
+        let mut retval_v = false;
+        let retval = &mut retval_v;
         let mut cohort: Option<CohortId> = Some(cohort);
         let cid = cohort.unwrap();
 
@@ -318,11 +322,11 @@ impl super::GrammarApplicator {
         if !*retval && !self.context_stack.is_empty() {
             self.context_stack.last_mut().unwrap().regexgrp_ct = regexgrpz;
         }
-        cohort
+        (cohort, retval_v)
     }
 
     /// C++ overload `Cohort* runSingleTest(SingleWindow* sWindow, size_t i, ...)`:
-    /// out-of-range `i` sets `rvs |= TRV_BREAK`, `*retval = false`, returns null;
+    /// out-of-range `i` sets `rvs |= TRV_BREAK`, returns `(None, false)`;
     /// otherwise forwards `sWindow->cohorts[i]`.
     fn run_single_test_at(
         &mut self,
@@ -330,18 +334,16 @@ impl super::GrammarApplicator {
         i: i32,
         test: CtxId,
         rvs: &mut u8,
-        retval: &mut bool,
         deep: Option<*mut Option<CohortId>>,
         origin: Option<CohortId>,
-    ) -> Option<CohortId> {
+    ) -> (Option<CohortId>, bool) {
         let len = self.store.single_windows.get(sw.0).cohorts.len() as i32;
         if i < 0 || i >= len {
             *rvs |= TRV_BREAK;
-            *retval = false;
-            return None;
+            return (None, false);
         }
         let cohort = self.store.single_windows.get(sw.0).cohorts[i as usize];
-        self.run_single_test(cohort, test, rvs, retval, deep, origin)
+        self.run_single_test(cohort, test, rvs, deep, origin)
     }
 
     /// C++ `runSingleTest`'s `ReadingList* lists[4]` collection: slot 0 =
@@ -892,7 +894,7 @@ impl super::GrammarApplicator {
                 "Somehow, the input position wasn't inside the current window."
             );
             let self_c = self.store.single_windows.get(org.0).cohorts[position as usize];
-            nc = self.run_single_test(self_c, test, &mut rvs, &mut retval, deep, origin);
+            (nc, retval) = self.run_single_test(self_c, test, &mut rvs, deep, origin);
             if !retval && (rvs & TRV_BREAK_DEFAULT != 0) {
                 rvs &= !(TRV_BREAK | TRV_BREAK_DEFAULT);
             }
@@ -917,7 +919,7 @@ impl super::GrammarApplicator {
                     retval = false;
                     break;
                 }
-                nc = self.run_single_test(itc, test, &mut rvs, &mut retval, deep, origin);
+                (nc, retval) = self.run_single_test(itc, test, &mut rvs, deep, origin);
                 if (test_pos & POS_ALL != 0) && !retval {
                     nc = None;
                     break;
@@ -1021,7 +1023,7 @@ impl super::GrammarApplicator {
         let mut rvs: u8 = 0;
 
         if test_pos & POS_SELF != 0 {
-            cohort = self.run_single_test(start_cohort, test, &mut rvs, &mut retval, deep, origin);
+            (cohort, retval) = self.run_single_test(start_cohort, test, &mut rvs, deep, origin);
             if !retval && (rvs & TRV_BREAK_DEFAULT != 0) {
                 rvs &= !(TRV_BREAK | TRV_BREAK_DEFAULT);
             }
@@ -1034,7 +1036,7 @@ impl super::GrammarApplicator {
         while left.is_some() || right.is_some() {
             if let Some(lw) = left {
                 rvs = 0;
-                cohort = self.run_single_test_at(lw, lpos - i, test, &mut rvs, &mut retval, deep, origin);
+                (cohort, retval) = self.run_single_test_at(lw, lpos - i, test, &mut rvs, deep, origin);
                 if (rvs & TRV_BREAK != 0) && retval {
                     return (cohort, retval);
                 } else if rvs & TRV_BREAK != 0 {
@@ -1055,7 +1057,7 @@ impl super::GrammarApplicator {
             }
             if let Some(rw) = right {
                 rvs = 0;
-                cohort = self.run_single_test_at(rw, rpos + i, test, &mut rvs, &mut retval, deep, origin);
+                (cohort, retval) = self.run_single_test_at(rw, rpos + i, test, &mut rvs, deep, origin);
                 if (rvs & TRV_BREAK != 0) && retval {
                     return (cohort, retval);
                 } else if rvs & TRV_BREAK != 0 {
@@ -1200,9 +1202,8 @@ impl super::GrammarApplicator {
         }
 
         if (test_pos & POS_SELF != 0) && (test_pos & MASK_POS_LORR == 0) {
-            let mut retval = false;
             let mut rvs: u8 = 0;
-            let tmc = self.run_single_test(current, test, &mut rvs, &mut retval, deep, origin);
+            let (tmc, retval) = self.run_single_test(current, test, &mut rvs, deep, origin);
             if retval {
                 return tmc;
             }
@@ -1323,7 +1324,7 @@ impl super::GrammarApplicator {
             let mut retval = false;
             let mut rvs: u8 = 0;
             if good {
-                self.run_single_test(cohort, test, &mut rvs, &mut retval, deep, origin);
+                (_, retval) = self.run_single_test(cohort, test, &mut rvs, deep, origin);
             }
             if test_pos & POS_ALL != 0 {
                 if !retval {
@@ -1372,7 +1373,6 @@ impl super::GrammarApplicator {
         }
         let mut rv: Option<CohortId> = None;
 
-        let mut retval = false;
         let mut rvs: u8 = 0;
         let test_pos = self.grammar.contexts_arena[test.0].pos;
         let cohort = if test_pos & POS_LEFT_PAR != 0 {
@@ -1380,7 +1380,7 @@ impl super::GrammarApplicator {
         } else {
             self.store.single_windows.get(sw.0).cohorts[self.par_right_pos as usize]
         };
-        self.run_single_test(cohort, test, &mut rvs, &mut retval, deep, origin);
+        let (_, retval) = self.run_single_test(cohort, test, &mut rvs, deep, origin);
         if retval {
             rv = Some(cohort);
         }
@@ -1509,8 +1509,7 @@ impl super::GrammarApplicator {
         let mut rv: Option<CohortId> = None;
         for iter in rels {
             let mut rvs: u8 = 0;
-            let mut retval = false;
-            self.run_single_test(iter, test, &mut rvs, &mut retval, deep, origin);
+            let (_, retval) = self.run_single_test(iter, test, &mut rvs, deep, origin);
             if test_pos & POS_ALL != 0 {
                 if !retval {
                     rv = None;

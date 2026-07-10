@@ -965,8 +965,8 @@ impl MatxinApplicator {
         while !self.base.gWindow.previous.is_empty() {
             let tmp = self.base.gWindow.previous[0];
             self.print_single_window(tmp, output, false);
-            let mut opt = Some(tmp);
-            crate::single_window::free_swindow(&mut self.base.gWindow, &mut self.base.store, &mut opt);
+            let opt = Some(tmp);
+            crate::single_window::free_swindow(&mut self.base.gWindow, &mut self.base.store, opt);
             self.base.gWindow.previous.remove(0);
         }
 

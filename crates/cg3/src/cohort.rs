@@ -193,8 +193,8 @@ impl Default for Cohort {
 /// `for (auto iter : list) { free_reading(iter); }` blocks in `~Cohort`/`clear`.
 fn free_reading_list(store: &mut RuntimeStore, ids: &[ReadingId]) {
     for &rid in ids {
-        let mut opt = Some(rid);
-        free_reading(store, &mut opt);
+        let opt = Some(rid);
+        free_reading(store, opt);
     }
 }
 
@@ -223,20 +223,16 @@ pub fn alloc_cohort(store: &mut RuntimeStore, p: Option<SwId>) -> CohortId {
 // [spec:cg3:sem:cohort.cg3.free-cohort-fn]
 /// C++ `void free_cohort(Cohort*& c)`.
 ///
-/// Returns the cohort to the pool and nulls the caller's handle. If `c` is
-/// `None`, returns immediately. Otherwise mirrors `pool_cohorts.put(c)` — which
-/// invokes `c->clear()` ([`cohort_clear`], resetting the cohort, freeing its
-/// readings, unlinking it from the Window maps and sibling chain) — then returns
-/// the arena slot to the free-list and sets `*c = None` (the C++ `c = 0`). `c` is
-/// `&mut Option<CohortId>` to reproduce the `Cohort*&` null-out faithfully.
-pub fn free_cohort(store: &mut RuntimeStore, window: Option<&mut Window>, c: &mut Option<CohortId>) {
-    let id = match *c {
-        Some(id) => id,
-        None => return,
-    };
+/// Returns the cohort to the pool. If `c` is `None`, returns immediately.
+/// Otherwise mirrors `pool_cohorts.put(c)` — which invokes `c->clear()`
+/// ([`cohort_clear`], resetting the cohort, freeing its readings, unlinking it
+/// from the Window maps and sibling chain) — then returns the arena slot to
+/// the free-list. (The C++ `Cohort*&` null-out is ownership by value here —
+/// wave 4; a caller keeping a long-lived handle sets it `None` itself.)
+pub fn free_cohort(store: &mut RuntimeStore, window: Option<&mut Window>, c: Option<CohortId>) {
+    let Some(id) = c else { return };
     cohort_clear(store, window, id);
     store.cohorts.free_slot(id.0);
-    *c = None;
 }
 
 // [spec:cg3:def:cohort.cg3.cohort.cohort-fn]
@@ -266,9 +262,9 @@ pub fn cohort_dtor(store: &mut RuntimeStore, window: Option<&mut Window>, this: 
     free_reading_list(store, &del);
     free_reading_list(store, &dly);
     free_reading_list(store, &ign);
-    let mut wr = wr;
-    free_reading(store, &mut wr);
-    store.cohorts.get_mut(this.0).wread = wr;
+    free_reading(store, wr);
+    store.cohorts.get_mut(this.0).wread = None; // free_reading(wread) nulls the member
+
 
     if store.cohorts.get(this.0).parent.is_some() {
         if let Some(win) = window {
@@ -351,8 +347,8 @@ pub fn cohort_clear(store: &mut RuntimeStore, window: Option<&mut Window>, this:
     free_reading_list(store, &del);
     free_reading_list(store, &dly);
     free_reading_list(store, &ign);
-    let mut wr = wr;
-    free_reading(store, &mut wr);
+    let wr = wr;
+    free_reading(store, wr);
 
     let c = store.cohorts.get_mut(this.0);
     c.readings.clear();

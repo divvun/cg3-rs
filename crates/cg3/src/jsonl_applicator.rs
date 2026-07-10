@@ -868,11 +868,10 @@ impl<'a> JsonlApplicator<'a> {
                         while !self.base.gWindow.previous.is_empty() {
                             let tmp = self.base.gWindow.previous[0];
                             fmt.print_single_window(self.base, tmp, output, false);
-                            let mut t = Some(tmp);
                             crate::single_window::free_swindow(
                                 &mut self.base.gWindow,
                                 &mut self.base.store,
-                                &mut t,
+                                Some(tmp),
                             );
                             self.base.gWindow.previous.remove(0);
                         }
@@ -1074,11 +1073,10 @@ impl<'a> JsonlApplicator<'a> {
             while !self.base.gWindow.previous.is_empty() {
                 let tmp = self.base.gWindow.previous[0];
                 fmt.print_single_window(self.base, tmp, output, false);
-                let mut t = Some(tmp);
                 crate::single_window::free_swindow(
                     &mut self.base.gWindow,
                     &mut self.base.store,
-                    &mut t,
+                    Some(tmp),
                 );
                 self.base.gWindow.previous.remove(0);
             }

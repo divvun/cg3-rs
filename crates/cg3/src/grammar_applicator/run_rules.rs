@@ -647,6 +647,300 @@ impl super::GrammarApplicator {
         0
     }
 
+    /// One pass of the `runGrammarOnWindow` enclosure-wrapping scan (the C++
+    /// `goto scanParentheses` loop body, wave 4: extracted). Returns `true` if
+    /// an enclosure was wrapped (the caller re-scans from scratch), `false`
+    /// when a full pass changed nothing.
+    fn rr_wrap_one_enclosure(&mut self, current: SwId) -> bool {
+        let cohorts = self.store.single_windows.get(current.0).cohorts.clone();
+        for ci in (0..cohorts.len()).rev() {
+            let c = cohorts[ci];
+            let is_pleft = self.store.cohorts.get(c.0).is_pleft;
+            if is_pleft == 0 {
+                continue;
+            }
+            let pright = self.grammar.parentheses.get(&is_pleft).copied();
+            if let Some(pright) = pright {
+                let mut found = false;
+                let mut encs: Vec<CohortId> = Vec::new();
+                let cur_cohorts = self.store.single_windows.get(current.0).cohorts.clone();
+                let mut right = ci;
+                while right < cur_cohorts.len() {
+                    let s = cur_cohorts[right];
+                    encs.push(s);
+                    if self.store.cohorts.get(s.0).is_pright == pright {
+                        found = true;
+                        break;
+                    }
+                    right += 1;
+                }
+                if found {
+                    // Remove enclosed span from `cohorts`, shifting left.
+                    let left = ci;
+                    let lc = self.store.cohorts.get(cur_cohorts[left].0).local_number;
+                    let mut writ = left;
+                    let mut lc = lc;
+                    let mut rd = right + 1;
+                    {
+                        let sw = self.store.single_windows.get_mut(current.0);
+                        while rd < sw.cohorts.len() {
+                            sw.cohorts[writ] = sw.cohorts[rd];
+                            writ += 1;
+                            rd += 1;
+                        }
+                    }
+                    // Renumber the moved cohorts.
+                    let moved: Vec<CohortId> =
+                        self.store.single_windows.get(current.0).cohorts[left..writ].to_vec();
+                    for cid in moved {
+                        self.store.cohorts.get_mut(cid.0).local_number = lc;
+                        lc += 1;
+                    }
+                    let new_len = self.store.single_windows.get(current.0).cohorts.len() - encs.len();
+                    self.store.single_windows.get_mut(current.0).cohorts.truncate(new_len);
+                    // C++ walks the CONTIGUOUS all_cohorts range from
+                    // encs.front() to encs.back() inclusive — also
+                    // bumping `enclosed` on previously-wrapped cohorts
+                    // sandwiched in the span; that encodes nesting depth.
+                    {
+                        let front = encs[0];
+                        let back = *encs.last().unwrap();
+                        let start_ln =
+                            self.store.cohorts.get(front.0).local_number as usize;
+                        let all = self.store.single_windows.get(current.0).all_cohorts.clone();
+                        let mut ec = all[start_ln..]
+                            .iter()
+                            .position(|&x| x == front)
+                            .map(|p| p + start_ln)
+                            .expect("enclosure front in all_cohorts");
+                        loop {
+                            let c = self.store.cohorts.get_mut(all[ec].0);
+                            c.r#type |= CT_ENCLOSED;
+                            c.enclosed += 1;
+                            if all[ec] == back {
+                                break;
+                            }
+                            ec += 1;
+                        }
+                    }
+                    self.store.single_windows.get_mut(current.0).has_enclosures = true;
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// The enclosure-unpacking step of `runGrammarOnWindow` (the C++ `label_unpackEnclosures`
+    /// block, wave 4: extracted from the `'run_begin`/`'unpack` label pair).
+    /// Returns `true` when the window was restructured and the whole window
+    /// pass must restart (the C++ `goto reflowDependencyWindow` /
+    /// `goto runGrammarOnWindow_begin`), `false` to fall through to the
+    /// ignored-cohort restore.
+    fn rr_unpack_enclosures(&mut self, current: SwId, rv: u32) -> bool {
+    loop {
+            if self.store.single_windows.get(current.0).has_enclosures {
+                let nc = self.store.single_windows.get(current.0).all_cohorts.len();
+                let mut handled = false;
+                let mut i = 0usize;
+                while i < nc {
+                    let c = self.store.single_windows.get(current.0).all_cohorts[i];
+                    if self.store.cohorts.get(c.0).enclosed == 1 {
+                        let mut la = i;
+                        while la > 0 {
+                            let prev = self.store.single_windows.get(current.0).all_cohorts[la - 1];
+                            if self.store.cohorts.get(prev.0).r#type & (CT_ENCLOSED | CT_REMOVED | CT_IGNORED) == 0 {
+                                la -= 1;
+                                break;
+                            }
+                            la -= 1;
+                        }
+                        let ni = {
+                            let lac = self.store.single_windows.get(current.0).all_cohorts[la];
+                            self.store.cohorts.get(lac.0).local_number as usize
+                        };
+
+                        let mut ra = i;
+                        let mut ne = 0usize;
+                        while ra < nc {
+                            let rac = self.store.single_windows.get(current.0).all_cohorts[ra];
+                            if self.store.cohorts.get(rac.0).r#type & (CT_ENCLOSED | CT_REMOVED | CT_IGNORED) == 0 {
+                                break;
+                            }
+                            {
+                                let c = self.store.cohorts.get_mut(rac.0);
+                                c.enclosed -= 1;
+                                if c.enclosed == 0 {
+                                    c.r#type &= !CT_ENCLOSED;
+                                    ne += 1;
+                                }
+                            }
+                            ra += 1;
+                        }
+
+                        {
+                            let clen = self.store.single_windows.get(current.0).cohorts.len();
+                            let sw = self.store.single_windows.get_mut(current.0);
+                            sw.cohorts.resize(clen + ne, CohortId(u32::MAX));
+                        }
+                        {
+                            let clen = self.store.single_windows.get(current.0).cohorts.len();
+                            let mut j = clen - 1;
+                            while j > ni + ne {
+                                let moved = self.store.single_windows.get(current.0).cohorts[j - ne];
+                                self.store.single_windows.get_mut(current.0).cohorts[j] = moved;
+                                self.store.cohorts.get_mut(moved.0).local_number = ui32(j);
+                                self.store.single_windows.get_mut(current.0).cohorts[j - ne] = CohortId(u32::MAX);
+                                j -= 1;
+                            }
+                        }
+                        {
+                            let mut j = 0usize;
+                            while i < ra {
+                                let ac = self.store.single_windows.get(current.0).all_cohorts[i];
+                                if self.store.cohorts.get(ac.0).enclosed == 0 {
+                                    self.store.single_windows.get_mut(current.0).cohorts[ni + j + 1] = ac;
+                                    self.store.cohorts.get_mut(ac.0).local_number = ui32(ni + j + 1);
+                                    self.store.cohorts.get_mut(ac.0).parent = Some(current);
+                                    j += 1;
+                                }
+                                i += 1;
+                            }
+                        }
+                        self.par_left_tag = {
+                            let ac = self.store.single_windows.get(current.0).all_cohorts[la + 1];
+                            self.store.cohorts.get(ac.0).is_pleft
+                        };
+                        self.par_right_tag = {
+                            let ac = self.store.single_windows.get(current.0).all_cohorts[ra - 1];
+                            self.store.cohorts.get(ac.0).is_pright
+                        };
+                        self.par_left_pos = ui32(ni + 1);
+                        self.par_right_pos = ui32(ni + ne);
+                        if rv & RV_TRACERULE != 0 {
+                            continue;
+                        }
+                        handled = true;
+                        break;
+                    }
+                    i += 1;
+                }
+                if handled {
+                    return true;
+                }
+                if !self.did_final_enclosure {
+                    self.par_left_tag = 0;
+                    self.par_right_tag = 0;
+                    self.par_left_pos = 0;
+                    self.par_right_pos = 0;
+                    self.did_final_enclosure = true;
+                    if rv & RV_TRACERULE != 0 {
+                        continue;
+                    }
+                    return true;
+                }
+            }
+        break;
+    }
+        false
+    }
+
+    /// One pass of `runGrammarOnWindow`'s main loop (the C++
+    /// `runGrammarOnWindow_begin:` label body, wave 4: extracted).
+    /// `Continue` is the C++ `goto runGrammarOnWindow_begin` (delimit /
+    /// enclosure restart); `Break` ends the window (normal fall-through or the
+    /// 1000-pass endless-loop bail).
+    fn rr_window_pass<F, W>(
+        &mut self,
+        fmt: &mut F,
+        output: &mut W,
+        pass: &mut u32,
+    ) -> std::ops::ControlFlow<()>
+    where
+        F: super::stream_format::StreamFormat,
+        W: std::io::Write,
+    {
+        while !self.gWindow.previous.is_empty() && self.gWindow.previous.len() as u32 > self.num_windows {
+            let tmp = self.gWindow.previous[0];
+            // C++ `printSingleWindow(tmp, *ux_stdout)` — print to the live
+            // output writer threaded in by the driver, in the most-derived
+            // applicator's format.
+            fmt.print_single_window(self, tmp, output, false);
+            let opt = Some(tmp);
+            crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, opt);
+            self.gWindow.previous.remove(0);
+        }
+
+        self.rule_hits.clear();
+        self.index_ruleCohort_no.clear(0);
+        let current = self.gWindow.current.unwrap();
+        self.index_single_window(current);
+        self.store.single_windows.get_mut(current.0).hit_external.clear();
+        let gw = &mut self.gWindow;
+        gw.rebuild_cohort_links(&mut self.store);
+
+        *pass += 1;
+        if *pass > 1000 {
+            // Endless-loop warning (I/O pass omitted).
+            return std::ops::ControlFlow::Break(());
+        }
+
+        if self.trace_encl {
+            let hitpass = u32::MAX - *pass;
+            let cohorts = self.store.single_windows.get(current.0).cohorts.clone();
+            for c in cohorts {
+                let rs = self.store.cohorts.get(c.0).readings.clone();
+                for rit in rs {
+                    self.store.readings.get_mut(rit.0).hit_by.push(hitpass);
+                }
+            }
+        }
+
+        let rv = self.run_grammar_on_single_window(current);
+        if rv & RV_DELIMITED != 0 {
+            return std::ops::ControlFlow::Continue(());
+        }
+
+        // Unpack enclosures.
+        // Unpack enclosures (C++ label_unpackEnclosures).
+        if self.rr_unpack_enclosures(current, rv) {
+            return std::ops::ControlFlow::Continue(());
+        }
+
+        // Restore CT_IGNORED cohorts.
+        let mut should_reflow = false;
+        let mut i = self.store.single_windows.get(current.0).all_cohorts.len();
+        while i > 0 {
+            let cohort = self.store.single_windows.get(current.0).all_cohorts[i - 1];
+            if self.store.cohorts.get(cohort.0).r#type & CT_IGNORED != 0 {
+                let mut ins = i;
+                while ins > 0 {
+                    let prev = self.store.single_windows.get(current.0).all_cohorts[ins - 1];
+                    if self.store.cohorts.get(prev.0).r#type & (CT_REMOVED | CT_ENCLOSED | CT_IGNORED) == 0 {
+                        let pos = self.store.cohorts.get(prev.0).local_number as usize + 1;
+                        self.store.single_windows.get_mut(current.0).cohorts.insert(pos, cohort);
+                        self.store.cohorts.get_mut(cohort.0).r#type &= !CT_IGNORED;
+                        let gn = self.store.cohorts.get(cohort.0).global_number;
+                        self.gWindow.cohort_map.insert(gn, cohort);
+                        should_reflow = true;
+                        break;
+                    }
+                    ins -= 1;
+                }
+            }
+            i -= 1;
+        }
+        if should_reflow {
+            let clen = self.store.single_windows.get(current.0).cohorts.len();
+            for k in 0..clen {
+                let cid = self.store.single_windows.get(current.0).cohorts[k];
+                self.store.cohorts.get_mut(cid.0).local_number = ui32(k);
+            }
+            self.reflow_dependency_window(0);
+        }
+        std::ops::ControlFlow::Break(())
+    }
+
     // [spec:cg3:def:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn]
     // [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn]
@@ -666,7 +960,7 @@ impl super::GrammarApplicator {
         F: super::stream_format::StreamFormat,
         W: std::io::Write,
     {
-        let mut current = self.gWindow.current.unwrap();
+        let current = self.gWindow.current.unwrap();
         self.did_final_enclosure = false;
 
         // Apply the window's variable deltas onto the global `variables` map.
@@ -717,91 +1011,10 @@ impl super::GrammarApplicator {
             self.reflow_relation_window();
         }
 
-        // Enclosure wrapping.
+        // Enclosure wrapping: C++ `goto scanParentheses` — re-scan from
+        // scratch after every wrap until a full pass changes nothing.
         if !self.grammar.parentheses.is_empty() {
-            'scan_parentheses: loop {
-                let cohorts = self.store.single_windows.get(current.0).cohorts.clone();
-                let mut restart = false;
-                for ci in (0..cohorts.len()).rev() {
-                    let c = cohorts[ci];
-                    let is_pleft = self.store.cohorts.get(c.0).is_pleft;
-                    if is_pleft == 0 {
-                        continue;
-                    }
-                    let pright = self.grammar.parentheses.get(&is_pleft).copied();
-                    if let Some(pright) = pright {
-                        let mut found = false;
-                        let mut encs: Vec<CohortId> = Vec::new();
-                        let cur_cohorts = self.store.single_windows.get(current.0).cohorts.clone();
-                        let mut right = ci;
-                        while right < cur_cohorts.len() {
-                            let s = cur_cohorts[right];
-                            encs.push(s);
-                            if self.store.cohorts.get(s.0).is_pright == pright {
-                                found = true;
-                                break;
-                            }
-                            right += 1;
-                        }
-                        if found {
-                            // Remove enclosed span from `cohorts`, shifting left.
-                            let left = ci;
-                            let lc = self.store.cohorts.get(cur_cohorts[left].0).local_number;
-                            let mut writ = left;
-                            let mut lc = lc;
-                            let mut rd = right + 1;
-                            {
-                                let sw = self.store.single_windows.get_mut(current.0);
-                                while rd < sw.cohorts.len() {
-                                    sw.cohorts[writ] = sw.cohorts[rd];
-                                    writ += 1;
-                                    rd += 1;
-                                }
-                            }
-                            // Renumber the moved cohorts.
-                            let moved: Vec<CohortId> =
-                                self.store.single_windows.get(current.0).cohorts[left..writ].to_vec();
-                            for cid in moved {
-                                self.store.cohorts.get_mut(cid.0).local_number = lc;
-                                lc += 1;
-                            }
-                            let new_len = self.store.single_windows.get(current.0).cohorts.len() - encs.len();
-                            self.store.single_windows.get_mut(current.0).cohorts.truncate(new_len);
-                            // C++ walks the CONTIGUOUS all_cohorts range from
-                            // encs.front() to encs.back() inclusive — also
-                            // bumping `enclosed` on previously-wrapped cohorts
-                            // sandwiched in the span; that encodes nesting depth.
-                            {
-                                let front = encs[0];
-                                let back = *encs.last().unwrap();
-                                let start_ln =
-                                    self.store.cohorts.get(front.0).local_number as usize;
-                                let all = self.store.single_windows.get(current.0).all_cohorts.clone();
-                                let mut ec = all[start_ln..]
-                                    .iter()
-                                    .position(|&x| x == front)
-                                    .map(|p| p + start_ln)
-                                    .expect("enclosure front in all_cohorts");
-                                loop {
-                                    let c = self.store.cohorts.get_mut(all[ec].0);
-                                    c.r#type |= CT_ENCLOSED;
-                                    c.enclosed += 1;
-                                    if all[ec] == back {
-                                        break;
-                                    }
-                                    ec += 1;
-                                }
-                            }
-                            self.store.single_windows.get_mut(current.0).has_enclosures = true;
-                            restart = true;
-                            break;
-                        }
-                    }
-                }
-                if !restart {
-                    break 'scan_parentheses;
-                }
-            }
+            while self.rr_wrap_one_enclosure(current) {}
         }
 
         self.par_left_tag = 0;
@@ -809,189 +1022,8 @@ impl super::GrammarApplicator {
         self.par_left_pos = 0;
         self.par_right_pos = 0;
         let mut pass: u32 = 0;
-
-        'run_begin: loop {
-            while !self.gWindow.previous.is_empty() && self.gWindow.previous.len() as u32 > self.num_windows {
-                let tmp = self.gWindow.previous[0];
-                // C++ `printSingleWindow(tmp, *ux_stdout)` — print to the live
-                // output writer threaded in by the driver, in the most-derived
-                // applicator's format.
-                fmt.print_single_window(self, tmp, output, false);
-                let mut opt = Some(tmp);
-                crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, &mut opt);
-                self.gWindow.previous.remove(0);
-            }
-
-            self.rule_hits.clear();
-            self.index_ruleCohort_no.clear(0);
-            current = self.gWindow.current.unwrap();
-            self.index_single_window(current);
-            self.store.single_windows.get_mut(current.0).hit_external.clear();
-            let gw = &mut self.gWindow;
-            gw.rebuild_cohort_links(&mut self.store);
-
-            pass += 1;
-            if pass > 1000 {
-                // Endless-loop warning (I/O pass omitted).
-                return;
-            }
-
-            if self.trace_encl {
-                let hitpass = u32::MAX - pass;
-                let cohorts = self.store.single_windows.get(current.0).cohorts.clone();
-                for c in cohorts {
-                    let rs = self.store.cohorts.get(c.0).readings.clone();
-                    for rit in rs {
-                        self.store.readings.get_mut(rit.0).hit_by.push(hitpass);
-                    }
-                }
-            }
-
-            let rv = self.run_grammar_on_single_window(current);
-            if rv & RV_DELIMITED != 0 {
-                continue 'run_begin;
-            }
-
-            // Unpack enclosures.
-            'unpack: loop {
-                if self.store.single_windows.get(current.0).has_enclosures {
-                    let nc = self.store.single_windows.get(current.0).all_cohorts.len();
-                    let mut handled = false;
-                    let mut i = 0usize;
-                    while i < nc {
-                        let c = self.store.single_windows.get(current.0).all_cohorts[i];
-                        if self.store.cohorts.get(c.0).enclosed == 1 {
-                            let mut la = i;
-                            while la > 0 {
-                                let prev = self.store.single_windows.get(current.0).all_cohorts[la - 1];
-                                if self.store.cohorts.get(prev.0).r#type & (CT_ENCLOSED | CT_REMOVED | CT_IGNORED) == 0 {
-                                    la -= 1;
-                                    break;
-                                }
-                                la -= 1;
-                            }
-                            let ni = {
-                                let lac = self.store.single_windows.get(current.0).all_cohorts[la];
-                                self.store.cohorts.get(lac.0).local_number as usize
-                            };
-
-                            let mut ra = i;
-                            let mut ne = 0usize;
-                            while ra < nc {
-                                let rac = self.store.single_windows.get(current.0).all_cohorts[ra];
-                                if self.store.cohorts.get(rac.0).r#type & (CT_ENCLOSED | CT_REMOVED | CT_IGNORED) == 0 {
-                                    break;
-                                }
-                                {
-                                    let c = self.store.cohorts.get_mut(rac.0);
-                                    c.enclosed -= 1;
-                                    if c.enclosed == 0 {
-                                        c.r#type &= !CT_ENCLOSED;
-                                        ne += 1;
-                                    }
-                                }
-                                ra += 1;
-                            }
-
-                            {
-                                let clen = self.store.single_windows.get(current.0).cohorts.len();
-                                let sw = self.store.single_windows.get_mut(current.0);
-                                sw.cohorts.resize(clen + ne, CohortId(u32::MAX));
-                            }
-                            {
-                                let clen = self.store.single_windows.get(current.0).cohorts.len();
-                                let mut j = clen - 1;
-                                while j > ni + ne {
-                                    let moved = self.store.single_windows.get(current.0).cohorts[j - ne];
-                                    self.store.single_windows.get_mut(current.0).cohorts[j] = moved;
-                                    self.store.cohorts.get_mut(moved.0).local_number = ui32(j);
-                                    self.store.single_windows.get_mut(current.0).cohorts[j - ne] = CohortId(u32::MAX);
-                                    j -= 1;
-                                }
-                            }
-                            {
-                                let mut j = 0usize;
-                                while i < ra {
-                                    let ac = self.store.single_windows.get(current.0).all_cohorts[i];
-                                    if self.store.cohorts.get(ac.0).enclosed == 0 {
-                                        self.store.single_windows.get_mut(current.0).cohorts[ni + j + 1] = ac;
-                                        self.store.cohorts.get_mut(ac.0).local_number = ui32(ni + j + 1);
-                                        self.store.cohorts.get_mut(ac.0).parent = Some(current);
-                                        j += 1;
-                                    }
-                                    i += 1;
-                                }
-                            }
-                            self.par_left_tag = {
-                                let ac = self.store.single_windows.get(current.0).all_cohorts[la + 1];
-                                self.store.cohorts.get(ac.0).is_pleft
-                            };
-                            self.par_right_tag = {
-                                let ac = self.store.single_windows.get(current.0).all_cohorts[ra - 1];
-                                self.store.cohorts.get(ac.0).is_pright
-                            };
-                            self.par_left_pos = ui32(ni + 1);
-                            self.par_right_pos = ui32(ni + ne);
-                            if rv & RV_TRACERULE != 0 {
-                                continue 'unpack;
-                            }
-                            handled = true;
-                            break;
-                        }
-                        i += 1;
-                    }
-                    if handled {
-                        continue 'run_begin;
-                    }
-                    if !self.did_final_enclosure {
-                        self.par_left_tag = 0;
-                        self.par_right_tag = 0;
-                        self.par_left_pos = 0;
-                        self.par_right_pos = 0;
-                        self.did_final_enclosure = true;
-                        if rv & RV_TRACERULE != 0 {
-                            continue 'unpack;
-                        }
-                        continue 'run_begin;
-                    }
-                }
-                break 'unpack;
-            }
-
-            // Restore CT_IGNORED cohorts.
-            let mut should_reflow = false;
-            let mut i = self.store.single_windows.get(current.0).all_cohorts.len();
-            while i > 0 {
-                let cohort = self.store.single_windows.get(current.0).all_cohorts[i - 1];
-                if self.store.cohorts.get(cohort.0).r#type & CT_IGNORED != 0 {
-                    let mut ins = i;
-                    while ins > 0 {
-                        let prev = self.store.single_windows.get(current.0).all_cohorts[ins - 1];
-                        if self.store.cohorts.get(prev.0).r#type & (CT_REMOVED | CT_ENCLOSED | CT_IGNORED) == 0 {
-                            let pos = self.store.cohorts.get(prev.0).local_number as usize + 1;
-                            self.store.single_windows.get_mut(current.0).cohorts.insert(pos, cohort);
-                            self.store.cohorts.get_mut(cohort.0).r#type &= !CT_IGNORED;
-                            let gn = self.store.cohorts.get(cohort.0).global_number;
-                            self.gWindow.cohort_map.insert(gn, cohort);
-                            should_reflow = true;
-                            break;
-                        }
-                        ins -= 1;
-                    }
-                }
-                i -= 1;
-            }
-            if should_reflow {
-                let clen = self.store.single_windows.get(current.0).cohorts.len();
-                for k in 0..clen {
-                    let cid = self.store.single_windows.get(current.0).cohorts[k];
-                    self.store.cohorts.get_mut(cid.0).local_number = ui32(k);
-                }
-                self.reflow_dependency_window(0);
-            }
-
-            break 'run_begin;
-        }
+        // C++ `runGrammarOnWindow_begin:` — loop until a pass runs to the end.
+        while self.rr_window_pass(fmt, output, &mut pass).is_continue() {}
     }
 }
 
@@ -1369,8 +1401,8 @@ impl super::GrammarApplicator {
     fn subs_any_clear(&mut self) {
         let ids: Vec<ReadingId> = self.subs_any.iter().copied().collect();
         for rid in ids {
-            let mut opt = Some(rid);
-            crate::reading::free_reading(&mut self.store, &mut opt);
+            let opt = Some(rid);
+            crate::reading::free_reading(&mut self.store, opt);
         }
         self.subs_any.clear();
     }
@@ -2271,8 +2303,8 @@ impl super::GrammarApplicator {
             }
             let egn = self.store.cohorts.get(empty_cohort.0).global_number;
             self.gWindow.cohort_map.remove(&egn);
-            let mut opt = Some(empty_cohort);
-            crate::cohort::free_cohort(&mut self.store, Some(&mut self.gWindow), &mut opt);
+            let opt = Some(empty_cohort);
+            crate::cohort::free_cohort(&mut self.store, Some(&mut self.gWindow), opt);
             // if (current.previous) { previous->text += current.text + text_post;
             //   previous->all_cohorts += current.all_cohorts[1..]; }
             // else if (current.next) { next->text = text_post + next->text;
@@ -2327,13 +2359,13 @@ impl super::GrammarApplicator {
             self.store.single_windows.get_mut(current.0).all_cohorts.clear();
             // Remove `current` from gWindow.previous / next.
             if let Some(pos) = self.gWindow.previous.iter().position(|&s| s == current) {
-                let mut opt = Some(current);
-                crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, &mut opt);
+                let opt = Some(current);
+                crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, opt);
                 self.gWindow.previous.remove(pos);
             }
             if let Some(pos) = self.gWindow.next.iter().position(|&s| s == current) {
-                let mut opt = Some(current);
-                crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, &mut opt);
+                let opt = Some(current);
+                crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, opt);
                 self.gWindow.next.remove(pos);
             }
             let gw = &mut self.gWindow;
@@ -3213,8 +3245,8 @@ impl super::GrammarApplicator {
             let mut keep: ReadingList = Vec::new();
             for r in rs {
                 if self.store.readings.get(r.0).noprint {
-                    let mut opt = Some(r);
-                    crate::reading::free_reading(&mut self.store, &mut opt);
+                    let opt = Some(r);
+                    crate::reading::free_reading(&mut self.store, opt);
                 } else {
                     keep.push(r);
                 }
@@ -4002,17 +4034,18 @@ impl super::GrammarApplicator {
     ///
     /// The MERGECOHORTS relation/dependency re-attachment (needs the `withs` set)
     /// is threaded via `withs`; for plain ADDCOHORT it is `None`.
+    /// Returns `(cohort, spaces_in_added_wf)` — the C++ `size_t&
+    /// spacesInAddedWf` out-param (count of ' ' in the seated wordform tag;
+    /// MERGECOHORTS strips that many spaces from the merged cohorts' text
+    /// before removing them) is a plain return value in the port (wave 4).
     fn rr_add_cohort(
         &mut self,
         st: &mut RRState,
         rule: RuleId,
         insertion: CohortId,
-        // C++ `size_t& spacesInAddedWf` out-param: count of ' ' in the seated
-        // wordform tag; MERGECOHORTS strips that many spaces from the merged
-        // cohorts' text before removing them.
-        spaces_in_added_wf: &mut usize,
         withs: Option<&CohortSet>,
-    ) -> CohortId {
+    ) -> (CohortId, usize) {
+        let mut spaces_in_added_wf = 0usize;
         let current = st.current;
         let ccohort = crate::cohort::alloc_cohort(&mut self.store, Some(current));
         {
@@ -4030,7 +4063,7 @@ impl super::GrammarApplicator {
             if ttype & T_WORDFORM != 0 {
                 self.store.cohorts.get_mut(ccohort.0).wordform = Some(tter);
                 // C++: spacesInAddedWf = count of ' ' in tter->tag.
-                *spaces_in_added_wf = self
+                spaces_in_added_wf = self
                     .grammar
                     .single_tags_list
                     .get(tter.0)
@@ -4159,7 +4192,7 @@ impl super::GrammarApplicator {
         self.rr_renumber(current);
         let gw = &mut self.gWindow;
         gw.rebuild_cohort_links(&mut self.store);
-        ccohort
+        (ccohort, spaces_in_added_wf)
     }
 
     /// MERGECOHORTS dependency/relation re-attachment for a freshly added cohort.
@@ -4296,8 +4329,8 @@ impl super::GrammarApplicator {
     /// end tag if the new cohort became the last.
     fn rr_addcohort(&mut self, st: &mut RRState, rule: RuleId) {
         let apply = self.get_apply_to().cohort.unwrap();
-        let mut spaces_in_added_wf = 0usize; // C++: "not used here"
-        let ccohort = self.rr_add_cohort(st, rule, apply, &mut spaces_in_added_wf, None);
+        // (spaces_in_added_wf: C++ "not used here")
+        let (ccohort, _spaces_in_added_wf) = self.rr_add_cohort(st, rule, apply, None);
         let current = st.current;
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
         let last = *self.store.single_windows.get(current.0).cohorts.last().unwrap();
@@ -4364,8 +4397,7 @@ impl super::GrammarApplicator {
             }
         }
 
-        let mut spaces_in_added_wf = 0usize;
-        let cc = self.rr_add_cohort(st, rule, merge_at, &mut spaces_in_added_wf, Some(&withs));
+        let (cc, mut spaces_in_added_wf) = self.rr_add_cohort(st, rule, merge_at, Some(&withs));
         self.context_stack.last_mut().unwrap().target.cohort = Some(cc);
 
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;

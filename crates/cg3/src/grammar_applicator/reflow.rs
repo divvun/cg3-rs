@@ -1344,8 +1344,8 @@ impl super::GrammarApplicator {
                         self.store.readings.get_mut(nr.0).tags_list.push(imh);
                     }
                 }
-                let mut opt = Some(iter1);
-                free_reading(&mut self.store, &mut opt);
+                let opt = Some(iter1);
+                free_reading(&mut self.store, opt);
             }
             order.push(nr);
         }

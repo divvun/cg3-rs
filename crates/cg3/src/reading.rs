@@ -239,20 +239,17 @@ pub fn alloc_reading_copy(store: &mut RuntimeStore, o: &Reading) -> ReadingId {
 // [spec:cg3:sem:reading.cg3.free-reading-fn]
 /// C++ `void free_reading(Reading*& r)`.
 ///
-/// Returns the reading (and its whole `next` chain) to the pool and nulls the
-/// caller's handle. If `r` is `None`, returns immediately. Otherwise it mirrors
-/// `pool_readings.put(r)`: [`reading_clear`] resets the object and recursively
-/// frees its `next` chain back to the pool, then the slot itself is returned to
-/// the arena free-list; finally `*r` is set to `None`. Children are freed before
-/// the parent (matching the C++ `clear()`-then-`put()` order).
-pub fn free_reading(store: &mut RuntimeStore, r: &mut Option<ReadingId>) {
-    let id = match *r {
-        Some(id) => id,
-        None => return,
-    };
+/// Returns the reading (and its whole `next` chain) to the pool. If `r` is
+/// `None`, returns immediately. Otherwise it mirrors `pool_readings.put(r)`:
+/// [`reading_clear`] resets the object and recursively frees its `next` chain
+/// back to the pool, then the slot itself is returned to the arena free-list.
+/// Children are freed before the parent (matching the C++ `clear()`-then-
+/// `put()` order). (The C++ `Reading*&` caller-handle null-out is ownership by
+/// value here — wave 4.)
+pub fn free_reading(store: &mut RuntimeStore, r: Option<ReadingId>) {
+    let Some(id) = r else { return };
     reading_clear(store, id);
     store.readings.free_slot(id.0);
-    *r = None;
 }
 
 // [spec:cg3:def:reading.cg3.reading.clear-fn]
@@ -287,8 +284,8 @@ pub fn reading_clear(store: &mut RuntimeStore, id: ReadingId) {
     }
     // free_reading(next): frees the chain and nulls the handle. Copied out to a
     // local so the store can be borrowed mutably by the recursion.
-    let mut next = store.readings.get_mut(id.0).next;
-    free_reading(store, &mut next);
+    let next = store.readings.get_mut(id.0).next;
+    free_reading(store, next);
     {
         let r = store.readings.get_mut(id.0);
         r.next = None; // redundant `next = nullptr`, reproduced verbatim

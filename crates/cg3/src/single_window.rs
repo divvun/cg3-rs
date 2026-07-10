@@ -111,17 +111,14 @@ pub fn alloc_swindow(store: &mut RuntimeStore, p: Option<u32>) -> SwId {
 /// — which calls `s->clear()` (the teardown + field reset in
 /// [`single_window_clear`]) and stores the object for reuse — by clearing then
 /// returning the slot to the arena free-list; freeing an already-freed slot is a
-/// no-op, matching the pool's silently-ignored duplicate insert. Finally nulls
-/// the caller's handle (`s = 0`). Needs the owning `window` because `clear`
-/// prunes `window.relation_map`.
-pub fn free_swindow(window: &mut Window, store: &mut RuntimeStore, s: &mut Option<SwId>) {
-    let id = match *s {
-        Some(id) => id,
-        None => return,
-    };
+/// no-op, matching the pool's silently-ignored duplicate insert. Needs the
+/// owning `window` because `clear` prunes `window.relation_map`. (The C++
+/// `SingleWindow*&` caller-handle null-out is ownership by value here — wave 4;
+/// a caller keeping a long-lived handle sets it `None` itself.)
+pub fn free_swindow(window: &mut Window, store: &mut RuntimeStore, s: Option<SwId>) {
+    let Some(id) = s else { return };
     single_window_clear(window, store, id);
     store.single_windows.free_slot(id.0);
-    *s = None;
 }
 
 /// Shared teardown prologue — the identical body of `~SingleWindow()` and the
@@ -165,8 +162,8 @@ fn single_window_teardown(window: &mut Window, store: &mut RuntimeStore, sw_id: 
     // later resolve dep links to freed slots (C++ Cohort::clear() erases them).
     let all = store.single_windows.get(sw_id.0).all_cohorts.clone();
     for iter in all {
-        let mut h = Some(iter);
-        crate::cohort::free_cohort(store, Some(&mut *window), &mut h);
+        let h = Some(iter);
+        crate::cohort::free_cohort(store, Some(&mut *window), h);
     }
 
     // (3) Splice out of the sibling doubly-linked list.

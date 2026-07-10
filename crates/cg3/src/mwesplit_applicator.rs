@@ -339,8 +339,8 @@ impl GrammarApplicator {
 
                     // Free the leftover sub-reading chain hanging off `prev`.
                     if let Some(prev_id) = prev {
-                        let mut leftover = store.readings.get(prev_id.0).next;
-                        crate::reading::free_reading(store, &mut leftover);
+                        let leftover = store.readings.get(prev_id.0).next;
+                        crate::reading::free_reading(store, leftover);
                         store.readings.get_mut(prev_id.0).next = None;
                     }
                     prev = Some(r_new);

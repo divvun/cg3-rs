@@ -795,8 +795,8 @@ impl FSTApplicator {
             let mut store = std::mem::take(&mut self.base.store);
             self.print_single_window(&mut store, tmp, output, false);
             self.base.store = store;
-            let mut t = Some(tmp);
-            free_swindow(&mut self.base.gWindow, &mut self.base.store, &mut t);
+            let t = Some(tmp);
+            free_swindow(&mut self.base.gWindow, &mut self.base.store, t);
             self.base.gWindow.previous.remove(0);
         }
         let _ = output.flush();
@@ -834,8 +834,8 @@ impl FSTApplicator {
                 let mut store = std::mem::take(&mut self.base.store);
                 self.print_cohort(&mut store, cc, output, false);
                 self.base.store = store;
-                let mut opt = Some(cc);
-                free_cohort(&mut self.base.store, Some(&mut self.base.gWindow), &mut opt);
+                let opt = Some(cc);
+                free_cohort(&mut self.base.store, Some(&mut self.base.gWindow), opt);
                 *c_cohort = None;
             }
             if cleaned[0] != '\0' && line[0] != '\0' {
