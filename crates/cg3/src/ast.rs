@@ -39,7 +39,6 @@
 //!   (`u_fprintf(std::ostream&, ...)` → `write!`); like `u_fprintf`, write
 //!   errors are ignored.
 
-use std::cell::Cell;
 use std::io::Write;
 use std::ptr;
 
@@ -204,11 +203,10 @@ pub const ASTTYPE_STR: [&str; NUM_ASTTYPES] = [
 // [spec:cg3:def:ast.ast-node]
 /// C++ `struct ASTNode`. A node in the parse tree.
 ///
-/// QUIRK (realloc-invalidation): the children `cs` are stored **by value** in a
-/// `Vec<ASTNode>`, exactly as the C++ `std::vector<ASTNode>`. A later push onto
-/// an ancestor's `cs` can reallocate that vector and invalidate any raw
-/// `*mut ASTNode` (e.g. the thread-local `CUR_AST`) held into it — the same
-/// fragility as the original. See [`ASTHelper::new`].
+/// The children `cs` are stored **by value** in a `Vec<ASTNode>`, exactly as
+/// the C++ `std::vector<ASTNode>`. (The C++ realloc-invalidation fragility —
+/// a push invalidating the raw `cur_ast` pointer — does not exist here: the
+/// [`Ast`] cursor is an index path, not a pointer.)
 #[derive(Debug)]
 pub struct ASTNode {
     /// C++ `ASTType type;` (`type` is a Rust keyword → raw identifier).
@@ -245,41 +243,57 @@ impl ASTNode {
     }
 }
 
-// --- thread_local parser state (C++ module-level `thread_local` globals) -----
+// --- parser-owned AST builder (C++ module-level `thread_local` globals) ------
 //
-// No spec:def id — these are the AST.hpp file-scope thread_locals that back the
-// `AST_OPEN`/`AST_CLOSE` machinery. `ast` is kept as a leaked `Box<ASTNode>`
-// (thread-lifetime) so that raw pointers into its `cs` tree stay valid for the
-// thread, mirroring `thread_local ASTNode ast;` + `cur_ast = &ast`. (Minor: the
-// C++ runs the root's destructor at thread exit; the port leaks it instead.)
-thread_local! {
-    /// C++ `thread_local bool parse_ast = false;` — whether AST building is on.
-    static PARSE_AST: Cell<bool> = const { Cell::new(false) };
-    /// C++ `thread_local ASTNode ast;` — the tree root (leaked; see above).
-    static AST_ROOT: Cell<*mut ASTNode> =
-        Cell::new(Box::into_raw(Box::new(ASTNode::new(ASTType::AST_Unknown, 0, ptr::null(), ptr::null()))));
-    /// C++ `thread_local ASTNode* cur_ast = &ast;` — the current (innermost) node.
-    static CUR_AST: Cell<*mut ASTNode> = Cell::new(AST_ROOT.with(|r| r.get()));
+// No spec:def id — this replaces the AST.hpp file-scope thread_locals
+// (`thread_local bool parse_ast`, `thread_local ASTNode ast`, `thread_local
+// ASTNode* cur_ast`) that backed the `AST_OPEN`/`AST_CLOSE` machinery. Wave 4:
+// the builder is a value OWNED by [`crate::textual_parser::TextualParser`], the
+// root is a plain owned field (no leaked `Box`), and the raw-pointer cursor is
+// an index PATH into the tree (`Vec<usize>` of child indices), which stays
+// valid across `Vec<ASTNode>` reallocations — eliminating the C++
+// realloc-invalidation fragility along with the globals.
+pub struct Ast {
+    /// C++ `thread_local bool parse_ast;` — whether AST building is on.
+    enabled: bool,
+    /// C++ `thread_local ASTNode ast;` — the tree root, owned.
+    root: ASTNode,
+    /// C++ `thread_local ASTNode* cur_ast;` — as an index path from the root:
+    /// empty ⇒ the root itself; otherwise each element selects a child in the
+    /// previous node's `cs`.
+    cursor: Vec<usize>,
 }
 
-/// Sets the thread-local `parse_ast` flag (C++ `parse_ast = _dump_ast;`, done in
-/// the `TextualParser` ctor). Enables/disables AST building for the thread.
-pub fn set_parse_ast(on: bool) {
-    PARSE_AST.with(|p| p.set(on));
-}
+impl Ast {
+    /// C++ `parse_ast = _dump_ast;` (done in the `TextualParser` ctor) fused
+    /// with the implicit `thread_local` root/cursor initialization.
+    pub fn new(enabled: bool) -> Ast {
+        Ast {
+            enabled,
+            root: ASTNode::new(ASTType::AST_Unknown, 0, ptr::null(), ptr::null()),
+            cursor: Vec::new(),
+        }
+    }
 
-/// Reads the thread-local `parse_ast` flag.
-pub fn parse_ast_enabled() -> bool {
-    PARSE_AST.with(|p| p.get())
-}
+    /// Whether AST building is on (C++ reads of `parse_ast`).
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
 
-/// Borrows the thread-local AST root (`ast`) — used by the parser's
-/// `print_ast` wrapper, which serializes `ast.cs.front()`.
-pub fn with_ast_root<R>(f: impl FnOnce(&ASTNode) -> R) -> R {
-    AST_ROOT.with(|r| {
-        // SAFETY: the root is a live, leaked `Box<ASTNode>` for the thread's lifetime.
-        f(unsafe { &*r.get() })
-    })
+    /// The tree root (`ast`) — the parser's `print_ast` wrapper serializes
+    /// `root().cs.front()`.
+    pub fn root(&self) -> &ASTNode {
+        &self.root
+    }
+
+    /// Resolve the cursor path to the current (innermost) node.
+    fn current_mut(&mut self) -> &mut ASTNode {
+        let mut node = &mut self.root;
+        for &i in &self.cursor {
+            node = &mut node.cs[i];
+        }
+        node
+    }
 }
 
 /// `node.b - b` in `UChar` (element) units — the pointer subtraction that feeds
@@ -397,129 +411,96 @@ pub fn print_ast(out: &mut dyn Write, b: *const UChar, n: usize, node: &ASTNode)
 }
 
 // [spec:cg3:def:ast.ast-helper]
-/// C++ `struct ASTHelper` — the RAII helper (used via the `AST_OPEN` macro)
-/// that opens a node as a child of the current one and restores the cursor on
-/// close.
+/// C++ `struct ASTHelper` — the helper (used via the `AST_OPEN` macro) that
+/// opens a node as a child of the current one and restores the cursor on close.
 ///
-/// PORT DEVIATION (the `cur_ast_help` self-pointer chain): the C++ ctor does
-/// `cur_ast_help = this`, storing the *stack address* of the helper being
-/// constructed into a `thread_local ASTHelper* cur_ast_help`, and `AST_CLOSE`
-/// closes "the current helper" through that global. Rust move semantics forbid a
-/// by-value constructor storing its own not-yet-placed address in a global, so
-/// the global `cur_ast_help` chain is **elided**: a close reaches its guard
-/// directly through the owning binding ([`ASTHelper::close`] / [`Drop`]) rather
-/// than a global pointer. The saved parent node (`c`) drives the restore; `h` is
-/// retained only for structural parity with the C++ `{ ASTNode* c; ASTHelper* h; }`
-/// and is always null. Under the parser's strictly-nested (LIFO) open/close
-/// discipline this is behaviourally identical, including the idempotency that
-/// stops a node from being closed twice (`c`/`h` nulled on first close).
+/// PORT SHAPE (wave 4): the C++ helper captured two `thread_local` globals
+/// (`cur_ast` and the `cur_ast_help` self-pointer chain). Both globals are
+/// gone: the helper now operates on the caller's [`Ast`] builder, passed
+/// explicitly to [`new`](ASTHelper::new)/[`destroy`](ASTHelper::destroy)/
+/// [`close`](ASTHelper::close)/[`close_id`](ASTHelper::close_id), and holds
+/// only its open/closed state. Under the parser's strictly-nested (LIFO)
+/// open/close discipline this is behaviourally identical to the C++, including
+/// the idempotency that stops a node from being closed twice (the C++ nulled
+/// `c`/`h` on first close; here `open` flips false). The C++ destructor's
+/// close-on-scope-exit fallback is unreachable in the port (the single open
+/// site always closes explicitly) and is not reproduced.
 pub struct ASTHelper {
-    /// C++ `ASTNode* c;` — the saved parent node, restored to `CUR_AST` on close.
-    c: *mut ASTNode,
-    /// C++ `ASTHelper* h;` — saved `cur_ast_help`; see the deviation note above
-    /// (always null in this port).
-    h: *mut ASTHelper,
+    /// Whether this helper currently has an open node (C++ `c != nullptr`);
+    /// false when inert (`parse_ast` off) or already closed.
+    open: bool,
 }
 
 impl ASTHelper {
     // [spec:cg3:def:ast.ast-helper.ast-helper-fn]
     // [spec:cg3:sem:ast.ast-helper.ast-helper-fn]
     /// Opens a new AST node as a child of the current node (the `AST_OPEN`
-    /// operation). Saves the current cursor, and — if `parse_ast` is enabled —
-    /// pushes an `ASTNode(type, line, b, null)` onto the current node's children
-    /// and advances `CUR_AST` to it. When AST building is disabled the helper is
-    /// **inert** (`c`/`h` null, no node created), and its [`Drop`] / [`destroy`]
-    /// skip. `b` marks the node's begin; `e` is filled later by [`close`].
+    /// operation). If AST building is enabled, pushes an
+    /// `ASTNode(type, line, b, null)` onto the current node's children and
+    /// advances the cursor to it. When AST building is disabled the helper is
+    /// **inert** (no node created) and [`destroy`] skips. `b` marks the node's
+    /// begin; `e` is filled later by [`close`].
     ///
     /// (The C++ ctor's default argument `const UChar* e = nullptr` is elided —
     /// `AST_OPEN` never passes it; `e` is always null at construction.)
     ///
     /// [`destroy`]: ASTHelper::destroy
     /// [`close`]: ASTHelper::close
-    pub fn new(r#type: ASTType, line: usize, b: *const UChar) -> ASTHelper {
-        // C++ init list: `c(cur_ast), h(cur_ast_help)`. (`cur_ast_help` is elided;
-        // `h` stays null — see the struct deviation note.)
-        let c = CUR_AST.with(|p| p.get());
-        if !PARSE_AST.with(|p| p.get()) {
-            // C++: `if (!parse_ast) { c = nullptr; h = nullptr; return; }`
-            return ASTHelper {
-                c: ptr::null_mut(),
-                h: ptr::null_mut(),
-            };
+    pub fn new(ast: &mut Ast, r#type: ASTType, line: usize, b: *const UChar) -> ASTHelper {
+        // C++: `if (!parse_ast) { c = nullptr; h = nullptr; return; }`
+        if !ast.enabled {
+            return ASTHelper { open: false };
         }
         // C++: `c->cs.push_back(ASTNode(type, line, b, e)); cur_ast = &c->cs.back();`
-        //
-        // QUIRK (realloc-invalidation): this push — or any later push onto an
-        // ancestor's `cs` — can reallocate the `Vec<ASTNode>` and invalidate
-        // every raw `*mut ASTNode` held elsewhere (`CUR_AST`, sibling pointers).
-        // We grab `&mut cs.last()` immediately after the push, exactly as the C++
-        // takes `&c->cs.back()`, but pointers into these vectors are inherently
-        // fragile across sibling insertions.
-        //
-        // SAFETY: `c` is the current node — a live pointer into the thread-local tree.
-        unsafe {
-            (*c).cs.push(ASTNode::new(r#type, line, b, ptr::null()));
-            let child = (*c).cs.last_mut().unwrap() as *mut ASTNode;
-            CUR_AST.with(|p| p.set(child));
-        }
-        ASTHelper {
-            c,
-            h: ptr::null_mut(),
-        }
+        // The index-path cursor stays valid across `cs` reallocations (the C++
+        // raw-pointer version could dangle — see the module note).
+        let cur = ast.current_mut();
+        cur.cs.push(ASTNode::new(r#type, line, b, ptr::null()));
+        let idx = cur.cs.len() - 1;
+        ast.cursor.push(idx);
+        ASTHelper { open: true }
     }
 
     // [spec:cg3:def:ast.ast-helper.destroy-fn]
     // [spec:cg3:sem:ast.ast-helper.destroy-fn]
     /// Closes the node this helper opened, restoring the parent context. If
-    /// `parse_ast` is disabled this is a no-op. Otherwise restores
-    /// `CUR_AST = c` (the parent) and nulls out `c`/`h`, which makes a second
-    /// `destroy()`/`Drop` a no-op (the C++ idempotency). (The C++ also restores
-    /// `cur_ast_help = h`; that global is elided here — see the struct note.)
-    pub fn destroy(&mut self) {
-        // C++: `if (!parse_ast) return;`
-        if !PARSE_AST.with(|p| p.get()) {
+    /// `parse_ast` is disabled this is a no-op. Otherwise pops the cursor back
+    /// to the parent and marks the helper closed, which makes a second
+    /// `destroy()` a no-op (the C++ idempotency).
+    pub fn destroy(&mut self, ast: &mut Ast) {
+        // C++: `if (!parse_ast) return;` — and the closed-idempotency guard.
+        if !ast.enabled || !self.open {
             return;
         }
         // C++: `cur_ast = c; cur_ast_help = h; c = nullptr; h = nullptr;`
-        CUR_AST.with(|p| p.set(self.c));
-        self.c = ptr::null_mut();
-        self.h = ptr::null_mut();
+        ast.cursor.pop();
+        self.open = false;
     }
 
     /// Port of the `AST_CLOSE(p)` macro (a bare macro in AST.hpp — no spec id):
     /// sets the current node's end pointer, then closes it via [`destroy`].
     ///
     /// [`destroy`]: ASTHelper::destroy
-    pub fn close(&mut self, e: *const UChar) {
+    pub fn close(&mut self, ast: &mut Ast, e: *const UChar) {
         // C++: `cur_ast->e = (p); cur_ast_help->destroy();`
-        // SAFETY: `CUR_AST` is always a live node pointer (root or a tree node).
-        CUR_AST.with(|p| unsafe { (*p.get()).e = e });
-        self.destroy();
+        if ast.enabled {
+            ast.current_mut().e = e;
+        }
+        self.destroy(ast);
     }
 
     /// Port of the `AST_CLOSE_ID(p, n)` macro (no spec id): sets the current
     /// node's end pointer and `u` payload, then closes it via [`destroy`].
     ///
     /// [`destroy`]: ASTHelper::destroy
-    pub fn close_id(&mut self, e: *const UChar, u: u32) {
+    pub fn close_id(&mut self, ast: &mut Ast, e: *const UChar, u: u32) {
         // C++: `cur_ast->e = (p); cur_ast->u = (n); cur_ast_help->destroy();`
-        // SAFETY: `CUR_AST` is always a live node pointer.
-        CUR_AST.with(|p| unsafe {
-            let node = p.get();
-            (*node).e = e;
-            (*node).u = u;
-        });
-        self.destroy();
-    }
-}
-
-impl Drop for ASTHelper {
-    /// C++ `~ASTHelper() { if (c || h) destroy(); }` — closes the node on scope
-    /// exit unless it was already closed by an explicit `AST_CLOSE`.
-    fn drop(&mut self) {
-        if !self.c.is_null() || !self.h.is_null() {
-            self.destroy();
+        if ast.enabled {
+            let node = ast.current_mut();
+            node.e = e;
+            node.u = u;
         }
+        self.destroy(ast);
     }
 }
 
@@ -591,9 +572,10 @@ mod tests {
         assert_eq!(s2, "<Anchor l=\"3\" b=\"0\" e=\"0\"/>\n");
     }
 
-    // ASTHelper::new opens a node as a child of the current node (when parse_ast is
-    // on) and advances the cursor; destroy() closes it, restoring the parent and
-    // becoming idempotent. When parse_ast is off the helper is inert.
+    // ASTHelper::new opens a node as a child of the Ast builder's current node
+    // (when AST building is on) and advances the cursor; destroy() closes it,
+    // restoring the parent and becoming idempotent. When building is off the
+    // helper is inert. (Wave 4: the builder is caller-owned — no thread_locals.)
     // [spec:cg3:sem:ast.ast-helper.ast-helper-fn/test]
     // [spec:cg3:sem:ast.ast-helper.destroy-fn/test]
     #[test]
@@ -601,38 +583,44 @@ mod tests {
         let src: Vec<UChar> = "x".chars().collect();
         let b = src.as_ptr();
 
-        // Disabled: helper is inert (no node created, c/h null).
-        set_parse_ast(false);
+        // Disabled: helper is inert (no node created).
+        let mut ast_off = Ast::new(false);
         {
-            let h = ASTHelper::new(ASTType::AST_Rule, 1, b);
-            assert!(h.c.is_null());
+            let h = ASTHelper::new(&mut ast_off, ASTType::AST_Rule, 1, b);
+            assert!(!h.open);
+            assert!(ast_off.root().cs.is_empty());
         }
 
         // Enabled: opening pushes a child onto the current (root) node and the
         // cursor advances to it.
-        set_parse_ast(true);
-        let root_children_before = with_ast_root(|r| r.cs.len());
+        let mut ast = Ast::new(true);
         {
-            let mut h = ASTHelper::new(ASTType::AST_Rule, 5, b);
-            assert!(!h.c.is_null()); // saved parent (the root)
-            let after = with_ast_root(|r| r.cs.len());
-            assert_eq!(after, root_children_before + 1);
+            let mut h = ASTHelper::new(&mut ast, ASTType::AST_Rule, 5, b);
+            assert!(h.open);
+            assert_eq!(ast.root().cs.len(), 1);
             // The newly opened child carries the type/line we passed.
-            with_ast_root(|r| {
-                let last = r.cs.last().unwrap();
-                assert_eq!(last.r#type, ASTType::AST_Rule);
-                assert_eq!(last.line, 5);
-            });
+            let last = ast.root().cs.last().unwrap();
+            assert_eq!(last.r#type, ASTType::AST_Rule);
+            assert_eq!(last.line, 5);
+            // A nested open lands under the first node (cursor advanced).
+            let mut h2 = ASTHelper::new(&mut ast, ASTType::AST_Tag, 6, b);
+            assert_eq!(ast.root().cs[0].cs.len(), 1);
+            // close(e) fills the current node's end pointer and pops back.
+            h2.close(&mut ast, b);
+            assert!(!ast.root().cs[0].cs[0].e.is_null());
 
-            // destroy() closes: restores the parent cursor and nulls c/h.
-            h.destroy();
-            assert!(h.c.is_null());
-            // A second destroy() is an idempotent no-op (c already null).
-            h.destroy();
-            assert!(h.c.is_null());
+            // destroy() closes: restores the parent cursor and goes inert.
+            h.destroy(&mut ast);
+            assert!(!h.open);
+            // A second destroy() is an idempotent no-op.
+            h.destroy(&mut ast);
+            assert!(!h.open);
         }
 
-        // Reset the thread-local flag so other tests aren't affected.
-        set_parse_ast(false);
+        // close_id sets both the end pointer and the u payload.
+        let mut ast2 = Ast::new(true);
+        let mut g = ASTHelper::new(&mut ast2, ASTType::AST_Grammar, 1, b);
+        g.close_id(&mut ast2, b, 42);
+        assert_eq!(ast2.root().cs[0].u, 42);
     }
 }

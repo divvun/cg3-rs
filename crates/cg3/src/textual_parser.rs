@@ -42,7 +42,7 @@ use std::panic::{self, AssertUnwindSafe};
 use regex::Regex;
 
 use crate::arena::{CtxId, RuleId, SetId, TagId};
-use crate::ast::{ASTHelper, ASTType, set_parse_ast};
+use crate::ast::{Ast, ASTHelper, ASTType};
 use crate::contextual_test::{
     GSR_SPECIALS, MASK_POS_SCAN, POS_64BIT, POS_ABSOLUTE, POS_ACTIVE, POS_ALL, POS_ATTACH_TO,
     POS_BAG_OF_TAGS, POS_CAREFUL, POS_DEP_CHILD, POS_DEP_DEEP, POS_DEP_GLOB, POS_DEP_PARENT,
@@ -447,6 +447,8 @@ pub struct TextualParser {
     parse_end_break: bool,
     pub nrules: Option<Regex>,
     pub nrules_inv: Option<Regex>,
+    /// Wave-4 owned AST builder (C++ `thread_local parse_ast/ast/cur_ast`).
+    ast: Ast,
 }
 
 impl TextualParser {
@@ -455,8 +457,8 @@ impl TextualParser {
     /// C++ `TextualParser(Grammar& res, std::ostream& ux_err, bool _dump_ast)`.
     /// The port OWNS its `Grammar`; the C++ error-stream arg becomes stderr.
     pub fn new(grammar: Grammar, dump_ast: bool) -> TextualParser {
-        set_parse_ast(dump_ast);
         TextualParser {
+            ast: Ast::new(dump_ast),
             grammar,
             filebase: String::new(),
             strict_tags: uint32SortedVector::new(),
@@ -517,7 +519,8 @@ impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.print-ast-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.print-ast-fn]
     pub fn print_ast(&self, out: &mut dyn Write) {
-        crate::ast::with_ast_root(|root| {
+        {
+            let root = self.ast.root();
             if root.cs.is_empty() {
                 return;
             }
@@ -529,7 +532,7 @@ impl TextualParser {
             );
             let _ = write!(out, "<!-- u is the deduplicated objects' unique identifier -->\n");
             crate::ast::print_ast(out, root.cs[0].b, 0, &root.cs[0]);
-        });
+        }
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.inc-error-count-fn]
@@ -3144,7 +3147,7 @@ impl TextualParser {
         let mut pos = 4usize;
         self.grammar.lines = 1;
         let mut ast_grammar =
-            ASTHelper::new(ASTType::AST_Grammar, self.grammar.lines as usize, pptr(buf, 4));
+            ASTHelper::new(&mut self.ast, ASTType::AST_Grammar, self.grammar.lines as usize, pptr(buf, 4));
         self.filebase = basename(Some(&fname)).to_string();
         self.parse_end_break = false;
 
@@ -3164,7 +3167,7 @@ impl TextualParser {
             }
         }
 
-        ast_grammar.close_id(pptr(buf, pos), id);
+        ast_grammar.close_id(&mut self.ast, pptr(buf, pos), id);
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-grammar-fn]
