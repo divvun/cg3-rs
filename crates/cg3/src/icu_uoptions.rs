@@ -47,7 +47,12 @@ fn at(token: &[UChar], k: usize) -> UChar {
 
 // [spec:cg3:def:icu-uoptions.u-parse-args-fn]
 // [spec:cg3:sem:icu-uoptions.u-parse-args-fn]
-pub fn u_parseArgs(argc: i32, argv: &mut [Vec<UChar>], option_count: i32, options: &mut [UOption]) -> i32 {
+pub fn u_parseArgs(
+    argc: i32,
+    argv: &mut [Vec<UChar>],
+    option_count: i32,
+    options: &mut [UOption],
+) -> i32 {
     let mut i: i32 = 1;
     let mut remaining: i32 = 1;
     let mut stop_options = false;
@@ -66,8 +71,7 @@ pub fn u_parseArgs(argc: i32, argv: &mut [Vec<UChar>], option_count: i32, option
                 if at(&argv[iu], arg_off) == '\0' {
                     // stop processing options after "--"
                     stop_options = true;
-                }
-                else {
+                } else {
                     // search for the option string (uprv_strcmp in the dead
                     // file; strcmp in the live header) — exact match
                     let name: String = argv[iu][arg_off..].iter().collect();
@@ -96,15 +100,13 @@ pub fn u_parseArgs(argc: i32, argv: &mut [Vec<UChar>], option_count: i32, option
                             // argument in the next argv[], and there is not an option in there
                             i += 1;
                             options[opt].value = argv[i as usize].iter().collect();
-                        }
-                        else if options[opt].has_arg == UOPT_REQUIRES_ARG {
+                        } else if options[opt].has_arg == UOPT_REQUIRES_ARG {
                             // there is no argument, but one is required: return with error
                             return -i;
                         }
                     }
                 }
-            }
-            else {
+            } else {
                 // process one or more short options
                 loop {
                     // search for the option letter
@@ -129,8 +131,7 @@ pub fn u_parseArgs(argc: i32, argv: &mut [Vec<UChar>], option_count: i32, option
                             options[opt].value = argv[iu][arg_off..].iter().collect();
                             // do not process the rest of this arg as option letters
                             break;
-                        }
-                        else if i + 1 < argc
+                        } else if i + 1 < argc
                             && !(at(&argv[(i + 1) as usize], 0) == '-'
                                 && at(&argv[(i + 1) as usize], 1) != '\0')
                         {
@@ -139,8 +140,7 @@ pub fn u_parseArgs(argc: i32, argv: &mut [Vec<UChar>], option_count: i32, option
                             options[opt].value = argv[i as usize].iter().collect();
                             // this break is redundant because we know that *arg==0
                             break;
-                        }
-                        else if options[opt].has_arg == UOPT_REQUIRES_ARG {
+                        } else if options[opt].has_arg == UOPT_REQUIRES_ARG {
                             // there is no argument, but one is required: return with error
                             return -i;
                         }
@@ -163,8 +163,7 @@ pub fn u_parseArgs(argc: i32, argv: &mut [Vec<UChar>], option_count: i32, option
 
             // go to next argv[]
             i += 1;
-        }
-        else {
+        } else {
             // move a non-option up in argv[]: argv[remaining++] = arg;
             let a = argv[iu].clone();
             argv[remaining as usize] = a;
@@ -227,7 +226,10 @@ mod tests {
 
         assert!(options[0].does_occur, "--verbose seen");
         assert!(options[1].does_occur, "-g seen");
-        assert_eq!(options[1].value, "inline.cg3", "short-option same-token arg");
+        assert_eq!(
+            options[1].value, "inline.cg3",
+            "short-option same-token arg"
+        );
         assert!(options[2].does_occur, "--file seen");
         assert_eq!(options[2].value, "out.txt", "long-option next-argv arg");
 

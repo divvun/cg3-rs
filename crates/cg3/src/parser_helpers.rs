@@ -45,9 +45,9 @@ use crate::inlines::hash_value_ustring;
 use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY};
 use crate::tag::{
     C_OPS, MASK_TAG_SPECIAL, T_ANY, T_ATTACHTO, T_BASEFORM, T_CASE_INSENSITIVE, T_CONTEXT, T_ENCL,
-    T_FAILFAST, T_LOCAL_VARIABLE, T_MARK, T_META, T_PAR_LEFT, T_PAR_RIGHT, T_PRESERVE_ESC, T_REGEXP,
-    T_REGEXP_ANY, T_REGEXP_LINE, T_SAME_BASIC, T_SET, T_SPECIAL, T_TARGET, T_TEXTUAL, T_VARIABLE,
-    T_VARSTRING, T_VSTR, T_WORDFORM, Tag,
+    T_FAILFAST, T_LOCAL_VARIABLE, T_MARK, T_META, T_PAR_LEFT, T_PAR_RIGHT, T_PRESERVE_ESC,
+    T_REGEXP, T_REGEXP_ANY, T_REGEXP_LINE, T_SAME_BASIC, T_SET, T_SPECIAL, T_TARGET, T_TEXTUAL,
+    T_VARIABLE, T_VARSTRING, T_VSTR, T_WORDFORM, Tag,
 };
 use crate::textual_parser::TextualParser;
 use crate::uextras::{S_IGNORE, ux_is_set_op};
@@ -123,7 +123,12 @@ impl ParseTagState for TextualParser {
 
 // [spec:cg3:def:parser-helpers.cg3.parse-tag-fn]
 // [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn]
-pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unescape: bool) -> TagId {
+pub fn parse_tag<S: ParseTagState>(
+    to: &str,
+    near: &[char],
+    state: &mut S,
+    unescape: bool,
+) -> TagId {
     // Validation first.
     let to0 = to.chars().next().unwrap_or('\0');
     if to0 == '\0' {
@@ -134,7 +139,11 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
     }
     if ux_is_set_op(to) != S_IGNORE {
         // Warning (not fatal): looks like a set operator.
-        tracing::warn!("{}: Warning: Tag '{}' looks like a set operator.", state.filebase(), to);
+        tracing::warn!(
+            "{}: Warning: Tag '{}' looks like a set operator.",
+            state.filebase(),
+            to
+        );
     }
 
     // Parse \uxxxx and \u{x} as Unicode code points.
@@ -207,7 +216,10 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
         let tget = |off: usize, i: usize, chars: &[char]| -> char { cat(chars, off + i) };
 
         if tget(tmp_off, 0, &to_chars) == 'T' && tget(tmp_off, 1, &to_chars) == ':' {
-            tracing::warn!("{}: Warning: Tag looks like a misattempt of template usage.", state.filebase());
+            tracing::warn!(
+                "{}: Warning: Tag looks like a misattempt of template usage.",
+                state.filebase()
+            );
         }
 
         // Prefix scans (independent ifs, source order).
@@ -321,7 +333,9 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
                 let first = tget(tmp_off, 0, &to_chars);
                 let last = tget(tmp_off, length - 1, &to_chars);
                 if first == '"' && last == '"' {
-                    if tget(tmp_off, 1, &to_chars) == '<' && tget(tmp_off, length - 2, &to_chars) == '>' {
+                    if tget(tmp_off, 1, &to_chars) == '<'
+                        && tget(tmp_off, length - 2, &to_chars) == '>'
+                    {
                         tag.r#type |= T_WORDFORM;
                     } else {
                         tag.r#type |= T_BASEFORM;
@@ -425,7 +439,9 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
                 let tchars: Vec<char> = tag.tag.chars().collect();
                 if cat(&tchars, 0) == '<'
                     && cat(&tchars, length.wrapping_sub(1)) == '>'
-                    && !tag.r#type.intersects(T_CASE_INSENSITIVE | T_REGEXP | T_REGEXP_LINE | T_VARSTRING)
+                    && !tag
+                        .r#type
+                        .intersects(T_CASE_INSENSITIVE | T_REGEXP | T_REGEXP_LINE | T_VARSTRING)
                 {
                     tag.parse_numeric(true);
                 }
@@ -479,7 +495,10 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
 
             // Regex compile.
             if tag.r#type.intersects(T_REGEXP) {
-                if tag.tag == STR_RXTEXT_ANY || tag.tag == STR_RXBASE_ANY || tag.tag == STR_RXWORD_ANY {
+                if tag.tag == STR_RXTEXT_ANY
+                    || tag.tag == STR_RXBASE_ANY
+                    || tag.tag == STR_RXWORD_ANY
+                {
                     tag.r#type |= T_REGEXP_ANY;
                     tag.r#type &= !T_REGEXP;
                 } else {
@@ -522,7 +541,9 @@ pub fn parse_tag<S: ParseTagState>(to: &str, near: &[char], state: &mut S, unesc
     }
 
     if tag.r#type.intersects(T_VARSTRING)
-        && tag.r#type.intersects(T_REGEXP | T_REGEXP_ANY | T_VARIABLE | T_LOCAL_VARIABLE | T_META)
+        && tag
+            .r#type
+            .intersects(T_REGEXP | T_REGEXP_ANY | T_VARIABLE | T_LOCAL_VARIABLE | T_META)
     {
         state.error_near(near); // "cannot mix varstring with any other special feature"
     }
@@ -642,7 +663,9 @@ fn scan_star_u_colon_s(s: &str) -> Option<String> {
 /// `uextras.hpp` `ux_strCaseCompare` — full case-fold equality (Unicode
 /// lowercase-fold approximation; ICU parity risk for non-ASCII).
 fn ux_str_case_compare(a: &str, b: &str) -> bool {
-    a.chars().flat_map(char::to_lowercase).eq(b.chars().flat_map(char::to_lowercase))
+    a.chars()
+        .flat_map(char::to_lowercase)
+        .eq(b.chars().flat_map(char::to_lowercase))
 }
 
 #[cfg(test)]
@@ -684,7 +707,10 @@ mod tests {
         let bsrc = "\"lemma\"";
         let bnear: Vec<char> = bsrc.chars().collect();
         let b = parse_tag(bsrc, &bnear, &mut p, true);
-        assert!(tag_type(&p, b).intersects(T_BASEFORM), "quoted lemma is a baseform");
+        assert!(
+            tag_type(&p, b).intersects(T_BASEFORM),
+            "quoted lemma is a baseform"
+        );
         assert!(tag_type(&p, b).intersects(T_TEXTUAL));
         assert_eq!(tag_text(&p, b), "\"lemma\"");
 
@@ -692,14 +718,20 @@ mod tests {
         let wsrc = "\"<word>\"";
         let wnear: Vec<char> = wsrc.chars().collect();
         let w = parse_tag(wsrc, &wnear, &mut p, true);
-        assert!(tag_type(&p, w).intersects(T_WORDFORM), "\"<...>\" is a wordform");
+        assert!(
+            tag_type(&p, w).intersects(T_WORDFORM),
+            "\"<...>\" is a wordform"
+        );
         assert!(tag_type(&p, w).intersects(T_TEXTUAL));
 
         // Failfast prefix `^`: sets T_FAILFAST (and is special).
         let fsrc = "^bad";
         let fnear: Vec<char> = fsrc.chars().collect();
         let f = parse_tag(fsrc, &fnear, &mut p, true);
-        assert!(tag_type(&p, f).intersects(T_FAILFAST), "leading ^ is failfast");
+        assert!(
+            tag_type(&p, f).intersects(T_FAILFAST),
+            "leading ^ is failfast"
+        );
 
         // `*` special -> T_ANY.
         let star: Vec<char> = "*".chars().collect();

@@ -28,11 +28,14 @@ use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{cg3_quit, is_cg3b};
 use crate::matxin_applicator::MatxinApplicator;
-use crate::options::{grammar_options_default, grammar_options_override, options, options_default, options_override, OPTIONS};
+use crate::options::{
+    OPTIONS, grammar_options_default, grammar_options_override, options, options_default,
+    options_override,
+};
 use crate::options_parser::{parse_opts, parse_opts_env};
 use crate::textual_parser::TextualParser;
 
-use super::{basename, CG3_REVISION, CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH};
+use super::{CG3_REVISION, CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, basename};
 
 // [spec:cg3:def:cg-proc.end-program-fn]
 // [spec:cg3:sem:cg-proc.end-program-fn]
@@ -44,7 +47,10 @@ fn end_program(name: &str) -> ! {
         "VISL CG-3 Disambiguator version {}.{}.{}.{}",
         CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
     );
-    println!("{}: process a stream with a constraint grammar", basename(name));
+    println!(
+        "{}: process a stream with a constraint grammar",
+        basename(name)
+    );
     println!(
         "USAGE: {} [-t] [-s] [-d] [-g] [-r rule] grammar_file [input_file [output_file]]",
         basename(name)
@@ -122,6 +128,9 @@ fn short_requires_arg(c: char) -> Option<bool> {
     }
 }
 
+// Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
+// the ported reads were elided (see the deferred-I/O / driver notes).
+#[allow(unused_assignments, unused_variables)]
 fn getopt_long_cgproc(args: &[String]) -> GetoptResult {
     let mut events = Vec::new();
     let mut i = 1usize; // getopt starts after argv[0]
@@ -152,7 +161,11 @@ fn getopt_long_cgproc(args: &[String]) -> GetoptResult {
                             i += 1;
                             Some(args[i].clone())
                         } else {
-                            return GetoptResult { events, optind: i, error: true };
+                            return GetoptResult {
+                                events,
+                                optind: i,
+                                error: true,
+                            };
                         };
                         events.push((letter, val));
                     } else {
@@ -162,7 +175,11 @@ fn getopt_long_cgproc(args: &[String]) -> GetoptResult {
                     i += 1;
                 }
                 None => {
-                    return GetoptResult { events, optind: i, error: true };
+                    return GetoptResult {
+                        events,
+                        optind: i,
+                        error: true,
+                    };
                 }
             }
         } else {
@@ -181,7 +198,11 @@ fn getopt_long_cgproc(args: &[String]) -> GetoptResult {
                             i += 1;
                             events.push((c, Some(args[i].clone())));
                         } else {
-                            return GetoptResult { events, optind: i, error: true };
+                            return GetoptResult {
+                                events,
+                                optind: i,
+                                error: true,
+                            };
                         }
                         break; // consumed rest of the cluster
                     }
@@ -190,7 +211,11 @@ fn getopt_long_cgproc(args: &[String]) -> GetoptResult {
                         j += 1;
                     }
                     None => {
-                        return GetoptResult { events, optind: i, error: true };
+                        return GetoptResult {
+                            events,
+                            optind: i,
+                            error: true,
+                        };
                     }
                 }
             }
@@ -198,7 +223,11 @@ fn getopt_long_cgproc(args: &[String]) -> GetoptResult {
         }
     }
 
-    GetoptResult { events, optind: i, error: false }
+    GetoptResult {
+        events,
+        optind: i,
+        error: false,
+    }
 }
 
 /// Faithful `atoi` over an optional argument (`Option<&str>`): `atoi(NULL)` is UB
@@ -457,7 +486,9 @@ pub fn main_proc(args: &[String]) -> i32 {
     // adapter supporting the only Seek the drivers perform: the ≤3-byte
     // `ux_strip_bom` rewind (SeekFrom::Current with a small negative offset).
     let mut cursor: Box<dyn ReadSeek> = match input_path {
-        Some(path) => Box::new(std::io::Cursor::new(std::fs::read(path).unwrap_or_default())),
+        Some(path) => Box::new(std::io::Cursor::new(
+            std::fs::read(path).unwrap_or_default(),
+        )),
         None => Box::new(StreamingStdin::new()),
     };
     // ux_stdout: argv[optind+2] if given (create failure → silent sink, per the
@@ -515,7 +546,11 @@ const STDIN_HISTORY: usize = 8;
 
 impl StreamingStdin {
     fn new() -> Self {
-        StreamingStdin { inner: std::io::stdin(), history: Vec::new(), pushback: 0 }
+        StreamingStdin {
+            inner: std::io::stdin(),
+            history: Vec::new(),
+            pushback: 0,
+        }
     }
 }
 

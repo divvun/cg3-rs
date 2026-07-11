@@ -784,7 +784,8 @@ impl Grammar {
         // (3) SET→LIST folding.
         let to_sets = self.sets_list[to.0].sets.clone();
         let to_type = self.sets_list[to.0].r#type;
-        if !to_sets.is_empty() && !to_type.intersects(ST_TAG_UNIFY | ST_CHILD_UNIFY | ST_SET_UNIFY) {
+        if !to_sets.is_empty() && !to_type.intersects(ST_TAG_UNIFY | ST_CHILD_UNIFY | ST_SET_UNIFY)
+        {
             let to_set_ops = self.sets_list[to.0].set_ops.clone();
             let mut all_tags = true;
             for i in 0..to_sets.len() {
@@ -1273,7 +1274,9 @@ impl Grammar {
                 for (tagvec, special) in &ntags {
                     if *special {
                         if tagvec.len() == 1
-                            && self.single_tags_list[tagvec[0].0].r#type.intersects(T_FAILFAST)
+                            && self.single_tags_list[tagvec[0].0]
+                                .r#type
+                                .intersects(T_FAILFAST)
                         {
                             self.sets_list.get_mut(ns_id.0).ff_tags.insert(tagvec[0]);
                         } else {
@@ -1455,7 +1458,14 @@ impl Grammar {
         self.contexts_arena[test.0].is_used = true;
         let (target, barrier, cbarrier, tmpl, ors, linked) = {
             let t = &self.contexts_arena[test.0];
-            (t.target, t.barrier, t.cbarrier, t.tmpl, t.ors.clone(), t.linked)
+            (
+                t.target,
+                t.barrier,
+                t.cbarrier,
+                t.tmpl,
+                t.ors.clone(),
+                t.linked,
+            )
         };
         if target != 0 {
             let s = self.get_set(target).unwrap();
@@ -1633,7 +1643,18 @@ impl Grammar {
             .map(RuleId)
             .collect();
         for rid in &all_rule_ids {
-            let (wordform, rtype, target, childset1, childset2, maplist, sublist, dep_target, tests, dep_tests) = {
+            let (
+                wordform,
+                rtype,
+                target,
+                childset1,
+                childset2,
+                maplist,
+                sublist,
+                dep_target,
+                tests,
+                dep_tests,
+            ) = {
                 let r = &self.rule_by_number[rid.0];
                 (
                     r.wordform,
@@ -1993,7 +2014,12 @@ impl Grammar {
                     }
                     continue;
                 }
-                if cbarrier != 0 && self.set_by_number(cbarrier).r#type.intersects(MASK_ST_UNIFY) {
+                if cbarrier != 0
+                    && self
+                        .set_by_number(cbarrier)
+                        .r#type
+                        .intersects(MASK_ST_UNIFY)
+                {
                     if nk.insert(t) {
                         did = true;
                     }
@@ -2124,7 +2150,12 @@ pub fn trie_unserialize<R: Read>(
             if node.trie.is_none() {
                 node.trie = Some(Box::new(trie_t::new()));
             }
-            trie_unserialize(node.trie.as_deref_mut().unwrap(), input, grammar, child_count);
+            trie_unserialize(
+                node.trie.as_deref_mut().unwrap(),
+                input,
+                grammar,
+                child_count,
+            );
         }
     }
 }

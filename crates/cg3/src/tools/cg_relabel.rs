@@ -14,9 +14,7 @@ use crate::inlines::{cg3_quit, is_cg3b};
 use crate::relabeller::Relabeller;
 use crate::textual_parser::TextualParser;
 
-use super::{
-    basename, CG3_REVISION, CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH,
-};
+use super::{CG3_REVISION, CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, basename};
 
 // [spec:cg3:def:cg-relabel.end-program-fn]
 // [spec:cg3:sem:cg-relabel.end-program-fn]
@@ -27,7 +25,10 @@ fn end_program(name: Option<&str>) -> ! {
             "VISL CG-3 Relabeller version {}.{}.{}.{}",
             CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
         );
-        println!("{}: relabel a binary grammar using a relabelling file", basename(name));
+        println!(
+            "{}: relabel a binary grammar using a relabelling file",
+            basename(name)
+        );
         println!(
             "USAGE: {} input_grammar_file relabel_rule_file output_grammar_file",
             basename(name)
@@ -81,7 +82,9 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Option<Grammar> {
         Some(grammar)
     } else {
         if require_binary {
-            tracing::error!("Error: Text grammar detected -- to compile this grammar, use `cg-comp'");
+            tracing::error!(
+                "Error: Text grammar detected -- to compile this grammar, use `cg-comp'"
+            );
             cg3_quit(1, None, 0);
         }
         // parser.reset(new TextualParser(*grammar, ux_stderr));

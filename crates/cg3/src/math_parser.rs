@@ -391,7 +391,14 @@ fn first_char(s: &str) -> UChar {
 
 /// `inlines.hpp` `ISDELIM`.
 fn is_delim(c: UChar) -> bool {
-    c == '(' || c == ')' || c == '+' || c == '-' || c == '*' || c == '/' || c == '^' || c == '%'
+    c == '('
+        || c == ')'
+        || c == '+'
+        || c == '-'
+        || c == '*'
+        || c == '/'
+        || c == '^'
+        || c == '%'
         || c == '='
 }
 
@@ -640,7 +647,9 @@ mod tests {
         // A multi-letter (non MIN/MAX) variable name is rejected by get_token.
         assert_eq!(
             mp.eval("AB"),
-            Err(MathError("Variables other than MIN and MAX must be 1 letter"))
+            Err(MathError(
+                "Variables other than MIN and MAX must be 1 letter"
+            ))
         );
     }
 }

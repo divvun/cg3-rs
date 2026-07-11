@@ -118,8 +118,16 @@ mod tests {
         assert!(pool.get().is_none());
 
         // put() must clear() the object (resetting payload) before storing.
-        pool.put(Box::new(Widget { cleared: 0, payload: 42, drops: drops.clone() }));
-        pool.put(Box::new(Widget { cleared: 0, payload: 99, drops: drops.clone() }));
+        pool.put(Box::new(Widget {
+            cleared: 0,
+            payload: 42,
+            drops: drops.clone(),
+        }));
+        pool.put(Box::new(Widget {
+            cleared: 0,
+            payload: 99,
+            drops: drops.clone(),
+        }));
 
         // LIFO: the second-put widget comes back first. Its payload was zeroed
         // by clear(), and clear() ran exactly once.
@@ -147,11 +155,27 @@ mod tests {
         let drops = Rc::new(Cell::new(0u32));
         {
             let mut pool: Pool<Widget> = Pool::default();
-            pool.put(Box::new(Widget { cleared: 0, payload: 1, drops: drops.clone() }));
-            pool.put(Box::new(Widget { cleared: 0, payload: 2, drops: drops.clone() }));
-            pool.put(Box::new(Widget { cleared: 0, payload: 3, drops: drops.clone() }));
+            pool.put(Box::new(Widget {
+                cleared: 0,
+                payload: 1,
+                drops: drops.clone(),
+            }));
+            pool.put(Box::new(Widget {
+                cleared: 0,
+                payload: 2,
+                drops: drops.clone(),
+            }));
+            pool.put(Box::new(Widget {
+                cleared: 0,
+                payload: 3,
+                drops: drops.clone(),
+            }));
             assert_eq!(drops.get(), 0, "nothing dropped while pool is alive");
         } // pool dropped here -> all three retained widgets dropped.
-        assert_eq!(drops.get(), 3, "pool destructor dropped every retained object");
+        assert_eq!(
+            drops.get(),
+            3,
+            "pool destructor dropped every retained object"
+        );
     }
 }

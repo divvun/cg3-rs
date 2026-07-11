@@ -56,8 +56,7 @@ pub fn main_merge_annotations(args: &[String]) -> i32 {
                 oe.num_match += ie.num_match;
                 oe.num_fail += ie.num_fail;
             }
-            let need_window =
-                out.entries[&k].example_window == 0 && ie.example_window != 0;
+            let need_window = out.entries[&k].example_window == 0 && ie.example_window != 0;
             if need_window {
                 // auto id = out.addString(strings[ie.example_window]);
                 let s = strings.get(&ie.example_window).cloned().unwrap_or_default();

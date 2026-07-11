@@ -20,7 +20,10 @@ use cg3::grammar::Grammar;
 use cg3::textual_parser::TextualParser;
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn test_dir(name: &str) -> PathBuf {
@@ -130,7 +133,10 @@ fn grammar_bin_flag_roundtrip_contexttest() {
         .arg(&bin)
         .status()
         .expect("spawn vislcg3 --grammar-bin");
-    assert!(status.success(), "vislcg3 --grammar-bin exited with {status}");
+    assert!(
+        status.success(),
+        "vislcg3 --grammar-bin exited with {status}"
+    );
     run_and_check(&dir, &bin, "contexttest-bin");
     let _ = std::fs::remove_file(&bin);
 }
@@ -158,7 +164,10 @@ fn inprocess_binary_roundtrip() {
     let num_sets = grammar.sets_list_order.len();
     let num_rules = grammar.rule_by_number.capacity();
     let num_contexts = grammar.contexts.len();
-    assert!(num_contexts > 0, "T_Templates must produce contextual tests");
+    assert!(
+        num_contexts > 0,
+        "T_Templates must produce contextual tests"
+    );
 
     let mut writer = BinaryGrammar::binary_grammar(grammar);
     writer.set_compatible(true); // C++ setCompatible: empty body, flag discarded
@@ -167,11 +176,19 @@ fn inprocess_binary_roundtrip() {
     assert_eq!(&blob[..4], b"CG3B", "magic bytes");
 
     let mut reader = BinaryGrammar::binary_grammar(Grammar::default());
-    assert_eq!(reader.parse_grammar_buffer(&blob), 0, "binary reread failed");
+    assert_eq!(
+        reader.parse_grammar_buffer(&blob),
+        0,
+        "binary reread failed"
+    );
     assert!(reader.grammar.is_binary);
     assert_eq!(reader.grammar.num_tags, num_tags, "tag count");
     assert_eq!(reader.grammar.sets_list_order.len(), num_sets, "set count");
-    assert_eq!(reader.grammar.rule_by_number.capacity(), num_rules, "rule count");
+    assert_eq!(
+        reader.grammar.rule_by_number.capacity(),
+        num_rules,
+        "rule count"
+    );
     assert_eq!(reader.grammar.contexts.len(), num_contexts, "context count");
 }
 
@@ -198,9 +215,15 @@ fn grammar_out_roundtrip_templates() {
         .arg(&out_cg3)
         .status()
         .expect("spawn vislcg3 --grammar-out");
-    assert!(status.success(), "vislcg3 --grammar-out exited with {status}");
+    assert!(
+        status.success(),
+        "vislcg3 --grammar-out exited with {status}"
+    );
     let text = std::fs::read_to_string(&out_cg3).expect("read written grammar");
-    assert!(text.contains("DELIMITERS"), "written grammar has DELIMITERS");
+    assert!(
+        text.contains("DELIMITERS"),
+        "written grammar has DELIMITERS"
+    );
     assert!(text.contains("SELECT"), "written grammar has rules");
     run_and_check(&dir, &out_cg3, "templates-out");
     let _ = std::fs::remove_file(&out_cg3);

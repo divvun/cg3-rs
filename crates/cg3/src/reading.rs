@@ -144,7 +144,7 @@ fn copy_ctor_fields(r: &Reading) -> Reading {
 /// sub-reading source out of the arena before recursing, so the recursive call
 /// can borrow the store mutably without aliasing. NOT the copy ctor (it does not
 /// bump `number` or clear `matched_*`), and NOT a manifest symbol — port infra.
-fn clone_verbatim(r: &Reading) -> Reading {
+pub(crate) fn clone_verbatim(r: &Reading) -> Reading {
     Reading {
         mapped: r.mapped,
         deleted: r.deleted,
@@ -190,13 +190,21 @@ pub fn alloc_reading(store: &mut RuntimeStore, p: Option<CohortId>) -> ReadingId
     let number = match p {
         // UI32(p->readings.size() * 1000 + 1000)
         Some(cid) => ui32(
-            store.cohorts.get(cid.0).readings.len()
+            store
+                .cohorts
+                .get(cid.0)
+                .readings
+                .len()
                 .wrapping_mul(1000)
                 .wrapping_add(1000),
         ),
         None => 0,
     };
-    let r = Reading { number, parent: p, ..Default::default() };
+    let r = Reading {
+        number,
+        parent: p,
+        ..Default::default()
+    };
     ReadingId(store.readings.alloc(r))
 }
 

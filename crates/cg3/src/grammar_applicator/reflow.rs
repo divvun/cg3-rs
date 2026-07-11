@@ -318,7 +318,8 @@ impl super::GrammarApplicator {
             return false;
         }
 
-        if !allowcrossing && self.dep_block_crossing && self.would_parent_child_cross(parent, child) {
+        if !allowcrossing && self.dep_block_crossing && self.would_parent_child_cross(parent, child)
+        {
             // Crossing warning — I/O deferred.
             return false;
         }
@@ -384,12 +385,10 @@ impl super::GrammarApplicator {
         // `gWindow->current` lazily inside the branches that need it (it is
         // null while the input stream is still being parsed, when those
         // branches are not taken), so the unwrap must stay lazy too.
-        if self.gWindow.dep_window.is_empty()
-            || {
-                let first = *self.gWindow.dep_window.values().next().unwrap();
-                self.store.cohorts.get(first.0).parent.is_none()
-            }
-        {
+        if self.gWindow.dep_window.is_empty() || {
+            let first = *self.gWindow.dep_window.values().next().unwrap();
+            self.store.cohorts.get(first.0).parent.is_none()
+        } {
             let cur = self.gWindow.current.unwrap();
             let c0 = self.store.single_windows.get(cur.0).cohorts[0];
             self.gWindow.dep_window.insert(0, c0);
@@ -417,8 +416,12 @@ impl super::GrammarApplicator {
         }
 
         // Snapshot dep_window in id order (BTreeMap iteration == C++ std::map).
-        let dw: Vec<(u32, CohortId)> =
-            self.gWindow.dep_window.iter().map(|(&k, &v)| (k, v)).collect();
+        let dw: Vec<(u32, CohortId)> = self
+            .gWindow
+            .dep_window
+            .iter()
+            .map(|(&k, &v)| (k, v))
+            .collect();
 
         let mut begin = 0usize;
         loop {
@@ -473,7 +476,13 @@ impl super::GrammarApplicator {
                 let cohort = dw[b].1;
                 let (ty, ds, dp, gn, ln) = {
                     let co = self.store.cohorts.get(cohort.0);
-                    (co.r#type, co.dep_self, co.dep_parent, co.global_number, co.local_number)
+                    (
+                        co.r#type,
+                        co.dep_self,
+                        co.dep_parent,
+                        co.global_number,
+                        co.local_number,
+                    )
                 };
                 if max != 0 && gn >= max {
                     break;
@@ -594,10 +603,20 @@ impl super::GrammarApplicator {
                     }
                 }
                 if newrel.empty() {
-                    self.store.cohorts.get_mut(c.0).relations_input.remove(&name);
+                    self.store
+                        .cohorts
+                        .get_mut(c.0)
+                        .relations_input
+                        .remove(&name);
                 } else {
                     let v = newrel.as_slice().to_vec();
-                    let dst = self.store.cohorts.get_mut(c.0).relations_input.entry(name).or_default();
+                    let dst = self
+                        .store
+                        .cohorts
+                        .get_mut(c.0)
+                        .relations_input
+                        .entry(name)
+                        .or_default();
                     dst.clear();
                     for x in v {
                         dst.insert(x);
@@ -674,8 +693,18 @@ impl super::GrammarApplicator {
 
         // (1) Escape %[UuLl] and $1-9 markers to control-code sentinels.
         let raw: [&str; 13] = [
-            STR_VSU_RAW, STR_VSUU_RAW, STR_VSL_RAW, STR_VSLL_RAW, STR_VS_RAW[0], STR_VS_RAW[1],
-            STR_VS_RAW[2], STR_VS_RAW[3], STR_VS_RAW[4], STR_VS_RAW[5], STR_VS_RAW[6], STR_VS_RAW[7],
+            STR_VSU_RAW,
+            STR_VSUU_RAW,
+            STR_VSL_RAW,
+            STR_VSLL_RAW,
+            STR_VS_RAW[0],
+            STR_VS_RAW[1],
+            STR_VS_RAW[2],
+            STR_VS_RAW[3],
+            STR_VS_RAW[4],
+            STR_VS_RAW[5],
+            STR_VS_RAW[6],
+            STR_VS_RAW[7],
             STR_VS_RAW[8],
         ];
         let x01: [&str; 13] = [
@@ -836,8 +865,16 @@ impl super::GrammarApplicator {
     /// Adds `tag`, updates every derived index of the reading, the parent
     /// cohort's flags, and (when `grammar->has_bag_of_tags`) the window
     /// bag-of-tags; returns the (possibly varstring-substituted) tag's hash.
-    pub fn add_tag_to_reading_rehash(&mut self, reading: ReadingId, mut tag: TagId, rehash: bool) -> u32 {
-        if self.grammar.single_tags_list[tag.0].r#type.intersects(T_VARSTRING) {
+    pub fn add_tag_to_reading_rehash(
+        &mut self,
+        reading: ReadingId,
+        mut tag: TagId,
+        rehash: bool,
+    ) -> u32 {
+        if self.grammar.single_tags_list[tag.0]
+            .r#type
+            .intersects(T_VARSTRING)
+        {
             let tval = self.grammar.single_tags_list[tag.0].clone();
             tag = self.generate_varstring_tag(&tval);
         }
@@ -919,7 +956,11 @@ impl super::GrammarApplicator {
             r.tags_textual_bloom.insert(thash);
         }
         if ttype.intersects(T_NUMERICAL) {
-            self.store.readings.get_mut(reading.0).tags_numerical.insert(thash, tag);
+            self.store
+                .readings
+                .get_mut(reading.0)
+                .tags_numerical
+                .insert(thash, tag);
             self.store.cohorts.get_mut(parent.unwrap().0).r#type &= !CT_NUM_CURRENT;
         }
         if self.store.readings.get(reading.0).baseform == 0 && (ttype.intersects(T_BASEFORM)) {
@@ -927,7 +968,12 @@ impl super::GrammarApplicator {
         }
         if self.parse_dep
             && (ttype.intersects(T_DEPENDENCY))
-            && (!self.store.cohorts.get(parent.unwrap().0).r#type.intersects(CT_DEP_DONE))
+            && (!self
+                .store
+                .cohorts
+                .get(parent.unwrap().0)
+                .r#type
+                .intersects(CT_DEP_DONE))
         {
             let c = self.store.cohorts.get_mut(parent.unwrap().0);
             c.dep_self = tds;
@@ -995,9 +1041,7 @@ impl super::GrammarApplicator {
                 // holds a `next` chain, and its `mapping` is always null, so the
                 // fold is just over `tags`.
                 let bot = &mut self.store.single_windows.get_mut(sw.0).bag_of_tags;
-                let mapping_hash = bot
-                    .mapping
-                    .map(|m| self.grammar.single_tags_list[m.0].hash);
+                let mapping_hash = bot.mapping.map(|m| self.grammar.single_tags_list[m.0].hash);
                 let mut h: u32 = 0;
                 for &iter in bot.tags.iter() {
                     let fold = match mapping_hash {
@@ -1116,7 +1160,10 @@ impl super::GrammarApplicator {
         let mut idx = 0usize;
         while idx < mappings.len() {
             let mut t = mappings[idx];
-            while self.grammar.single_tags_list[t.0].r#type.intersects(T_VARSTRING) {
+            while self.grammar.single_tags_list[t.0]
+                .r#type
+                .intersects(T_VARSTRING)
+            {
                 let tval = self.grammar.single_tags_list[t.0].clone();
                 t = self.generate_varstring_tag(&tval);
                 mappings[idx] = t;
@@ -1498,7 +1545,11 @@ impl super::GrammarApplicator {
             self.store.cohorts.get_mut(c.0).parent = Some(nwin);
             let ty = self.store.cohorts.get(c.0).r#type;
             if ty.intersects(CT_ENCLOSED | CT_REMOVED | CT_IGNORED) {
-                self.store.single_windows.get_mut(nwin.0).all_cohorts.push(c);
+                self.store
+                    .single_windows
+                    .get_mut(nwin.0)
+                    .all_cohorts
+                    .push(c);
             } else {
                 crate::single_window::append_cohort(&mut self.gWindow, &mut self.store, nwin, c);
                 // C++ SingleWindow::appendCohort: if (cohort->dep_self)
@@ -1519,7 +1570,13 @@ impl super::GrammarApplicator {
         }
 
         // cohort = current.cohorts.back(); addTagToReading(*reading, endtag).
-        cohort = *self.store.single_windows.get(current.0).cohorts.last().unwrap();
+        cohort = *self
+            .store
+            .single_windows
+            .get(current.0)
+            .cohorts
+            .last()
+            .unwrap();
         let endtag_tid = self.grammar.single_tags.find(self.endtag).get().1;
         let rs = self.store.cohorts.get(cohort.0).readings.clone();
         for reading in rs {
@@ -1549,7 +1606,10 @@ impl super::GrammarApplicator {
         let tags: Vec<u32> = self.store.readings.get(r.0).tags.as_slice().to_vec();
         for it in tags {
             let tid = self.grammar.single_tags.find(it).get().1;
-            if self.grammar.single_tags_list[tid.0].r#type.intersects(T_TEXTUAL) {
+            if self.grammar.single_tags_list[tid.0]
+                .r#type
+                .intersects(T_TEXTUAL)
+            {
                 let rr = self.store.readings.get_mut(r.0);
                 rr.tags_textual.insert(it);
                 rr.tags_textual_bloom.insert(it);
@@ -1607,36 +1667,6 @@ impl super::GrammarApplicator {
     }
 }
 
-/// Verbatim field copy of a stored `Reading` value (the C++ `alloc_reading(const
-/// Reading&)` source, `*nr = reading`). `Reading` derives only `Default`, so the
-/// fields are copied explicitly. Mirrors `run_rules::clone_reading_value` (kept
-/// local so reflow.rs compiles standalone). NOT a manifest symbol.
-fn clone_reading_value(r: &Reading) -> Reading {
-    Reading {
-        mapped: r.mapped,
-        deleted: r.deleted,
-        noprint: r.noprint,
-        matched_target: r.matched_target,
-        matched_tests: r.matched_tests,
-        immutable: r.immutable,
-        active: r.active,
-        baseform: r.baseform,
-        hash: r.hash,
-        hash_plain: r.hash_plain,
-        number: r.number,
-        tags_bloom: r.tags_bloom,
-        tags_plain_bloom: r.tags_plain_bloom,
-        tags_textual_bloom: r.tags_textual_bloom,
-        mapping: r.mapping,
-        parent: r.parent,
-        next: r.next,
-        hit_by: r.hit_by.clone(),
-        tags_list: r.tags_list.clone(),
-        tags: r.tags.clone(),
-        tags_plain: r.tags_plain.clone(),
-        tags_textual: r.tags_textual.clone(),
-        tags_numerical: r.tags_numerical.clone(),
-        tags_string: r.tags_string.clone(),
-        tags_string_hash: r.tags_string_hash,
-    }
-}
+// Wave 4 (w4-file-split-fmt): the verbatim Reading field-copy is
+// consolidated in `crate::reading::clone_verbatim`.
+use crate::reading::clone_verbatim as clone_reading_value;

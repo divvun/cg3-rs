@@ -40,14 +40,14 @@
 //!   `base_mut()` accessors — the composition analogue of the C++ public
 //!   inheritance.
 
-pub mod vislcg3;
+pub mod cg_annotate;
 pub mod cg_comp;
 pub mod cg_conv;
+pub mod cg_merge_annotations;
+pub mod cg_mwesplit;
 pub mod cg_proc;
 pub mod cg_relabel;
-pub mod cg_mwesplit;
-pub mod cg_annotate;
-pub mod cg_merge_annotations;
+pub mod vislcg3;
 
 // --- Diagnostics ----------------------------------------------------------------
 

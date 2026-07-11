@@ -618,9 +618,7 @@ pub fn ux_simplecasecmp(a: &[UChar], b: &[UChar], n: usize) -> bool {
     // match. Short-circuit for the most likely suffixes (NUL/space/delim).
     match a.get(n) {
         None => true, // a[n] == 0
-        Some(&an) => {
-            an == '\0' || isspace(an) || isdelim(an) || u_get_combining_class(an) == 0
-        }
+        Some(&an) => an == '\0' || isspace(an) || isdelim(an) || u_get_combining_class(an) == 0,
     }
 }
 
@@ -687,7 +685,12 @@ impl<'a> substr_t<'a> {
         } else {
             '\0'
         };
-        substr_t { str, offset, count, old_value }
+        substr_t {
+            str,
+            offset,
+            count,
+            old_value,
+        }
     }
 
     // [spec:cg3:def:uextras.cg3.substr-t.data-fn]
@@ -706,7 +709,10 @@ impl<'a> substr_t<'a> {
 
 /// Byte offset of the `n`-th char (or `str.len()` at/after the end).
 fn char_byte(str: &str, n: usize) -> usize {
-    str.char_indices().nth(n).map(|(b, _)| b).unwrap_or(str.len())
+    str.char_indices()
+        .nth(n)
+        .map(|(b, _)| b)
+        .unwrap_or(str.len())
 }
 
 // [spec:cg3:def:uextras.cg3.substr-fn]
@@ -944,8 +950,14 @@ mod tests {
         assert!(!ux_simplecasecmp_sv("abc", "xyz"));
 
         // ux_strCaseCompare: proper Unicode case-insensitive equality.
-        assert!(ux_strCaseCompare(&"Hello".to_string(), &"hello".to_string()));
-        assert!(ux_strCaseCompare(&"GRüßE".to_string(), &"grüße".to_string()));
+        assert!(ux_strCaseCompare(
+            &"Hello".to_string(),
+            &"hello".to_string()
+        ));
+        assert!(ux_strCaseCompare(
+            &"GRüßE".to_string(),
+            &"grüße".to_string()
+        ));
         assert!(!ux_strCaseCompare(&"abc".to_string(), &"abd".to_string()));
     }
 

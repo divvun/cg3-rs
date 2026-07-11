@@ -74,17 +74,15 @@ use regex::{Regex, RegexBuilder};
 
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::contextual_test::POS_64BIT;
+use crate::flat_unordered_set::Uint32FlatHashSet;
 use crate::grammar::{Grammar, trie_unserialize};
 use crate::igrammar_parser::IGrammarParser;
-use crate::inlines::{
-    cg3_quit, is_cg3b, read_be, read_be_f64, ui16, ui32, write_be, write_be_f64,
-};
+use crate::inlines::{cg3_quit, is_cg3b, read_be, read_be_f64, ui16, ui32, write_be, write_be_f64};
 use crate::rule::Rule;
 use crate::set::Set;
 use crate::strings::KEYWORDS;
 use crate::tag::{C_OPS, T_CASE_INSENSITIVE, T_CONTEXT, T_LOCAL_VARIABLE, T_VARIABLE, Tag};
 use crate::tag_trie::trie_serialize;
-use crate::flat_unordered_set::Uint32FlatHashSet;
 
 // C++ `BinaryGrammar.hpp` `enum : uint32_t { BINF_* }` — the top-level feature
 // bitset. Reproduced verbatim (no `[spec:cg3:def]` id: an unnamed header enum).
@@ -197,7 +195,8 @@ impl BinaryGrammar {
             Err(e) => {
                 tracing::error!(
                     "Error: Cannot stat {} due to error {} - bailing out!",
-                    filename, e
+                    filename,
+                    e
                 );
                 cg3_quit(1, None, 0);
             }
@@ -209,7 +208,8 @@ impl BinaryGrammar {
             Err(e) => {
                 tracing::error!(
                     "Error: Cannot stat {} due to error {} - bailing out!",
-                    filename, e
+                    filename,
+                    e
                 );
                 cg3_quit(1, None, 0);
             }
@@ -257,7 +257,9 @@ impl BinaryGrammar {
             cg3_quit(1, None, 0);
         }
         if !is_cg3b(magic) {
-            tracing::error!("Error: Grammar does not begin with magic bytes - cannot load as binary!");
+            tracing::error!(
+                "Error: Grammar does not begin with magic bytes - cannot load as binary!"
+            );
             cg3_quit(1, None, 0);
         }
 
@@ -266,7 +268,8 @@ impl BinaryGrammar {
             if self.verbosity >= 1 {
                 tracing::warn!(
                     "Warning: Grammar revision is {}, but current format is {} or later. Please recompile the binary grammar with latest CG-3.",
-                    bin_revision, CG3_FEATURE_REV
+                    bin_revision,
+                    CG3_FEATURE_REV
                 );
             }
             // input.seekg(0) — OMITTED: the 10043 path is an erroring stub.
@@ -275,14 +278,16 @@ impl BinaryGrammar {
         if bin_revision < CG3_TOO_OLD {
             tracing::error!(
                 "Error: Grammar revision is {}, but this loader requires {} or later!",
-                bin_revision, CG3_TOO_OLD
+                bin_revision,
+                CG3_TOO_OLD
             );
             cg3_quit(1, None, 0);
         }
         if bin_revision > CG3_FEATURE_REV {
             tracing::error!(
                 "Error: Grammar revision is {}, but this loader only knows up to revision {}!",
-                bin_revision, CG3_FEATURE_REV
+                bin_revision,
+                CG3_FEATURE_REV
             );
             cg3_quit(1, None, 0);
         }
@@ -404,7 +409,8 @@ impl BinaryGrammar {
                         Err(e) => {
                             tracing::error!(
                                 "Error: uregex_open returned {} trying to parse tag {} - cannot continue!",
-                                e, t.tag
+                                e,
+                                t.tag
                             );
                             cg3_quit(1, None, 0);
                         }
@@ -729,8 +735,7 @@ impl BinaryGrammar {
         }
 
         // Bind deferred template refs.
-        let tmpls: Vec<(CtxId, u32)> =
-            self.deferred_tmpls.iter().map(|(&k, &v)| (k, v)).collect();
+        let tmpls: Vec<(CtxId, u32)> = self.deferred_tmpls.iter().map(|(&k, &v)| (k, v)).collect();
         for (t, hash) in tmpls {
             let ctx = self.grammar.contexts[&hash]; // find(hash)->second (no end-check)
             self.grammar.contexts_arena[t.0].tmpl = Some(ctx);
@@ -775,7 +780,8 @@ impl BinaryGrammar {
                 let hi = read_be::<u32, _>(input);
                 pos |= (hi as u64) << 32;
             }
-            self.grammar.contexts_arena[t.0].pos = crate::contextual_test::PosFlags::from_bits_retain(pos);
+            self.grammar.contexts_arena[t.0].pos =
+                crate::contextual_test::PosFlags::from_bits_retain(pos);
         }
         if fields & (1 << 2) != 0 {
             self.grammar.contexts_arena[t.0].offset = read_be(input);
@@ -1336,17 +1342,26 @@ impl BinaryGrammar {
             write_be(output, dep_hash);
 
             // SIDE EFFECT: reverse the rule's tests/dep_tests in place.
-            self.grammar.rule_by_number.get_mut(i).reverse_contextual_tests();
+            self.grammar
+                .rule_by_number
+                .get_mut(i)
+                .reverse_contextual_tests();
 
-            let dep_tests: Vec<CtxId> =
-                self.grammar.rule_by_number[i].dep_tests.iter().copied().collect();
+            let dep_tests: Vec<CtxId> = self.grammar.rule_by_number[i]
+                .dep_tests
+                .iter()
+                .copied()
+                .collect();
             write_be(output, dep_tests.len() as u32);
             for cid in &dep_tests {
                 write_be(output, self.grammar.contexts_arena[cid.0].hash);
             }
 
-            let tests: Vec<CtxId> =
-                self.grammar.rule_by_number[i].tests.iter().copied().collect();
+            let tests: Vec<CtxId> = self.grammar.rule_by_number[i]
+                .tests
+                .iter()
+                .copied()
+                .collect();
             write_be(output, tests.len() as u32);
             for cid in &tests {
                 write_be(output, self.grammar.contexts_arena[cid.0].hash);

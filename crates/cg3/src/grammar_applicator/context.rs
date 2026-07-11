@@ -60,7 +60,14 @@ impl super::GrammarApplicator {
     pub fn get_apply_to(&self) -> ReadingSpec {
         if self.context_stack.is_empty() {
             ReadingSpec::default()
-        } else if self.context_stack.last().unwrap().attach_to.cohort.is_some() {
+        } else if self
+            .context_stack
+            .last()
+            .unwrap()
+            .attach_to
+            .cohort
+            .is_some()
+        {
             self.context_stack.last().unwrap().attach_to.clone()
         } else {
             self.context_stack.last().unwrap().target.clone()

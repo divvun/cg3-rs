@@ -235,7 +235,10 @@ fn free_reading_list(store: &mut RuntimeStore, ids: &[ReadingId]) {
 /// `p` is `Option<SwId>` (not a bare `SwId`) to preserve the nullable
 /// `SingleWindow*`.
 pub fn alloc_cohort(store: &mut RuntimeStore, p: Option<SwId>) -> CohortId {
-    let c = Cohort { parent: p, ..Default::default() };
+    let c = Cohort {
+        parent: p,
+        ..Default::default()
+    };
     CohortId(store.cohorts.alloc(c))
 }
 
@@ -284,7 +287,6 @@ pub fn cohort_dtor(store: &mut RuntimeStore, window: Option<&mut Window>, this: 
     free_reading_list(store, &ign);
     free_reading(store, wr);
     store.cohorts.get_mut(this.0).wread = None; // free_reading(wread) nulls the member
-
 
     if store.cohorts.get(this.0).parent.is_some() {
         if let Some(win) = window {
@@ -406,7 +408,12 @@ pub fn detach(store: &mut RuntimeStore, this: CohortId) {
 /// letting it target ANY reading list. STORE-TAKING FREE FN (it reads/writes the
 /// appended `Reading`'s `number`). `list` is the external target list (e.g. the
 /// staging `ReadingList` at `GrammarApplicator_runGrammar.cpp:416`).
-pub fn append_reading_to(store: &mut RuntimeStore, this: CohortId, read: ReadingId, list: &mut ReadingList) {
+pub fn append_reading_to(
+    store: &mut RuntimeStore,
+    this: CohortId,
+    read: ReadingId,
+    list: &mut ReadingList,
+) {
     list.push(read);
     let sz = list.len();
     if store.readings.get(read.0).number == 0 {
@@ -421,7 +428,9 @@ pub fn append_reading_to(store: &mut RuntimeStore, this: CohortId, read: Reading
 /// the store is split to touch the cohort's `readings` field and the appended
 /// `Reading` at once.
 pub fn append_reading(store: &mut RuntimeStore, this: CohortId, read: ReadingId) {
-    let RuntimeStore { cohorts, readings, .. } = store;
+    let RuntimeStore {
+        cohorts, readings, ..
+    } = store;
     let cohort = cohorts.get_mut(this.0);
     cohort.readings.push(read);
     let sz = cohort.readings.len();
@@ -440,7 +449,9 @@ pub fn append_reading(store: &mut RuntimeStore, this: CohortId, read: ReadingId)
 /// from the pre-push count — reproduced literally), and clears `CT_NUM_CURRENT`.
 pub fn allocate_append_reading(store: &mut RuntimeStore, this: CohortId) -> ReadingId {
     let read = alloc_reading(store, Some(this));
-    let RuntimeStore { cohorts, readings, .. } = store;
+    let RuntimeStore {
+        cohorts, readings, ..
+    } = store;
     let cohort = cohorts.get_mut(this.0);
     cohort.readings.push(read);
     let sz = cohort.readings.len();
@@ -454,9 +465,15 @@ pub fn allocate_append_reading(store: &mut RuntimeStore, this: CohortId) -> Read
 /// C++ sibling overload `Reading* Cohort::allocateAppendReading(Reading& r)` —
 /// identical to [`allocate_append_reading`] except the new reading is seeded via
 /// `alloc_reading(r)` (a copy of `r`).
-pub fn allocate_append_reading_copy(store: &mut RuntimeStore, this: CohortId, r: &Reading) -> ReadingId {
+pub fn allocate_append_reading_copy(
+    store: &mut RuntimeStore,
+    this: CohortId,
+    r: &Reading,
+) -> ReadingId {
     let read = alloc_reading_copy(store, r);
-    let RuntimeStore { cohorts, readings, .. } = store;
+    let RuntimeStore {
+        cohorts, readings, ..
+    } = store;
     let cohort = cohorts.get_mut(this.0);
     cohort.readings.push(read);
     let sz = cohort.readings.len();
@@ -480,7 +497,9 @@ pub fn allocate_append_reading_copy(store: &mut RuntimeStore, this: CohortId, r:
 /// `find(...) == end() || val < map[...]` short-circuit means an absent key is
 /// simply inserted, never default-read). Sets `CT_NUM_CURRENT` at the end.
 pub fn update_min_max(store: &mut RuntimeStore, grammar: &Grammar, this: CohortId) {
-    let RuntimeStore { cohorts, readings, .. } = store;
+    let RuntimeStore {
+        cohorts, readings, ..
+    } = store;
     if cohorts.get(this.0).r#type.intersects(CT_NUM_CURRENT) {
         return;
     }
@@ -540,7 +559,9 @@ pub fn get_max(store: &mut RuntimeStore, grammar: &Grammar, this: CohortId, key:
 /// false` on every reading in `readings`. STORE-TAKING FREE FN (it writes each
 /// `Reading`).
 pub fn set_related(store: &mut RuntimeStore, this: CohortId) {
-    let RuntimeStore { cohorts, readings, .. } = store;
+    let RuntimeStore {
+        cohorts, readings, ..
+    } = store;
     let cohort = cohorts.get_mut(this.0);
     cohort.r#type |= CT_RELATED;
     for &rid in cohort.readings.iter() {
@@ -555,7 +576,9 @@ pub fn set_related(store: &mut RuntimeStore, this: CohortId) {
 /// the end of `readings`, then clears `ignored`. No-op when `ignored` is empty.
 /// STORE-TAKING FREE FN (it writes each ignored `Reading`).
 pub fn unignore_all(store: &mut RuntimeStore, this: CohortId) {
-    let RuntimeStore { cohorts, readings, .. } = store;
+    let RuntimeStore {
+        cohorts, readings, ..
+    } = store;
     let cohort = cohorts.get_mut(this.0);
     if !cohort.ignored.is_empty() {
         for &rid in cohort.ignored.iter() {

@@ -25,7 +25,10 @@ use cg3::tag::TagVectorSet;
 use cg3::textual_parser::TextualParser;
 
 fn repo_root() -> PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 /// Parse a grammar source string in-process; assert a clean (0-error) parse.
@@ -62,7 +65,11 @@ fn set_tag_vectors(g: &Grammar, s: SetId) -> Vec<Vec<String>> {
     let mut tvs = TagVectorSet::new();
     g.get_tags(s, &mut tvs);
     tvs.iter()
-        .map(|tv| tv.iter().map(|t| g.single_tags_list[t.0].tag.clone()).collect())
+        .map(|tv| {
+            tv.iter()
+                .map(|t| g.single_tags_list[t.0].tag.clone())
+                .collect()
+        })
         .collect()
 }
 
@@ -111,7 +118,8 @@ fn constructor_trait_surface_and_compat_mode() {
     IGrammarParser::set_verbosity(&mut p, 1);
     IGrammarParser::drop_parser(&mut p);
 
-    let src = b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nLIST BB = bb ;\nSELECT AA IF (NOT 1 BB) ;\n";
+    let src =
+        b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nLIST BB = bb ;\nSELECT AA IF (NOT 1 BB) ;\n";
     let mut g = Grammar::default();
     let rv = IGrammarParser::parse_grammar(&mut p, &mut g, src);
     assert_eq!(rv, 0, "trait parse_grammar failed");
@@ -123,7 +131,9 @@ fn constructor_trait_surface_and_compat_mode() {
 
     // vislcg-compat rewrote the NOT context to NEGATE.
     let negated = (0..g.contexts_arena.capacity()).any(|i| {
-        g.contexts_arena.try_get(i).is_some_and(|c| c.pos.intersects(POS_NEGATE))
+        g.contexts_arena
+            .try_get(i)
+            .is_some_and(|c| c.pos.intersects(POS_NEGATE))
     });
     assert!(negated, "compat mode should turn NOT into NEGATE");
     // `g` and the parser's grammar drop here -> the ~Grammar() analog runs.
@@ -174,7 +184,10 @@ fn list_set_parsing_and_composite_tag_ordering() {
     let comp = set_by_name(g, "Comp");
     assert_eq!(
         set_tag_texts(g, comp),
-        ["aa", "bb", "cc", "dd"].iter().map(|s| s.to_string()).collect()
+        ["aa", "bb", "cc", "dd"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     );
 
     // Composite paths were stored highest-frequency-first: `aa` (freq 2) is
@@ -183,24 +196,51 @@ fn list_set_parsing_and_composite_tag_ordering() {
     let text = |t: &cg3::arena::TagId| g.single_tags_list[t.0].tag.clone();
     let trie = &g.sets_list[comp.0].trie;
     let roots: BTreeSet<String> = trie.keys().map(text).collect();
-    assert_eq!(roots, ["aa", "dd"].iter().map(|s| s.to_string()).collect::<BTreeSet<_>>());
+    assert_eq!(
+        roots,
+        ["aa", "dd"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<BTreeSet<_>>()
+    );
     let (aa, dd) = {
         let mut it = trie.iter();
         (it.next().unwrap(), it.next().unwrap())
     };
-    let (aa, dd) = if text(aa.0) == "aa" { (aa.1, dd.1) } else { (dd.1, aa.1) };
+    let (aa, dd) = if text(aa.0) == "aa" {
+        (aa.1, dd.1)
+    } else {
+        (dd.1, aa.1)
+    };
     assert!(dd.terminal, "single entry dd is terminal at the root");
-    assert!(!aa.terminal, "aa only exists as the composites' shared prefix");
-    let children: BTreeSet<String> =
-        aa.trie.as_ref().expect("aa has children").keys().map(text).collect();
-    assert_eq!(children, ["bb", "cc"].iter().map(|s| s.to_string()).collect::<BTreeSet<_>>());
+    assert!(
+        !aa.terminal,
+        "aa only exists as the composites' shared prefix"
+    );
+    let children: BTreeSet<String> = aa
+        .trie
+        .as_ref()
+        .expect("aa has children")
+        .keys()
+        .map(text)
+        .collect();
+    assert_eq!(
+        children,
+        ["bb", "cc"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<BTreeSet<_>>()
+    );
 
     // SET Both = Comp OR Second went through parseSetInline; addSet folded the
     // pure-OR SET of LISTs into a single LIST whose contents are the union.
     let both = set_by_name(g, "Both");
     assert_eq!(
         set_tag_texts(g, both),
-        ["aa", "bb", "cc", "dd", "xx"].iter().map(|s| s.to_string()).collect()
+        ["aa", "bb", "cc", "dd", "xx"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     );
 
     // addTag dedup: exactly one interned tag with text "aa".
@@ -225,11 +265,18 @@ fn setops_fixture_eager_operators() {
     let p = parse_fixture("test/T_SetOps/grammar.cg3");
     let g = &p.grammar;
 
-    assert_eq!(g.rule_by_number.capacity(), 6, "T_SetOps defines 6 ADD rules");
+    assert_eq!(
+        g.rule_by_number.capacity(),
+        6,
+        "T_SetOps defines 6 ADD rules"
+    );
     for i in 0..g.rule_by_number.capacity() {
         let r = g.rule_by_number.try_get(i).unwrap();
         assert_eq!(r.r#type, KEYWORDS::K_ADD);
-        assert!(r.maplist.is_some(), "every ADD carries a maplist (mapping-list checked)");
+        assert!(
+            r.maplist.is_some(),
+            "every ADD carries a maplist (mapping-list checked)"
+        );
     }
 
     // Collect the tag-text contents of every leaf set; the eagerly-computed
@@ -242,10 +289,20 @@ fn setops_fixture_eager_operators() {
             }
         }
     }
-    let want = |items: &[&str]| -> BTreeSet<String> { items.iter().map(|s| s.to_string()).collect() };
-    assert!(leaf_contents.contains(&want(&["a", "b"])), "A \\ B = {{a b}}");
-    assert!(leaf_contents.contains(&want(&["c", "d"])), "A ∩ B = {{c d}}");
-    assert!(leaf_contents.contains(&want(&["a", "b", "e", "f"])), "A ∆ B = {{a b e f}}");
+    let want =
+        |items: &[&str]| -> BTreeSet<String> { items.iter().map(|s| s.to_string()).collect() };
+    assert!(
+        leaf_contents.contains(&want(&["a", "b"])),
+        "A \\ B = {{a b}}"
+    );
+    assert!(
+        leaf_contents.contains(&want(&["c", "d"])),
+        "A ∩ B = {{c d}}"
+    );
+    assert!(
+        leaf_contents.contains(&want(&["a", "b", "e", "f"])),
+        "A ∆ B = {{a b e f}}"
+    );
 }
 
 // Rule and section machinery over a crafted grammar: maybeParseRule dispatches
@@ -290,7 +347,10 @@ fn rules_sections_anchors_and_jump() {
     assert_eq!(r_jump.r#type, KEYWORDS::K_JUMP);
 
     // parseRuleFlags: SAFE was consumed into the rule's flags.
-    assert!(r_select.flags.intersects(RF_SAFE), "SELECT SAFE must carry RF_SAFE");
+    assert!(
+        r_select.flags.intersects(RF_SAFE),
+        "SELECT SAFE must carry RF_SAFE"
+    );
 
     // addRuleToGrammar section assignment: SELECT in section 0, rest in 1.
     assert_eq!(r_select.section, 0);
@@ -330,13 +390,19 @@ fn templates_fixture_contextual_tests() {
     let g = &p.grammar;
 
     assert_eq!(g.templates.len(), 9, "T_Templates defines 9 TEMPLATEs");
-    assert!(!g.contexts.is_empty(), "rule contexts interned via addContextualTest");
+    assert!(
+        !g.contexts.is_empty(),
+        "rule contexts interned via addContextualTest"
+    );
     assert!(g.rule_by_number.capacity() > 10);
 
     // Every ADD rule in the fixture has at least one contextual test.
     for i in 0..g.rule_by_number.capacity() {
         let r = g.rule_by_number.try_get(i).unwrap();
-        assert!(!r.tests.is_empty(), "rule {i} should carry contextual tests");
+        assert!(
+            !r.tests.is_empty(),
+            "rule {i} should carry contextual tests"
+        );
     }
 
     // parseContextualTestPosition: offsets like -4 were parsed into contexts.
@@ -346,9 +412,16 @@ fn templates_fixture_contextual_tests() {
 
     // Deferred template refs were resolved: some context points at a template.
     let tmpl_refs = (0..g.contexts_arena.capacity())
-        .filter(|&i| g.contexts_arena.try_get(i).is_some_and(|c| c.tmpl.is_some()))
+        .filter(|&i| {
+            g.contexts_arena
+                .try_get(i)
+                .is_some_and(|c| c.tmpl.is_some())
+        })
         .count();
-    assert!(tmpl_refs > 0, "T: references must be wired to interned templates");
+    assert!(
+        tmpl_refs > 0,
+        "T: references must be wired to interned templates"
+    );
 }
 
 // T_SetParentChild: SETPARENT/SETCHILD ... TO (...) rules route their
@@ -374,8 +447,14 @@ fn setparent_fixture_dependency_tests() {
             }
         }
     }
-    assert!(dep_rules > 0, "SETPARENT/SETCHILD rules with TO contexts expected");
-    assert!(both > 0, "a rule with both plain tests and dep tests expected");
+    assert!(
+        dep_rules > 0,
+        "SETPARENT/SETCHILD rules with TO contexts expected"
+    );
+    assert!(
+        both > 0,
+        "a rule with both plain tests and dep tests expected"
+    );
 }
 
 // UNDEF-SETS and LIST += over a crafted grammar: undefSet pulls the old set
@@ -399,11 +478,17 @@ fn undef_sets_and_list_append() {
 
     // After UNDEF-SETS the name XX resolves to the NEW definition only.
     let xx = set_by_name(g, "XX");
-    assert_eq!(set_tag_texts(g, xx), ["x3"].iter().map(|s| s.to_string()).collect());
+    assert_eq!(
+        set_tag_texts(g, xx),
+        ["x3"].iter().map(|s| s.to_string()).collect()
+    );
 
     // LIST YY += y2 merged old and new under the same name.
     let yy = set_by_name(g, "YY");
-    assert_eq!(set_tag_texts(g, yy), ["y1", "y2"].iter().map(|s| s.to_string()).collect());
+    assert_eq!(
+        set_tag_texts(g, yy),
+        ["y1", "y2"].iter().map(|s| s.to_string()).collect()
+    );
 }
 
 // Error recovery: referencing an undefined set makes parseSet call
@@ -434,7 +519,10 @@ fn print_ast_dumps_xml() {
     let mut out: Vec<u8> = Vec::new();
     p.print_ast(&mut out);
     let s = String::from_utf8(out).unwrap();
-    assert!(s.starts_with("<?xml version=\"1.0\""), "AST dump must be XML: {s:.>40}");
+    assert!(
+        s.starts_with("<?xml version=\"1.0\""),
+        "AST dump must be XML: {s:.>40}"
+    );
     assert!(s.contains("l is line"));
 }
 
@@ -470,13 +558,16 @@ fn reindex_builds_runtime_indexes() {
     // addSetToList: dense DFS numbering, dummy reset to number 0 at position 0.
     assert!(g.sets_list_order.len() > 1, "used sets numbered");
     for (n, sid) in g.sets_list_order.iter().enumerate() {
-        assert_eq!(g.sets_list[sid.0].number, n as u32, "set number == list position");
+        assert_eq!(
+            g.sets_list[sid.0].number, n as u32,
+            "set number == list position"
+        );
     }
     assert_eq!(g.sets_list[g.sets_list_order[0].0].name, STR_DUMMY);
 
     // Rules were distributed into their section vectors.
-    let distributed = g.before_sections.len() + g.rules.len() + g.after_sections.len()
-        + g.null_section.len();
+    let distributed =
+        g.before_sections.len() + g.rules.len() + g.after_sections.len() + g.null_section.len();
     assert!(distributed > 0, "rules distributed to section vectors");
 }
 
@@ -510,7 +601,10 @@ fn remove_numeric_tags_and_direct_destroyers() {
     );
     assert_eq!(
         set_tag_texts(&p.grammar, stripped),
-        ["plain"].iter().map(|s| s.to_string()).collect::<BTreeSet<_>>(),
+        ["plain"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<BTreeSet<_>>(),
         "only the non-numeric tag survives"
     );
 
@@ -531,7 +625,10 @@ fn remove_numeric_tags_and_direct_destroyers() {
 
     let r = g.allocate_rule();
     let rid = g.add_rule(r);
-    assert_eq!(g.rule_by_number[rid.0].number, rid.0, "addRule numbers the rule");
+    assert_eq!(
+        g.rule_by_number[rid.0].number, rid.0,
+        "addRule numbers the rule"
+    );
     g.destroy_rule(rid);
     assert!(g.rule_by_number.try_get(rid.0).is_none(), "rule slot freed");
 }
@@ -543,8 +640,7 @@ fn remove_numeric_tags_and_direct_destroyers() {
 #[test]
 fn binary_grammar_roundtrip_unserializes_tries() {
     let grammar = repo_root().join("test/T_SetOps/grammar.cg3");
-    let bin = std::env::temp_dir()
-        .join(format!("cg3-grammar-parser-{}.cg3b", std::process::id()));
+    let bin = std::env::temp_dir().join(format!("cg3-grammar-parser-{}.cg3b", std::process::id()));
     let status = std::process::Command::new(env!("CARGO_BIN_EXE_cg-comp"))
         .arg(&grammar)
         .arg(&bin)

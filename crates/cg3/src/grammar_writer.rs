@@ -48,12 +48,12 @@ use std::io::Write;
 use crate::arena::{CtxId, RuleId, SetId};
 use crate::contextual_test::{
     ContextualTest, GSR_SPECIALS, POS_ABSOLUTE, POS_ACTIVE, POS_ALL, POS_ATTACH_TO,
-    POS_BAG_OF_TAGS, POS_CAREFUL, POS_DEP_CHILD, POS_DEP_GLOB, POS_DEP_PARENT, POS_DEP_SIBLING,
-    POS_INACTIVE, POS_JUMP, POS_JUMP_POS, POS_LEFT, POS_LEFTMOST, POS_LEFT_PAR, POS_LOOK_DELAYED,
-    POS_LOOK_DELETED, POS_LOOK_IGNORED, POS_MARK_SET, POS_NEGATE, POS_NONE, POS_NOT, POS_NO_BARRIER,
-    POS_NO_PASS_ORIGIN, POS_PASS_ORIGIN, POS_RELATION, POS_RIGHT, POS_RIGHTMOST, POS_RIGHT_PAR,
-    POS_SCANALL, POS_SCANFIRST, POS_SELF, POS_SPAN_BOTH, POS_SPAN_LEFT, POS_SPAN_RIGHT,
-    POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, POS_DEP_DEEP,
+    POS_BAG_OF_TAGS, POS_CAREFUL, POS_DEP_CHILD, POS_DEP_DEEP, POS_DEP_GLOB, POS_DEP_PARENT,
+    POS_DEP_SIBLING, POS_INACTIVE, POS_JUMP, POS_JUMP_POS, POS_LEFT, POS_LEFT_PAR, POS_LEFTMOST,
+    POS_LOOK_DELAYED, POS_LOOK_DELETED, POS_LOOK_IGNORED, POS_MARK_SET, POS_NEGATE, POS_NO_BARRIER,
+    POS_NO_PASS_ORIGIN, POS_NONE, POS_NOT, POS_PASS_ORIGIN, POS_RELATION, POS_RIGHT, POS_RIGHT_PAR,
+    POS_RIGHTMOST, POS_SCANALL, POS_SCANFIRST, POS_SELF, POS_SPAN_BOTH, POS_SPAN_LEFT,
+    POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH,
 };
 use crate::flat_unordered_set::Uint32FlatHashSet;
 use crate::grammar::Grammar;
@@ -367,7 +367,11 @@ impl GrammarWriter {
             w!(output, "CMDARGS += {} ;\n", grammar.cmdargs);
         }
         if !grammar.cmdargs_override.is_empty() {
-            w!(output, "CMDARGS-OVERRIDE += {} ;\n", grammar.cmdargs_override);
+            w!(
+                output,
+                "CMDARGS-OVERRIDE += {} ;\n",
+                grammar.cmdargs_override
+            );
         }
 
         if !grammar.static_sets.is_empty() {
@@ -442,7 +446,11 @@ impl GrammarWriter {
 
         let tmpls: Vec<CtxId> = grammar.templates.values().copied().collect();
         for tmpl in tmpls {
-            w!(output, "TEMPLATE {} = ", grammar.contexts_arena[tmpl.0].hash);
+            w!(
+                output,
+                "TEMPLATE {} = ",
+                grammar.contexts_arena[tmpl.0].hash
+            );
             self.print_contextual_test(grammar, output, &grammar.contexts_arena[tmpl.0]);
             w!(output, " ;\n");
         }
@@ -514,11 +522,7 @@ impl GrammarWriter {
         self.seen_rules.insert(rule.number);
 
         // anchors.equal_range(rule.number)
-        let anchor_hashes: Vec<u32> = self
-            .anchors
-            .get(&rule.number)
-            .cloned()
-            .unwrap_or_default();
+        let anchor_hashes: Vec<u32> = self.anchors.get(&rule.number).cloned().unwrap_or_default();
         for h in anchor_hashes {
             let tid = grammar.single_tags.find(h).get().1;
             let tag = &grammar.single_tags_list[tid.0].tag;
@@ -564,7 +568,10 @@ impl GrammarWriter {
             if i == FL_BEFORE || i == FL_AFTER || i == FL_WITHCHILD {
                 continue;
             }
-            if rule.flags.intersects(crate::rule::RuleFlags::from_bits_retain(1u64 << i)) {
+            if rule
+                .flags
+                .intersects(crate::rule::RuleFlags::from_bits_retain(1u64 << i))
+            {
                 if i == FL_SUB {
                     w!(to, "{}:{} ", G_FLAGS[i], rule.sub_reading);
                 } else {
@@ -574,7 +581,11 @@ impl GrammarWriter {
         }
 
         if rule.flags.intersects(RF_WITHCHILD) {
-            w!(to, "WITHCHILD {} ", grammar.set_by_number(rule.childset1).name);
+            w!(
+                to,
+                "WITHCHILD {} ",
+                grammar.set_by_number(rule.childset1).name
+            );
         }
 
         if rule.r#type == KEYWORDS::K_SUBSTITUTE || rule.r#type == KEYWORDS::K_EXECUTE {
@@ -656,7 +667,11 @@ impl GrammarWriter {
 
         if let Some(dt) = rule.dep_target {
             if rule.childset2 != 0 {
-                w!(to, "WITHCHILD {} ", grammar.set_by_number(rule.childset2).name);
+                w!(
+                    to,
+                    "WITHCHILD {} ",
+                    grammar.set_by_number(rule.childset2).name
+                );
             }
             w!(to, "(");
             self.print_contextual_test(grammar, to, &grammar.contexts_arena[dt.0]);
@@ -696,7 +711,8 @@ impl GrammarWriter {
         if test.pos.intersects(POS_NEGATE) {
             w!(to, "NEGATE ");
         }
-        if (test.pos.intersects(POS_TMPL_OVERRIDE)) || (test.tmpl.is_none() && test.ors.is_empty()) {
+        if (test.pos.intersects(POS_TMPL_OVERRIDE)) || (test.tmpl.is_none() && test.ors.is_empty())
+        {
             if test.pos.intersects(POS_ALL) {
                 w!(to, "ALL ");
             }
@@ -750,15 +766,16 @@ impl GrammarWriter {
 
             if test.pos.intersects(POS_UNKNOWN) {
                 w!(to, "?");
-            } else if !test.pos.intersects(POS_DEP_CHILD
+            } else if !test.pos.intersects(
+                POS_DEP_CHILD
                     | POS_DEP_SIBLING
                     | POS_DEP_PARENT
                     | POS_DEP_GLOB
                     | POS_LEFT_PAR
                     | POS_RIGHT_PAR
                     | POS_RELATION
-                    | POS_BAG_OF_TAGS)
-            {
+                    | POS_BAG_OF_TAGS,
+            ) {
                 w!(to, "{}", test.offset);
             }
 
@@ -862,7 +879,11 @@ impl GrammarWriter {
             w!(to, "{} ", grammar.set_by_number(test.target).name);
         }
         if test.cbarrier != 0 {
-            w!(to, "CBARRIER {} ", grammar.set_by_number(test.cbarrier).name);
+            w!(
+                to,
+                "CBARRIER {} ",
+                grammar.set_by_number(test.cbarrier).name
+            );
         }
         if test.barrier != 0 {
             w!(to, "BARRIER {} ", grammar.set_by_number(test.barrier).name);
@@ -884,4 +905,3 @@ impl GrammarWriter {
         w!(to, "{str}");
     }
 }
-

@@ -27,7 +27,9 @@ where
     // [spec:cg3:def:bloomish.cg3.bloomish.bloomish-fn]
     // [spec:cg3:sem:bloomish.cg3.bloomish.bloomish-fn]
     pub fn new() -> Self {
-        let mut b = Bloomish { value: [Cont::from(0u8); 4] };
+        let mut b = Bloomish {
+            value: [Cont::from(0u8); 4],
+        };
         b.clear();
         b
     }
@@ -43,14 +45,11 @@ where
     pub fn insert(&mut self, v: Cont) {
         if v & Cont::from(4u8) != Cont::from(0u8) {
             self.value[3] |= v;
-        }
-        else if v & Cont::from(2u8) != Cont::from(0u8) {
+        } else if v & Cont::from(2u8) != Cont::from(0u8) {
             self.value[2] |= v;
-        }
-        else if v & Cont::from(1u8) != Cont::from(0u8) {
+        } else if v & Cont::from(1u8) != Cont::from(0u8) {
             self.value[1] |= v;
-        }
-        else {
+        } else {
             self.value[0] |= v;
         }
     }
@@ -60,11 +59,9 @@ where
     pub fn matches(&self, v: Cont) -> bool {
         if v & Cont::from(4u8) != Cont::from(0u8) {
             return self.value[3] & v == v;
-        }
-        else if v & Cont::from(2u8) != Cont::from(0u8) {
+        } else if v & Cont::from(2u8) != Cont::from(0u8) {
             return self.value[2] & v == v;
-        }
-        else if v & Cont::from(1u8) != Cont::from(0u8) {
+        } else if v & Cont::from(1u8) != Cont::from(0u8) {
             return self.value[1] & v == v;
         }
         self.value[0] & v == v

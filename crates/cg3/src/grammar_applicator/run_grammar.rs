@@ -158,7 +158,10 @@ impl super::GrammarApplicator {
     /// baseform from `makeBaseFromWord(wordform)->hash` (when `allow_magic_readings`)
     /// else `wordform->hash`, ANY set flagged, the wordform tag added, `noprint =
     /// true`, appended, and `++numReadings`.
-    pub fn init_empty_cohort(&mut self, c_cohort: crate::arena::CohortId) -> crate::arena::ReadingId {
+    pub fn init_empty_cohort(
+        &mut self,
+        c_cohort: crate::arena::CohortId,
+    ) -> crate::arena::ReadingId {
         let c_reading = crate::reading::alloc_reading(&mut self.store, Some(c_cohort));
         // cCohort.wordform is dereferenced unconditionally (`->hash`).
         let wordform = self
@@ -272,8 +275,13 @@ impl super::GrammarApplicator {
         // CG-3 may produce such
         if cleaned[space] != '"' {
             // "looked like a reading but wasn't - treated as text": deferred.
-            if !indents.is_empty() && self.store.readings.get(indents.last().unwrap().1 .0).next == Some(c_reading) {
-                self.store.readings.get_mut(indents.last().unwrap().1 .0).next = None;
+            if !indents.is_empty()
+                && self.store.readings.get(indents.last().unwrap().1.0).next == Some(c_reading)
+            {
+                self.store
+                    .readings
+                    .get_mut(indents.last().unwrap().1.0)
+                    .next = None;
             }
             let cr = Some(c_reading);
             crate::reading::free_reading(&mut self.store, cr);
@@ -328,7 +336,8 @@ impl super::GrammarApplicator {
                 let t = &self.grammar.single_tags_list[tag.0];
                 (t.r#type, t.tag.chars().next().unwrap_or('\0'))
             };
-            if ttype.intersects(crate::tag::T_MAPPING) || first_char == self.grammar.mapping_prefix {
+            if ttype.intersects(crate::tag::T_MAPPING) || first_char == self.grammar.mapping_prefix
+            {
                 self.grammar.single_tags_list[tag.0].r#type |= crate::tag::T_MAPPING;
                 all_mappings.entry(c_reading).or_default().push(tag);
             } else {
@@ -442,8 +451,14 @@ impl super::GrammarApplicator {
     /// overload targeting the `deleted` list. Reproduces `Cohort::appendReading`
     /// directly (the member list lives inside the `cohorts` arena, so the store
     /// is split to touch the cohort's `deleted` field and the `Reading` at once).
-    fn append_reading_deleted(&mut self, this: crate::arena::CohortId, read: crate::arena::ReadingId) {
-        let crate::store::RuntimeStore { cohorts, readings, .. } = &mut self.store;
+    fn append_reading_deleted(
+        &mut self,
+        this: crate::arena::CohortId,
+        read: crate::arena::ReadingId,
+    ) {
+        let crate::store::RuntimeStore {
+            cohorts, readings, ..
+        } = &mut self.store;
         let cohort = cohorts.get_mut(this.0);
         cohort.deleted.push(read);
         let sz = cohort.deleted.len();
@@ -533,8 +548,7 @@ impl super::GrammarApplicator {
         // no more progress (the `packoff == 0` check at the bottom).
         'mainloop: loop {
             lines += 1;
-            let mut packoff =
-                crate::uextras::get_line_clean(&mut line, &mut cleaned, input, false);
+            let mut packoff = crate::uextras::get_line_clean(&mut line, &mut cleaned, input, false);
 
             // C++ `while (!input.eof())`: eofbit is set when a read attempt hits
             // end-of-stream. `u_fgets` distinguishes a blank line (packoff == 0
@@ -544,7 +558,8 @@ impl super::GrammarApplicator {
             let hit_eof = packoff == 0 && line[0] == '\0';
 
             // Trim trailing whitespace from `cleaned`.
-            while cleaned[0] != '\0' && packoff > 0 && crate::inlines::isspace(cleaned[packoff - 1]) {
+            while cleaned[0] != '\0' && packoff > 0 && crate::inlines::isspace(cleaned[packoff - 1])
+            {
                 cleaned[packoff - 1] = '\0';
                 packoff -= 1;
             }
@@ -582,7 +597,8 @@ impl super::GrammarApplicator {
                     if let Some(sw) = c_swindow {
                         let over_soft = self.store.single_windows.get(sw.0).cohorts.len()
                             >= self.soft_limit as usize;
-                        if over_soft && self.grammar.soft_delimiters.is_some() && !did_soft_lookback {
+                        if over_soft && self.grammar.soft_delimiters.is_some() && !did_soft_lookback
+                        {
                             did_soft_lookback = true;
                             let sd = self.grammar.sets_list
                                 [self.grammar.soft_delimiters.unwrap().0]
@@ -651,11 +667,9 @@ impl super::GrammarApplicator {
                         let sw = c_swindow.unwrap();
                         let over_hard = self.store.single_windows.get(sw.0).cohorts.len()
                             >= self.hard_limit as usize;
-                        let delim_hit = self.dep_delimit == 0
-                            && self.grammar.delimiters.is_some()
-                            && {
-                                let d = self.grammar.sets_list
-                                    [self.grammar.delimiters.unwrap().0]
+                        let delim_hit =
+                            self.dep_delimit == 0 && self.grammar.delimiters.is_some() && {
+                                let d = self.grammar.sets_list[self.grammar.delimiters.unwrap().0]
                                     .number;
                                 self.does_set_match_cohort_normal(cc, d, None)
                             };
@@ -723,7 +737,7 @@ impl super::GrammarApplicator {
                     // Drain a window if enough have queued up.
                     if self.gWindow.next.len() > (self.num_windows + 1) as usize {
                         self.shuffle_windows_down();
-                        
+
                         self.run_grammar_on_window_with(fmt, output);
                         if self.numWindows % reset_after == 0 {
                             self.reset_indexes();
@@ -747,8 +761,7 @@ impl super::GrammarApplicator {
                     let gn = self.gWindow.cohort_counter;
                     self.gWindow.cohort_counter = self.gWindow.cohort_counter.wrapping_add(1);
                     // wordform = addTag(&cleaned[0]) (up to the NUL at space+1).
-                    let wf_text: String =
-                        cleaned.iter().take_while(|&&c| c != '\0').collect();
+                    let wf_text: String = cleaned.iter().take_while(|&&c| c != '\0').collect();
                     let wf = self.add_tag(&wf_text, crate::tag::TagType::empty());
                     {
                         let c = self.store.cohorts.get_mut(cc.0);
@@ -777,8 +790,10 @@ impl super::GrammarApplicator {
                             }
                             crate::inlines::skiptows(&cleaned, &mut n, '\0', true, true);
                             cleaned[n] = '\0';
-                            let tag_text: String =
-                                cleaned[space..].iter().take_while(|&&c| c != '\0').collect();
+                            let tag_text: String = cleaned[space..]
+                                .iter()
+                                .take_while(|&&c| c != '\0')
+                                .collect();
                             let tag = self.add_tag(&tag_text, crate::tag::TagType::empty());
                             self.add_tag_to_reading(wread, tag);
                             space = n + 1;
@@ -835,8 +850,7 @@ impl super::GrammarApplicator {
                 // (4) istext: plain text + stream commands.
                 if line[0] != '\0' {
                     let mut is_cmd = false;
-                    let cleaned_str: String =
-                        cleaned.iter().take_while(|&&c| c != '\0').collect();
+                    let cleaned_str: String = cleaned.iter().take_while(|&&c| c != '\0').collect();
 
                     if cleaned_str == crate::strings::STR_CMD_FLUSH {
                         // "FLUSH encountered … Flushing…": deferred.
@@ -878,7 +892,7 @@ impl super::GrammarApplicator {
                         }
                         while !self.gWindow.next.is_empty() {
                             self.shuffle_windows_down();
-                            
+
                             self.run_grammar_on_window_with(fmt, output);
                             if self.numWindows % reset_after == 0 {
                                 self.reset_indexes();
@@ -925,12 +939,15 @@ impl super::GrammarApplicator {
                         line[0] = '\0';
 
                         // UChar* s = &cleaned[STR_CMD_SETVAR.size()];
-                        let mut s: Option<usize> = Some(crate::strings::STR_CMD_SETVAR.chars().count());
+                        let mut s: Option<usize> =
+                            Some(crate::strings::STR_CMD_SETVAR.chars().count());
                         let mut c = u_strchr(&cleaned, s.unwrap(), ',');
                         let mut d = u_strchr(&cleaned, s.unwrap(), '=');
                         if c.is_none() && d.is_none() {
-                            let s_text: String =
-                                cleaned[s.unwrap()..].iter().take_while(|&&ch| ch != '\0').collect();
+                            let s_text: String = cleaned[s.unwrap()..]
+                                .iter()
+                                .take_while(|&&ch| ch != '\0')
+                                .collect();
                             let tag = self.add_tag(&s_text, crate::tag::TagType::empty());
                             let h = self.grammar.single_tags_list[tag.0].hash;
                             *variables_set.index_or_insert(h) = self.grammar.tag_any;
@@ -954,7 +971,8 @@ impl super::GrammarApplicator {
                                             .iter()
                                             .take_while(|&&ch| ch != '\0')
                                             .collect();
-                                        let atag = self.add_tag(&s_text, crate::tag::TagType::empty());
+                                        let atag =
+                                            self.add_tag(&s_text, crate::tag::TagType::empty());
                                         a = self.grammar.single_tags_list[atag.0].hash;
                                     }
                                     if let Some(ci) = c {
@@ -969,7 +987,8 @@ impl super::GrammarApplicator {
                                             .iter()
                                             .take_while(|&&ch| ch != '\0')
                                             .collect();
-                                        let btag = self.add_tag(&d_text, crate::tag::TagType::empty());
+                                        let btag =
+                                            self.add_tag(&d_text, crate::tag::TagType::empty());
                                         b = self.grammar.single_tags_list[btag.0].hash;
                                     }
                                     if c.is_none() {
@@ -990,7 +1009,8 @@ impl super::GrammarApplicator {
                                             .iter()
                                             .take_while(|&&ch| ch != '\0')
                                             .collect();
-                                        let atag = self.add_tag(&s_text, crate::tag::TagType::empty());
+                                        let atag =
+                                            self.add_tag(&s_text, crate::tag::TagType::empty());
                                         a = self.grammar.single_tags_list[atag.0].hash;
                                     }
                                     s = Some(ci + 1);
@@ -1002,9 +1022,12 @@ impl super::GrammarApplicator {
                                     c = u_strchr(&cleaned, si, ',');
                                     d = u_strchr(&cleaned, si, '=');
                                     if c.is_none() && d.is_none() {
-                                        let s_text: String =
-                                            cleaned[si..].iter().take_while(|&&ch| ch != '\0').collect();
-                                        let atag = self.add_tag(&s_text, crate::tag::TagType::empty());
+                                        let s_text: String = cleaned[si..]
+                                            .iter()
+                                            .take_while(|&&ch| ch != '\0')
+                                            .collect();
+                                        let atag =
+                                            self.add_tag(&s_text, crate::tag::TagType::empty());
                                         a = self.grammar.single_tags_list[atag.0].hash;
                                         *variables_set.index_or_insert(a) = self.grammar.tag_any;
                                         variables_rem.erase(a);
@@ -1059,7 +1082,11 @@ impl super::GrammarApplicator {
                         {
                             // Text-delimiter line.
                             let lsw = l_swindow.unwrap();
-                            self.store.single_windows.get_mut(lsw.0).text_post.push_str(&line_str);
+                            self.store
+                                .single_windows
+                                .get_mut(lsw.0)
+                                .text_post
+                                .push_str(&line_str);
                             let cc = c_cohort.unwrap();
                             let rs = self.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
@@ -1164,7 +1191,7 @@ impl super::GrammarApplicator {
         // Drain the remaining windows.
         while !self.gWindow.next.is_empty() {
             self.shuffle_windows_down();
-            
+
             self.run_grammar_on_window_with(fmt, output);
             // verbose progress: deferred.
         }

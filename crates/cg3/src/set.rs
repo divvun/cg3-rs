@@ -64,8 +64,9 @@ pub const ST_USED: SetType = SetType::USED;
 pub const ST_STATIC: SetType = SetType::STATIC;
 pub const ST_ORDERED: SetType = SetType::ORDERED;
 
-pub const MASK_ST_UNIFY: SetType =
-    SetType::TAG_UNIFY.union(SetType::SET_UNIFY).union(SetType::CHILD_UNIFY);
+pub const MASK_ST_UNIFY: SetType = SetType::TAG_UNIFY
+    .union(SetType::SET_UNIFY)
+    .union(SetType::CHILD_UNIFY);
 
 /// C++ `trie_t` (`bc::flat_map<Tag*, trie_node_t, compare_Tag>`) — the real
 /// port lives in the `tag_trie` module.
@@ -144,7 +145,10 @@ impl Set {
     /// containers `ff_tags`, `trie`, `trie_special`, `sets` ONLY — `set_ops`,
     /// `type` and `name` are not consulted.
     pub fn empty(&self) -> bool {
-        self.ff_tags.empty() && self.trie.is_empty() && self.trie_special.is_empty() && self.sets.is_empty()
+        self.ff_tags.empty()
+            && self.trie.is_empty()
+            && self.trie_special.is_empty()
+            && self.sets.is_empty()
     }
 
     // [spec:cg3:def:set.cg3.set.set-name-fn]
@@ -288,7 +292,10 @@ impl Set {
             }
         }
 
-        if grammar.sets_list[id.0].r#type.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) {
+        if grammar.sets_list[id.0]
+            .r#type
+            .intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY)
+        {
             grammar.sets_list[id.0].r#type |= ST_SPECIAL;
             grammar.sets_list[id.0].r#type |= ST_CHILD_UNIFY;
         }
@@ -405,7 +412,9 @@ fn scan_prefixed_uint(name: &str, p: char) -> Option<u32> {
     let mut any = false;
     let mut val: u64 = 0;
     while i < chars.len() && chars[i].is_ascii_digit() {
-        val = val.wrapping_mul(10).wrapping_add((chars[i] as u32 - '0' as u32) as u64);
+        val = val
+            .wrapping_mul(10)
+            .wrapping_add((chars[i] as u32 - '0' as u32) as u64);
         i += 1;
         any = true;
     }

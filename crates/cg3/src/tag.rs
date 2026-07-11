@@ -250,7 +250,6 @@ pub type TagVectorSet = std::collections::BTreeSet<TagVector>;
 // `src/Tag.hpp`; each fn carries its `[spec:cg3:def]` + `[spec:cg3:sem]` ids.
 // ===========================================================================
 
-
 /// The role-tagged replacement for the C++ anonymous union in [`Tag`]
 /// (`dep_parent` / `variable_hash` / `context_ref_pos` / `comparison_offset`).
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
@@ -472,22 +471,14 @@ impl Tag {
         // txval = copy(tag[tkz+toz+1 .. size-1]); the C++ NUL-terminates just
         // past it, so an index at/after txval.len() reads as '\0' here.
         let txval: Vec<char> = chars[(tkz + toz + 1)..(size - 1)].to_vec();
-        let tget = |k: usize| -> char {
-            if k < txval.len() {
-                txval[k]
-            } else {
-                '\0'
-            }
-        };
+        let tget = |k: usize| -> char { if k < txval.len() { txval[k] } else { '\0' } };
         if txval.is_empty() {
             return;
         }
 
         let mut tval: f64 = 0.0;
         // r = u_strspn(txval, "-.0123456789")
-        let numset = [
-            '-', '.', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-        ];
+        let numset = ['-', '.', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
         let mut r = 0usize;
         while r < txval.len() && numset.contains(&txval[r]) {
             r += 1;
@@ -693,18 +684,15 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     this.r#type = TagType::empty();
     let to_chars: Vec<char> = to.chars().collect();
     let length = to_chars.len();
-    debug_assert!(length != 0, "parseTagRaw() will not work with empty strings.");
+    debug_assert!(
+        length != 0,
+        "parseTagRaw() will not work with empty strings."
+    );
 
     // NUL-terminator-aware indexed access: index >= length reads as '\0'
     // (matching C++ `std::string::operator[]` at `size()` and the short-circuits
     // that guard reads past it).
-    let cat = |k: usize| -> char {
-        if k < length {
-            to_chars[k]
-        } else {
-            '\0'
-        }
-    };
+    let cat = |k: usize| -> char { if k < length { to_chars[k] } else { '\0' } };
 
     if length != 0 && (to_chars[0] == '"' || to_chars[0] == '<') {
         if (to_chars[0] == '"' && cat(length - 1) == '"')
@@ -941,7 +929,9 @@ fn add_tag(grammar: &mut Grammar, mut tag: Tag) -> TagId {
     // tag->number = single_tags_list.size() - 1 (== idx when appending, as the
     // parse phase never frees arena slots).
     grammar.single_tags_list[idx].number = idx;
-    grammar.single_tags.insert((_hash, crate::arena::TagId(idx)));
+    grammar
+        .single_tags
+        .insert((_hash, crate::arena::TagId(idx)));
     TagId(idx)
 }
 

@@ -12,65 +12,65 @@
 #![allow(dead_code)]
 
 // --- Wave 2 foundation layer (pointer-agnostic: containers + utilities) ---
-pub mod types;
-pub mod error;
 pub mod arena;
-pub mod inlines;
-pub mod sorted_vector;
-pub mod interval_vector;
+pub mod bloomish;
+pub mod error;
 pub mod flat_unordered_map;
 pub mod flat_unordered_set;
-pub mod bloomish;
+pub mod inlines;
+pub mod interval_vector;
+pub mod math_parser;
 pub mod pool;
 pub mod scoped_stack;
-pub mod math_parser;
+pub mod sorted_vector;
 pub mod strings;
+pub mod types;
 
 // --- Wave 2 core data model (type skeleton; method bodies land next) ---
-pub mod tag;
-pub mod tag_trie;
-pub mod set;
-pub mod rule;
-pub mod contextual_test;
-pub mod reading;
 pub mod cohort;
 pub mod cohort_iterator;
-pub mod single_window;
-pub mod window;
+pub mod contextual_test;
 pub mod grammar;
+pub mod reading;
+pub mod rule;
+pub mod set;
+pub mod single_window;
 pub mod store;
+pub mod tag;
+pub mod tag_trie;
+pub mod window;
 
 // --- Wave 2 support utilities (io / platform / parser-support / options) ---
-pub mod uextras;
-pub mod streambuf;
-pub mod process;
-pub mod filesystem;
 pub mod ast;
+pub mod filesystem;
+pub mod icu_uoptions;
 pub mod igrammar_parser;
 pub mod options;
-pub mod options_parser;
 pub mod options_conv;
-pub mod icu_uoptions;
+pub mod options_parser;
+pub mod process;
+pub mod streambuf;
+pub mod uextras;
 
 // --- Wave 2 parser + serialization layer ---
-pub mod parser_helpers;
-pub mod textual_parser;
 pub mod binary_grammar;
 pub mod grammar_writer;
+pub mod parser_helpers;
+pub mod textual_parser;
 
 // --- Wave 2 application engine ---
 pub mod grammar_applicator;
 
 // --- Wave 2 output/format applicators + profiler + relabeller ---
 pub mod apertium_applicator;
-pub mod matxin_applicator;
 pub mod binary_applicator;
+pub mod format_converter;
 pub mod fst_applicator;
 pub mod jsonl_applicator;
-pub mod format_converter;
+pub mod matxin_applicator;
+pub mod mwesplit_applicator;
 pub mod niceline_applicator;
 pub mod plaintext_applicator;
-pub mod mwesplit_applicator;
 pub mod profiler;
 pub mod relabeller;
 

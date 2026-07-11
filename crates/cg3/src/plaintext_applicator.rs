@@ -67,7 +67,10 @@ impl PlaintextApplicator {
     /// `add_tags` keeps its `false` default.
     pub fn new(mut base: GrammarApplicator) -> Self {
         base.allow_magic_readings = true;
-        PlaintextApplicator { base, add_tags: false }
+        PlaintextApplicator {
+            base,
+            add_tags: false,
+        }
     }
 
     // [spec:cg3:def:plaintext-applicator.cg3.plaintext-applicator.run-grammar-on-text-fn]
@@ -79,6 +82,9 @@ impl PlaintextApplicator {
     /// PORT NOTES: same generic-handle / deferred-I/O notes as the Niceline
     /// variant. `get_line_clean` is called with `keep_tabs = false`, so TABs
     /// collapse to single spaces (matching the C++ default `keep_tabs`).
+    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
+    // the ported reads were elided (see the deferred-I/O / driver notes).
+    #[allow(unused_assignments, unused_variables)]
     pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
     where
         R: Read + Seek,
@@ -119,7 +125,8 @@ impl PlaintextApplicator {
             let hit_eof = packoff == 0 && line[0] == '\0';
 
             // Trim trailing whitespace.
-            while cleaned[0] != '\0' && packoff > 0 && crate::inlines::isspace(cleaned[packoff - 1]) {
+            while cleaned[0] != '\0' && packoff > 0 && crate::inlines::isspace(cleaned[packoff - 1])
+            {
                 cleaned[packoff - 1] = '\0';
                 packoff -= 1;
             }
@@ -138,7 +145,9 @@ impl PlaintextApplicator {
                 if let Some(sw) = c_swindow {
                     let over_soft = self.base.store.single_windows.get(sw.0).cohorts.len()
                         >= self.base.soft_limit as usize;
-                    if over_soft && self.base.grammar.soft_delimiters.is_some() && !did_soft_lookback
+                    if over_soft
+                        && self.base.grammar.soft_delimiters.is_some()
+                        && !did_soft_lookback
                     {
                         did_soft_lookback = true;
                         let sd = self.base.grammar.sets_list
@@ -149,8 +158,7 @@ impl PlaintextApplicator {
                             if self.base.does_set_match_cohort_normal(c, sd, None) {
                                 did_soft_lookback = false;
                                 let cohort = self.base.delimit_at(sw, c);
-                                let parent =
-                                    self.base.store.cohorts.get(cohort.0).parent.unwrap();
+                                let parent = self.base.store.cohorts.get(cohort.0).parent.unwrap();
                                 c_swindow = self.base.store.single_windows.get(parent.0).next;
                                 if let Some(cc) = c_cohort {
                                     self.base.store.cohorts.get_mut(cc.0).parent = c_swindow;
@@ -199,9 +207,8 @@ impl PlaintextApplicator {
                     let sw = c_swindow.unwrap();
                     let over_hard = self.base.store.single_windows.get(sw.0).cohorts.len()
                         >= self.base.hard_limit as usize;
-                    let delim_hit = self.base.dep_delimit == 0
-                        && self.base.grammar.delimiters.is_some()
-                        && {
+                    let delim_hit =
+                        self.base.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
                             let d = self.base.grammar.sets_list
                                 [self.base.grammar.delimiters.unwrap().0]
                                 .number;
@@ -350,18 +357,26 @@ impl PlaintextApplicator {
                         self.base.del_tag_from_reading_hash(cr, baseform);
                         let lowered: String = token_str.to_lowercase();
                         let base_tag_text = format!("\"{lowered}\"");
-                        let bt = self.base.add_tag(&base_tag_text, crate::tag::TagType::empty());
+                        let bt = self
+                            .base
+                            .add_tag(&base_tag_text, crate::tag::TagType::empty());
                         self.base.add_tag_to_reading(cr, bt);
                         if all_upper {
-                            let t = self.base.add_tag("<all-upper>", crate::tag::TagType::empty());
+                            let t = self
+                                .base
+                                .add_tag("<all-upper>", crate::tag::TagType::empty());
                             self.base.add_tag_to_reading(cr, t);
                         }
                         if first_upper {
-                            let t = self.base.add_tag("<first-upper>", crate::tag::TagType::empty());
+                            let t = self
+                                .base
+                                .add_tag("<first-upper>", crate::tag::TagType::empty());
                             self.base.add_tag_to_reading(cr, t);
                         }
                         if mixed_upper && !all_upper {
-                            let t = self.base.add_tag("<mixed-upper>", crate::tag::TagType::empty());
+                            let t = self
+                                .base
+                                .add_tag("<mixed-upper>", crate::tag::TagType::empty());
                             self.base.add_tag_to_reading(cr, t);
                         }
                     }
@@ -383,7 +398,12 @@ impl PlaintextApplicator {
                     if let Some(lc) = l_cohort {
                         self.base.store.cohorts.get_mut(lc.0).text.push_str(&text);
                     } else if let Some(ls) = l_swindow {
-                        self.base.store.single_windows.get_mut(ls.0).text.push_str(&text);
+                        self.base
+                            .store
+                            .single_windows
+                            .get_mut(ls.0)
+                            .text
+                            .push_str(&text);
                     } else {
                         self.base.print_plain_text_line(&text, output);
                     }
@@ -474,13 +494,14 @@ impl PlaintextApplicator {
     /// C++ `void PlaintextApplicator::printSingleWindow(SingleWindow* window,
     /// std::ostream& output, bool profiling = false)`. One line of
     /// space-separated wordforms; `window->text`/`text_post` are NOT emitted.
-    pub fn print_single_window<W: Write>(
-        &mut self,
-        window: SwId,
-        output: &mut W,
-        profiling: bool,
-    ) {
-        let all_cohorts = self.base.store.single_windows.get(window.0).all_cohorts.clone();
+    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
+        let all_cohorts = self
+            .base
+            .store
+            .single_windows
+            .get(window.0)
+            .all_cohorts
+            .clone();
         for cohort in all_cohorts {
             self.print_cohort(cohort, output, profiling);
         }

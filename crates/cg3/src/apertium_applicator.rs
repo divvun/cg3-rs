@@ -30,9 +30,7 @@
 use std::io::Write;
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
-use crate::cohort::{
-    CT_AP_UNKNOWN, CT_REMOVED, alloc_cohort, append_reading, unignore_all,
-};
+use crate::cohort::{CT_AP_UNKNOWN, CT_REMOVED, alloc_cohort, append_reading, unignore_all};
 use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{hash_value, insert_if_exists};
 use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
@@ -212,7 +210,8 @@ impl ApertiumApplicator {
 
         // Helper: intern a slice [start, end) of `cleaned` as a tag, returning
         // its hash. Empty slice yields `None` (caller checks `s[0]`).
-        let slice_str = |start: usize, end: usize| -> String { cleaned[start..end].iter().collect() };
+        let slice_str =
+            |start: usize, end: usize| -> String { cleaned[start..end].iter().collect() };
 
         let setvar: Vec<char> = STR_CMD_SETVAR.chars().collect();
         let remvar: Vec<char> = STR_CMD_REMVAR.chars().collect();
@@ -255,8 +254,10 @@ impl ApertiumApplicator {
                             let ss = s.unwrap();
                             if ss >= dd {
                                 // empty identifier before `=`
-                                tracing::warn!("Warning: SETVAR on line {} had no identifier before the =! Defaulting to identifier *.",
-                                        self.base.numLines);
+                                tracing::warn!(
+                                    "Warning: SETVAR on line {} had no identifier before the =! Defaulting to identifier *.",
+                                    self.base.numLines
+                                );
                                 a = tag_any;
                             } else {
                                 let ident = slice_str(ss, dd);
@@ -271,8 +272,10 @@ impl ApertiumApplicator {
                             // value after `=`: d[1] .. (c or len)
                             let val_end = c.unwrap_or(len);
                             if dd + 1 >= val_end {
-                                tracing::warn!("Warning: SETVAR on line {} had no value after the =! Defaulting to value *.",
-                                        self.base.numLines);
+                                tracing::warn!(
+                                    "Warning: SETVAR on line {} had no value after the =! Defaulting to value *.",
+                                    self.base.numLines
+                                );
                                 b = tag_any;
                             } else {
                                 let val = slice_str(dd + 1, val_end);
@@ -291,8 +294,10 @@ impl ApertiumApplicator {
                             // comma-separated bare identifier.
                             let ss = s.unwrap();
                             if ss >= cc {
-                                tracing::warn!("Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.",
-                                        self.base.numLines);
+                                tracing::warn!(
+                                    "Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.",
+                                    self.base.numLines
+                                );
                                 a = tag_any;
                             } else {
                                 let ident = slice_str(ss, cc);
@@ -308,8 +313,10 @@ impl ApertiumApplicator {
                         // d is None but c exists — comma-separated bare identifier.
                         let ss = s.unwrap();
                         if ss >= cc {
-                            tracing::warn!("Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.",
-                                    self.base.numLines);
+                            tracing::warn!(
+                                "Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.",
+                                self.base.numLines
+                            );
                             a = tag_any;
                         } else {
                             let ident = slice_str(ss, cc);
@@ -413,8 +420,10 @@ impl ApertiumApplicator {
                     n += 1;
                 }
                 if n >= len || p[n] != '>' {
-                    tracing::warn!("Warning: Did not find matching > to close the tag on line {}.",
-                            self.base.numLines);
+                    tracing::warn!(
+                        "Warning: Did not find matching > to close the tag on line {}.",
+                        self.base.numLines
+                    );
                     continue;
                 }
                 let tagtext: String = p[i..n].iter().collect();
@@ -466,7 +475,14 @@ impl ApertiumApplicator {
             while ri > 0 {
                 ri -= 1;
                 let riter = taglist[ri];
-                if self.base.grammar.single_tags_list.get(riter.0).r#type.intersects(T_BASEFORM) {
+                if self
+                    .base
+                    .grammar
+                    .single_tags_list
+                    .get(riter.0)
+                    .r#type
+                    .intersects(T_BASEFORM)
+                {
                     // sub-reading if the current reading already has a baseform.
                     if self.base.store.readings.get(reading.0).baseform != 0 {
                         let parent = self.base.store.readings.get(reading.0).parent;
@@ -481,8 +497,8 @@ impl ApertiumApplicator {
                     for k in ri..taglist.len() {
                         let iter = taglist[k];
                         let t = self.base.grammar.single_tags_list.get(iter.0);
-                        let is_mapping = t.r#type.intersects(T_MAPPING)
-                            || t.tag.chars().next() == Some(mprefix);
+                        let is_mapping =
+                            t.r#type.intersects(T_MAPPING) || t.tag.chars().next() == Some(mprefix);
                         if is_mapping {
                             mappings.push(iter);
                         } else {
@@ -491,11 +507,19 @@ impl ApertiumApplicator {
                     }
                     if !mappings.is_empty() {
                         let parent = self.base.store.readings.get(reading.0).parent.unwrap();
-                        self.base.split_mappings(&mut mappings, parent, reading, true);
+                        self.base
+                            .split_mappings(&mut mappings, parent, reading, true);
                     }
                     // Pop trailing non-baseform tags, then the baseform.
                     while let Some(&last) = taglist.last() {
-                        if self.base.grammar.single_tags_list.get(last.0).r#type.intersects(T_BASEFORM) {
+                        if self
+                            .base
+                            .grammar
+                            .single_tags_list
+                            .get(last.0)
+                            .r#type
+                            .intersects(T_BASEFORM)
+                        {
                             break;
                         }
                         taglist.pop();
@@ -511,7 +535,12 @@ impl ApertiumApplicator {
     }
 
     /// C++ overload `processReading(Reading*, UString&, Tag*)` → forwards.
-    pub fn process_reading_str(&mut self, c_reading: ReadingId, reading_string: &str, wform: TagId) {
+    pub fn process_reading_str(
+        &mut self,
+        c_reading: ReadingId,
+        reading_string: &str,
+        wform: TagId,
+    ) {
         let p: Vec<char> = reading_string.chars().collect();
         self.process_reading(c_reading, p, wform);
     }
@@ -589,10 +618,7 @@ impl ApertiumApplicator {
 
             if self.wordform_case {
                 if casing == ApertiumCasing::Upper {
-                    bf = bf
-                        .iter()
-                        .flat_map(|c| c.to_uppercase())
-                        .collect();
+                    bf = bf.iter().flat_map(|c| c.to_uppercase()).collect();
                 } else if casing == ApertiumCasing::Title && r.next.is_none() {
                     let fl = firstlower as usize;
                     if fl < bf.len() {
@@ -683,7 +709,13 @@ impl ApertiumApplicator {
                 if !parent_removed {
                     let (local_number, dep_self, dep_parent, sw_parent, global_number) = {
                         let pc = store.cohorts.get(pcid.0);
-                        (pc.local_number, pc.dep_self, pc.dep_parent, pc.parent, pc.global_number)
+                        (
+                            pc.local_number,
+                            pc.dep_self,
+                            pc.dep_parent,
+                            pc.parent,
+                            pc.global_number,
+                        )
                     };
                     let _ = dep_self; // C++ sets it below (read-only path here).
                     // Determine parent cohort `pr`.
@@ -691,13 +723,14 @@ impl ApertiumApplicator {
                     if dep_parent.is_some() {
                         if dep_parent == Some(0) {
                             if let Some(sw) = sw_parent {
-                                if let Some(&first) =
-                                    store.single_windows.get(sw.0).cohorts.first()
+                                if let Some(&first) = store.single_windows.get(sw.0).cohorts.first()
                                 {
                                     pr = first;
                                 }
                             }
-                        } else if let Some(&cid) = self.base.gWindow.cohort_map.get(&dep_parent.unwrap()) {
+                        } else if let Some(&cid) =
+                            self.base.gWindow.cohort_map.get(&dep_parent.unwrap())
+                        {
                             pr = cid;
                         }
                     }
@@ -755,10 +788,7 @@ impl ApertiumApplicator {
                         }
                         if uppercaseseen == alphabeticsseen && uppercaseseen >= 2 {
                             casing = ApertiumCasing::Upper;
-                        } else if wftag.len() > 2
-                            && wftag[2].is_uppercase()
-                            && uppercaseseen == 1
-                        {
+                        } else if wftag.len() > 2 && wftag[2].is_uppercase() && uppercaseseen == 1 {
                             casing = ApertiumCasing::Title;
                         }
                     }
@@ -953,24 +983,31 @@ impl ApertiumApplicator {
     // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-single-window-fn]
     /// C++ `void ApertiumApplicator::printSingleWindow(SingleWindow* window,
     /// std::ostream& output, bool profiling)`.
-    pub fn print_single_window<W: Write>(
-        &mut self,
-        window: SwId,
-        output: &mut W,
-        profiling: bool,
-    ) {
+    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         let text = self.base.store.single_windows.get(window.0).text.clone();
         if !text.is_empty() {
             let _ = write!(output, "{text}");
         }
 
-        let all_cohorts = self.base.store.single_windows.get(window.0).all_cohorts.clone();
+        let all_cohorts = self
+            .base
+            .store
+            .single_windows
+            .get(window.0)
+            .all_cohorts
+            .clone();
         for cohort in all_cohorts {
             self.print_cohort(cohort, output, profiling);
             u_fflush(output);
         }
 
-        let text_post = self.base.store.single_windows.get(window.0).text_post.clone();
+        let text_post = self
+            .base
+            .store
+            .single_windows
+            .get(window.0)
+            .text_post
+            .clone();
         if !text_post.is_empty() {
             let _ = write!(output, "{text_post}");
             u_fflush(output);
@@ -987,6 +1024,9 @@ impl ApertiumApplicator {
     /// std::ostream& output)`. The Apertium stream driver (char-by-char state
     /// machine). Validation `CG3Quit(1)` diagnostics + no-delimiter warnings are
     /// emitted faithfully (to the error sink); the grammar is assumed present.
+    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
+    // the ported reads were elided (see the deferred-I/O / driver notes).
+    #[allow(unused_assignments, unused_variables)]
     pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
     where
         R: std::io::Read + std::io::Seek,
@@ -999,11 +1039,15 @@ impl ApertiumApplicator {
         let no_soft = self.base.grammar.soft_delimiters.is_none();
         if no_hard {
             if no_soft {
-                tracing::warn!("Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
-                    self.base.hard_limit);
+                tracing::warn!(
+                    "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
+                    self.base.hard_limit
+                );
             } else {
-                tracing::warn!("Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
-                    self.base.soft_limit);
+                tracing::warn!(
+                    "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
+                    self.base.soft_limit
+                );
             }
         }
 
@@ -1020,7 +1064,9 @@ impl ApertiumApplicator {
         let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
 
         self.base.begintag = {
-            let t = self.base.add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
+            let t = self
+                .base
+                .add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
             self.base.grammar.single_tags_list.get(t.0).hash
         };
         self.base.endtag = {
@@ -1066,9 +1112,21 @@ impl ApertiumApplicator {
 
             if c == '\0' {
                 self.flush(
-                    true, &mut in_blank, &mut in_wblank, &mut in_cohort, &mut blank, &mut token,
-                    &mut l_swindow, &mut l_cohort, &mut c_swindow, &mut c_cohort,
-                    &mut variables_set, &mut variables_rem, &mut variables_output, c, output,
+                    true,
+                    &mut in_blank,
+                    &mut in_wblank,
+                    &mut in_cohort,
+                    &mut blank,
+                    &mut token,
+                    &mut l_swindow,
+                    &mut l_cohort,
+                    &mut c_swindow,
+                    &mut c_cohort,
+                    &mut variables_set,
+                    &mut variables_rem,
+                    &mut variables_output,
+                    c,
+                    output,
                 );
                 continue;
             }
@@ -1110,7 +1168,10 @@ impl ApertiumApplicator {
                 }
             } else if !in_blank && c == '$' {
                 if !in_cohort {
-                    tracing::error!("Error: $ found without prior ^ on line {}.", self.base.numLines);
+                    tracing::error!(
+                        "Error: $ found without prior ^ on line {}.",
+                        self.base.numLines
+                    );
                     // CG3Quit(1) — abort in C++; keep going in the port.
                     return;
                 }
@@ -1134,7 +1195,10 @@ impl ApertiumApplicator {
                     let wchars: Vec<char> = wblank.chars().collect();
                     let n = wchars.len();
                     if wchars[n - 1] != ']' || (n < 2 || wchars[n - 2] != ']') {
-                        tracing::error!("Error: Word-bound blank was not immediately prior to token on line {}", self.base.numLines);
+                        tracing::error!(
+                            "Error: Word-bound blank was not immediately prior to token on line {}",
+                            self.base.numLines
+                        );
                         return;
                     }
                 }
@@ -1148,14 +1212,22 @@ impl ApertiumApplicator {
                     self.base.store.cohorts.get_mut(lc.0).text.push_str(&blank);
                     blank.clear();
                 } else if let Some(ls) = l_swindow {
-                    self.base.store.single_windows.get_mut(ls.0).text.push_str(&blank);
+                    self.base
+                        .store
+                        .single_windows
+                        .get_mut(ls.0)
+                        .text
+                        .push_str(&blank);
                     blank.clear();
                 }
 
                 // Create a window if none.
                 if c_swindow.is_none() {
                     self.ensure_endtag(l_swindow);
-                    let sw = self.base.gWindow.alloc_append_single_window(&mut self.base.store);
+                    let sw = self
+                        .base
+                        .gWindow
+                        .alloc_append_single_window(&mut self.base.store);
                     self.base.init_empty_single_window(sw);
                     // Move the variable collections into the window (C++
                     // `cSWindow->variables_set = variables_set; ...clear()`).
@@ -1196,11 +1268,7 @@ impl ApertiumApplicator {
                 let tchars: Vec<char> = token.chars().collect();
                 let mut p = 1usize; // skip '^'
                 let mut wf = String::from("\"<");
-                while p < tchars.len()
-                    && tchars[p] != '/'
-                    && tchars[p] != '<'
-                    && tchars[p] != '$'
-                {
+                while p < tchars.len() && tchars[p] != '/' && tchars[p] != '<' && tchars[p] != '$' {
                     if tchars[p] == '\\' {
                         p += 1;
                     }
@@ -1263,8 +1331,7 @@ impl ApertiumApplicator {
                         }
                         if tchars[p] == '/' || tchars[p] == '$' {
                             let c_reading = alloc_reading(&mut self.base.store, Some(cc));
-                            let wf_tid2 =
-                                self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                            let wf_tid2 = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                             self.process_reading(c_reading, rbuf.clone(), wf_tid2);
                             let mut c_reading = c_reading;
                             if self.base.grammar.sub_readings_ltr
@@ -1273,14 +1340,22 @@ impl ApertiumApplicator {
                                 c_reading = reverse_reading(&mut self.base.store, c_reading);
                             }
                             if self.base.store.readings.get(c_reading.0).deleted {
-                                self.base.store.cohorts.get_mut(cc.0).deleted.push(c_reading);
+                                self.base
+                                    .store
+                                    .cohorts
+                                    .get_mut(cc.0)
+                                    .deleted
+                                    .push(c_reading);
                             } else {
                                 append_reading(&mut self.base.store, cc, c_reading);
                             }
                             self.base.numReadings = self.base.numReadings.wrapping_add(1);
                             if self.base.store.readings.get(c_reading.0).baseform == 0 {
-                                tracing::warn!("Warning: Cohort {} on line {} had no valid baseform.",
-                                    self.base.numCohorts, self.base.numLines);
+                                tracing::warn!(
+                                    "Warning: Cohort {} on line {} had no valid baseform.",
+                                    self.base.numCohorts,
+                                    self.base.numLines
+                                );
                             }
                             rbuf.clear();
                             p += 1;
@@ -1303,8 +1378,14 @@ impl ApertiumApplicator {
                 // if (cCohort->wordform->tag[2] == '@')
                 {
                     let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
-                    let wftag: Vec<char> =
-                        self.base.grammar.single_tags_list.get(wf_tid.0).tag.chars().collect();
+                    let wftag: Vec<char> = self
+                        .base
+                        .grammar
+                        .single_tags_list
+                        .get(wf_tid.0)
+                        .tag
+                        .chars()
+                        .collect();
                     if wftag.get(2) == Some(&'@') {
                         self.base.store.cohorts.get_mut(cc.0).r#type |= CT_AP_UNKNOWN;
                     }
@@ -1344,9 +1425,15 @@ impl ApertiumApplicator {
                     if hard || delim_match {
                         if !self.base.is_conv && cohorts_size >= self.base.hard_limit {
                             let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
-                            let wftag = self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
-                            tracing::warn!("Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
-                                self.base.hard_limit, wftag, self.base.numCohorts, self.base.numLines);
+                            let wftag =
+                                self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
+                            tracing::warn!(
+                                "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
+                                self.base.hard_limit,
+                                wftag,
+                                self.base.numCohorts,
+                                self.base.numLines
+                            );
                         }
                         let readings = self.base.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
@@ -1372,9 +1459,21 @@ impl ApertiumApplicator {
         }
 
         self.flush(
-            false, &mut in_blank, &mut in_wblank, &mut in_cohort, &mut blank, &mut token,
-            &mut l_swindow, &mut l_cohort, &mut c_swindow, &mut c_cohort,
-            &mut variables_set, &mut variables_rem, &mut variables_output, c, output,
+            false,
+            &mut in_blank,
+            &mut in_wblank,
+            &mut in_cohort,
+            &mut blank,
+            &mut token,
+            &mut l_swindow,
+            &mut l_cohort,
+            &mut c_swindow,
+            &mut c_cohort,
+            &mut variables_set,
+            &mut variables_rem,
+            &mut variables_output,
+            c,
+            output,
         );
     }
 
@@ -1389,7 +1488,12 @@ impl ApertiumApplicator {
         // readings.front()->tags.count(endtag) == 0
         let front_lacks = match readings.first() {
             Some(&front) => {
-                self.base.store.readings.get(front.0).tags.find(self.base.endtag)
+                self.base
+                    .store
+                    .readings
+                    .get(front.0)
+                    .tags
+                    .find(self.base.endtag)
                     == self.base.store.readings.get(front.0).tags.end()
             }
             None => false,
@@ -1434,11 +1538,23 @@ impl ApertiumApplicator {
             if let Some(lc) = *l_cohort {
                 self.base.store.cohorts.get_mut(lc.0).text.push_str(blank);
             } else if let Some(ls) = *l_swindow {
-                let last = self.base.store.single_windows.get(ls.0).cohorts.last().copied();
+                let last = self
+                    .base
+                    .store
+                    .single_windows
+                    .get(ls.0)
+                    .cohorts
+                    .last()
+                    .copied();
                 if let Some(back) = last {
                     self.base.store.cohorts.get_mut(back.0).text.push_str(blank);
                 } else {
-                    self.base.store.single_windows.get_mut(ls.0).text.push_str(blank);
+                    self.base
+                        .store
+                        .single_windows
+                        .get_mut(ls.0)
+                        .text
+                        .push_str(blank);
                 }
             } else {
                 self.base.print_plain_text_line(blank, output);
@@ -1498,8 +1614,7 @@ fn find_sub_from(hay: &[char], needle: &[char], from: usize) -> Option<usize> {
     if needle.is_empty() || needle.len() > hay.len() || from > hay.len() {
         return None;
     }
-    (from..=hay.len().saturating_sub(needle.len()))
-        .find(|&i| hay[i..i + needle.len()] == *needle)
+    (from..=hay.len().saturating_sub(needle.len())).find(|&i| hay[i..i + needle.len()] == *needle)
 }
 
 /// Collect the live `(key, value)` pairs of a `Uint32FlatHashMap` (the map does

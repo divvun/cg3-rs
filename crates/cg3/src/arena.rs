@@ -33,7 +33,10 @@ pub struct Arena<T> {
 
 impl<T> Arena<T> {
     pub fn new() -> Self {
-        Arena { slots: Vec::new(), free: Vec::new() }
+        Arena {
+            slots: Vec::new(),
+            free: Vec::new(),
+        }
     }
 
     /// Allocate `value`, reusing a freed slot if one exists (LIFO, like the
@@ -60,11 +63,15 @@ impl<T> Arena<T> {
     }
 
     pub fn get(&self, i: u32) -> &T {
-        self.slots[i as usize].as_ref().expect("arena slot freed/empty")
+        self.slots[i as usize]
+            .as_ref()
+            .expect("arena slot freed/empty")
     }
 
     pub fn get_mut(&mut self, i: u32) -> &mut T {
-        self.slots[i as usize].as_mut().expect("arena slot freed/empty")
+        self.slots[i as usize]
+            .as_mut()
+            .expect("arena slot freed/empty")
     }
 
     pub fn try_get(&self, i: u32) -> Option<&T> {
@@ -96,7 +103,6 @@ impl<T> IndexMut<u32> for Arena<T> {
     }
 }
 
-
 /// Generational arena: like [`Arena`], but each id packs `(generation << 24) |
 /// slot_index`, and every resolution checks that the slot's current generation
 /// matches the id's. Freeing a slot bumps its generation (wrapping u8; the
@@ -118,7 +124,11 @@ const INDEX_MASK: u32 = (1 << GEN_SHIFT) - 1;
 
 impl<T> GenArena<T> {
     pub fn new() -> Self {
-        GenArena { slots: Vec::new(), gens: Vec::new(), free: Vec::new() }
+        GenArena {
+            slots: Vec::new(),
+            gens: Vec::new(),
+            free: Vec::new(),
+        }
     }
 
     /// The slot index carried by a packed id.

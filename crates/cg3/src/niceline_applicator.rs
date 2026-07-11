@@ -101,6 +101,9 @@ impl<'a> NicelineApplicator<'a> {
     /// (`goto istext`, baseform fallback) are preserved. `line`/`cleaned` are
     /// `Vec<char>` scratch buffers (what `get_line_clean` expects); the C++
     /// `UChar*` pointer walks become `usize` indices over that buffer.
+    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
+    // the ported reads were elided (see the deferred-I/O / driver notes).
+    #[allow(unused_assignments, unused_variables)]
     pub fn run_grammar_on_text<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
@@ -146,7 +149,8 @@ impl<'a> NicelineApplicator<'a> {
             let hit_eof = packoff == 0 && line[0] == '\0';
 
             // Trim trailing whitespace.
-            while cleaned[0] != '\0' && packoff > 0 && crate::inlines::isspace(cleaned[packoff - 1]) {
+            while cleaned[0] != '\0' && packoff > 0 && crate::inlines::isspace(cleaned[packoff - 1])
+            {
                 cleaned[packoff - 1] = '\0';
                 packoff -= 1;
             }
@@ -179,8 +183,7 @@ impl<'a> NicelineApplicator<'a> {
                             let sd = self.base.grammar.sets_list
                                 [self.base.grammar.soft_delimiters.unwrap().0]
                                 .number;
-                            let cohorts =
-                                self.base.store.single_windows.get(sw.0).cohorts.clone();
+                            let cohorts = self.base.store.single_windows.get(sw.0).cohorts.clone();
                             for &c in cohorts.iter().rev() {
                                 if self.base.does_set_match_cohort_normal(c, sd, None) {
                                     did_soft_lookback = false;
@@ -322,8 +325,7 @@ impl<'a> NicelineApplicator<'a> {
                     // Reading loop: advance past the (nulled) TAB.
                     space += 1;
                     while cleaned[space] != '\0' {
-                        let cr =
-                            crate::reading::alloc_reading(&mut self.base.store, Some(cc));
+                        let cr = crate::reading::alloc_reading(&mut self.base.store, Some(cc));
                         c_reading = Some(cr);
                         crate::inlines::insert_if_exists(
                             &mut self.base.store.cohorts.get_mut(cc.0).possible_sets,
@@ -415,7 +417,8 @@ impl<'a> NicelineApplicator<'a> {
                                 let t = &self.base.grammar.single_tags_list[tag.0];
                                 (t.r#type, t.tag.chars().next().unwrap_or('\0'))
                             };
-                            if ttype.intersects(T_MAPPING) || first == self.base.grammar.mapping_prefix
+                            if ttype.intersects(T_MAPPING)
+                                || first == self.base.grammar.mapping_prefix
                             {
                                 mappings.push(tag);
                             } else {
@@ -464,7 +467,12 @@ impl<'a> NicelineApplicator<'a> {
                     if let Some(lc) = l_cohort {
                         self.base.store.cohorts.get_mut(lc.0).text.push_str(&text);
                     } else if let Some(ls) = l_swindow {
-                        self.base.store.single_windows.get_mut(ls.0).text.push_str(&text);
+                        self.base
+                            .store
+                            .single_windows
+                            .get_mut(ls.0)
+                            .text
+                            .push_str(&text);
                     } else {
                         // C++ virtual printPlainTextLine.
                         fmt.print_plain_text_line(self.base, &text, output);
@@ -554,7 +562,8 @@ impl<'a> NicelineApplicator<'a> {
         let parent_cid = parent_cid.expect("reading has no parent cohort");
         let wordform_hash = {
             let wf = self.base.store.cohorts.get(parent_cid.0).wordform;
-            wf.map(|t| self.base.grammar.single_tags_list[t.0].hash).unwrap_or(0)
+            wf.map(|t| self.base.grammar.single_tags_list[t.0].hash)
+                .unwrap_or(0)
         };
 
         let tags_list: Vec<u32> = self.base.store.readings.get(reading.0).tags_list.clone();
@@ -585,8 +594,13 @@ impl<'a> NicelineApplicator<'a> {
         }
 
         // Dependency block.
-        let parent_removed =
-            self.base.store.cohorts.get(parent_cid.0).r#type.intersects(CT_REMOVED);
+        let parent_removed = self
+            .base
+            .store
+            .cohorts
+            .get(parent_cid.0)
+            .r#type
+            .intersects(CT_REMOVED);
         if self.base.has_dep && !parent_removed {
             {
                 let c = self.base.store.cohorts.get_mut(parent_cid.0);
@@ -596,7 +610,13 @@ impl<'a> NicelineApplicator<'a> {
             }
             let (p_global, p_local, p_dep_parent, p_dep_self, p_sw) = {
                 let c = self.base.store.cohorts.get(parent_cid.0);
-                (c.global_number, c.local_number, c.dep_parent, c.dep_self, c.parent)
+                (
+                    c.global_number,
+                    c.local_number,
+                    c.dep_parent,
+                    c.dep_self,
+                    c.parent,
+                )
             };
             let mut pr = parent_cid;
             if p_dep_parent.is_some() {
@@ -604,11 +624,17 @@ impl<'a> NicelineApplicator<'a> {
                     if let Some(sw) = p_sw {
                         pr = self.base.store.single_windows.get(sw.0).cohorts[0];
                     }
-                } else if let Some(&mapped) = self.base.gWindow.cohort_map.get(&p_dep_parent.unwrap()) {
+                } else if let Some(&mapped) =
+                    self.base.gWindow.cohort_map.get(&p_dep_parent.unwrap())
+                {
                     pr = mapped;
                 }
             }
-            let arrow = if self.base.unicode_tags { "\u{2192}" } else { "->" };
+            let arrow = if self.base.unicode_tags {
+                "\u{2192}"
+            } else {
+                "->"
+            };
             if self.base.dep_absolute {
                 let pr_global = self.base.store.cohorts.get(pr.0).global_number;
                 let _ = write!(output, " #{p_global}{arrow}{pr_global}");
@@ -626,15 +652,22 @@ impl<'a> NicelineApplicator<'a> {
         // Relations block.
         let (p_related, p_global2, relations) = {
             let c = self.base.store.cohorts.get(parent_cid.0);
-            (c.r#type.intersects(CT_RELATED), c.global_number, c.relations.clone())
+            (
+                c.r#type.intersects(CT_RELATED),
+                c.global_number,
+                c.relations.clone(),
+            )
         };
         if p_related {
             let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
                 for siter in targets.iter().copied() {
                     let tid = tag_by_hash(&self.base.grammar, *rel_hash);
-                    let _ = write!(output, " R:{}:{siter}",
-                            self.base.grammar.single_tags_list[tid.0].tag);
+                    let _ = write!(
+                        output,
+                        " R:{}:{siter}",
+                        self.base.grammar.single_tags_list[tid.0].tag
+                    );
                 }
             }
         }
@@ -661,7 +694,13 @@ impl<'a> NicelineApplicator<'a> {
     /// std::ostream& output, bool profiling = false)`.
     pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
         let local_number = self.base.store.cohorts.get(cohort.0).local_number;
-        let removed = self.base.store.cohorts.get(cohort.0).r#type.intersects(CT_REMOVED);
+        let removed = self
+            .base
+            .store
+            .cohorts
+            .get(cohort.0)
+            .r#type
+            .intersects(CT_REMOVED);
 
         // `goto removed` from local_number == 0 or CT_REMOVED skips the body.
         if local_number != 0 && !removed {
@@ -693,8 +732,7 @@ impl<'a> NicelineApplicator<'a> {
                 }
             }
 
-            let readings: Vec<ReadingId> =
-                self.base.store.cohorts.get(cohort.0).readings.clone();
+            let readings: Vec<ReadingId> = self.base.store.cohorts.get(cohort.0).readings.clone();
             if readings.is_empty() {
                 u_fputc('\t', output);
             }
@@ -718,12 +756,7 @@ impl<'a> NicelineApplicator<'a> {
     // [spec:cg3:sem:niceline-applicator.cg3.niceline-applicator.print-single-window-fn]
     /// C++ `void NicelineApplicator::printSingleWindow(SingleWindow* window,
     /// std::ostream& output, bool profiling = false)`.
-    pub fn print_single_window<W: Write>(
-        &mut self,
-        window: SwId,
-        output: &mut W,
-        profiling: bool,
-    ) {
+    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         let (all_cohorts, text, text_post) = {
             let w = self.base.store.single_windows.get(window.0);
             (w.all_cohorts.clone(), w.text.clone(), w.text_post.clone())

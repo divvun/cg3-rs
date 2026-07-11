@@ -169,7 +169,6 @@ pub const KEYWORDS_BY_ID: [KEYWORDS; KEYWORDS::KEYWORD_COUNT as usize] = [
     KEYWORDS::K_SWITCHPARENT,
 ];
 
-
 // C++ `enum : uint32_t` of set-operator / string-bit codes. Sparse: several
 // values are explicitly assigned and the gaps are unnamed. These index into
 // `STRINGBITS` below.

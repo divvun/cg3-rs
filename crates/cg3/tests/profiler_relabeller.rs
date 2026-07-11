@@ -17,10 +17,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cg3::profiler::{Entry, ET_CONTEXT, ET_RULE, Key, Profiler};
+use cg3::profiler::{ET_CONTEXT, ET_RULE, Entry, Key, Profiler};
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn tmp(name: &str) -> PathBuf {
@@ -49,10 +52,20 @@ fn compile_and_relabel(fixture: &Path, stem: &str) -> PathBuf {
     comp.current_dir(fixture).arg("grammar.cg3").arg(&t1);
     run_ok(comp, "cg-comp");
     let mut relabel = Command::new(env!("CARGO_BIN_EXE_cg-relabel"));
-    relabel.current_dir(fixture).arg(&t1).arg("relabel.cg3r").arg(&t2);
+    relabel
+        .current_dir(fixture)
+        .arg(&t1)
+        .arg("relabel.cg3r")
+        .arg(&t2);
     run_ok(relabel, "cg-relabel");
-    assert!(std::fs::metadata(&t1).unwrap().len() > 0, "compiled grammar is empty");
-    assert!(std::fs::metadata(&t2).unwrap().len() > 0, "relabelled grammar is empty");
+    assert!(
+        std::fs::metadata(&t1).unwrap().len() > 0,
+        "compiled grammar is empty"
+    );
+    assert!(
+        std::fs::metadata(&t2).unwrap().len() > 0,
+        "relabelled grammar is empty"
+    );
     let _ = std::fs::remove_file(&t1);
     t2
 }
@@ -95,7 +108,10 @@ fn relabel_list_protocol() {
     let g = compile_and_relabel(&fixture, "list");
     let got = apply_relabelled(&fixture, &g, "list");
     let want = std::fs::read_to_string(fixture.join("expected.txt")).unwrap();
-    assert!(diff_b_equal(&want, &got), "T_RelabelList output differs from expected.txt:\n{got}");
+    assert!(
+        diff_b_equal(&want, &got),
+        "T_RelabelList output differs from expected.txt:\n{got}"
+    );
 }
 
 // [spec:cg3:sem:relabeller.cg3.relabeller.relabel-as-set-fn/test]
@@ -138,7 +154,10 @@ fn relabel_set_protocol() {
     // exactly (disambiguation never deletes cohorts).
     let want_wf: Vec<&str> = want.lines().filter(|l| l.starts_with("\"<")).collect();
     let got_wf: Vec<&str> = got.lines().filter(|l| l.starts_with("\"<")).collect();
-    assert_eq!(got_wf, want_wf, "cohort structure differs from expected.txt:\n{got}");
+    assert_eq!(
+        got_wf, want_wf,
+        "cohort structure differs from expected.txt:\n{got}"
+    );
 
     // Stable invariant 2: every output reading is drawn from expected.txt plus
     // the six known C++ extras — nothing outside the C++-observed behavior.
@@ -148,15 +167,24 @@ fn relabel_set_protocol() {
         .chain(KNOWN_EXTRAS.iter().copied())
         .collect();
     for line in got.lines().filter(|l| !l.trim().is_empty()) {
-        assert!(allowed.contains(line), "unexpected output line {line:?}:\n{got}");
+        assert!(
+            allowed.contains(line),
+            "unexpected output line {line:?}:\n{got}"
+        );
     }
 
     // Stable invariant 3: the relabelled rules demonstrably applied — the
     // as-list-relabelled `SELECT det` picked the Det reading, and the
     // as-set-relabelled `SELECT (N) - (Prop)` left the Prop readings marked
     // @bad by the C++-reproduced deviation.
-    assert!(got.contains("\t\"w\" Det @gold"), "SELECT det did not apply:\n{got}");
-    assert!(got.contains("\t\"Y\" N Prop @bad"), "SELECT n relabelling did not apply:\n{got}");
+    assert!(
+        got.contains("\t\"w\" Det @gold"),
+        "SELECT det did not apply:\n{got}"
+    );
+    assert!(
+        got.contains("\t\"Y\" N Prop @bad"),
+        "SELECT n relabelling did not apply:\n{got}"
+    );
 }
 
 /// The test/T_RelabelList_Apertium run.pl protocol — same compile+relabel
@@ -206,13 +234,19 @@ fn relabeller_trie_copy_helper_reintern() {
     // Top level: each tag is deep-copied and re-interned via Grammar::add_tag;
     // within one grammar the dedup returns the canonical (same) TagId.
     assert_eq!(copied.len(), 2);
-    assert!(!copied[&foo].terminal, "inner node of foo->bar must not be terminal");
+    assert!(
+        !copied[&foo].terminal,
+        "inner node of foo->bar must not be terminal"
+    );
     assert!(copied[&baz].terminal, "single-tag path must be terminal");
     assert!(copied[&baz].trie.is_none());
 
     // Nested level: copied through the ONE-arg helper — keyed by the ORIGINAL
     // TagId without re-interning (the reproduced quirk).
-    let sub = copied[&foo].trie.as_ref().expect("foo must keep its child level");
+    let sub = copied[&foo]
+        .trie
+        .as_ref()
+        .expect("foo must keep its child level");
     assert_eq!(sub.len(), 1);
     assert!(sub[&bar].terminal);
 }
@@ -249,19 +283,58 @@ fn profiler_sqlite_roundtrip() {
     // add_rule / add_context: first write wins (emplace / count==0 guard).
     p.add_rule(10, g, 5, 25);
     p.add_rule(10, 999, 1, 2);
-    assert_eq!(p.entries[&Key { r#type: ET_RULE, id: 10 }].grammar, g);
+    assert_eq!(
+        p.entries[&Key {
+            r#type: ET_RULE,
+            id: 10
+        }]
+            .grammar,
+        g
+    );
     p.add_context(4, g, 7, 19);
     p.add_context(4, 999, 1, 2);
-    assert_eq!(p.entries[&Key { r#type: ET_CONTEXT, id: 4 }].b, 7);
+    assert_eq!(
+        p.entries[&Key {
+            r#type: ET_CONTEXT,
+            id: 4
+        }]
+            .b,
+        7
+    );
 
     // Key::operator<: ordered by type first, then id — every rule (type 0)
     // sorts before every context (type 1) regardless of id.
-    assert!(Key { r#type: ET_RULE, id: 10 } < Key { r#type: ET_CONTEXT, id: 4 });
-    assert!(Key { r#type: ET_RULE, id: 2 } < Key { r#type: ET_RULE, id: 10 });
+    assert!(
+        Key {
+            r#type: ET_RULE,
+            id: 10
+        } < Key {
+            r#type: ET_CONTEXT,
+            id: 4
+        }
+    );
+    assert!(
+        Key {
+            r#type: ET_RULE,
+            id: 2
+        } < Key {
+            r#type: ET_RULE,
+            id: 10
+        }
+    );
     let keys: Vec<Key> = p.entries.keys().copied().collect();
     assert_eq!(
         keys,
-        vec![Key { r#type: ET_RULE, id: 10 }, Key { r#type: ET_CONTEXT, id: 4 }]
+        vec![
+            Key {
+                r#type: ET_RULE,
+                id: 10
+            },
+            Key {
+                r#type: ET_CONTEXT,
+                id: 4
+            }
+        ]
     );
 
     // Two contexts sharing `e` with distinct `b` — write's fixed-10-iteration
@@ -275,7 +348,10 @@ fn profiler_sqlite_roundtrip() {
     let db_s = db.to_str().unwrap();
     p.write(db_s).expect("Profiler::write failed");
     let bytes = std::fs::read(&db).unwrap();
-    assert!(bytes.starts_with(b"SQLite format 3\0"), "not a SQLite database");
+    assert!(
+        bytes.starts_with(b"SQLite format 3\0"),
+        "not a SQLite database"
+    );
 
     // read merges into whatever the Profiler already holds (no clearing).
     let mut q = Profiler::default();
@@ -293,9 +369,15 @@ fn profiler_sqlite_roundtrip() {
 
     // Entries survive the round trip except the pruned subsumed context (91).
     let mut want_entries: BTreeMap<Key, Entry> = p.entries.clone();
-    want_entries.remove(&Key { r#type: ET_CONTEXT, id: 91 });
+    want_entries.remove(&Key {
+        r#type: ET_CONTEXT,
+        id: 91,
+    });
     assert_eq!(q.entries, want_entries);
-    assert!(q.entries.contains_key(&Key { r#type: ET_CONTEXT, id: 90 }));
+    assert!(q.entries.contains_key(&Key {
+        r#type: ET_CONTEXT,
+        id: 90
+    }));
 
     let _ = std::fs::remove_file(&db);
 }
@@ -323,7 +405,10 @@ fn profiler_via_vislcg3_and_cg_annotate() {
     let _ = std::fs::remove_file(&out);
 
     let bytes = std::fs::read(&db).expect("--profile did not write a database");
-    assert!(bytes.starts_with(b"SQLite format 3\0"), "not a SQLite database");
+    assert!(
+        bytes.starts_with(b"SQLite format 3\0"),
+        "not a SQLite database"
+    );
 
     // Wave 4 (w4-io-sinks-profiler): the profiler is fully wired. The parse
     // registers the grammar text (add_grammar) and every rule/context span
@@ -340,7 +425,10 @@ fn profiler_via_vislcg3_and_cg_annotate() {
         .find(|&(_, &id)| id == 0)
         .map(|(s, _)| s.clone())
         .expect("the grammar AST string (key 0) is present");
-    assert!(ast_text.contains("<Grammar"), "AST capture holds the parse tree");
+    assert!(
+        ast_text.contains("<Grammar"),
+        "AST capture holds the parse tree"
+    );
     assert!(
         p.entries.keys().any(|k| k.r#type == ET_RULE),
         "parse registered rule entries"

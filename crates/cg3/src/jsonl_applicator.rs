@@ -29,13 +29,13 @@
 
 use std::io::{BufRead, Read, Seek, Write};
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
 use crate::sorted_vector::uint32SortedVector;
-use crate::tag::{TagList, T_DEPENDENCY, T_MAPPING, T_RELATION};
+use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
 use crate::types::{UString, UStringView};
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — resolve a hash to its
@@ -139,7 +139,8 @@ impl<'a> JsonlApplicator<'a> {
 
         let mut unique = uint32SortedVector::new();
         for tter in tags_list {
-            if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag {
+            if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag
+            {
                 continue;
             }
             if tter == baseform || parent_wf_hash == Some(tter) {
@@ -240,8 +241,10 @@ impl<'a> JsonlApplicator<'a> {
         let obj = match reading_obj {
             Value::Object(m) => m,
             _ => {
-                tracing::error!("Error: Expected reading object, but got different type on line {}.",
-                        self.base.numLines);
+                tracing::error!(
+                    "Error: Expected reading object, but got different type on line {}.",
+                    self.base.numLines
+                );
                 return None;
             }
         };
@@ -268,12 +271,16 @@ impl<'a> JsonlApplicator<'a> {
                 let tid = self.base.add_tag(&base_tag, crate::tag::TagType::empty());
                 self.base.add_tag_to_reading(c_reading, tid);
             } else {
-                tracing::warn!("Warning: Empty 'l' (baseform) in reading on line {}.",
-                        self.base.numLines);
+                tracing::warn!(
+                    "Warning: Empty 'l' (baseform) in reading on line {}.",
+                    self.base.numLines
+                );
             }
         } else {
-            tracing::warn!("Warning: Reading missing 'l' (baseform) on line {}.",
-                    self.base.numLines);
+            tracing::warn!(
+                "Warning: Reading missing 'l' (baseform) on line {}.",
+                self.base.numLines
+            );
         }
 
         // Tags ("ts").
@@ -288,7 +295,8 @@ impl<'a> JsonlApplicator<'a> {
                         let t = self.base.grammar.single_tags_list.get(tag.0);
                         (t.r#type, tag_str.chars().next().unwrap_or('\0'))
                     };
-                    if ttype.intersects(T_MAPPING) || (!tag_str.is_empty() && first_char == mapping_prefix)
+                    if ttype.intersects(T_MAPPING)
+                        || (!tag_str.is_empty() && first_char == mapping_prefix)
                     {
                         mappings.push(tag);
                     } else {
@@ -309,12 +317,16 @@ impl<'a> JsonlApplicator<'a> {
                 if let Some(sub) = sub {
                     self.base.store.readings.get_mut(c_reading.0).next = Some(sub);
                 } else {
-                    tracing::error!("Error: Failed to parse subreading object on line {}.",
-                            self.base.numLines);
+                    tracing::error!(
+                        "Error: Failed to parse subreading object on line {}.",
+                        self.base.numLines
+                    );
                 }
             } else {
-                tracing::warn!("Warning: Value for 's' (sub_reading) is not an object on line {}. Skipping.",
-                        self.base.numLines);
+                tracing::warn!(
+                    "Warning: Value for 's' (sub_reading) is not an object on line {}. Skipping.",
+                    self.base.numLines
+                );
             }
         }
 
@@ -322,8 +334,10 @@ impl<'a> JsonlApplicator<'a> {
         if self.base.store.readings.get(c_reading.0).baseform == 0 {
             let wf_hash = self.base.grammar.single_tags_list.get(wordform.0).hash;
             self.base.store.readings.get_mut(c_reading.0).baseform = wf_hash;
-            tracing::warn!("Warning: Reading on line {} ended up with no baseform. Using wordform.",
-                    self.base.numLines);
+            tracing::warn!(
+                "Warning: Reading on line {} ended up with no baseform. Using wordform.",
+                self.base.numLines
+            );
         }
 
         Some(c_reading)
@@ -334,11 +348,7 @@ impl<'a> JsonlApplicator<'a> {
     /// C++ `void parseJsonCohort(const json::Value& obj, SingleWindow* cSWindow,
     /// Cohort*& cCohort)`. Parses one cohort object into a new cohort, assigning
     /// it into the returned value.
-    fn parse_json_cohort(
-        &mut self,
-        obj: &Map<String, Value>,
-        c_swindow: SwId,
-    ) -> CohortId {
+    fn parse_json_cohort(&mut self, obj: &Map<String, Value>, c_swindow: SwId) -> CohortId {
         let c_cohort = crate::cohort::alloc_cohort(&mut self.base.store, Some(c_swindow));
         let gn = self.base.gWindow.cohort_counter;
         self.base.gWindow.cohort_counter = self.base.gWindow.cohort_counter.wrapping_add(1);
@@ -349,8 +359,10 @@ impl<'a> JsonlApplicator<'a> {
         let wform_str = if let Some(w) = obj.get("w") {
             json_to_ustring(w)
         } else {
-            tracing::warn!("Warning: JSON cohort on line {} missing 'w' (wordform). Using empty.",
-                    self.base.numLines);
+            tracing::warn!(
+                "Warning: JSON cohort on line {} missing 'w' (wordform). Using empty.",
+                self.base.numLines
+            );
             UString::new()
         };
         let mut wform_tag = UString::new();
@@ -382,7 +394,12 @@ impl<'a> JsonlApplicator<'a> {
                     let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty());
                     let hash = self.base.grammar.single_tags_list.get(tag.0).hash;
                     // Pushed directly to the list, NOT via addTagToReading.
-                    self.base.store.readings.get_mut(wread.0).tags_list.push(hash);
+                    self.base
+                        .store
+                        .readings
+                        .get_mut(wread.0)
+                        .tags_list
+                        .push(hash);
                 }
             }
         }
@@ -391,8 +408,10 @@ impl<'a> JsonlApplicator<'a> {
         if let Some(Value::Array(readings_arr)) = obj.get("rs") {
             for reading_val in readings_arr {
                 if !reading_val.is_object() {
-                    tracing::warn!("Warning: Non-object found in 'rs' (readings) array on line {}. Skipping.",
-                            self.base.numLines);
+                    tracing::warn!(
+                        "Warning: Non-object found in 'rs' (readings) array on line {}. Skipping.",
+                        self.base.numLines
+                    );
                     continue;
                 }
                 let c_reading = self.parse_json_reading(reading_val, c_cohort);
@@ -400,8 +419,10 @@ impl<'a> JsonlApplicator<'a> {
                     crate::cohort::append_reading(&mut self.base.store, c_cohort, c_reading);
                     self.base.numReadings = self.base.numReadings.wrapping_add(1);
                 } else {
-                    tracing::error!("Error: Failed to parse main reading on line {}.",
-                            self.base.numLines);
+                    tracing::error!(
+                        "Error: Failed to parse main reading on line {}.",
+                        self.base.numLines
+                    );
                 }
             }
         }
@@ -423,7 +444,11 @@ impl<'a> JsonlApplicator<'a> {
         if let Some(dp) = obj.get("dp") {
             if let Some(v) = as_uint(dp) {
                 self.base.store.cohorts.get_mut(c_cohort.0).dep_parent =
-                    if v == crate::cohort::DEP_NO_PARENT { None } else { Some(v) };
+                    if v == crate::cohort::DEP_NO_PARENT {
+                        None
+                    } else {
+                        Some(v)
+                    };
             }
         }
 
@@ -436,10 +461,17 @@ impl<'a> JsonlApplicator<'a> {
                 let del_r = self.parse_json_reading(dr_val, c_cohort);
                 if let Some(del_r) = del_r {
                     self.base.store.readings.get_mut(del_r.0).deleted = true;
-                    self.base.store.cohorts.get_mut(c_cohort.0).deleted.push(del_r);
+                    self.base
+                        .store
+                        .cohorts
+                        .get_mut(c_cohort.0)
+                        .deleted
+                        .push(del_r);
                 } else {
-                    tracing::error!("Error: Failed to parse deleted reading on line {}.",
-                            self.base.numLines);
+                    tracing::error!(
+                        "Error: Failed to parse deleted reading on line {}.",
+                        self.base.numLines
+                    );
                 }
             }
         }
@@ -591,7 +623,11 @@ impl<'a> JsonlApplicator<'a> {
                 let c = self.base.store.cohorts.get(cohort.0);
                 (c.dep_self, c.global_number, c.dep_parent)
             };
-            let self_id = if dep_self == 0 { global_number } else { dep_self };
+            let self_id = if dep_self == 0 {
+                global_number
+            } else {
+                dep_self
+            };
             doc.insert("ds".to_string(), json!(self_id));
             if let Some(dp) = dep_parent {
                 doc.insert("dp".to_string(), json!(dp));
@@ -743,6 +779,9 @@ impl<'a> JsonlApplicator<'a> {
     ///   are not triggered here.
     /// * `variables.clear()` (the member map) is reproduced; the LOCAL
     ///   `variables_set/rem/output` are NOT cleared on FLUSH (faithful).
+    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
+    // the ported reads were elided (see the deferred-I/O / driver notes).
+    #[allow(unused_assignments, unused_variables)]
     pub fn run_grammar_on_text<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
@@ -821,8 +860,10 @@ impl<'a> JsonlApplicator<'a> {
             let obj = match &doc {
                 Value::Object(m) => m,
                 _ => {
-                    tracing::warn!("Warning: JSON on line {} is not an object. Skipping line.",
-                            self.base.numLines);
+                    tracing::warn!(
+                        "Warning: JSON on line {} is not an object. Skipping line.",
+                        self.base.numLines
+                    );
                     continue;
                 }
             };
@@ -947,7 +988,12 @@ impl<'a> JsonlApplicator<'a> {
                     if let Some(lc) = l_cohort {
                         self.base.store.cohorts.get_mut(lc.0).text.push_str(&t_ustr);
                     } else if let Some(lsw) = l_swindow {
-                        self.base.store.single_windows.get_mut(lsw.0).text.push_str(&t_ustr);
+                        self.base
+                            .store
+                            .single_windows
+                            .get_mut(lsw.0)
+                            .text
+                            .push_str(&t_ustr);
                     } else {
                         fmt.print_plain_text_line(self.base, &t_ustr, output);
                     }
@@ -958,7 +1004,10 @@ impl<'a> JsonlApplicator<'a> {
             } else if obj.contains_key("w") {
                 // Cohort.
                 if c_swindow.is_none() {
-                    let sw = self.base.gWindow.alloc_append_single_window(&mut self.base.store);
+                    let sw = self
+                        .base
+                        .gWindow
+                        .alloc_append_single_window(&mut self.base.store);
                     self.base.init_empty_single_window(sw);
 
                     // Transfer local variable state into the window, then clear
@@ -1023,8 +1072,11 @@ impl<'a> JsonlApplicator<'a> {
                         });
                     if hard_hit {
                         if cohorts_len >= self.base.hard_limit as usize {
-                            tracing::warn!("Warning: Hard limit of {} cohorts reached at line {} - forcing break.",
-                                    self.base.hard_limit, self.base.numLines);
+                            tracing::warn!(
+                                "Warning: Hard limit of {} cohorts reached at line {} - forcing break.",
+                                self.base.hard_limit,
+                                self.base.numLines
+                            );
                         }
                         let rs = self.base.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
@@ -1036,9 +1088,7 @@ impl<'a> JsonlApplicator<'a> {
                     }
                 }
 
-                if did_delim
-                    || self.base.gWindow.next.len() > self.base.num_windows as usize
-                {
+                if did_delim || self.base.gWindow.next.len() > self.base.num_windows as usize {
                     self.base.gWindow.shuffle_windows_down(&mut self.base.store);
                     self.base.run_grammar_on_window_with(fmt, output);
                     if self.base.numWindows % reset_after == 0 {
@@ -1088,7 +1138,12 @@ impl<'a> JsonlApplicator<'a> {
             for &var in variables_output.as_slice() {
                 let key = {
                     let key_tag = tag_by_hash(&self.base.grammar, var);
-                    self.base.grammar.single_tags_list.get(key_tag.0).tag.clone()
+                    self.base
+                        .grammar
+                        .single_tags_list
+                        .get(key_tag.0)
+                        .tag
+                        .clone()
                 };
                 let it = variables_set.find(var);
                 let mut cmd_buf = UString::new();

@@ -34,7 +34,7 @@ use std::io::{Read, Seek, Write};
 use crate::arena::{CohortId, SwId};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::stream_format::StreamFormat;
-use crate::grammar_applicator::{cg3_sformat, GrammarApplicator};
+use crate::grammar_applicator::{GrammarApplicator, cg3_sformat};
 use crate::jsonl_applicator::JsonlApplicator;
 use crate::niceline_applicator::NicelineApplicator;
 use crate::streambuf::bstreambuf;
@@ -167,7 +167,11 @@ impl FormatConverter {
         // The C++ `conv_grammar` member IS the live active grammar's storage;
         // here that storage is `base.grammar`. The member is kept for API parity
         // and holds a default placeholder (the live grammar lives in base.grammar).
-        FormatConverter { base, fmt: ConvFormat::default(), conv_grammar: Grammar::default() }
+        FormatConverter {
+            base,
+            fmt: ConvFormat::default(),
+            conv_grammar: Grammar::default(),
+        }
     }
 
     /// The shared base (`Some` outside dispatch windows).
@@ -231,19 +235,22 @@ impl FormatConverter {
             CG3SF_CG => {
                 // GrammarApplicator::runGrammarOnText(input, output) — the base CG
                 // stream driver, printing through the ConvFormat vtable.
-                self.base.run_grammar_on_text_with(&mut self.fmt, input, output);
+                self.base
+                    .run_grammar_on_text_with(&mut self.fmt, input, output);
             }
-            CG3SF_NICELINE => {
-                NicelineApplicator::new(&mut self.base).run_grammar_on_text(&mut self.fmt, input, output)
-            }
-            CG3SF_JSONL => {
-                JsonlApplicator::new(&mut self.base).run_grammar_on_text(&mut self.fmt, input, output)
-            }
+            CG3SF_NICELINE => NicelineApplicator::new(&mut self.base).run_grammar_on_text(
+                &mut self.fmt,
+                input,
+                output,
+            ),
+            CG3SF_JSONL => JsonlApplicator::new(&mut self.base).run_grammar_on_text(
+                &mut self.fmt,
+                input,
+                output,
+            ),
             // BinaryApplicator::runGrammarOnText(input, output).
-            CG3SF_BINARY => {
-                crate::binary_applicator::BinaryApplicator::new(&mut self.base)
-                    .run_grammar_on_text(&mut self.fmt, input, output)
-            }
+            CG3SF_BINARY => crate::binary_applicator::BinaryApplicator::new(&mut self.base)
+                .run_grammar_on_text(&mut self.fmt, input, output),
             // FST (FSTApplicator) ported but not yet wired into lib.rs → CG3Quit.
             CG3SF_FST => cg3_quit(),
             // ApertiumApplicator / PlaintextApplicator not ported; MATXIN has no
@@ -264,10 +271,12 @@ impl FormatConverter {
             CG3SF_CG => {
                 self.base.print_cohort(cohort, output, profiling);
             }
-            CG3SF_NICELINE => {
-                self.fmt.with_niceline(&mut self.base, |a| a.print_cohort(cohort, output, profiling))
+            CG3SF_NICELINE => self.fmt.with_niceline(&mut self.base, |a| {
+                a.print_cohort(cohort, output, profiling)
+            }),
+            CG3SF_JSONL => {
+                JsonlApplicator::new(&mut self.base).print_cohort(cohort, output, profiling)
             }
-            CG3SF_JSONL => JsonlApplicator::new(&mut self.base).print_cohort(cohort, output, profiling),
             // FST ported but not yet wired into lib.rs → CG3Quit.
             CG3SF_FST => cg3_quit(),
             CG3SF_BINARY => {} // empty case — no-op.
@@ -283,7 +292,8 @@ impl FormatConverter {
     /// `CG3SF_BINARY` emits at window granularity (`BinaryApplicator`, not ported
     /// → `CG3Quit`); `CG3SF_MATXIN`/`default` → `CG3Quit()`.
     pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
-        self.fmt.print_single_window(&mut self.base, window, output, profiling);
+        self.fmt
+            .print_single_window(&mut self.base, window, output, profiling);
     }
 
     // [spec:cg3:def:format-converter.cg3.format-converter.print-stream-command-fn]
@@ -303,7 +313,6 @@ impl FormatConverter {
     pub fn print_plain_text_line<W: Write>(&mut self, line: UStringView, output: &mut W) {
         self.fmt.print_plain_text_line(&mut self.base, line, output);
     }
-
 }
 
 /// The FormatConverter print vtable (wave 4): C++ `FormatConverter` overrides
@@ -357,7 +366,9 @@ impl StreamFormat for ConvFormat {
             }
             CG3SF_JSONL => JsonlApplicator::new(app).print_single_window(window, output, profiling),
             // BinaryApplicator::printSingleWindow.
-            CG3SF_BINARY => self.binary.print_single_window(app, window, output, profiling),
+            CG3SF_BINARY => self
+                .binary
+                .print_single_window(app, window, output, profiling),
             // FST ported but not yet wired into lib.rs → CG3Quit.
             CG3SF_FST => cg3_quit(),
             // APERTIUM / PLAINTEXT not ported; MATXIN has no case → default →

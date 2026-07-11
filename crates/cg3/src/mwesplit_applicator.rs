@@ -112,7 +112,8 @@ impl MweSplitApplicator {
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        self.base.run_grammar_on_text_with(&mut MweSplitFormat, input, output);
+        self.base
+            .run_grammar_on_text_with(&mut MweSplitFormat, input, output);
     }
 }
 
@@ -182,7 +183,10 @@ impl GrammarApplicator {
                 continue;
             }
             let tid = tag_by_hash(&self.grammar, tter);
-            if self.grammar.single_tags_list[tid.0].r#type.intersects(T_WORDFORM) {
+            if self.grammar.single_tags_list[tid.0]
+                .r#type
+                .intersects(T_WORDFORM)
+            {
                 return Some(tid);
             }
         }
@@ -221,7 +225,12 @@ impl GrammarApplicator {
             return cos;
         }
 
-        let parent = self.store.cohorts.get(cohort.0).parent.expect("cohort parent");
+        let parent = self
+            .store
+            .cohorts
+            .get(cohort.0)
+            .parent
+            .expect("cohort parent");
         let mut pretext: String = String::new();
 
         for r in head_readings {
@@ -263,8 +272,10 @@ impl GrammarApplicator {
 
                     // Reconstruct the trimmed wordform from wfTag->tag ("<...>").
                     let has_next = self.store.readings.get(sub.0).next.is_some();
-                    let wf_chars: Vec<char> =
-                        self.grammar.single_tags_list[wf_tag.0].tag.chars().collect();
+                    let wf_chars: Vec<char> = self.grammar.single_tags_list[wf_tag.0]
+                        .tag
+                        .chars()
+                        .collect();
                     let wf_beg = 2usize; // index just after "\"<"
                     let sp_beg0 = find_first_not_of(&wf_chars, RTRIMBLANK, wf_beg);
                     let sp_beg = if has_next { sp_beg0 } else { wf_beg };
@@ -310,7 +321,12 @@ impl GrammarApplicator {
                     let new_parent_wf_hash = {
                         // rNew->parent is still `sub`'s parent (the original cohort)
                         // until reparented below; the C++ reads it before reparenting.
-                        let p = self.store.readings.get(r_new.0).parent.expect("rNew parent");
+                        let p = self
+                            .store
+                            .readings
+                            .get(r_new.0)
+                            .parent
+                            .expect("rNew parent");
                         self.store
                             .cohorts
                             .get(p.0)
@@ -399,8 +415,11 @@ impl GrammarApplicator {
                 Some(vh) => {
                     if vh != self.grammar.tag_any {
                         let vtid = tag_by_hash(&self.grammar, vh);
-                        let _ = write!(output, "{STR_CMD_SETVAR}{}={}>\n",
-                                key_tag, self.grammar.single_tags_list[vtid.0].tag);
+                        let _ = write!(
+                            output,
+                            "{STR_CMD_SETVAR}{}={}>\n",
+                            key_tag, self.grammar.single_tags_list[vtid.0].tag
+                        );
                     } else {
                         let _ = write!(output, "{STR_CMD_SETVAR}{key_tag}>\n");
                     }
@@ -472,36 +491,6 @@ fn find_last_not_of(s: &[char], set: &[char], pos: usize) -> usize {
     i.max(0) as usize
 }
 
-/// Verbatim value copy of a `Reading` from a borrowed arena slot (so the store
-/// borrow is released before it seeds [`crate::reading::alloc_reading_copy`],
-/// which then applies the C++ copy-ctor semantics + recurses on `next`).
-/// `Reading` is not `Clone`, so the fields are copied explicitly.
-fn clone_reading(r: &crate::reading::Reading) -> crate::reading::Reading {
-    crate::reading::Reading {
-        mapped: r.mapped,
-        deleted: r.deleted,
-        noprint: r.noprint,
-        matched_target: r.matched_target,
-        matched_tests: r.matched_tests,
-        immutable: r.immutable,
-        active: r.active,
-        baseform: r.baseform,
-        hash: r.hash,
-        hash_plain: r.hash_plain,
-        number: r.number,
-        tags_bloom: r.tags_bloom,
-        tags_plain_bloom: r.tags_plain_bloom,
-        tags_textual_bloom: r.tags_textual_bloom,
-        mapping: r.mapping,
-        parent: r.parent,
-        next: r.next,
-        hit_by: r.hit_by.clone(),
-        tags_list: r.tags_list.clone(),
-        tags: r.tags.clone(),
-        tags_plain: r.tags_plain.clone(),
-        tags_textual: r.tags_textual.clone(),
-        tags_numerical: r.tags_numerical.clone(),
-        tags_string: r.tags_string.clone(),
-        tags_string_hash: r.tags_string_hash,
-    }
-}
+// Wave 4 (w4-file-split-fmt): the verbatim Reading field-copy is
+// consolidated in `crate::reading::clone_verbatim`.
+use crate::reading::clone_verbatim as clone_reading;

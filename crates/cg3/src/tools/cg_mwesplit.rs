@@ -109,7 +109,8 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
     // MweSplitApplicator applicator(std::cerr);
     // The port's applicator OWNS its GrammarApplicator base (which owns a fresh
     // Grammar); the ctor builds+installs the minimal dummy grammar.
-    let base = crate::grammar_applicator::GrammarApplicator::new(crate::grammar::Grammar::default());
+    let base =
+        crate::grammar_applicator::GrammarApplicator::new(crate::grammar::Grammar::default());
     let mut applicator = crate::mwesplit_applicator::MweSplitApplicator::new(base);
 
     // applicator.verbosity_level = 0;

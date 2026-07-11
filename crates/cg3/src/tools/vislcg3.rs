@@ -21,16 +21,16 @@ use crate::grammar_writer::GrammarWriter;
 use crate::icu_uoptions::u_parseArgs;
 use crate::inlines::{cg3_quit, is_cg3b};
 use crate::options::{
-    grammar_options_default, grammar_options_override, options, options_default, options_override,
-    OPTIONS,
+    OPTIONS, grammar_options_default, grammar_options_override, options, options_default,
+    options_override,
 };
 use crate::options_parser::{parse_opts, parse_opts_env};
 use crate::profiler::Profiler;
 use crate::textual_parser::TextualParser;
 
 use super::{
-    to_uargv, CG3_COPYRIGHT_STRING, CG3_REVISION, CG3_TOO_OLD, CG3_VERSION_MAJOR, CG3_VERSION_MINOR,
-    CG3_VERSION_PATCH, U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR,
+    CG3_COPYRIGHT_STRING, CG3_REVISION, CG3_TOO_OLD, CG3_VERSION_MAJOR, CG3_VERSION_MINOR,
+    CG3_VERSION_PATCH, U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, to_uargv,
 };
 
 // [spec:cg3:def:main.main-fn]
@@ -82,7 +82,10 @@ pub fn main_run(args: &[String]) -> i32 {
     }
 
     // --version / --help print the version line to stdout.
-    if occ(&options, OPTIONS::VERSION) || occ(&options, OPTIONS::HELP1) || occ(&options, OPTIONS::HELP2) {
+    if occ(&options, OPTIONS::VERSION)
+        || occ(&options, OPTIONS::HELP1)
+        || occ(&options, OPTIONS::HELP2)
+    {
         println!(
             "VISL CG-3 Disambiguator version {}.{}.{}.{}",
             CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
@@ -111,7 +114,11 @@ pub fn main_run(args: &[String]) -> i32 {
 
     if argc < 0 || occ(&options, OPTIONS::HELP1) || occ(&options, OPTIONS::HELP2) {
         print_help(&options);
-        return if argc < 0 { U_ILLEGAL_ARGUMENT_ERROR } else { U_ZERO_ERROR };
+        return if argc < 0 {
+            U_ILLEGAL_ARGUMENT_ERROR
+        } else {
+            U_ZERO_ERROR
+        };
     }
 
     // --show-* / --dump-ast imply --grammar-only; --grammar-only implies --verbose;
@@ -141,7 +148,9 @@ pub fn main_run(args: &[String]) -> i32 {
         || occ(&options, OPTIONS::CODEPAGE_OUTPUT)
         || occ(&options, OPTIONS::CODEPAGE_GRAMMAR)
     {
-        tracing::warn!("Warning: The -C and --codepage-* option are deprecated and now default to UTF-8");
+        tracing::warn!(
+            "Warning: The -C and --codepage-* option are deprecated and now default to UTF-8"
+        );
     }
 
     // --stdout / --stderr / --stdin file redirection (C++ opens these up-front).
@@ -222,7 +231,11 @@ pub fn main_run(args: &[String]) -> i32 {
     // Parse the grammar into an owned Grammar (parser owns it; moved out after).
     let verbosity_level: u32 = if verbose {
         let v = &options[OPTIONS::VERBOSE as usize].value;
-        if !v.is_empty() { v.parse().unwrap_or(1) } else { 1 }
+        if !v.is_empty() {
+            v.parse().unwrap_or(1)
+        } else {
+            1
+        }
     } else {
         0
     };
@@ -240,7 +253,11 @@ pub fn main_run(args: &[String]) -> i32 {
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules = Some(re),
                 Err(e) => {
-                    tracing::error!("Error: uregex_open returned {} trying to parse --nrules {}", e, pat);
+                    tracing::error!(
+                        "Error: uregex_open returned {} trying to parse --nrules {}",
+                        e,
+                        pat
+                    );
                     cg3_quit(1, None, 0);
                 }
             }
@@ -250,7 +267,11 @@ pub fn main_run(args: &[String]) -> i32 {
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules_inv = Some(re),
                 Err(e) => {
-                    tracing::error!("Error: uregex_open returned {} trying to parse --nrules-v {}", e, pat);
+                    tracing::error!(
+                        "Error: uregex_open returned {} trying to parse --nrules-v {}",
+                        e,
+                        pat
+                    );
                     cg3_quit(1, None, 0);
                 }
             }
@@ -277,7 +298,11 @@ pub fn main_run(args: &[String]) -> i32 {
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules = Some(re),
                 Err(e) => {
-                    tracing::error!("Error: uregex_open returned {} trying to parse --nrules {}", e, pat);
+                    tracing::error!(
+                        "Error: uregex_open returned {} trying to parse --nrules {}",
+                        e,
+                        pat
+                    );
                     cg3_quit(1, None, 0);
                 }
             }
@@ -287,7 +312,11 @@ pub fn main_run(args: &[String]) -> i32 {
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules_inv = Some(re),
                 Err(e) => {
-                    tracing::error!("Error: uregex_open returned {} trying to parse --nrules-v {}", e, pat);
+                    tracing::error!(
+                        "Error: uregex_open returned {} trying to parse --nrules-v {}",
+                        e,
+                        pat
+                    );
                     cg3_quit(1, None, 0);
                 }
             }
@@ -350,7 +379,9 @@ pub fn main_run(args: &[String]) -> i32 {
             .next()
             .unwrap_or('@');
         if grammar.is_binary && grammar.mapping_prefix != mp {
-            tracing::error!("Error: Mapping prefix must match the one used for compiling the binary grammar!");
+            tracing::error!(
+                "Error: Mapping prefix must match the one used for compiling the binary grammar!"
+            );
             cg3_quit(1, None, 0);
         }
         grammar.mapping_prefix = mp;
@@ -393,7 +424,7 @@ pub fn main_run(args: &[String]) -> i32 {
     // the converter's public shared-base accessors (`base()`/`base_mut()`) — the
     // composition analogue of the C++ public inheritance. ---
     if !occ(&options, OPTIONS::GRAMMAR_ONLY) {
-        use crate::grammar_applicator::{cg3_sformat, GrammarApplicator};
+        use crate::grammar_applicator::{GrammarApplicator, cg3_sformat};
         let base = GrammarApplicator::new(Grammar::default());
         let mut applicator = crate::format_converter::FormatConverter::new(base);
         applicator.base_mut().fmt_input = cg3_sformat::CG3SF_CG;
@@ -515,7 +546,9 @@ fn print_help(options: &crate::options::options_t) {
     out.push('\n');
     out.push_str("Environment variable:\n");
     out.push_str(" CG3_DEFAULT: Sets default cmdline options, which the actual passed options will override.\n");
-    out.push_str(" CG3_OVERRIDE: Sets forced cmdline options, which will override any passed option.\n");
+    out.push_str(
+        " CG3_OVERRIDE: Sets forced cmdline options, which will override any passed option.\n",
+    );
     out.push('\n');
     out.push_str("Options:\n");
 

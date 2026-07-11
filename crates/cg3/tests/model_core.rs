@@ -106,7 +106,10 @@ fn cohort_alloc_detach_clear_dtor_free() {
     store.cohorts.get_mut(c3.0).dep_parent = Some(1);
     assert!(w.cohort_map.contains_key(&3));
     cohort_clear(&mut store, Some(&mut w), c3);
-    assert!(!w.cohort_map.contains_key(&3), "clear erases from cohort_map");
+    assert!(
+        !w.cohort_map.contains_key(&3),
+        "clear erases from cohort_map"
+    );
     assert!(!w.dep_window.contains_key(&3));
     let c3r = store.cohorts.get(c3.0);
     assert_eq!(c3r.global_number, 0);
@@ -115,14 +118,21 @@ fn cohort_alloc_detach_clear_dtor_free() {
     assert!(c3r.readings.is_empty());
     assert_eq!(c3r.ignored.len(), 1, "quirk: ignored NOT cleared");
     assert!(store.readings.try_get(r.0).is_none(), "readings freed");
-    assert!(store.readings.try_get(ig.0).is_none(), "ignored readings freed");
+    assert!(
+        store.readings.try_get(ig.0).is_none(),
+        "ignored readings freed"
+    );
 
     // dtor: erases from the window maps and detaches, but does NOT reset fields.
     assert!(w.cohort_map.contains_key(&1));
     cohort_dtor(&mut store, Some(&mut w), c1);
     assert!(!w.cohort_map.contains_key(&1));
     assert!(!w.dep_window.contains_key(&1));
-    assert_eq!(store.cohorts.get(c1.0).global_number, 1, "dtor keeps fields");
+    assert_eq!(
+        store.cohorts.get(c1.0).global_number,
+        1,
+        "dtor keeps fields"
+    );
 
     // free_cohort: consumes the handle (wave 4 — the C++ Cohort*& null-out is
     // by-value ownership); the slot is recycled LIFO by the next alloc.
@@ -218,7 +228,11 @@ fn cohort_numeric_min_max() {
     store.readings.get_mut(r1.0).tags_numerical.insert(h1, t1);
     assert_eq!(get_min(&mut store, &g, c, key), 5.0, "stale cache honoured");
     store.cohorts.get_mut(c.0).r#type &= !CT_NUM_CURRENT;
-    assert_eq!(get_min(&mut store, &g, c, key), 1.0, "recomputed after inval");
+    assert_eq!(
+        get_min(&mut store, &g, c, key),
+        1.0,
+        "recomputed after inval"
+    );
 }
 
 // addChild/remChild (dep_children sorted-set ops), addRelation (grew?),
@@ -252,9 +266,15 @@ fn cohort_children_relations_related_unignore() {
     // setRelation: {100,101} != {200} -> replaced, true.
     c.relations_input.insert(11, Default::default());
     assert!(c.set_relation(11, 200));
-    assert!(!c.relations_input.contains_key(&11), "relations_input erased");
+    assert!(
+        !c.relations_input.contains_key(&11),
+        "relations_input erased"
+    );
     assert_eq!(c.relations[&11].size(), 1);
-    assert!(!c.set_relation(11, 200), "already exactly the target -> false");
+    assert!(
+        !c.set_relation(11, 200),
+        "already exactly the target -> false"
+    );
 
     assert!(c.rem_relation(11, 200), "shrank -> true");
     assert!(!c.rem_relation(11, 200), "already gone -> false");
@@ -368,14 +388,22 @@ fn dep_parent_iterator() {
     let ctx = g.allocate_contextual_test();
 
     let mut it = DepParentIter::new(Some(c3), Some(ctx), false, &store, &g, &w);
-    assert_eq!(it.base.current(), Some(c2), "ctor pre-advances onto the parent");
+    assert_eq!(
+        it.base.current(),
+        Some(c2),
+        "ctor pre-advances onto the parent"
+    );
     it.advance(&store, &g, &w);
     assert_eq!(it.base.current(), Some(c1));
     it.advance(&store, &g, &w); // c1 has DEP_NO_PARENT
     assert_eq!(it.base.current(), None);
 
     it.reset(Some(c3), Some(ctx), false, &store, &g, &w);
-    assert_eq!(it.base.current(), Some(c2), "reset clears m_seen and re-seats");
+    assert_eq!(
+        it.base.current(),
+        Some(c2),
+        "reset clears m_seen and re-seats"
+    );
 
     // Cycle guard: c1 -> c3 closes a loop; the duplicate m_seen hit ends it.
     store.cohorts.get_mut(c1.0).dep_parent = Some(3);
@@ -431,7 +459,11 @@ fn dep_descendent_and_ancestor_iterators() {
     assert_eq!(di.base.current(), Some(c1));
 
     let mut ai = DepAncestorIter::new(Some(c4), Some(ctx), false, &store, &g, &w);
-    assert_eq!(ai.base.current(), Some(c1), "ancestors sorted by local_number");
+    assert_eq!(
+        ai.base.current(),
+        Some(c1),
+        "ancestors sorted by local_number"
+    );
     ai.advance();
     assert_eq!(ai.base.current(), Some(c2));
     ai.advance();
@@ -514,7 +546,11 @@ fn reading_alloc_copy_free_clear() {
     assert_eq!(store.readings.get(r0.0).parent, Some(c));
     assert_eq!(store.readings.get(r0.0).number, 1000);
     let rn = Reading::allocate_reading(&mut store, None);
-    assert_eq!(store.readings.get(rn.0).number, 0, "null parent -> number 0");
+    assert_eq!(
+        store.readings.get(rn.0).number,
+        0,
+        "null parent -> number 0"
+    );
 
     // Copy-alloc, fresh-slot branch: immutable/active KEPT, matched_* cleared,
     // number+100, next chain deep-cloned.
@@ -551,7 +587,10 @@ fn reading_alloc_copy_free_clear() {
         "freed slot reused"
     );
     let p = store.readings.get(pooled.0);
-    assert!(!p.immutable && !p.active, "pooled branch forces the flags off");
+    assert!(
+        !p.immutable && !p.active,
+        "pooled branch forces the flags off"
+    );
 
     // Copy ctor by value (Reading::Reading(const Reading&)).
     let copied = reading_copy(&mut store, &src);
@@ -572,7 +611,10 @@ fn reading_alloc_copy_free_clear() {
     assert_eq!(f.number, 0);
     assert!(!f.immutable && !f.active);
     assert_eq!(f.next, None);
-    assert!(store.readings.try_get(tail.0).is_none(), "chain freed recursively");
+    assert!(
+        store.readings.try_get(tail.0).is_none(),
+        "chain freed recursively"
+    );
 }
 
 // Reading::rehash (tags fold skipping the mapping hash; plain vs mapped hash;
@@ -617,7 +659,10 @@ fn reading_rehash_and_cmp_number() {
     assert_eq!(got, exp);
     assert_eq!(store.readings.get(r.0).hash, exp);
     assert_eq!(store.readings.get(r.0).hash_plain, exp_plain);
-    assert_ne!(exp, exp_plain, "mapping folded into hash but not hash_plain");
+    assert_ne!(
+        exp, exp_plain,
+        "mapping folded into hash but not hash_plain"
+    );
 
     // Sub-reading chain: the child is rehashed and folded in.
     let sub = alloc_reading(&mut store, None);
@@ -743,12 +788,21 @@ fn rule_defaults_name_tests_flags() {
     // addContextualTest front-inserts; reverse flips both lists.
     Rule::add_contextual_test(CtxId(1), &mut r.tests);
     Rule::add_contextual_test(CtxId(2), &mut r.tests);
-    assert_eq!(r.tests.iter().copied().collect::<Vec<_>>(), vec![CtxId(2), CtxId(1)]);
+    assert_eq!(
+        r.tests.iter().copied().collect::<Vec<_>>(),
+        vec![CtxId(2), CtxId(1)]
+    );
     Rule::add_contextual_test(CtxId(3), &mut r.dep_tests);
     Rule::add_contextual_test(CtxId(4), &mut r.dep_tests);
     r.reverse_contextual_tests();
-    assert_eq!(r.tests.iter().copied().collect::<Vec<_>>(), vec![CtxId(1), CtxId(2)]);
-    assert_eq!(r.dep_tests.iter().copied().collect::<Vec<_>>(), vec![CtxId(3), CtxId(4)]);
+    assert_eq!(
+        r.tests.iter().copied().collect::<Vec<_>>(),
+        vec![CtxId(1), CtxId(2)]
+    );
+    assert_eq!(
+        r.dep_tests.iter().copied().collect::<Vec<_>>(),
+        vec![CtxId(3), CtxId(4)]
+    );
 
     // init_flag_excls: bit 0/1 (NEAREST/ALLOWLOOP) share a group; bit 27/28
     // (BEFORE/AFTER) share another; a groupless flag (SUB, bit 23) yields 0.
@@ -756,7 +810,11 @@ fn rule_defaults_name_tests_flags() {
     assert_eq!(init_flag_excls(1), RF_NEAREST | RF_ALLOWLOOP);
     assert_eq!(init_flag_excls(27), RF_BEFORE | RF_AFTER);
     assert_eq!(init_flag_excls(23), cg3::rule::RuleFlags::empty());
-    assert_eq!(FLAGS_EXCLS[28], RF_BEFORE | RF_AFTER, "make_array expansion");
+    assert_eq!(
+        FLAGS_EXCLS[28],
+        RF_BEFORE | RF_AFTER,
+        "make_array expansion"
+    );
 }
 
 // ===========================================================================
@@ -821,7 +879,10 @@ fn tag_parse_raw_and_numeric() {
     let mut t = Tag::default();
     t.tag = "<w=abc>".to_string();
     t.parse_numeric(false);
-    assert!(!t.r#type.intersects(T_NUMERICAL), "non-numeric value rejected");
+    assert!(
+        !t.r#type.intersects(T_NUMERICAL),
+        "non-numeric value rejected"
+    );
     assert_eq!(t.comparison_op, C_OPS::OP_NOP);
 }
 
@@ -848,7 +909,10 @@ fn tag_ctor_rehash_markused_vs_tostring() {
     t.r#type |= T_CASE_INSENSITIVE;
     let icase_hash = t.rehash();
     assert_ne!(icase_hash, base, "flag markers change the hash");
-    assert!(t.r#type.intersects(T_SPECIAL), "rehash re-derives T_SPECIAL");
+    assert!(
+        t.r#type.intersects(T_SPECIAL),
+        "rehash re-derives T_SPECIAL"
+    );
 
     t.mark_used();
     assert!(t.r#type.intersects(T_USED));
@@ -901,7 +965,10 @@ fn tag_comparators_and_fill_tagvector() {
     assert_eq!(compare_tag(&g, ta, tb), ha < hb);
     assert_eq!(compare_tag(&g, tb, ta), hb < ha);
     assert!(equal_tag(&g, ta, ta));
-    assert!(!equal_tag(&g, ta, tb), "distinct interned tags differ by hash");
+    assert!(
+        !equal_tag(&g, ta, tb),
+        "distinct interned tags differ by hash"
+    );
 
     // Lexicographic by element hash; prefix ties break on length.
     let va: TagVector = vec![ta];
@@ -962,7 +1029,10 @@ fn contextual_test_ctor_rehash_equals_copy() {
     let asd = CtxId(arena.alloc(cts));
     assert_eq!(ContextualTest::rehash(&mut arena, asd), h.wrapping_add(9));
     // linked recursion: the child is rehashed and folded in.
-    let l = CtxId(arena.alloc(ContextualTest { target: 5, ..Default::default() }));
+    let l = CtxId(arena.alloc(ContextualTest {
+        target: 5,
+        ..Default::default()
+    }));
     let mut ctl = ct.clone();
     ctl.linked = Some(l);
     let b = CtxId(arena.alloc(ctl));
@@ -972,15 +1042,24 @@ fn contextual_test_ctor_rehash_equals_copy() {
 
     // equals: identical fields+hash -> true; different linked IDS but equal
     // linked HASHES still count as equal (the C++ special case).
-    let l2 = CtxId(arena.alloc(ContextualTest { target: 5, ..Default::default() }));
+    let l2 = CtxId(arena.alloc(ContextualTest {
+        target: 5,
+        ..Default::default()
+    }));
     ContextualTest::rehash(&mut arena, l2);
     assert_eq!(arena[l.0].hash, arena[l2.0].hash);
     let mut ctl2 = ct.clone();
     ctl2.linked = Some(l2);
     let b2 = CtxId(arena.alloc(ctl2));
     ContextualTest::rehash(&mut arena, b2);
-    assert!(arena[b.0].equals(&arena[b2.0], &arena), "linked compared by hash");
-    assert!(!arena[b.0].equals(&arena[l.0], &arena), "different tests differ");
+    assert!(
+        arena[b.0].equals(&arena[b2.0], &arena),
+        "linked compared by hash"
+    );
+    assert!(
+        !arena[b.0].equals(&arena[l.0], &arena),
+        "different tests differ"
+    );
 
     // copy_cntx: fields copied; is_used and ors deliberately untouched.
     let mut trg = ContextualTest::default();
@@ -1004,7 +1083,9 @@ fn diff_b_equal(a: &str, b: &str) -> bool {
 }
 
 fn repo_test_dir(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test")
+        .join(name)
 }
 
 // ContextualTest::markUsed is ported as the PRIVATE `Grammar::context_mark_used`
@@ -1079,7 +1160,11 @@ fn single_window_alloc_append_clear_destroy() {
     append_cohort(&mut w, &mut store, s1, ca);
     assert_eq!(store.cohorts.get(ca.0).local_number, 0);
     assert_eq!(store.cohorts.get(ca.0).parent, Some(s1));
-    assert_eq!(store.cohorts.get(ca.0).next, Some(cb), "forward cross-window link");
+    assert_eq!(
+        store.cohorts.get(ca.0).next,
+        Some(cb),
+        "forward cross-window link"
+    );
     assert_eq!(store.cohorts.get(cb.0).prev, Some(ca));
     assert_eq!(w.cohort_map.get(&5), Some(&ca));
     assert_eq!(w.cohort_map.get(&0), Some(&ca), "local 0 aliased at key 0");
@@ -1087,13 +1172,24 @@ fn single_window_alloc_append_clear_destroy() {
     let ca2 = mk(&mut store, s1, 6);
     append_cohort(&mut w, &mut store, s1, ca2);
     assert_eq!(store.cohorts.get(ca2.0).local_number, 1);
-    assert_eq!(store.cohorts.get(ca.0).next, Some(ca2), "backward in-window link");
-    assert_eq!(store.cohorts.get(ca2.0).next, Some(cb), "re-linked to next window");
+    assert_eq!(
+        store.cohorts.get(ca.0).next,
+        Some(ca2),
+        "backward in-window link"
+    );
+    assert_eq!(
+        store.cohorts.get(ca2.0).next,
+        Some(cb),
+        "re-linked to next window"
+    );
 
     // less_Cohort / compare_Cohort: local_number first, window number tie-break.
     assert!(less_cohort(&store, ca, ca2), "local 0 < local 1");
     assert!(!less_cohort(&store, ca2, ca));
-    assert!(less_cohort(&store, ca, cb), "tie on local 0 -> window 1 < window 2");
+    assert!(
+        less_cohort(&store, ca, cb),
+        "tie on local 0 -> window 1 < window 2"
+    );
     let cmp = compare_Cohort;
     assert!(cmp.call(&store, ca, cb));
     assert!(!cmp.call(&store, cb, ca));
@@ -1108,7 +1204,10 @@ fn single_window_alloc_append_clear_destroy() {
     assert!(store.single_windows.get(s1.0).cohorts.is_empty());
     assert_eq!(store.single_windows.get(s1.0).parent, None);
     assert!(store.cohorts.try_get(ca.0).is_none(), "cohorts recycled");
-    assert!(!w.cohort_map.contains_key(&5), "clear routed through free_cohort");
+    assert!(
+        !w.cohort_map.contains_key(&5),
+        "clear routed through free_cohort"
+    );
 
     // ~SingleWindow (dtor teardown): splices out of the sibling chain but does
     // NOT free the slot (that is free_swindow's job).
@@ -1122,7 +1221,10 @@ fn single_window_alloc_append_clear_destroy() {
     single_window_destroy(&mut w, &mut store, b);
     assert_eq!(store.single_windows.get(a.0).next, Some(c), "spliced");
     assert_eq!(store.single_windows.get(c.0).previous, Some(a));
-    assert!(store.single_windows.try_get(b.0).is_some(), "dtor does not free");
+    assert!(
+        store.single_windows.try_get(b.0).is_some(),
+        "dtor does not free"
+    );
 
     // free_swindow: clear + recycle (handle consumed by value); None is a no-op.
     free_swindow(&mut w, &mut store, Some(c));
@@ -1207,7 +1309,11 @@ fn window_alloc_shuffle_rebuild_destroy() {
     store.cohorts.get_mut(c1.0).next = None;
     store.cohorts.get_mut(c2.0).prev = None;
     w.rebuild_cohort_links(&mut store);
-    assert_eq!(store.cohorts.get(c1.0).next, Some(c2), "relinked across windows");
+    assert_eq!(
+        store.cohorts.get(c1.0).next,
+        Some(c2),
+        "relinked across windows"
+    );
     assert_eq!(store.cohorts.get(c2.0).prev, Some(c1));
     assert_eq!(store.cohorts.get(c1.0).prev, None);
     assert_eq!(store.cohorts.get(c2.0).next, None);

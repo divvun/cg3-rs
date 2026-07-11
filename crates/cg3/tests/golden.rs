@@ -15,7 +15,10 @@ use std::process::Command;
 
 fn repo_root() -> PathBuf {
     // crates/cg3 -> repo root
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn read_args(dir: &Path) -> Vec<String> {
@@ -60,9 +63,7 @@ fn run_one(dir: &Path, grammar: &Path) -> Result<(), String> {
         .arg("input.txt")
         .arg("-O")
         .arg(&out);
-    let status = cmd
-        .status()
-        .map_err(|e| format!("spawn vislcg3: {e}"))?;
+    let status = cmd.status().map_err(|e| format!("spawn vislcg3: {e}"))?;
     if !status.success() {
         return Err(format!("vislcg3 exited with {status}"));
     }
@@ -92,7 +93,10 @@ fn golden_textual() {
     assert!(!dirs.is_empty(), "no golden test dirs found");
     for dir in &dirs {
         if let Err(e) = run_one(dir, Path::new("grammar.cg3")) {
-            failed.push(format!("{}: {e}", dir.file_name().unwrap().to_string_lossy()));
+            failed.push(format!(
+                "{}: {e}",
+                dir.file_name().unwrap().to_string_lossy()
+            ));
         }
     }
     assert!(
@@ -119,7 +123,8 @@ fn golden_binary_grammar() {
         if SKIP.contains(&name.as_str()) {
             continue;
         }
-        let bin = std::env::temp_dir().join(format!("cg3-golden-{name}-{}.cg3b", std::process::id()));
+        let bin =
+            std::env::temp_dir().join(format!("cg3-golden-{name}-{}.cg3b", std::process::id()));
         let status = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
             .current_dir(dir)
             .arg("grammar.cg3")

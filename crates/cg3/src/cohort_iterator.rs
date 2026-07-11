@@ -227,7 +227,11 @@ impl CohortIterator {
     /// Base ctor: stores `m_span`/`m_cohort`/`m_test`. `new(None, None, false)`
     /// is the end/sentinel iterator (`m_cohort == None`).
     pub fn new(cohort: Option<CohortId>, test: Option<CtxId>, span: bool) -> Self {
-        CohortIterator { m_span: span, m_cohort: cohort, m_test: test }
+        CohortIterator {
+            m_span: span,
+            m_cohort: cohort,
+            m_test: test,
+        }
     }
 
     // [spec:cg3:def:cohort-iterator.cg3.cohort-iterator.cohort-iterator-fn]
@@ -265,7 +269,9 @@ impl TopologyLeftIter {
     // [spec:cg3:def:cohort-iterator.cg3.topology-left-iter.topology-left-iter-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.topology-left-iter.topology-left-iter-fn]
     pub fn new(cohort: Option<CohortId>, test: Option<CtxId>, span: bool) -> Self {
-        TopologyLeftIter { base: CohortIterator::new(cohort, test, span) }
+        TopologyLeftIter {
+            base: CohortIterator::new(cohort, test, span),
+        }
     }
 
     // [spec:cg3:def:cohort-iterator.cg3.topology-left-iter.topology-left-iter-fn]
@@ -307,7 +313,9 @@ impl TopologyRightIter {
     // [spec:cg3:def:cohort-iterator.cg3.topology-right-iter.topology-right-iter-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.topology-right-iter.topology-right-iter-fn]
     pub fn new(cohort: Option<CohortId>, test: Option<CtxId>, span: bool) -> Self {
-        TopologyRightIter { base: CohortIterator::new(cohort, test, span) }
+        TopologyRightIter {
+            base: CohortIterator::new(cohort, test, span),
+        }
     }
 
     // [spec:cg3:def:cohort-iterator.cg3.topology-right-iter.topology-right-iter-fn]
@@ -358,7 +366,10 @@ impl DepParentIter {
         grammar: &Grammar,
         window: &Window,
     ) -> Self {
-        let mut it = DepParentIter { base: CohortIterator::new(cohort, test, span), m_seen: Vec::new() };
+        let mut it = DepParentIter {
+            base: CohortIterator::new(cohort, test, span),
+            m_seen: Vec::new(),
+        };
         it.advance(store, grammar, window);
         it
     }
@@ -731,7 +742,10 @@ impl ChildrenIterator {
     // [spec:cg3:def:cohort-iterator.cg3.children-iterator.children-iterator-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.children-iterator.children-iterator-fn]
     pub fn new(cohort: Option<CohortId>, test: Option<CtxId>, span: bool) -> Self {
-        ChildrenIterator { base: MultiCohortIterator::new(cohort, test, span), m_depth: 0 }
+        ChildrenIterator {
+            base: MultiCohortIterator::new(cohort, test, span),
+            m_depth: 0,
+        }
     }
 
     // [spec:cg3:def:cohort-iterator.cg3.children-iterator.children-iterator-fn]
@@ -744,7 +758,10 @@ impl ChildrenIterator {
     pub fn advance(&mut self, store: &RuntimeStore) {
         self.base.m_cohortiter = None; // m_cohortiter.reset()
         self.m_depth += 1;
-        if !store.cohorts[self.base.m_cohort.unwrap().0].dep_children.empty() {
+        if !store.cohorts[self.base.m_cohort.unwrap().0]
+            .dep_children
+            .empty()
+        {
             self.base.m_cohortiter = Some(Box::new(CohortSetIter::new(
                 self.base.m_cohort,
                 self.base.m_test,

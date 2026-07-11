@@ -31,12 +31,12 @@ use std::io::{Read, Write};
 use regex::RegexBuilder;
 
 use crate::arena::{CohortId, CtxId, ReadingId, RuleId, SwId, TagId};
-use crate::contextual_test::POS_NEGATE;
 use crate::cohort::{CT_RELATED, CT_REMOVED, DEP_NO_PARENT, unignore_all};
+use crate::contextual_test::POS_NEGATE;
 use crate::grammar::Grammar;
 use crate::inlines::{
     cg3_quit, g_app_set_opts_ranged, hash_value_ustring, is_textual, isnl, read_raw, read_utf8_raw,
-    ui32, ui8, write_raw, write_utf8_raw,
+    ui8, ui32, write_raw, write_utf8_raw,
 };
 use crate::options::{OPTIONS, options_t};
 use crate::process::Process;
@@ -408,13 +408,15 @@ impl super::GrammarApplicator {
                 // Scan every non-textual single_tag against every regex tag;
                 // mark T_TEXTUAL on any (unanchored) match. Collect ids first to
                 // avoid aliasing the arena during mutation.
-                let all_tags: Vec<TagId> =
-                    (0..self.grammar.single_tags_list.capacity())
-                        .filter_map(|i| self.grammar.single_tags_list.try_get(i).map(|_| TagId(i)))
-                        .collect();
+                let all_tags: Vec<TagId> = (0..self.grammar.single_tags_list.capacity())
+                    .filter_map(|i| self.grammar.single_tags_list.try_get(i).map(|_| TagId(i)))
+                    .collect();
                 let regex_ids: Vec<TagId> = self.grammar.regex_tags.iter().copied().collect();
                 for titer in all_tags {
-                    if self.grammar.single_tags_list[titer.0].r#type.intersects(T_TEXTUAL) {
+                    if self.grammar.single_tags_list[titer.0]
+                        .r#type
+                        .intersects(T_TEXTUAL)
+                    {
                         continue;
                     }
                     let text = self.grammar.single_tags_list[titer.0].tag.clone();
@@ -436,13 +438,15 @@ impl super::GrammarApplicator {
             // grammar->icase_tags.insert(tag).second
             let inserted = self.grammar.icase_tags.insert(tag).1;
             if inserted {
-                let all_tags: Vec<TagId> =
-                    (0..self.grammar.single_tags_list.capacity())
-                        .filter_map(|i| self.grammar.single_tags_list.try_get(i).map(|_| TagId(i)))
-                        .collect();
+                let all_tags: Vec<TagId> = (0..self.grammar.single_tags_list.capacity())
+                    .filter_map(|i| self.grammar.single_tags_list.try_get(i).map(|_| TagId(i)))
+                    .collect();
                 let icase_ids: Vec<TagId> = self.grammar.icase_tags.iter().copied().collect();
                 for titer in all_tags {
-                    if self.grammar.single_tags_list[titer.0].r#type.intersects(T_TEXTUAL) {
+                    if self.grammar.single_tags_list[titer.0]
+                        .r#type
+                        .intersects(T_TEXTUAL)
+                    {
                         continue;
                     }
                     let text = self.grammar.single_tags_list[titer.0].tag.clone();
@@ -756,7 +760,11 @@ impl super::GrammarApplicator {
     fn first_maplist_tag(&self, set: Option<crate::arena::SetId>) -> Option<&str> {
         let sid = set?;
         let s = &self.grammar.sets_list[sid.0];
-        let trie = if !s.trie.is_empty() { &s.trie } else { &s.trie_special };
+        let trie = if !s.trie.is_empty() {
+            &s.trie
+        } else {
+            &s.trie_special
+        };
         let (tid, _node) = trie.iter().next()?;
         Some(&self.grammar.single_tags_list[tid.0].tag)
     }
@@ -765,12 +773,7 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-reading-fn]
     /// C++ `void printReading(const Reading* reading, std::ostream& output,
     /// size_t sub = 1)`. Resolves `Reading*`/`Cohort*` through `store`.
-    pub fn print_reading<W: Write>(
-        &mut self,
-        reading: ReadingId,
-        output: &mut W,
-        sub: usize,
-    ) {
+    pub fn print_reading<W: Write>(&mut self, reading: ReadingId, output: &mut W, sub: usize) {
         let (noprint, deleted, baseform, parent_cid) = {
             let r = self.store.readings.get(reading.0);
             (r.noprint, r.deleted, r.baseform, r.parent)
@@ -790,7 +793,8 @@ impl super::GrammarApplicator {
         let parent_cid = parent_cid.expect("reading has no parent cohort");
         let wordform_hash = {
             let wf = self.store.cohorts.get(parent_cid.0).wordform;
-            wf.map(|t| self.grammar.single_tags_list[t.0].hash).unwrap_or(0)
+            wf.map(|t| self.grammar.single_tags_list[t.0].hash)
+                .unwrap_or(0)
         };
 
         if baseform != 0 {
@@ -833,7 +837,12 @@ impl super::GrammarApplicator {
         }
 
         // --- dependency annotation ---
-        let parent_removed = self.store.cohorts.get(parent_cid.0).r#type.intersects(CT_REMOVED);
+        let parent_removed = self
+            .store
+            .cohorts
+            .get(parent_cid.0)
+            .r#type
+            .intersects(CT_REMOVED);
         if self.has_dep && !parent_removed {
             {
                 let c = self.store.cohorts.get_mut(parent_cid.0);
@@ -865,26 +874,37 @@ impl super::GrammarApplicator {
                 let _ = write!(output, " #{p_local}{arrow}{pr_local}");
             } else {
                 let w = self.dep_span_width();
-                let p_win = p_sw.map(|s| self.store.single_windows.get(s.0).number).unwrap_or(0);
+                let p_win = p_sw
+                    .map(|s| self.store.single_windows.get(s.0).number)
+                    .unwrap_or(0);
                 if p_dep_parent.is_none() {
-                    let _ = write!(output, " #{a}{b:0w$}{arrow}{c}{d:0w$}",
-                            a = p_win,
-                            b = p_local,
-                            c = p_win,
-                            d = p_local,
-                            w = w);
+                    let _ = write!(
+                        output,
+                        " #{a}{b:0w$}{arrow}{c}{d:0w$}",
+                        a = p_win,
+                        b = p_local,
+                        c = p_win,
+                        d = p_local,
+                        w = w
+                    );
                 } else {
                     let (pr_local, pr_win) = {
                         let c = self.store.cohorts.get(pr.0);
-                        let win = c.parent.map(|s| self.store.single_windows.get(s.0).number).unwrap_or(0);
+                        let win = c
+                            .parent
+                            .map(|s| self.store.single_windows.get(s.0).number)
+                            .unwrap_or(0);
                         (c.local_number, win)
                     };
-                    let _ = write!(output, " #{a}{b:0w$}{arrow}{c}{d:0w$}",
-                            a = p_win,
-                            b = p_local,
-                            c = pr_win,
-                            d = pr_local,
-                            w = w);
+                    let _ = write!(
+                        output,
+                        " #{a}{b:0w$}{arrow}{c}{d:0w$}",
+                        a = p_win,
+                        b = p_local,
+                        c = pr_win,
+                        d = pr_local,
+                        w = w
+                    );
                 }
             }
         }
@@ -892,14 +912,22 @@ impl super::GrammarApplicator {
         // --- ID + relations ---
         let (p_related, p_global2, relations) = {
             let c = self.store.cohorts.get(parent_cid.0);
-            (c.r#type.intersects(CT_RELATED), c.global_number, c.relations.clone())
+            (
+                c.r#type.intersects(CT_RELATED),
+                c.global_number,
+                c.relations.clone(),
+            )
         };
         if self.print_ids || p_related {
             let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
                 for siter in targets.iter().copied() {
                     let tid = tag_by_hash(&self.grammar, *rel_hash);
-                    let _ = write!(output, " R:{}:{siter}", self.grammar.single_tags_list[tid.0].tag);
+                    let _ = write!(
+                        output,
+                        " R:{}:{siter}",
+                        self.grammar.single_tags_list[tid.0].tag
+                    );
                 }
             }
         }
@@ -925,12 +953,7 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-cohort-fn]
     /// C++ `virtual void printCohort(Cohort* cohort, std::ostream& output,
     /// bool profiling = false)`.
-    pub fn print_cohort<W: Write>(
-        &mut self,
-        cohort: CohortId,
-        output: &mut W,
-        profiling: bool,
-    ) {
+    pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
         let local_number = self.store.cohorts.get(cohort.0).local_number;
         // `goto removed` from local_number == 0 skips the entire main body.
         if local_number != 0 {
@@ -947,7 +970,13 @@ impl super::GrammarApplicator {
             }
 
             let mut removed_goto = false;
-            if self.store.cohorts.get(cohort.0).r#type.intersects(CT_REMOVED) {
+            if self
+                .store
+                .cohorts
+                .get(cohort.0)
+                .r#type
+                .intersects(CT_REMOVED)
+            {
                 if !self.trace || self.trace_no_removed {
                     removed_goto = true;
                 } else {
@@ -958,7 +987,12 @@ impl super::GrammarApplicator {
 
             if !removed_goto {
                 let (wf_tag, wf_hash) = {
-                    let wf = self.store.cohorts.get(cohort.0).wordform.expect("cohort wordform");
+                    let wf = self
+                        .store
+                        .cohorts
+                        .get(cohort.0)
+                        .wordform
+                        .expect("cohort wordform");
                     let t = &self.grammar.single_tags_list[wf.0];
                     (t.tag.clone(), t.hash)
                 };
@@ -983,7 +1017,8 @@ impl super::GrammarApplicator {
                 }
 
                 // std::sort(readings, cmp_number)
-                let mut readings: Vec<ReadingId> = self.store.cohorts.get(cohort.0).readings.clone();
+                let mut readings: Vec<ReadingId> =
+                    self.store.cohorts.get(cohort.0).readings.clone();
                 sort_readings(&self.store, &mut readings);
                 self.store.cohorts.get_mut(cohort.0).readings = readings.clone();
                 for r in readings {
@@ -991,7 +1026,8 @@ impl super::GrammarApplicator {
                 }
 
                 if self.trace && !self.trace_no_removed {
-                    let mut delayed: Vec<ReadingId> = self.store.cohorts.get(cohort.0).delayed.clone();
+                    let mut delayed: Vec<ReadingId> =
+                        self.store.cohorts.get(cohort.0).delayed.clone();
                     sort_readings(&self.store, &mut delayed);
                     self.store.cohorts.get_mut(cohort.0).delayed = delayed.clone();
                     for r in delayed {
@@ -1039,12 +1075,7 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-single-window-fn]
     /// C++ `virtual void printSingleWindow(SingleWindow* window,
     /// std::ostream& output, bool profiling = false)`.
-    pub fn print_single_window<W: Write>(
-        &mut self,
-        window: SwId,
-        output: &mut W,
-        profiling: bool,
-    ) {
+    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         // (The C++ virtual dispatch to the MweSplit / FormatConverter
         // overrides is the StreamFormat strategy; this is the base CG
         // implementation.)
@@ -1123,11 +1154,7 @@ impl super::GrammarApplicator {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-out-reading-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-out-reading-fn]
     /// C++ `void pipeOutReading(const Reading* reading, std::ostream& output)`.
-    pub fn pipe_out_reading<W: Write>(
-        &self,
-        reading: ReadingId,
-        output: &mut W,
-    ) {
+    pub fn pipe_out_reading<W: Write>(&self, reading: ReadingId, output: &mut W) {
         let mut ss: Vec<u8> = Vec::new();
 
         let r = self.store.readings.get(reading.0);
@@ -1162,7 +1189,11 @@ impl super::GrammarApplicator {
                 continue;
             }
             let tid = tag_by_hash(&self.grammar, tter);
-            if self.grammar.single_tags_list[tid.0].r#type.intersects(T_DEPENDENCY) && self.has_dep {
+            if self.grammar.single_tags_list[tid.0]
+                .r#type
+                .intersects(T_DEPENDENCY)
+                && self.has_dep
+            {
                 continue;
             }
             cs += 1;
@@ -1173,7 +1204,11 @@ impl super::GrammarApplicator {
                 continue;
             }
             let tid = tag_by_hash(&self.grammar, tter);
-            if self.grammar.single_tags_list[tid.0].r#type.intersects(T_DEPENDENCY) && self.has_dep {
+            if self.grammar.single_tags_list[tid.0]
+                .r#type
+                .intersects(T_DEPENDENCY)
+                && self.has_dep
+            {
                 continue;
             }
             write_utf8_raw(&mut ss, &self.grammar.single_tags_list[tid.0].tag);
@@ -1187,11 +1222,7 @@ impl super::GrammarApplicator {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-out-cohort-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-out-cohort-fn]
     /// C++ `void pipeOutCohort(const Cohort* cohort, std::ostream& output)`.
-    pub fn pipe_out_cohort<W: Write>(
-        &self,
-        cohort: CohortId,
-        output: &mut W,
-    ) {
+    pub fn pipe_out_cohort<W: Write>(&self, cohort: CohortId, output: &mut W) {
         let mut ss: Vec<u8> = Vec::new();
 
         let c = self.store.cohorts.get(cohort.0);
@@ -1232,11 +1263,7 @@ impl super::GrammarApplicator {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-out-single-window-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-out-single-window-fn]
     /// C++ `void pipeOutSingleWindow(const SingleWindow& window, Process& output)`.
-    pub fn pipe_out_single_window(
-        &self,
-        window: SwId,
-        output: &mut Process,
-    ) {
+    pub fn pipe_out_single_window(&self, window: SwId, output: &mut Process) {
         let mut ss: Vec<u8> = Vec::new();
 
         let (number, cohorts) = {
@@ -1270,12 +1297,7 @@ impl super::GrammarApplicator {
     /// C++ `void pipeInReading(Reading* reading, Process& input, bool force)`.
     /// The debug `u_fprintf(ux_stderr, ...)` traces are elided (`ux_stderr`
     /// placeholder). `reflowReading` lives in the empty reflow.rs partial.
-    pub fn pipe_in_reading(
-        &mut self,
-        reading: ReadingId,
-        input: &mut Process,
-        force: bool,
-    ) {
+    pub fn pipe_in_reading(&mut self, reading: ReadingId, input: &mut Process, force: bool) {
         let cs: u32 = read_raw(&mut ProcRead(input));
 
         let mut buf = vec![0u8; cs as usize];
@@ -1441,7 +1463,13 @@ impl super::GrammarApplicator {
 
     /// C++ `error(str, s, S, p)` — two spliced strings. Same deferred-emission
     /// note as [`error`].
-    pub fn error_ss(&self, _str: &str, _s: &str, _big_s: &str, _p: Option<&str>) -> (&'static str, u32) {
+    pub fn error_ss(
+        &self,
+        _str: &str,
+        _s: &str,
+        _big_s: &str,
+        _p: Option<&str>,
+    ) -> (&'static str, u32) {
         self.error_labels()
     }
 
@@ -1683,10 +1711,21 @@ impl super::GrammarApplicator {
 
         let mut buf: Vec<u8> = Vec::new();
         let line = self.grammar.rule_by_number[rule.0].line;
-        let _ = write!(&mut buf, "# ===== BEGIN RULE {}{}{} =====\n",
-                line,
-                if target { " TARGET-MATCH" } else { " TARGET-FAIL" },
-                if cntx { " CONTEXT-MATCH" } else { " CONTEXT-FAIL" });
+        let _ = write!(
+            &mut buf,
+            "# ===== BEGIN RULE {}{}{} =====\n",
+            line,
+            if target {
+                " TARGET-MATCH"
+            } else {
+                " TARGET-FAIL"
+            },
+            if cntx {
+                " CONTEXT-MATCH"
+            } else {
+                " CONTEXT-FAIL"
+            }
+        );
 
         let _ = write!(&mut buf, "# PREVIOUS WINDOWS\n");
         for s in self.gWindow.previous.clone() {
@@ -1762,15 +1801,22 @@ impl super::GrammarApplicator {
         let test_hash = self.grammar.contexts_arena[test.0].hash;
         let test_pos = self.grammar.contexts_arena[test.0].pos;
         let rule_number = self.grammar.rule_by_number.get(rule.0).number;
-        let key = crate::profiler::Key { r#type: crate::profiler::ET_CONTEXT, id: test_hash };
+        let key = crate::profiler::Key {
+            r#type: crate::profiler::ET_CONTEXT,
+            id: test_hash,
+        };
         let p = self.profiler.as_mut().unwrap();
         let Some(t) = p.entries.get_mut(&key) else {
             return;
         };
-        if (test_good && (!test_pos.intersects(POS_NEGATE))) || (!test_good && (test_pos.intersects(POS_NEGATE))) {
+        if (test_good && (!test_pos.intersects(POS_NEGATE)))
+            || (!test_good && (test_pos.intersects(POS_NEGATE)))
+        {
             t.num_match += 1;
             let need_example = t.example_window == 0;
-            *p.rule_contexts.entry((rule_number + 1, test_hash)).or_insert(0) += 1;
+            *p.rule_contexts
+                .entry((rule_number + 1, test_hash))
+                .or_insert(0) += 1;
             if need_example {
                 self.add_profiling_example(key);
             }

@@ -11,7 +11,10 @@ use std::process::{Command, Stdio};
 
 fn repo_root() -> PathBuf {
     // crates/cg3 -> repo root
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn read_args(dir: &Path) -> Vec<String> {
@@ -85,7 +88,10 @@ fn cg_comp_main_compiles_t_select() {
         .expect("spawn cg-comp");
     assert!(status.success(), "cg-comp exited with {status}");
     let head = std::fs::read(&bin).expect("read compiled grammar");
-    assert!(head.len() > 4 && &head[..4] == b"CG3B", "missing CG3B magic");
+    assert!(
+        head.len() > 4 && &head[..4] == b"CG3B",
+        "missing CG3B magic"
+    );
     run_vislcg3_expect(&dir, &bin, "comp-select.txt");
     let _ = std::fs::remove_file(&bin);
 }
@@ -100,8 +106,14 @@ fn cg_comp_end_program_usage() {
         .expect("spawn cg-comp");
     assert_eq!(out.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("VISL CG-3 Compiler version"), "missing banner: {stdout}");
-    assert!(stdout.contains("USAGE: cg-comp grammar_file output_file"), "missing usage: {stdout}");
+    assert!(
+        stdout.contains("VISL CG-3 Compiler version"),
+        "missing banner: {stdout}"
+    );
+    assert!(
+        stdout.contains("USAGE: cg-comp grammar_file output_file"),
+        "missing usage: {stdout}"
+    );
 }
 
 // [spec:cg3:sem:cg-conv.main-fn/test]
@@ -129,7 +141,10 @@ fn cg_conv_main_converts_niceline_stream() {
     let out = child.wait_with_output().expect("wait cg-conv");
     assert!(out.status.success(), "cg-conv exited with {}", out.status);
     let got = String::from_utf8_lossy(&out.stdout);
-    assert_eq!(got, "\"<word>\"\n\t\"word\" N Sg\n\"<birds>\"\n\t\"bird\" N Pl\n");
+    assert_eq!(
+        got,
+        "\"<word>\"\n\t\"word\" N Sg\n\"<birds>\"\n\t\"bird\" N Pl\n"
+    );
 }
 
 // [spec:cg3:sem:cg-proc.main-fn/test]
@@ -163,7 +178,10 @@ fn cg_proc_main_runs_apertium_t_select() {
     let want = std::fs::read_to_string(dir.join("expected.txt")).unwrap();
     let _ = std::fs::remove_file(&bin);
     let _ = std::fs::remove_file(&out);
-    assert!(diff_b_equal(&want, &got), "cg-proc output differs from expected.txt");
+    assert!(
+        diff_b_equal(&want, &got),
+        "cg-proc output differs from expected.txt"
+    );
 }
 
 // [spec:cg3:sem:cg-proc.end-program-fn/test]
@@ -176,9 +194,15 @@ fn cg_proc_end_program_usage() {
         .expect("spawn cg-proc");
     assert_eq!(out.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("VISL CG-3 Disambiguator version"), "missing banner: {stdout}");
+    assert!(
+        stdout.contains("VISL CG-3 Disambiguator version"),
+        "missing banner: {stdout}"
+    );
     assert!(stdout.contains("USAGE: cg-proc"), "missing usage: {stdout}");
-    assert!(stdout.contains("--stream-format"), "missing option list: {stdout}");
+    assert!(
+        stdout.contains("--stream-format"),
+        "missing option list: {stdout}"
+    );
 }
 
 // [spec:cg3:sem:cg-relabel.main-fn/test]
@@ -210,7 +234,10 @@ fn cg_relabel_main_relabels_t_relabel_list() {
         .expect("spawn cg-relabel");
     assert!(status.success(), "cg-relabel exited with {status}");
     let head = std::fs::read(&bin_out).expect("read relabelled grammar");
-    assert!(head.len() > 4 && &head[..4] == b"CG3B", "missing CG3B magic");
+    assert!(
+        head.len() > 4 && &head[..4] == b"CG3B",
+        "missing CG3B magic"
+    );
 
     run_vislcg3_expect(&dir, &bin_out, "relabel-select.txt");
     let _ = std::fs::remove_file(&bin);
@@ -227,9 +254,13 @@ fn cg_relabel_end_program_usage() {
         .expect("spawn cg-relabel");
     assert_eq!(out.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("VISL CG-3 Relabeller version"), "missing banner: {stdout}");
     assert!(
-        stdout.contains("USAGE: cg-relabel input_grammar_file relabel_rule_file output_grammar_file"),
+        stdout.contains("VISL CG-3 Relabeller version"),
+        "missing banner: {stdout}"
+    );
+    assert!(
+        stdout
+            .contains("USAGE: cg-relabel input_grammar_file relabel_rule_file output_grammar_file"),
         "missing usage: {stdout}"
     );
 }
@@ -251,10 +282,17 @@ fn cg_mwesplit_main_splits_t_mwesplit() {
         .expect("spawn cg-mwesplit");
     child.stdin.take().unwrap().write_all(&input).unwrap();
     let out = child.wait_with_output().expect("wait cg-mwesplit");
-    assert!(out.status.success(), "cg-mwesplit exited with {}", out.status);
+    assert!(
+        out.status.success(),
+        "cg-mwesplit exited with {}",
+        out.status
+    );
     let got = String::from_utf8_lossy(&out.stdout);
     let want = std::fs::read_to_string(dir.join("expected.txt")).unwrap();
-    assert!(diff_b_equal(&want, &got), "cg-mwesplit output differs from expected.txt");
+    assert!(
+        diff_b_equal(&want, &got),
+        "cg-mwesplit output differs from expected.txt"
+    );
 }
 
 /// Build a profiler database the way `vislcg3 --profile` + the parser wiring
@@ -263,7 +301,7 @@ fn cg_mwesplit_main_splits_t_mwesplit() {
 /// counts, example windows, and a rule->context link. Returns
 /// `(db_path, grammar_text)`.
 fn write_profile_db(name: &str, num_match: usize, with_example: bool) -> (PathBuf, String) {
-    use cg3::profiler::{Key, Profiler, ET_CONTEXT, ET_RULE};
+    use cg3::profiler::{ET_CONTEXT, ET_RULE, Key, Profiler};
 
     // Grammar text with XML metacharacters so cg-annotate must escape them.
     let grammar = "SELECT (wanted) IF (0 (\"<w>\")) ;\n".to_string();
@@ -286,7 +324,13 @@ fn write_profile_db(name: &str, num_match: usize, with_example: bool) -> (PathBu
 
     let window = p.add_string("\"<word>\"\n\t\"word\" wanted\n");
     {
-        let e = p.entries.get_mut(&Key { r#type: ET_RULE, id: 1 }).unwrap();
+        let e = p
+            .entries
+            .get_mut(&Key {
+                r#type: ET_RULE,
+                id: 1,
+            })
+            .unwrap();
         e.num_match = num_match;
         e.num_fail = 1;
         if with_example {
@@ -294,7 +338,13 @@ fn write_profile_db(name: &str, num_match: usize, with_example: bool) -> (PathBu
         }
     }
     {
-        let e = p.entries.get_mut(&Key { r#type: ET_CONTEXT, id: 7 }).unwrap();
+        let e = p
+            .entries
+            .get_mut(&Key {
+                r#type: ET_CONTEXT,
+                id: 7,
+            })
+            .unwrap();
         e.num_match = num_match;
         if with_example {
             e.example_window = window;
@@ -330,19 +380,34 @@ fn cg_annotate_main_writes_report() {
 
     // index.html links the grammar page (grammar string id 2: fname is 1).
     let index = std::fs::read_to_string(out_dir.join("index.html")).unwrap();
-    assert!(index.contains(r#"<a href="g2.html">profile-grammar.cg3</a>"#), "index: {index}");
+    assert!(
+        index.contains(r#"<a href="g2.html">profile-grammar.cg3</a>"#),
+        "index: {index}"
+    );
 
     // The annotated grammar page: rule span + stats + xml-escaped source.
     let g = std::fs::read_to_string(out_dir.join("g2.html")).unwrap();
     assert!(g.contains(r#"<span class="cg-elem cgRule">"#), "g2: {g}");
-    assert!(g.contains(r#"class="entry good"><span class="stats">M:3, F:1"#), "g2: {g}");
-    assert!(g.contains(r#"class="entry context good"><span class="stats">M:3"#), "g2: {g}");
-    assert!(g.contains("(&quot;&lt;w&gt;&quot;)"), "xml_encode missing: {g}");
+    assert!(
+        g.contains(r#"class="entry good"><span class="stats">M:3, F:1"#),
+        "g2: {g}"
+    );
+    assert!(
+        g.contains(r#"class="entry context good"><span class="stats">M:3"#),
+        "g2: {g}"
+    );
+    assert!(
+        g.contains("(&quot;&lt;w&gt;&quot;)"),
+        "xml_encode missing: {g}"
+    );
 
     // Usage-example pages for the rule and the context, with the escaped
     // example window (file_save wrote them into rs/ and cs/).
     let rs = std::fs::read_to_string(out_dir.join("rs/1.html")).unwrap();
-    assert!(rs.contains("SELECT (wanted) IF (0 (&quot;&lt;w&gt;&quot;)) ;"), "rs: {rs}");
+    assert!(
+        rs.contains("SELECT (wanted) IF (0 (&quot;&lt;w&gt;&quot;)) ;"),
+        "rs: {rs}"
+    );
     assert!(rs.contains("&quot;&lt;word&gt;&quot;"), "rs window: {rs}");
     let cs = std::fs::read_to_string(out_dir.join("cs/7.html")).unwrap();
     assert!(cs.contains("(0 (&quot;&lt;w&gt;&quot;))"), "cs: {cs}");
@@ -361,7 +426,7 @@ fn cg_annotate_main_writes_report() {
 // the crate's Profiler.
 #[test]
 fn cg_merge_annotations_main_sums_counts() {
-    use cg3::profiler::{Key, Profiler, ET_CONTEXT, ET_RULE};
+    use cg3::profiler::{ET_CONTEXT, ET_RULE, Key, Profiler};
 
     // Base has no example window; input carries one (and different counts).
     let (base_db, _) = write_profile_db("merge-base.db", 3, false);
@@ -374,20 +439,35 @@ fn cg_merge_annotations_main_sums_counts() {
         .arg(&in_db)
         .status()
         .expect("spawn cg-merge-annotations");
-    assert!(status.success(), "cg-merge-annotations exited with {status}");
+    assert!(
+        status.success(),
+        "cg-merge-annotations exited with {status}"
+    );
 
     let mut merged = Profiler::default();
-    merged.read(merged_db.to_str().unwrap()).expect("read merged db");
+    merged
+        .read(merged_db.to_str().unwrap())
+        .expect("read merged db");
 
-    let rule = merged.entries[&Key { r#type: ET_RULE, id: 1 }];
+    let rule = merged.entries[&Key {
+        r#type: ET_RULE,
+        id: 1,
+    }];
     assert_eq!(rule.num_match, 3 + 5, "rule matches not summed");
     assert_eq!(rule.num_fail, 1 + 1, "rule fails not summed");
     assert_ne!(rule.example_window, 0, "missing example window not adopted");
 
-    let ctx = merged.entries[&Key { r#type: ET_CONTEXT, id: 7 }];
+    let ctx = merged.entries[&Key {
+        r#type: ET_CONTEXT,
+        id: 7,
+    }];
     assert_eq!(ctx.num_match, 3 + 5, "context matches not summed");
 
-    assert_eq!(merged.rule_contexts[&(1, 7)], 3 + 5, "rule_contexts not summed");
+    assert_eq!(
+        merged.rule_contexts[&(1, 7)],
+        3 + 5,
+        "rule_contexts not summed"
+    );
 
     let _ = std::fs::remove_file(&base_db);
     let _ = std::fs::remove_file(&in_db);

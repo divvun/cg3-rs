@@ -73,7 +73,10 @@ impl Window {
     /// handle placeholder. Unannotated in the C++ (only the destructor carries
     /// the `window-fn` markers).
     pub fn new(parent: Option<u32>) -> Self {
-        Window { parent, ..Window::default() }
+        Window {
+            parent,
+            ..Window::default()
+        }
     }
 
     // [spec:cg3:def:window.cg3.window.window-fn]
@@ -179,7 +182,11 @@ impl Window {
         if let Some(current) = self.current {
             // current->variables_set = parent->variables; — GrammarApplicator
             // placeholder, not threaded.
-            store.single_windows.get_mut(current.0).variables_rem.clear(0);
+            store
+                .single_windows
+                .get_mut(current.0)
+                .variables_rem
+                .clear(0);
             self.previous.push(current);
             self.current = None;
         }

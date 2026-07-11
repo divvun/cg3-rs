@@ -57,7 +57,11 @@ impl Process {
     // [spec:cg3:sem:process.process.start-fn]
     pub fn start(&mut self, cmdline: &str) -> Result<(), String> {
         // POSIX popen_plus execs `sh -c command`; mirror that (cmd /C on Windows).
-        let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
+        let (shell, flag) = if cfg!(windows) {
+            ("cmd", "/C")
+        } else {
+            ("sh", "-c")
+        };
         // Merge child stderr into stdout (`2>&1`): the portable stand-in for the
         // Win32 build pointing both hStdError and hStdOutput at one pipe handle.
         let merged = format!("{cmdline} 2>&1");

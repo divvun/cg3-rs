@@ -120,7 +120,11 @@ impl<S> cstreambuf<S> {
     pub fn new(s: S) -> Self {
         // setg(&ch, &ch+1, &ch+1): gptr == egptr -> empty get area, so the first
         // read request triggers underflow.
-        cstreambuf { ch: 0, stream: s, avail: false }
+        cstreambuf {
+            ch: 0,
+            stream: s,
+            avail: false,
+        }
     }
 }
 

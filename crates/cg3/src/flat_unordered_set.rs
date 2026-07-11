@@ -346,7 +346,10 @@ impl<T: Sentinel> FlatUnorderedSet<T> {
             let max = self.capacity() - 1;
             let mut spot = self.hash_value(t) & max;
             let mut i = 0;
-            while i < self.capacity() * 4 && self.elements[spot] != T::EMPTY && self.elements[spot] != t {
+            while i < self.capacity() * 4
+                && self.elements[spot] != T::EMPTY
+                && self.elements[spot] != t
+            {
                 spot = self.hash_value_sz(spot) & max;
                 i += 1;
             }

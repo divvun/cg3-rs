@@ -290,7 +290,9 @@ impl MatxinApplicator {
                 if ch == '<' {
                     multi = false;
                     if intag {
-                        tracing::error!("Error: The Matxin stream format does not allow '<' in tag names.");
+                        tracing::error!(
+                            "Error: The Matxin stream format does not allow '<' in tag names."
+                        );
                         c += 1;
                         continue;
                     }
@@ -315,7 +317,9 @@ impl MatxinApplicator {
                 } else if ch == '>' {
                     multi = false;
                     if !intag {
-                        tracing::error!("Error: The Matxin stream format does not allow '>' outside tag names.");
+                        tracing::error!(
+                            "Error: The Matxin stream format does not allow '>' outside tag names."
+                        );
                         c += 1;
                         continue;
                     }
@@ -343,7 +347,14 @@ impl MatxinApplicator {
             while ri > 0 {
                 ri -= 1;
                 let riter = taglist[ri];
-                if self.base.grammar.single_tags_list.get(riter.0).r#type.intersects(T_BASEFORM) {
+                if self
+                    .base
+                    .grammar
+                    .single_tags_list
+                    .get(riter.0)
+                    .r#type
+                    .intersects(T_BASEFORM)
+                {
                     if self.base.store.readings.get(reading.0).baseform != 0 {
                         // Sub-reading — NOTE: Matxin does NOT re-add the wordform.
                         let parent = self.base.store.readings.get(reading.0).parent;
@@ -356,8 +367,8 @@ impl MatxinApplicator {
                     for k in ri..taglist.len() {
                         let iter = taglist[k];
                         let t = self.base.grammar.single_tags_list.get(iter.0);
-                        let is_mapping = t.r#type.intersects(T_MAPPING)
-                            || t.tag.chars().next() == Some(mprefix);
+                        let is_mapping =
+                            t.r#type.intersects(T_MAPPING) || t.tag.chars().next() == Some(mprefix);
                         if is_mapping {
                             mappings.push(iter);
                         } else {
@@ -366,10 +377,18 @@ impl MatxinApplicator {
                     }
                     if !mappings.is_empty() {
                         let parent = self.base.store.readings.get(reading.0).parent.unwrap();
-                        self.base.split_mappings(&mut mappings, parent, reading, true);
+                        self.base
+                            .split_mappings(&mut mappings, parent, reading, true);
                     }
                     while let Some(&last) = taglist.last() {
-                        if self.base.grammar.single_tags_list.get(last.0).r#type.intersects(T_BASEFORM) {
+                        if self
+                            .base
+                            .grammar
+                            .single_tags_list
+                            .get(last.0)
+                            .r#type
+                            .intersects(T_BASEFORM)
+                        {
                             break;
                         }
                         taglist.pop();
@@ -404,7 +423,14 @@ impl MatxinApplicator {
 
         // Lop off the surrounding '"' quotes.
         let tid = tag_by_hash(&self.base.grammar, r.baseform);
-        let tagtext: Vec<char> = self.base.grammar.single_tags_list.get(tid.0).tag.chars().collect();
+        let tagtext: Vec<char> = self
+            .base
+            .grammar
+            .single_tags_list
+            .get(tid.0)
+            .tag
+            .chars()
+            .collect();
         let bf: String = if tagtext.len() >= 2 {
             tagtext[1..tagtext.len() - 1].iter().collect()
         } else {
@@ -417,7 +443,11 @@ impl MatxinApplicator {
         let mut multitags_list: Vec<u32> = Vec::new();
         let mut multi = false;
         for &tter in r.tags_list.iter() {
-            let tag = self.base.grammar.single_tags_list.get(tag_by_hash(&self.base.grammar, tter).0);
+            let tag = self
+                .base
+                .grammar
+                .single_tags_list
+                .get(tag_by_hash(&self.base.grammar, tter).0);
             if tag.tag.chars().next() == Some('+') {
                 multi = true;
             } else if tag.r#type.intersects(T_MAPPING) {
@@ -445,7 +475,11 @@ impl MatxinApplicator {
             if tter == self.base.endtag || tter == self.base.begintag {
                 continue;
             }
-            let tag = self.base.grammar.single_tags_list.get(tag_by_hash(&self.base.grammar, tter).0);
+            let tag = self
+                .base
+                .grammar
+                .single_tags_list
+                .get(tag_by_hash(&self.base.grammar, tter).0);
             if !tag.r#type.intersects(T_BASEFORM) && !tag.r#type.intersects(T_WORDFORM) {
                 let firstc = tag.tag.chars().next();
                 if firstc == Some('+') {
@@ -472,7 +506,13 @@ impl MatxinApplicator {
         let number = self.base.store.single_windows.get(window.0).number;
         let _ = write!(output, "  <SENTENCE ord=\"{number}\" alloc=\"0\">\n");
 
-        let all_cohorts = self.base.store.single_windows.get(window.0).all_cohorts.clone();
+        let all_cohorts = self
+            .base
+            .store
+            .single_windows
+            .get(window.0)
+            .all_cohorts
+            .clone();
         for cohort in all_cohorts {
             let (local_number, ctype) = {
                 let c = self.base.store.cohorts.get(cohort.0);
@@ -492,10 +532,21 @@ impl MatxinApplicator {
             let mut n = Node::default();
 
             // Wordform, `"<`/`>"` stripped, XML-escaped (entity+literal bug).
-            let wf_tid = self.base.store.cohorts.get(cohort.0).wordform
+            let wf_tid = self
+                .base
+                .store
+                .cohorts
+                .get(cohort.0)
+                .wordform
                 .expect("printSingleWindow: cohort has no wordform");
-            let wf_chars: Vec<char> =
-                self.base.grammar.single_tags_list.get(wf_tid.0).tag.chars().collect();
+            let wf_chars: Vec<char> = self
+                .base
+                .grammar
+                .single_tags_list
+                .get(wf_tid.0)
+                .tag
+                .chars()
+                .collect();
             let wf: Vec<char> = if wf_chars.len() >= 4 {
                 wf_chars[2..wf_chars.len() - 2].to_vec()
             } else {
@@ -534,7 +585,10 @@ impl MatxinApplicator {
             if dep_parent.is_none() {
                 self.deps.entry(r).or_default().push(global_number as i32);
             } else {
-                self.deps.entry(dep_parent.unwrap() as i32).or_default().push(global_number as i32);
+                self.deps
+                    .entry(dep_parent.unwrap() as i32)
+                    .or_default()
+                    .push(global_number as i32);
             }
 
             u_fflush(output);
@@ -582,11 +636,17 @@ impl MatxinApplicator {
                 let _ = write!(output, " ");
             }
             if !v.is_empty() {
-                let _ = write!(output, "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\">\n",
-                    node.self_, node.form, node.lemma, node.mi, si);
+                let _ = write!(
+                    output,
+                    "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\">\n",
+                    node.self_, node.form, node.lemma, node.mi, si
+                );
             } else {
-                let _ = write!(output, "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\"/>\n",
-                    node.self_, node.form, node.lemma, node.mi, si);
+                let _ = write!(
+                    output,
+                    "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\"/>\n",
+                    node.self_, node.form, node.lemma, node.mi, si
+                );
                 *depth -= 1;
             }
         }
@@ -632,6 +692,9 @@ impl MatxinApplicator {
     // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn]
     /// C++ `void MatxinApplicator::runGrammarOnText(std::istream& input,
     /// std::ostream& output)`.
+    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
+    // the ported reads were elided (see the deferred-I/O / driver notes).
+    #[allow(unused_assignments, unused_variables)]
     pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
     where
         R: std::io::Read + std::io::Seek,
@@ -648,11 +711,15 @@ impl MatxinApplicator {
         let no_soft = self.base.grammar.soft_delimiters.is_none();
         if no_hard {
             if no_soft {
-                tracing::warn!("Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
-                    self.base.hard_limit);
+                tracing::warn!(
+                    "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
+                    self.base.hard_limit
+                );
             } else {
-                tracing::warn!("Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
-                    self.base.soft_limit);
+                tracing::warn!(
+                    "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
+                    self.base.soft_limit
+                );
             }
         }
 
@@ -666,7 +733,9 @@ impl MatxinApplicator {
         let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
 
         self.base.begintag = {
-            let t = self.base.add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
+            let t = self
+                .base
+                .add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
             self.base.grammar.single_tags_list.get(t.0).hash
         };
         self.base.endtag = {
@@ -705,7 +774,12 @@ impl MatxinApplicator {
                     self.base.store.cohorts.get_mut(cc.0).text.push(inchar);
                     self.base.store.cohorts.get_mut(cc.0).text.push(n);
                 } else if let Some(ls) = l_swindow {
-                    self.base.store.single_windows.get_mut(ls.0).text.push(inchar);
+                    self.base
+                        .store
+                        .single_windows
+                        .get_mut(ls.0)
+                        .text
+                        .push(inchar);
                     self.base.store.single_windows.get_mut(ls.0).text.push(n);
                 } else {
                     let _ = write!(output, "{inchar}");
@@ -722,7 +796,12 @@ impl MatxinApplicator {
                 if let Some(cc) = c_cohort {
                     self.base.store.cohorts.get_mut(cc.0).text.push(inchar);
                 } else if let Some(ls) = l_swindow {
-                    self.base.store.single_windows.get_mut(ls.0).text.push(inchar);
+                    self.base
+                        .store
+                        .single_windows
+                        .get_mut(ls.0)
+                        .text
+                        .push(inchar);
                 } else {
                     firstblank.push(inchar);
                 }
@@ -743,7 +822,8 @@ impl MatxinApplicator {
                     && self.base.grammar.soft_delimiters.is_some()
                 {
                     let sd = self.base.grammar.sets_list
-                        [self.base.grammar.soft_delimiters.unwrap().0].number;
+                        [self.base.grammar.soft_delimiters.unwrap().0]
+                        .number;
                     if self.base.does_set_match_cohort_normal(cc, sd, None) {
                         self.add_endtag_all(cc);
                         append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
@@ -759,16 +839,21 @@ impl MatxinApplicator {
                 let cohorts_size = self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
                 let hard = cohorts_size >= self.base.hard_limit;
                 let delim_match = self.base.grammar.delimiters.is_some() && {
-                    let d = self.base.grammar.sets_list
-                        [self.base.grammar.delimiters.unwrap().0].number;
+                    let d =
+                        self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0].number;
                     self.base.does_set_match_cohort_normal(cc, d, None)
                 };
                 if hard || delim_match {
                     if !self.base.is_conv && cohorts_size >= self.base.hard_limit {
                         let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                         let wftag = self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
-                        tracing::warn!("Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
-                            self.base.hard_limit, wftag, self.base.numCohorts, self.base.numLines);
+                        tracing::warn!(
+                            "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
+                            self.base.hard_limit,
+                            wftag,
+                            self.base.numCohorts,
+                            self.base.numLines
+                        );
                     }
                     self.add_endtag_all(cc);
                     append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
@@ -780,7 +865,10 @@ impl MatxinApplicator {
             }
             // Create a window if none.
             if c_swindow.is_none() {
-                let cs = self.base.gWindow.alloc_append_single_window(&mut self.base.store);
+                let cs = self
+                    .base
+                    .gWindow
+                    .alloc_append_single_window(&mut self.base.store);
                 c_swindow = Some(cs);
                 // 0th BOS cohort.
                 let cc = alloc_cohort(&mut self.base.store, Some(cs));
@@ -934,7 +1022,10 @@ impl MatxinApplicator {
                 None => true,
             };
             if no_baseform {
-                tracing::warn!("Warning: Line {} had no valid baseform.", self.base.numLines);
+                tracing::warn!(
+                    "Warning: Line {} had no valid baseform.",
+                    self.base.numLines
+                );
             }
             self.base.numLines = self.base.numLines.wrapping_add(1);
         }
@@ -992,37 +1083,9 @@ impl MatxinApplicator {
 // Port-infra: reading value-copy + comparator + char-stream reader.
 // ---------------------------------------------------------------------------
 
-/// Verbatim value copy of a `Reading` (used to seed `alloc_reading_copy` from a
-/// borrowed arena slot without aliasing the store).
-fn clone_reading_value(r: &Reading) -> Reading {
-    Reading {
-        mapped: r.mapped,
-        deleted: r.deleted,
-        noprint: r.noprint,
-        matched_target: r.matched_target,
-        matched_tests: r.matched_tests,
-        immutable: r.immutable,
-        active: r.active,
-        baseform: r.baseform,
-        hash: r.hash,
-        hash_plain: r.hash_plain,
-        number: r.number,
-        tags_bloom: r.tags_bloom,
-        tags_plain_bloom: r.tags_plain_bloom,
-        tags_textual_bloom: r.tags_textual_bloom,
-        mapping: r.mapping,
-        parent: r.parent,
-        next: r.next,
-        hit_by: r.hit_by.clone(),
-        tags_list: r.tags_list.clone(),
-        tags: r.tags.clone(),
-        tags_plain: r.tags_plain.clone(),
-        tags_textual: r.tags_textual.clone(),
-        tags_numerical: r.tags_numerical.clone(),
-        tags_string: r.tags_string.clone(),
-        tags_string_hash: r.tags_string_hash,
-    }
-}
+// Wave 4 (w4-file-split-fmt): the verbatim Reading field-copy is
+// consolidated in `crate::reading::clone_verbatim`.
+use crate::reading::clone_verbatim as clone_reading_value;
 
 /// `Reading::cmp_number` as an `Ordering` over two arena ids.
 fn cmp_reading(store: &RuntimeStore, a: ReadingId, b: ReadingId) -> std::cmp::Ordering {

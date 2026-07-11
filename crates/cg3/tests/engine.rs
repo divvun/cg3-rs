@@ -13,7 +13,10 @@ use std::process::Command;
 
 fn repo_root() -> PathBuf {
     // crates/cg3 -> repo root
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 fn read_args(dir: &Path) -> Vec<String> {
@@ -50,7 +53,9 @@ fn run_fixture_extra(label: &str, name: &str, extra_args: &[&str]) -> Result<(),
         .arg("input.txt")
         .arg("-O")
         .arg(&out);
-    let status = cmd.status().map_err(|e| format!("{name}: spawn vislcg3: {e}"))?;
+    let status = cmd
+        .status()
+        .map_err(|e| format!("{name}: spawn vislcg3: {e}"))?;
     if !status.success() {
         return Err(format!("{name}: vislcg3 exited with {status}"));
     }
@@ -246,8 +251,14 @@ fn engine_inprocess_error_getters_and_dead_helpers() {
     // _check_options: CAREFUL demands all readings matched; DEPREL bypasses;
     // otherwise any match suffices.
     let rv = [ReadingId(0), ReadingId(1)];
-    assert!(check_options(&rv, PosFlags::empty(), 3), "plain: non-empty rv matches");
-    assert!(!check_options(&[], PosFlags::empty(), 3), "plain: empty rv fails");
+    assert!(
+        check_options(&rv, PosFlags::empty(), 3),
+        "plain: non-empty rv matches"
+    );
+    assert!(
+        !check_options(&[], PosFlags::empty(), 3),
+        "plain: empty rv fails"
+    );
     assert!(!check_options(&rv, POS_CAREFUL, 3), "careful: 2 of 3 fails");
     assert!(check_options(&rv, POS_CAREFUL, 2), "careful: all match");
 

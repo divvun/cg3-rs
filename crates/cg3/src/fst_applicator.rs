@@ -28,11 +28,11 @@
 use std::io::Write;
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
+use crate::cohort::append_reading;
 use crate::cohort::{CT_REMOVED, alloc_cohort, free_cohort};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{NUMERIC_MAX, insert_if_exists, isnl, isspace, reversed, skipto_nospan_raw};
-use crate::cohort::append_reading;
 use crate::reading::alloc_reading;
 use crate::single_window::{append_cohort, free_swindow};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
@@ -97,11 +97,7 @@ impl FSTApplicator {
     /// `Reading*`/`Cohort*` resolve through `self.base.store`; the store is
     /// threaded as a parameter so the caller can split the `&mut self.base` /
     /// `&mut store` borrows (matching the base print methods).
-    pub fn print_reading<W: Write>(
-        &self,
-        reading: ReadingId,
-        output: &mut W,
-    ) {
+    pub fn print_reading<W: Write>(&self, reading: ReadingId, output: &mut W) {
         let (noprint, deleted, next, baseform, parent) = {
             let r = self.base.store.readings.get(reading.0);
             (r.noprint, r.deleted, r.next, r.baseform, r.parent)
@@ -134,14 +130,16 @@ impl FSTApplicator {
         let parent_wf_hash = {
             let cid = parent.expect("reading has no parent cohort");
             let wf = self.base.store.cohorts.get(cid.0).wordform;
-            wf.map(|t| self.base.grammar.single_tags_list[t.0].hash).unwrap_or(0)
+            wf.map(|t| self.base.grammar.single_tags_list[t.0].hash)
+                .unwrap_or(0)
         };
 
         let tags_list: Vec<u32> = self.base.store.readings.get(reading.0).tags_list.clone();
         let mut unique: crate::sorted_vector::uint32SortedVector =
             crate::sorted_vector::uint32SortedVector::new();
         for tter in tags_list {
-            if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag {
+            if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag
+            {
                 continue;
             }
             if tter == baseform || tter == parent_wf_hash {
@@ -171,12 +169,7 @@ impl FSTApplicator {
     /// bool profiling)`. Uses a `removed:` label so removed cohorts still print
     /// their trailing text. Static tags trigger a one-shot stderr warning and are
     /// otherwise dropped from FST output.
-    pub fn print_cohort<W: Write>(
-        &mut self,
-        cohort: CohortId,
-        output: &mut W,
-        profiling: bool,
-    ) {
+    pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
         let (local_number, ctype) = {
             let c = self.base.store.cohorts.get(cohort.0);
             (c.local_number, c.r#type)
@@ -210,8 +203,17 @@ impl FSTApplicator {
             // wform = cohort->wordform->tag; print stripped of `"<` and `>"`:
             // wform.size() - 4 chars starting at wform.data() + 2.
             let wform: Vec<char> = {
-                let wf = self.base.store.cohorts.get(cohort.0).wordform.expect("cohort wordform");
-                self.base.grammar.single_tags_list[wf.0].tag.chars().collect()
+                let wf = self
+                    .base
+                    .store
+                    .cohorts
+                    .get(cohort.0)
+                    .wordform
+                    .expect("cohort wordform");
+                self.base.grammar.single_tags_list[wf.0]
+                    .tag
+                    .chars()
+                    .collect()
             };
             let wform_inner: String = if wform.len() >= 4 {
                 wform[2..wform.len() - 2].iter().collect()
@@ -220,7 +222,8 @@ impl FSTApplicator {
             };
 
             let readings: Vec<ReadingId> = self.base.store.cohorts.get(cohort.0).readings.clone();
-            let only_noprint = readings.len() == 1 && self.base.store.readings.get(readings[0].0).noprint;
+            let only_noprint =
+                readings.len() == 1 && self.base.store.readings.get(readings[0].0).noprint;
             if readings.is_empty() || only_noprint {
                 // "<wordform>\t+?\n" — the FST "no analysis" marker.
                 let _ = write!(output, "{wform_inner}\t+?\n");
@@ -267,12 +270,7 @@ impl FSTApplicator {
     /// std::ostream& output, bool profiling)`. Pre-window text, then each cohort,
     /// then post-window text, then one blank line, then flush. `profiling` is
     /// forwarded to `printCohort` only.
-    pub fn print_single_window<W: Write>(
-        &mut self,
-        window: SwId,
-        output: &mut W,
-        profiling: bool,
-    ) {
+    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         let (text, all_cohorts, text_post) = {
             let w = self.base.store.single_windows.get(window.0);
             (w.text.clone(), w.all_cohorts.clone(), w.text_post.clone())
@@ -323,11 +321,15 @@ impl FSTApplicator {
         let no_soft = self.base.grammar.soft_delimiters.is_none();
         if no_hard {
             if no_soft {
-                tracing::warn!("Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
-                    self.base.hard_limit);
+                tracing::warn!(
+                    "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
+                    self.base.hard_limit
+                );
             } else {
-                tracing::warn!("Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
-                    self.base.soft_limit);
+                tracing::warn!(
+                    "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
+                    self.base.soft_limit
+                );
             }
         }
 
@@ -384,8 +386,11 @@ impl FSTApplicator {
                 if cleaned[space] != '\t' {
                     // If this line looks like markup, don't warn about it.
                     if cleaned[0] != '<' {
-                        tracing::warn!("Warning: {} on line {} looked like a cohort but wasn't - treated as text.",
-                            cleaned[..space].iter().collect::<String>(), self.base.numLines);
+                        tracing::warn!(
+                            "Warning: {} on line {} looked like a cohort but wasn't - treated as text.",
+                            cleaned[..space].iter().collect::<String>(),
+                            self.base.numLines
+                        );
                     }
                     is_text = true;
                 } else {
@@ -400,8 +405,10 @@ impl FSTApplicator {
 
                     if c_cohort.is_none() {
                         if c_swindow.is_none() {
-                            let sw =
-                                self.base.gWindow.alloc_append_single_window(&mut self.base.store);
+                            let sw = self
+                                .base
+                                .gWindow
+                                .alloc_append_single_window(&mut self.base.store);
                             self.base.init_empty_single_window(sw);
                             c_swindow = Some(sw);
                             l_swindow = Some(sw);
@@ -503,7 +510,8 @@ impl FSTApplicator {
                                 format!("{:.6}", NUMERIC_MAX)
                             } else {
                                 // weight = strtof(buf, 0); weight *= wfactor;
-                                let weight = (buf.parse::<f32>().unwrap_or(0.0) as f64) * self.wfactor;
+                                let weight =
+                                    (buf.parse::<f32>().unwrap_or(0.0) as f64) * self.wfactor;
                                 // i = sprintf(buf, "%f", weight);
                                 format!("{:.6}", weight)
                             };
@@ -514,7 +522,8 @@ impl FSTApplicator {
                             wtag_buf.push(':');
                             wtag_buf.push_str(&formatted);
                             wtag_buf.push('>');
-                            wtag_tag = Some(self.base.add_tag(&wtag_buf, crate::tag::TagType::empty()));
+                            wtag_tag =
+                                Some(self.base.add_tag(&wtag_buf, crate::tag::TagType::empty()));
                         }
 
                         // Initial baseform, because it may end on '+'.
@@ -613,7 +622,10 @@ impl FSTApplicator {
                                 };
                                 if cur_first == '\0' {
                                     base_str = Some(String::from("_")); // notag {'_',0}
-                                    tracing::warn!("Warning: Line {} had empty tag.", self.base.numLines);
+                                    tracing::warn!(
+                                        "Warning: Line {} had empty tag.",
+                                        self.base.numLines
+                                    );
                                 }
                                 // Tag* tag2 = addTag(base);
                                 let base_text = match &base_str {
@@ -683,7 +695,9 @@ impl FSTApplicator {
                                 let tg = self.base.grammar.single_tags_list.get(t.0);
                                 (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
                             };
-                            if ttype.intersects(T_MAPPING) || tfirst == self.base.grammar.mapping_prefix {
+                            if ttype.intersects(T_MAPPING)
+                                || tfirst == self.base.grammar.mapping_prefix
+                            {
                                 mappings.push(t);
                             } else {
                                 self.base.add_tag_to_reading(c_reading, t);
@@ -697,13 +711,22 @@ impl FSTApplicator {
                             let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                             let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
                             self.base.store.readings.get_mut(c_reading.0).baseform = wf_hash;
-                            tracing::warn!("Warning: Line {} had no valid baseform.", self.base.numLines);
+                            tracing::warn!(
+                                "Warning: Line {} had no valid baseform.",
+                                self.base.numLines
+                            );
                         }
                         // if (single_tags[baseform]->tag.size() == 2) { ... }
                         let bf_hash = self.base.store.readings.get(c_reading.0).baseform;
                         let bf_size = {
                             let tid = tag_by_hash(&self.base.grammar, bf_hash);
-                            self.base.grammar.single_tags_list.get(tid.0).tag.chars().count()
+                            self.base
+                                .grammar
+                                .single_tags_list
+                                .get(tid.0)
+                                .tag
+                                .chars()
+                                .count()
                         };
                         if bf_size == 2 {
                             self.base.del_tag_from_reading_hash(c_reading, bf_hash);
@@ -823,12 +846,11 @@ impl FSTApplicator {
 
         // Soft-limit lookback.
         if let Some(cs) = *c_swindow {
-            let over_soft =
-                self.base.store.single_windows.get(cs.0).cohorts.len() as u32 >= self.base.soft_limit;
+            let over_soft = self.base.store.single_windows.get(cs.0).cohorts.len() as u32
+                >= self.base.soft_limit;
             if over_soft && self.base.grammar.soft_delimiters.is_some() && !*did_soft_lookback {
                 *did_soft_lookback = true;
-                let sd = self.base.grammar.sets_list
-                    [self.base.grammar.soft_delimiters.unwrap().0]
+                let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
                     .number;
                 let cohorts = self.base.store.single_windows.get(cs.0).cohorts.clone();
                 for &c in reversed(&cohorts) {
@@ -850,11 +872,10 @@ impl FSTApplicator {
 
         // Soft-delimiter on the current cohort.
         if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
-            let over_soft =
-                self.base.store.single_windows.get(cs.0).cohorts.len() as u32 >= self.base.soft_limit;
+            let over_soft = self.base.store.single_windows.get(cs.0).cohorts.len() as u32
+                >= self.base.soft_limit;
             let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
-                let sd = self.base.grammar.sets_list
-                    [self.base.grammar.soft_delimiters.unwrap().0]
+                let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
                     .number;
                 self.base.does_set_match_cohort_normal(cc, sd, None)
             };
@@ -874,18 +895,25 @@ impl FSTApplicator {
 
         // Hard break.
         if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
-            let over_hard =
-                self.base.store.single_windows.get(cs.0).cohorts.len() as u32 >= self.base.hard_limit;
-            let delim_hit = self.base.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
-                let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0].number;
-                self.base.does_set_match_cohort_normal(cc, d, None)
-            };
+            let over_hard = self.base.store.single_windows.get(cs.0).cohorts.len() as u32
+                >= self.base.hard_limit;
+            let delim_hit =
+                self.base.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
+                    let d =
+                        self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0].number;
+                    self.base.does_set_match_cohort_normal(cc, d, None)
+                };
             if over_hard || delim_hit {
                 if !self.base.is_conv && over_hard {
                     let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                     let wftag = self.base.grammar.single_tags_list.get(wf.0).tag.clone();
-                    tracing::warn!("Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
-                        self.base.hard_limit, wftag, self.base.numCohorts, self.base.numLines);
+                    tracing::warn!(
+                        "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
+                        self.base.hard_limit,
+                        wftag,
+                        self.base.numCohorts,
+                        self.base.numLines
+                    );
                 }
                 let rs = self.base.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
@@ -902,11 +930,21 @@ impl FSTApplicator {
 
         // No current window: allocate + init a fresh one.
         if c_swindow.is_none() {
-            let sw = self.base.gWindow.alloc_append_single_window(&mut self.base.store);
+            let sw = self
+                .base
+                .gWindow
+                .alloc_append_single_window(&mut self.base.store);
             self.base.init_empty_single_window(sw);
             *l_swindow = Some(sw);
             // lCohort = cSWindow->cohorts[0];
-            *l_cohort = self.base.store.single_windows.get(sw.0).cohorts.first().copied();
+            *l_cohort = self
+                .base
+                .store
+                .single_windows
+                .get(sw.0)
+                .cohorts
+                .first()
+                .copied();
             *c_swindow = Some(sw);
             *c_cohort = None;
             self.base.numWindows = self.base.numWindows.wrapping_add(1);
@@ -936,9 +974,19 @@ impl FSTApplicator {
         if cleaned[0] != '\0' && line[0] != '\0' {
             let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
             if let Some(lc) = *l_cohort {
-                self.base.store.cohorts.get_mut(lc.0).text.push_str(&line_str);
+                self.base
+                    .store
+                    .cohorts
+                    .get_mut(lc.0)
+                    .text
+                    .push_str(&line_str);
             } else if let Some(ls) = *l_swindow {
-                self.base.store.single_windows.get_mut(ls.0).text.push_str(&line_str);
+                self.base
+                    .store
+                    .single_windows
+                    .get_mut(ls.0)
+                    .text
+                    .push_str(&line_str);
             } else {
                 self.base.print_plain_text_line(&line_str, output);
             }

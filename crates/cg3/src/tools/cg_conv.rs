@@ -16,10 +16,10 @@
 //! below: the `fmt_output` selection has no OUT_MATXIN arm (marked).
 
 use crate::icu_uoptions::u_parseArgs;
-use crate::options_conv::{options_conv, options_default, options_override, OPTIONS};
+use crate::options_conv::{OPTIONS, options_conv, options_default, options_override};
 use crate::options_parser::parse_opts_env;
 
-use super::{to_uargv, U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR};
+use super::{U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, to_uargv};
 
 // [spec:cg3:def:cg-conv.main-fn]
 // [spec:cg3:sem:cg-conv.main-fn]
@@ -94,16 +94,22 @@ pub fn main_conv(args: &[String]) -> i32 {
         }
 
         out.push_str("\n\nKeys for JSONL format:\n");
-        out.push_str("===============================================================================\n");
+        out.push_str(
+            "===============================================================================\n",
+        );
         out.push_str("Cohort:                     Reading:                   Stream Command:\n");
-        out.push_str("    w  wordform/token          l  lemma/base form        cmd  stream command\n");
+        out.push_str(
+            "    w  wordform/token          l  lemma/base form        cmd  stream command\n",
+        );
         out.push_str("  sts  static tags            ts  tags\n");
         out.push_str("   rs  readings                s  subreading\n");
         out.push_str("  drs  deleted readings                                Plain text:\n");
         out.push_str("   ds  dependency self                                     t  text line\n");
         out.push_str("   dp  dependency parent\n");
         out.push_str("    z  text line(s) suffix\n");
-        out.push_str("===============================================================================\n");
+        out.push_str(
+            "===============================================================================\n",
+        );
 
         if argc < 0 {
             eprint!("{}", out);
@@ -196,8 +202,12 @@ pub fn main_conv(args: &[String]) -> i32 {
     }
     if occ(&options_conv, OPTIONS::MAPPING_PREFIX) {
         // C++ converts the option value and takes buf[0]; UTF-8 port: first char.
-        applicator.base_mut().grammar.mapping_prefix =
-            options_conv[OPTIONS::MAPPING_PREFIX as usize].value.chars().next().unwrap();
+        applicator.base_mut().grammar.mapping_prefix = options_conv
+            [OPTIONS::MAPPING_PREFIX as usize]
+            .value
+            .chars()
+            .next()
+            .unwrap();
     }
     // MISMATCH (NOTE): `sub_delims` / `wtag` / `wfactor` live on the composition
     // wrapper `FSTApplicator`, which FormatConverter cannot reach — its FST
@@ -239,8 +249,11 @@ pub fn main_conv(args: &[String]) -> i32 {
     if occ(&options_conv, OPTIONS::DEP_DELIMIT) {
         // std::stoul(value) — throws (→ terminates) on non-numeric; unwrap.
         let v = options_conv[OPTIONS::DEP_DELIMIT as usize].value.clone();
-        applicator.base_mut().dep_delimit =
-            if !v.is_empty() { v.parse().unwrap() } else { 10 };
+        applicator.base_mut().dep_delimit = if !v.is_empty() {
+            v.parse().unwrap()
+        } else {
+            10
+        };
         applicator.base_mut().parse_dep = true;
     }
     applicator.base_mut().is_conv = true;

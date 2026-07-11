@@ -56,7 +56,10 @@ pub struct Key {
 
 impl Default for Key {
     fn default() -> Self {
-        Key { r#type: ET_RULE, id: 0 }
+        Key {
+            r#type: ET_RULE,
+            id: 0,
+        }
     }
 }
 
@@ -163,7 +166,10 @@ impl Profiler {
     /// if no entry for the key exists (first write wins); the remaining Entry
     /// fields default to 0.
     pub fn add_rule(&mut self, n: u32, g: u32, b: usize, e: usize) {
-        let k = Key { r#type: ET_RULE, id: n };
+        let k = Key {
+            r#type: ET_RULE,
+            id: n,
+        };
         // std::map::emplace inserts only when the key is absent.
         self.entries.entry(k).or_insert(Entry {
             r#type: ET_RULE,
@@ -182,7 +188,10 @@ impl Profiler {
     /// inserts `Entry{ET_CONTEXT, g, b, e}` (remaining fields 0). Never overwrites
     /// an existing context entry (first write wins).
     pub fn add_context(&mut self, c: u32, g: u32, b: usize, e: usize) {
-        let k = Key { r#type: ET_CONTEXT, id: c };
+        let k = Key {
+            r#type: ET_CONTEXT,
+            id: c,
+        };
         if !self.entries.contains_key(&k) {
             self.entries.insert(
                 k,
@@ -245,8 +254,7 @@ impl Profiler {
 
         // Strings — iterated ascending by string text (BTreeMap order == std::map).
         {
-            let mut s =
-                db.prepare("INSERT INTO strings (key, value) VALUES (:key, :value)")?;
+            let mut s = db.prepare("INSERT INTO strings (key, value) VALUES (:key, :value)")?;
             for (text, &id) in &self.strings {
                 // sz = id, but override to 0 for the grammar_ast-carrying string.
                 let sz = if id == self.grammar_ast { 0 } else { id };
@@ -256,8 +264,8 @@ impl Profiler {
 
         // Grammars — iterated ascending by fname id.
         {
-            let mut s = db
-                .prepare("INSERT INTO grammars (fname, grammar) VALUES (:fname, :grammar)")?;
+            let mut s =
+                db.prepare("INSERT INTO grammars (fname, grammar) VALUES (:fname, :grammar)")?;
             for (&f, &g) in &self.grammars {
                 s.execute(rusqlite::params![f as i64, g as i64])?;
             }
@@ -288,7 +296,11 @@ impl Profiler {
                 "INSERT INTO rule_contexts (rule, context, num_match) VALUES (:rule, :context, :num_match)",
             )?;
             for (&(rule, context), &num_match) in &self.rule_contexts {
-                s.execute(rusqlite::params![rule as i64, context as i64, num_match as i64])?;
+                s.execute(rusqlite::params![
+                    rule as i64,
+                    context as i64,
+                    num_match as i64
+                ])?;
             }
         }
 

@@ -99,7 +99,10 @@ pub struct compare_Cohort;
 /// into a reused-or-new arena slot is exact. `p` is the `Window` placeholder
 /// handle (`Option<u32>`); the singleton `Window` has no arena id.
 pub fn alloc_swindow(store: &mut RuntimeStore, p: Option<u32>) -> SwId {
-    let sw = SingleWindow { parent: p, ..SingleWindow::default() };
+    let sw = SingleWindow {
+        parent: p,
+        ..SingleWindow::default()
+    };
     SwId(store.single_windows.alloc(sw))
 }
 
@@ -251,7 +254,11 @@ pub fn append_cohort(
     sw_id: SwId,
     cohort_id: CohortId,
 ) {
-    let RuntimeStore { cohorts, single_windows, .. } = store;
+    let RuntimeStore {
+        cohorts,
+        single_windows,
+        ..
+    } = store;
 
     // cohort->local_number = UI32(cohorts.size()); cohort->parent = this;
     let local_number = ui32(single_windows.get(sw_id.0).cohorts.len());

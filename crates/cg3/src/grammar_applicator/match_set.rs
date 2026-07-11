@@ -79,7 +79,7 @@ use crate::arena::{CohortId, ReadingId, TagId};
 use crate::cohort;
 use crate::contextual_test::{
     MASK_POS_DEPREL, POS_ACTIVE, POS_ATTACH_TO, POS_CAREFUL, POS_INACTIVE, POS_LOOK_DELAYED,
-    POS_LOOK_DELETED, POS_LOOK_IGNORED, POS_NOT, POS_NO_PASS_ORIGIN,
+    POS_LOOK_DELETED, POS_LOOK_IGNORED, POS_NO_PASS_ORIGIN, POS_NOT,
 };
 use crate::grammar::Grammar;
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value_ustring, make_64};
@@ -156,7 +156,11 @@ fn capture_regex(
 /// size_t nr)`. DEAD CODE (defined in the translation unit, never called — the
 /// live careful/normal logic is in the cohort matchers). Reproduced for
 /// completeness. `rv` (the matched readings) → `&[ReadingId]`.
-pub fn check_options(rv: &[ReadingId], options: crate::contextual_test::PosFlags, nr: usize) -> bool {
+pub fn check_options(
+    rv: &[ReadingId],
+    options: crate::contextual_test::PosFlags,
+    nr: usize,
+) -> bool {
     if options.intersects(POS_CAREFUL) && rv.len() != nr {
         return false;
     }
@@ -688,11 +692,18 @@ impl super::GrammarApplicator {
             m = 0;
             let cid = self.store.readings.get(reading.0).parent.unwrap();
             let sw_opt = self.store.cohorts.get(cid.0).parent;
-            let use_global = sw_opt == self.gWindow.current || (!tag.r#type.intersects(T_LOCAL_VARIABLE));
+            let use_global =
+                sw_opt == self.gWindow.current || (!tag.r#type.intersects(T_LOCAL_VARIABLE));
             let var_entries: Vec<(u32, u32)> = if use_global {
                 collect_fum(&self.variables)
             } else {
-                collect_fum(&self.store.single_windows.get(sw_opt.unwrap().0).variables_set)
+                collect_fum(
+                    &self
+                        .store
+                        .single_windows
+                        .get(sw_opt.unwrap().0)
+                        .variables_set,
+                )
             };
 
             let key_info = {
@@ -847,7 +858,12 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.get-tags-matching-fn]
     /// Appends onto `rv_tags` the reading's own tags matched by any pattern tag in
     /// `the_tags`. `rv_tags` accumulates (not cleared); duplicates possible.
-    pub fn get_tags_matching(&mut self, reading: ReadingId, the_tags: &TagList, rv_tags: &mut TagList) {
+    pub fn get_tags_matching(
+        &mut self,
+        reading: ReadingId,
+        the_tags: &TagList,
+        rv_tags: &mut TagList,
+    ) {
         let tags_list: Vec<u32> = self.store.readings.get(reading.0).tags_list.clone();
         for &tid in the_tags {
             let tag = self.grammar.single_tags_list[tid.0].clone();
@@ -1109,9 +1125,16 @@ impl super::GrammarApplicator {
                 };
                 for tset_ref in uset_sets {
                     let tnum = self.grammar.set_by_number(tset_ref).number;
-                    if self.does_set_match_reading(reading, tnum, bypass_index, tagunif || unif_mode)
-                    {
-                        self.unif_sets_store[usets_idx].entry(snumber).or_default().insert(tnum);
+                    if self.does_set_match_reading(
+                        reading,
+                        tnum,
+                        bypass_index,
+                        tagunif || unif_mode,
+                    ) {
+                        self.unif_sets_store[usets_idx]
+                            .entry(snumber)
+                            .or_default()
+                            .insert(tnum);
                     }
                 }
                 retval = !self.unif_sets_store[usets_idx]
@@ -1139,8 +1162,12 @@ impl super::GrammarApplicator {
             let size = ssets.len();
             let mut i = 0usize;
             while i < size {
-                let mut m =
-                    self.does_set_match_reading(reading, ssets[i], bypass_index, tagunif || unif_mode);
+                let mut m = self.does_set_match_reading(
+                    reading,
+                    ssets[i],
+                    bypass_index,
+                    tagunif || unif_mode,
+                );
                 let mut failfast = false;
                 while i < size - 1 && sset_ops[i] != S_OR {
                     match sset_ops[i] {
@@ -1166,14 +1193,12 @@ impl super::GrammarApplicator {
                             }
                         }
                         x if x == S_MINUS => {
-                            if m
-                                && self.does_set_match_reading(
-                                    reading,
-                                    ssets[i + 1],
-                                    bypass_index,
-                                    tagunif || unif_mode,
-                                )
-                            {
+                            if m && self.does_set_match_reading(
+                                reading,
+                                ssets[i + 1],
+                                bypass_index,
+                                tagunif || unif_mode,
+                            ) {
                                 m = false;
                             }
                         }
@@ -1261,12 +1286,28 @@ impl super::GrammarApplicator {
                     (c.parent, c.local_number)
                 };
                 let res = if lpos.intersects(POS_NO_PASS_ORIGIN) {
-                    self.run_contextual_test(cparent, clocal, l, context.deep.as_deref_mut(), Some(cohort))
+                    self.run_contextual_test(
+                        cparent,
+                        clocal,
+                        l,
+                        context.deep.as_deref_mut(),
+                        Some(cohort),
+                    )
                 } else {
-                    self.run_contextual_test(cparent, clocal, l, context.deep.as_deref_mut(), context.origin)
+                    self.run_contextual_test(
+                        cparent,
+                        clocal,
+                        l,
+                        context.deep.as_deref_mut(),
+                        context.origin,
+                    )
                 };
                 context.matched_tests = res.is_some();
-                let child_unify = self.grammar.set_by_number(set).r#type.intersects(ST_CHILD_UNIFY);
+                let child_unify = self
+                    .grammar
+                    .set_by_number(set)
+                    .r#type
+                    .intersects(ST_CHILD_UNIFY);
                 if !child_unify {
                     context.did_test = true;
                 }
@@ -1349,7 +1390,11 @@ impl super::GrammarApplicator {
         if retval {
             let in_barrier = context.as_deref().map(|c| c.in_barrier).unwrap_or(false);
             if context.is_some() && !in_barrier {
-                let attach = context.as_deref().unwrap().options.intersects(POS_ATTACH_TO);
+                let attach = context
+                    .as_deref()
+                    .unwrap()
+                    .options
+                    .intersects(POS_ATTACH_TO);
                 {
                     let ctx = context.as_deref_mut().unwrap();
                     retval = self.does_set_match_cohort_test_linked(cohort, set, ctx);
@@ -1367,7 +1412,11 @@ impl super::GrammarApplicator {
         }
 
         // Rollback on failure.
-        if !retval && context.is_some() && !cap_unif && child_unify && !self.context_stack.is_empty()
+        if !retval
+            && context.is_some()
+            && !cap_unif
+            && child_unify
+            && !self.context_stack.is_empty()
         {
             let ut_idx = self.context_stack.last().unwrap().unif_tags.unwrap();
             let entry = &mut self.unif_tags_store[ut_idx];
@@ -1376,7 +1425,11 @@ impl super::GrammarApplicator {
                 std::mem::swap(entry, &mut utags);
             }
         }
-        if !retval && context.is_some() && !cap_unif && child_unify && !self.context_stack.is_empty()
+        if !retval
+            && context.is_some()
+            && !cap_unif
+            && child_unify
+            && !self.context_stack.is_empty()
         {
             let us_idx = self.context_stack.last().unwrap().unif_sets.unwrap();
             let entry = &mut self.unif_sets_store[us_idx];
@@ -1570,7 +1623,8 @@ impl super::GrammarApplicator {
                         continue;
                     }
                 }
-                retval = self.does_set_match_cohort_helper(cohort, reading, set, context.as_deref_mut());
+                retval =
+                    self.does_set_match_cohort_helper(cohort, reading, set, context.as_deref_mut());
                 if !retval {
                     break;
                 }

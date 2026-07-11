@@ -15,7 +15,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap()
 }
 
 /// `diff -B`: compare ignoring blank-line differences (same as golden.rs).
@@ -39,9 +42,18 @@ fn run_with_stdin(bin: &str, args: &[&str], cwd: &Path, stdin_bytes: &[u8]) -> V
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn tool");
-    child.stdin.as_mut().unwrap().write_all(stdin_bytes).expect("write stdin");
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(stdin_bytes)
+        .expect("write stdin");
     let out = child.wait_with_output().expect("wait tool");
-    assert!(out.status.success(), "{bin} {args:?} exited with {}", out.status);
+    assert!(
+        out.status.success(),
+        "{bin} {args:?} exited with {}",
+        out.status
+    );
     out.stdout
 }
 
@@ -60,7 +72,11 @@ fn cg_proc_fixture(dir: &Path, proc_flags: &[&str], name: &str) -> String {
         .expect("spawn cg-comp");
     assert!(st.success(), "cg-comp failed for {}", dir.display());
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_cg-proc"));
-    cmd.current_dir(dir).args(proc_flags).arg(&bin).arg("input.txt").arg(&out);
+    cmd.current_dir(dir)
+        .args(proc_flags)
+        .arg(&bin)
+        .arg("input.txt")
+        .arg(&out);
     let st = cmd
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -173,8 +189,14 @@ fn apertium_stream_setvar() {
     for f in [&bin, &input, &out] {
         let _ = std::fs::remove_file(f);
     }
-    assert!(got.contains("[<STREAMCMD:SETVAR:myvar>]"), "SETVAR blank lost: {got}");
-    assert!(got.contains("[<STREAMCMD:SETVAR:a=1,b>]"), "SETVAR list blank lost: {got}");
+    assert!(
+        got.contains("[<STREAMCMD:SETVAR:myvar>]"),
+        "SETVAR blank lost: {got}"
+    );
+    assert!(
+        got.contains("[<STREAMCMD:SETVAR:a=1,b>]"),
+        "SETVAR list blank lost: {got}"
+    );
     assert!(got.contains("^word/word<n><sg>"), "cohort lost: {got}");
 }
 
@@ -204,7 +226,11 @@ fn apertium_test_pr_roundtrip() {
     a.test_pr(&mut out);
     let text = String::from_utf8(out).unwrap();
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 6, "testPR must emit its six fixture readings:\n{text}");
+    assert_eq!(
+        lines.len(),
+        6,
+        "testPR must emit its six fixture readings:\n{text}"
+    );
     // processReading prepends the wform tag (here `*`, the tag_any tag testPR
     // passes) to every reading, and printReading skips only BASEFORM/WORDFORM
     // typed tags — so the faithful output carries an extra `<*>` after the
@@ -253,7 +279,11 @@ fn matxin_cg_proc_stream() {
         .expect("spawn cg-comp");
     assert!(st.success());
     let input = tmp("matxin.in");
-    std::fs::write(&input, "^word/word<n><sg>$ ^dog/dog<n><sg>/dog<vblex><pres>$.\n").unwrap();
+    std::fs::write(
+        &input,
+        "^word/word<n><sg>$ ^dog/dog<n><sg>/dog<vblex><pres>$.\n",
+    )
+    .unwrap();
 
     let mut outputs = Vec::new();
     for i in 0..2 {
@@ -278,7 +308,10 @@ fn matxin_cg_proc_stream() {
     assert_eq!(outputs[0], outputs[1], "Matxin output not deterministic");
     let got = &outputs[0];
     assert!(got.contains("<corpus>"), "missing <corpus>: {got}");
-    assert!(got.contains("<SENTENCE ord=\"1\""), "missing <SENTENCE>: {got}");
+    assert!(
+        got.contains("<SENTENCE ord=\"1\""),
+        "missing <SENTENCE>: {got}"
+    );
     // procNode emitted nested NODE elements with lemma + morph info.
     assert!(got.contains("<NODE ord=\"1\""), "missing NODE 1: {got}");
     assert!(got.contains("<NODE ord=\"2\""), "missing NODE 2: {got}");
@@ -296,7 +329,10 @@ fn matxin_test_pr_stub() {
     let m = cg3::matxin_applicator::MatxinApplicator::new(base);
     let mut out: Vec<u8> = Vec::new();
     m.test_pr(&mut out);
-    assert!(out.is_empty(), "MatxinApplicator::testPR must be a no-op stub");
+    assert!(
+        out.is_empty(),
+        "MatxinApplicator::testPR must be a no-op stub"
+    );
 }
 
 // ===========================================================================
@@ -331,10 +367,16 @@ fn binary_stream_roundtrip() {
         &root,
         &input,
     );
-    assert!(stream.starts_with(b"CGBF"), "binary stream must start with CGBF magic");
+    assert!(
+        stream.starts_with(b"CGBF"),
+        "binary stream must start with CGBF magic"
+    );
     // The stream must contain window (0x01), command (0x02), and text (0x03)
     // packets; command FLUSH is the byte pair [0x02, 0x01].
-    assert!(stream.windows(2).any(|w| w == [0x02, 0x01]), "no FLUSH command packet");
+    assert!(
+        stream.windows(2).any(|w| w == [0x02, 0x01]),
+        "no FLUSH command packet"
+    );
     assert!(stream.contains(&0x03u8), "no text packet");
     // printPlainTextLine wrote the fixture's literal text lines into packets.
     let hay = String::from_utf8_lossy(&stream);
@@ -363,7 +405,10 @@ fn binary_stream_roundtrip() {
     // Sanity: the round trip preserved cohorts and the stream commands.
     let back = String::from_utf8_lossy(&back);
     assert!(back.contains("\"<word>\""), "cohorts lost in round trip");
-    assert!(back.contains("<STREAMCMD:FLUSH>"), "FLUSH lost in round trip");
+    assert!(
+        back.contains("<STREAMCMD:FLUSH>"),
+        "FLUSH lost in round trip"
+    );
 }
 
 // ===========================================================================
@@ -398,11 +443,20 @@ fn fst_applicator_in_process() {
     let text = String::from_utf8(out).unwrap();
 
     // printReading re-emits the FST `base+tags` shape per reading.
-    assert!(text.contains("blah\tblah+N+Sg"), "FST reading 1 missing:\n{text}");
-    assert!(text.contains("blah\tblah+V+Inf"), "FST reading 2 missing:\n{text}");
+    assert!(
+        text.contains("blah\tblah+N+Sg"),
+        "FST reading 1 missing:\n{text}"
+    );
+    assert!(
+        text.contains("blah\tblah+V+Inf"),
+        "FST reading 2 missing:\n{text}"
+    );
     // The weight came back as a <W:...> tag.
     assert!(text.contains("+<W:0.5"), "FST weight tag missing:\n{text}");
-    assert!(text.contains("dog\tdog+N+Sg"), "FST second cohort missing:\n{text}");
+    assert!(
+        text.contains("dog\tdog+N+Sg"),
+        "FST second cohort missing:\n{text}"
+    );
 }
 
 // ===========================================================================
@@ -453,7 +507,9 @@ fn jsonl_conv_roundtrip() {
     );
     // Stream command echoed via printStreamCommand.
     assert!(
-        lines.iter().any(|l| *l == "{\"cmd\":\"<STREAMCMD:FLUSH>\"}"),
+        lines
+            .iter()
+            .any(|l| *l == "{\"cmd\":\"<STREAMCMD:FLUSH>\"}"),
         "stream command lost:\n{text}"
     );
     // The cohort came back with wordform, both readings, the subreading, and
@@ -462,11 +518,26 @@ fn jsonl_conv_roundtrip() {
         .iter()
         .find(|l| l.contains("\"w\":\"word\""))
         .unwrap_or_else(|| panic!("cohort line lost:\n{text}"));
-    assert!(cohort_line.contains("\"l\":\"word\""), "lemma lost: {cohort_line}");
-    assert!(cohort_line.contains("\"notwanted\""), "tags lost: {cohort_line}");
-    assert!(cohort_line.contains("\"s\":"), "subreading lost: {cohort_line}");
-    assert!(cohort_line.contains("\"l\":\"sub\""), "subreading lemma lost: {cohort_line}");
-    assert!(cohort_line.contains("\"z\":\"tail text\""), "z suffix lost: {cohort_line}");
+    assert!(
+        cohort_line.contains("\"l\":\"word\""),
+        "lemma lost: {cohort_line}"
+    );
+    assert!(
+        cohort_line.contains("\"notwanted\""),
+        "tags lost: {cohort_line}"
+    );
+    assert!(
+        cohort_line.contains("\"s\":"),
+        "subreading lost: {cohort_line}"
+    );
+    assert!(
+        cohort_line.contains("\"l\":\"sub\""),
+        "subreading lemma lost: {cohort_line}"
+    );
+    assert!(
+        cohort_line.contains("\"z\":\"tail text\""),
+        "z suffix lost: {cohort_line}"
+    );
 }
 
 // ===========================================================================
@@ -488,8 +559,12 @@ fn format_converter_autodetect() {
     // CG-format input, auto-detected vs explicit.
     let cg_input = std::fs::read(root.join("test/T_InputCommands/input.txt")).unwrap();
     let auto = run_with_stdin(env!("CARGO_BIN_EXE_cg-conv"), &[], &root, &cg_input);
-    let explicit =
-        run_with_stdin(env!("CARGO_BIN_EXE_cg-conv"), &["--in-cg"], &root, &cg_input);
+    let explicit = run_with_stdin(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &["--in-cg"],
+        &root,
+        &cg_input,
+    );
     assert_eq!(
         String::from_utf8_lossy(&auto),
         String::from_utf8_lossy(&explicit),
@@ -500,8 +575,12 @@ fn format_converter_autodetect() {
     // Niceline-format input, auto-detected vs explicit.
     let nice_input = b"word\t\"word\" notwanted @1\n";
     let auto = run_with_stdin(env!("CARGO_BIN_EXE_cg-conv"), &[], &root, nice_input);
-    let explicit =
-        run_with_stdin(env!("CARGO_BIN_EXE_cg-conv"), &["--in-niceline"], &root, nice_input);
+    let explicit = run_with_stdin(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &["--in-niceline"],
+        &root,
+        nice_input,
+    );
     assert_eq!(
         String::from_utf8_lossy(&auto),
         String::from_utf8_lossy(&explicit),
@@ -512,8 +591,14 @@ fn format_converter_autodetect() {
     // overrides onto the CG printers (wave 4: the ConvFormat StreamFormat
     // strategy). The pre-wave-4 port echoed niceline here — a fidelity bug.
     let auto_s = String::from_utf8_lossy(&auto).into_owned();
-    assert!(auto_s.contains("\"<word>\""), "niceline input must convert to CG: {auto_s:?}");
-    assert!(auto_s.contains("\t\"word\" notwanted @1"), "reading line: {auto_s:?}");
+    assert!(
+        auto_s.contains("\"<word>\""),
+        "niceline input must convert to CG: {auto_s:?}"
+    );
+    assert!(
+        auto_s.contains("\t\"word\" notwanted @1"),
+        "reading line: {auto_s:?}"
+    );
 }
 
 // FormatConverter's four print dispatchers — in the current port these
@@ -583,7 +668,10 @@ fn format_converter_print_dispatch() {
         text.contains("\"w\":\"word\""),
         "printSingleWindow JSONL dispatch wrong: {text}"
     );
-    assert!(text.contains("\"l\":\"word\""), "JSONL reading lost: {text}");
+    assert!(
+        text.contains("\"l\":\"word\""),
+        "JSONL reading lost: {text}"
+    );
 
     // printStreamCommand → JSONL arm.
     let mut out: Vec<u8> = Vec::new();
@@ -635,8 +723,14 @@ fn niceline_conv() {
         text.contains("word\t[word] notwanted @1"),
         "niceline cohort 1 wrong:\n{text}"
     );
-    assert!(text.contains("dog\t[dog] N Sg"), "niceline cohort 2 wrong:\n{text}");
-    assert!(text.contains("some trailing text"), "text line lost:\n{text}");
+    assert!(
+        text.contains("dog\t[dog] N Sg"),
+        "niceline cohort 2 wrong:\n{text}"
+    );
+    assert!(
+        text.contains("some trailing text"),
+        "text line lost:\n{text}"
+    );
 }
 
 // ===========================================================================

@@ -55,13 +55,13 @@ use std::collections::{HashMap, HashSet};
 
 use crate::arena::{SetId, TagId};
 use crate::grammar::Grammar;
-use crate::set::{ST_CHILD_UNIFY, ST_MAPPING, ST_SET_UNIFY, ST_SPECIAL, ST_TAG_UNIFY};
 use crate::set::trie_reindex;
+use crate::set::{ST_CHILD_UNIFY, ST_MAPPING, ST_SET_UNIFY, ST_SPECIAL, ST_TAG_UNIFY};
 use crate::strings::KEYWORDS;
 use crate::tag::{T_SPECIAL, TagVector, TagVectorSet};
 use crate::tag_trie::{
-    trie_copy_helper, trie_delete, trie_get_tag_list, trie_get_tags_ordered, trie_insert, trie_node_t,
-    trie_t,
+    trie_copy_helper, trie_delete, trie_get_tag_list, trie_get_tags_ordered, trie_insert,
+    trie_node_t, trie_t,
 };
 use crate::types::UString;
 
@@ -276,7 +276,10 @@ impl<'g, 'r> Relabeller<'g, 'r> {
 
             let from_tag = from_tags[0];
             for toit in &to_tags {
-                if relabels.single_tags_list[toit.0].r#type.intersects(T_SPECIAL) {
+                if relabels.single_tags_list[toit.0]
+                    .r#type
+                    .intersects(T_SPECIAL)
+                {
                     // "Warning: Special tags (%S) not supported yet.\n" — warning
                     // only; the rule is still recorded. Diagnostic deferred.
                 }
@@ -385,7 +388,10 @@ impl<'g, 'r> Relabeller<'g, 'r> {
             tv.sort_by(|&a, &b| fs.cmp(a, b));
             let mut special = false;
             for &tag in &tv {
-                if self.grammar.single_tags_list[tag.0].r#type.intersects(T_SPECIAL) {
+                if self.grammar.single_tags_list[tag.0]
+                    .r#type
+                    .intersects(T_SPECIAL)
+                {
                     special = true;
                     break;
                 }
@@ -451,7 +457,10 @@ impl<'g, 'r> Relabeller<'g, 'r> {
                     .iter()
                     .map(|&t| self.grammar.single_tags_list[t.0].clone())
                     .collect();
-                tags.extend(suf.iter().map(|&t| self.relabels.single_tags_list[t.0].clone()));
+                tags.extend(
+                    suf.iter()
+                        .map(|&t| self.relabels.single_tags_list[t.0].clone()),
+                );
                 let tags = self.transfer_tags(tags);
                 taglists.insert(tags);
             }
@@ -507,7 +516,10 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         }
 
         let node = self.grammar.sets_list.get_mut(s.0);
-        if node.r#type.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) {
+        if node
+            .r#type
+            .intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY)
+        {
             node.r#type |= ST_SPECIAL;
             node.r#type |= ST_CHILD_UNIFY;
         }
@@ -523,7 +535,10 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     fn add_set_to_grammar(&mut self, s: SetId) {
         // s->setName(UI32(grammar->sets_list.size() + 100))
         let name_arg = (self.grammar.sets_list_order.len() as u32).wrapping_add(100);
-        self.grammar.sets_list.get_mut(s.0).set_name(name_arg, &mut self.grammar.rand_state);
+        self.grammar
+            .sets_list
+            .get_mut(s.0)
+            .set_name(name_arg, &mut self.grammar.rand_state);
         // grammar->sets_list.push_back(s); s->number = UI32(sets_list.size()-1);
         self.grammar.sets_list_order.push(s);
         let num = (self.grammar.sets_list_order.len() - 1) as u32;
@@ -747,8 +762,11 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         }
 
         // (3) RELABEL AS LIST.
-        let as_list: Vec<(UString, SetId)> =
-            self.relabel_as_list.iter().map(|(k, &v)| (k.clone(), v)).collect();
+        let as_list: Vec<(UString, SetId)> = self
+            .relabel_as_list
+            .iter()
+            .map(|(k, &v)| (k.clone(), v))
+            .collect();
         for (from_str, target) in as_list {
             // set_r = relabels->sets_list[it.second->number] — target's number in
             // the RELABELS grammar, resolved through its sets_list_order.
@@ -766,8 +784,11 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         }
 
         // (4) RELABEL AS SET.
-        let as_set: Vec<(UString, SetId)> =
-            self.relabel_as_set.iter().map(|(k, &v)| (k.clone(), v)).collect();
+        let as_set: Vec<(UString, SetId)> = self
+            .relabel_as_set
+            .iter()
+            .map(|(k, &v)| (k.clone(), v))
+            .collect();
         for (from_str, target) in as_set {
             let target_number = self.relabels.sets_list[target.0].number;
             let set_r = self.relabels.set_id_by_number(target_number);

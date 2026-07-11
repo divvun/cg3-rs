@@ -129,10 +129,14 @@ pub const MASK_POS_DEP: PosFlags = POS_DEP_PARENT
     .union(POS_DEP_GLOB);
 pub const MASK_POS_DEPREL: PosFlags = MASK_POS_DEP.union(POS_RELATION);
 pub const MASK_POS_CDEPREL: PosFlags = MASK_POS_DEPREL.union(POS_CAREFUL);
-pub const MASK_POS_LORR: PosFlags =
-    POS_LEFT.union(POS_RIGHT).union(POS_LEFTMOST).union(POS_RIGHTMOST);
-pub const MASK_POS_SCAN: PosFlags =
-    POS_SCANFIRST.union(POS_SCANALL).union(POS_DEP_DEEP).union(POS_DEP_GLOB);
+pub const MASK_POS_LORR: PosFlags = POS_LEFT
+    .union(POS_RIGHT)
+    .union(POS_LEFTMOST)
+    .union(POS_RIGHTMOST);
+pub const MASK_POS_SCAN: PosFlags = POS_SCANFIRST
+    .union(POS_SCANALL)
+    .union(POS_DEP_DEEP)
+    .union(POS_DEP_GLOB);
 pub const MASK_SELF_NB: PosFlags = POS_SELF.union(POS_NO_BARRIER);
 
 // [spec:cg3:def:contextual-test.cg3.pos-jump-pos]
@@ -220,11 +224,34 @@ impl ContextualTest {
 
         // Snapshot scalars + child ids so the arena is free to be re-borrowed by
         // the recursive `rehash` calls below.
-        let (pos, jump_pos, target, barrier, cbarrier, relation, offset, offset_sub, seed, linked, tmpl, ors) = {
+        let (
+            pos,
+            jump_pos,
+            target,
+            barrier,
+            cbarrier,
+            relation,
+            offset,
+            offset_sub,
+            seed,
+            linked,
+            tmpl,
+            ors,
+        ) = {
             let ct = &contexts[id.0];
             (
-                ct.pos, ct.jump_pos, ct.target, ct.barrier, ct.cbarrier, ct.relation, ct.offset,
-                ct.offset_sub, ct.seed, ct.linked, ct.tmpl, ct.ors.clone(),
+                ct.pos,
+                ct.jump_pos,
+                ct.target,
+                ct.barrier,
+                ct.cbarrier,
+                ct.relation,
+                ct.offset,
+                ct.offset_sub,
+                ct.seed,
+                ct.linked,
+                ct.tmpl,
+                ct.ors.clone(),
             )
         };
 

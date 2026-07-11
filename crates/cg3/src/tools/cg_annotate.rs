@@ -20,7 +20,7 @@
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
-use crate::profiler::{Profiler, ET_CONTEXT, ET_RULE};
+use crate::profiler::{ET_CONTEXT, ET_RULE, Profiler};
 
 // [spec:cg3:def:cg-annotate.xml-encode-fn]
 // [spec:cg3:sem:cg-annotate.xml-encode-fn]
@@ -95,8 +95,11 @@ pub fn main_annotate(args: &[String]) -> i32 {
     let _ = std::fs::create_dir_all("cs");
 
     // Re-map strings to enable lookup by ID: std::map<size_t, string_view>.
-    let strings: BTreeMap<usize, String> =
-        profiler.strings.iter().map(|(k, &v)| (v, k.clone())).collect();
+    let strings: BTreeMap<usize, String> = profiler
+        .strings
+        .iter()
+        .map(|(k, &v)| (v, k.clone()))
+        .collect();
     let sget = |id: usize| -> String { strings.get(&id).cloned().unwrap_or_default() };
 
     // Store per-grammar ASTs separately.
@@ -147,7 +150,12 @@ pub fn main_annotate(args: &[String]) -> i32 {
             html.push_str("<span class=\"cg-elem cg");
             html.push_str(&tag);
             html.push_str("\">");
-            gs_tags.entry(git).or_default().entry(b).or_default().push_back(html.clone());
+            gs_tags
+                .entry(git)
+                .or_default()
+                .entry(b)
+                .or_default()
+                .push_back(html.clone());
 
             // e = stoul(after " e=\"")
             let epos = ast[last..].find(" e=\"").unwrap() + last + 4;
@@ -155,7 +163,12 @@ pub fn main_annotate(args: &[String]) -> i32 {
             let e: usize = ast[epos..eend].parse().unwrap();
             html.clear();
             html.push_str("</span>");
-            gs_tags.entry(git).or_default().entry(e).or_default().push_front(html.clone());
+            gs_tags
+                .entry(git)
+                .or_default()
+                .entry(e)
+                .or_default()
+                .push_front(html.clone());
 
             if tag == "Rule" || tag == "Context" {
                 // u = stoul(after " u=\"")
@@ -163,7 +176,10 @@ pub fn main_annotate(args: &[String]) -> i32 {
                 let uend = ast[upos..].find('"').unwrap() + upos;
                 let u: u32 = ast[upos..uend].parse().unwrap();
 
-                let mut k = crate::profiler::Key { r#type: ET_RULE, id: u };
+                let mut k = crate::profiler::Key {
+                    r#type: ET_RULE,
+                    id: u,
+                };
                 if tag == "Context" {
                     k.r#type = ET_CONTEXT;
                 }
@@ -204,11 +220,21 @@ pub fn main_annotate(args: &[String]) -> i32 {
                         }
                     }
                     html.push_str("</span>");
-                    gs_tags.entry(git).or_default().entry(b).or_default().push_back(html.clone());
+                    gs_tags
+                        .entry(git)
+                        .or_default()
+                        .entry(b)
+                        .or_default()
+                        .push_back(html.clone());
 
                     html.clear();
                     html.push_str("</a>");
-                    gs_tags.entry(git).or_default().entry(e).or_default().push_front(html.clone());
+                    gs_tags
+                        .entry(git)
+                        .or_default()
+                        .entry(e)
+                        .or_default()
+                        .push_front(html.clone());
 
                     if entry.r#type == ET_RULE {
                         rid = k.id;
@@ -224,7 +250,9 @@ pub fn main_annotate(args: &[String]) -> i32 {
     // std::map<size_t, UnicodeString> grammars; (keyed by grammar id == it.second)
     let mut grammars_u16: BTreeMap<usize, Vec<u16>> = BTreeMap::new();
     for (&_fid, &gid) in &profiler.grammars {
-        grammars_u16.entry(gid).or_insert_with(|| to_utf16(&sget(gid)));
+        grammars_u16
+            .entry(gid)
+            .or_insert_with(|| to_utf16(&sget(gid)));
     }
 
     // write_grammar lambda, invoked for each grammar.
@@ -234,14 +262,14 @@ pub fn main_annotate(args: &[String]) -> i32 {
     }
 
     // Helper to write out usage examples.
-    let entries: Vec<(u32, crate::profiler::Entry)> = profiler
-        .entries
-        .iter()
-        .map(|(k, e)| (k.id, *e))
-        .collect();
+    let entries: Vec<(u32, crate::profiler::Entry)> =
+        profiler.entries.iter().map(|(k, e)| (k.id, *e)).collect();
     for (id, e) in entries {
         if e.example_window != 0 {
-            let g = grammars_u16.get(&(e.grammar as usize)).cloned().unwrap_or_default();
+            let g = grammars_u16
+                .get(&(e.grammar as usize))
+                .cloned()
+                .unwrap_or_default();
             write_entry(&strings, id, &e, &g);
         }
     }
@@ -346,12 +374,7 @@ fn write_grammar(
 
 /// C++ `write_entry` lambda — emits `rs/<id>.html` or `cs/<id>.html` (a usage
 /// example snippet + its example window).
-fn write_entry(
-    strings: &BTreeMap<usize, String>,
-    id: u32,
-    e: &crate::profiler::Entry,
-    g: &[u16],
-) {
+fn write_entry(strings: &BTreeMap<usize, String>, id: u32, e: &crate::profiler::Entry, g: &[u16]) {
     let sget = |id: usize| -> String { strings.get(&id).cloned().unwrap_or_default() };
 
     let mut html = String::new();

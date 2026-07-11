@@ -115,7 +115,10 @@ const FLAG_EXCLS: [RuleFlags; 9] = [
     RF_UNSAFE.union(RF_SAFE),
     RF_REMEMBERX.union(RF_RESETX),
     RF_KEEPORDER.union(RF_VARYORDER),
-    RF_ENCL_INNER.union(RF_ENCL_OUTER).union(RF_ENCL_FINAL).union(RF_ENCL_ANY),
+    RF_ENCL_INNER
+        .union(RF_ENCL_OUTER)
+        .union(RF_ENCL_FINAL)
+        .union(RF_ENCL_ANY),
     RF_WITHCHILD.union(RF_NOCHILD),
     RF_ITERATE.union(RF_NOITERATE),
     RF_BEFORE.union(RF_AFTER),

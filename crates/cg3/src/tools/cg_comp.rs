@@ -13,9 +13,7 @@ use crate::grammar::Grammar;
 use crate::inlines::{cg3_quit, is_cg3b};
 use crate::textual_parser::TextualParser;
 
-use super::{
-    basename, CG3_REVISION, CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH,
-};
+use super::{CG3_REVISION, CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, basename};
 
 // [spec:cg3:def:cg-comp.end-program-fn]
 // [spec:cg3:sem:cg-comp.end-program-fn]
@@ -29,7 +27,10 @@ fn end_program(name: Option<&str>) -> ! {
             "VISL CG-3 Compiler version {}.{}.{}.{}",
             CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
         );
-        println!("{}: compile a binary grammar from a text file", basename(name));
+        println!(
+            "{}: compile a binary grammar from a text file",
+            basename(name)
+        );
         println!("USAGE: {} grammar_file output_file", basename(name));
     }
     // exit(EXIT_FAILURE);

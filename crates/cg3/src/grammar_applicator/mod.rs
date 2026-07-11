@@ -45,14 +45,14 @@ use crate::sorted_vector::{sorted_vector, uint32SortedVector};
 use crate::tag::TagList;
 use crate::types::{UChar, UString, Uint32Vector};
 
+pub mod context;
 pub mod core;
-pub mod stream_format;
-pub mod run_rules;
-pub mod run_grammar;
-pub mod run_contextual_test;
 pub mod match_set;
 pub mod reflow;
-pub mod context;
+pub mod run_contextual_test;
+pub mod run_grammar;
+pub mod run_rules;
+pub mod stream_format;
 
 // C++ `cg3.h` `cg3_sformat` — the stream serialisation format tag used by
 // `fmt_input` / `fmt_output`. The public C-API header (`cg3.h`) is not yet
