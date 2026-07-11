@@ -1,24 +1,26 @@
-//! Port of `src/scoped_stack.hpp`.
+//! Port of `src/scoped_stack.hpp` — wave 4 (safe) form.
 //!
-//! A stack allocator that hands out reusable temporary `C` objects via an
-//! RAII [`Proxy`]. `get()` reserves the next slot (index = current depth,
-//! post-incrementing the depth) and grows a backing `Vec<C>` lazily; while the
-//! returned proxy is alive it derefs to that slot's `C`; when the proxy drops
-//! it `clear()`s the slot and decrements the depth. Slots are reused across
-//! nested scopes, so a borrowed `C` may retain capacity from a previous user
-//! (it is cleared on release, not on acquire).
+//! The C++ scoped_stack hands out reusable temporary `C` objects via an RAII
+//! proxy holding a raw back-pointer (`scoped_stack* ss`): `get()` reserves the
+//! next slot, the proxy derefs to it, and `~proxy()` clears the slot and pops
+//! the depth. The observable contract at every call site is simply "give me a
+//! CLEARED scratch `C`, and recycle its capacity afterwards" — proxies are
+//! strictly scope-local. Wave 4 (`w4-unsafe-elimination`) replaces the
+//! raw-pointer proxy with a safe spare-list: [`ScopedStack::get`] returns an
+//! OWNED cleared `C` (recycling a spare's capacity when one is available) and
+//! [`ScopedStack::put`] clears and returns it. A value that is dropped instead
+//! of `put` back merely forgoes the capacity reuse — semantics are unchanged
+//! (acquired objects are always empty, exactly as the C++ clear-on-release
+//! guaranteed).
 //!
-//! Faithful port. The C++ proxy holds a back-pointer `scoped_stack* ss`; this
-//! is translated 1:1 as a raw `*mut ScopedStack<C>`, which is what makes the
-//! `operator->` / `operator*` / `operator C&` access (all mapped here to
-//! `Deref`/`DerefMut`) and the nested-scope reuse work as in C++. A safe
-//! `&mut ScopedStack` alternative would compile but forbid nested proxies
-//! (the whole point of a scoped *stack*), so the pointer is retained.
-//!
-//! # Safety
-//! Exactly as in the C++ original, this assumes proxies are created and
-//! destroyed in strict LIFO order and that the owning `ScopedStack` outlives
-//! every live proxy. Violating that is undefined behaviour.
+//! Dissolved with the raw pointer: the `proxy` type itself and its
+//! `operator->`/`operator*`/`operator C&`/destructor
+//! ([spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy]
+//! [spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy.proxy-fn]
+//! [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.proxy-fn]
+//! [spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy.operator-fn]
+//! [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.operator-fn]) — the owned
+//! value IS the proxy now; `put`/drop is the destructor.
 //!
 //! The `C: clear()` requirement reuses [`crate::pool::Poolable`] so a concrete
 //! type usable in both a `Pool` and a `ScopedStack` needs only one `clear`.
@@ -27,90 +29,33 @@ use crate::pool::Poolable;
 
 // [spec:cg3:def:scoped-stack.cg3.scoped-stack]
 pub struct ScopedStack<C> {
-    z: usize,
+    /// Cleared spare objects (capacity recycling).
     cs: Vec<C>,
-}
-
-// [spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy]
-pub struct Proxy<C: Poolable> {
-    z: usize,
-    ss: *mut ScopedStack<C>,
-}
-
-impl<C: Poolable> Proxy<C> {
-    // [spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy.proxy-fn]
-    // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.proxy-fn]
-    fn new(ss: *mut ScopedStack<C>) -> Self
-    where
-        C: Default,
-    {
-        // SAFETY: `ss` refers to a live ScopedStack that outlives this proxy;
-        // proxies are created/destroyed in strict LIFO order (module note).
-        unsafe {
-            let s = &mut *ss;
-            let z = s.z;
-            s.z += 1;
-            if s.cs.len() < s.z {
-                s.cs.resize_with(s.z, C::default);
-            }
-            Proxy { z, ss }
-        }
-    }
-}
-
-// [spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy.operator-fn]
-// [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.operator-fn]
-// C++ `operator->` returns `&ss->cs[z]`; the sibling `operator*` and implicit
-// `operator C&` return the reference `ss->cs[z]`. All three map to Deref /
-// DerefMut here.
-impl<C: Poolable> core::ops::Deref for Proxy<C> {
-    type Target = C;
-
-    fn deref(&self) -> &C {
-        // SAFETY: see Proxy::new.
-        unsafe {
-            let s = &*self.ss;
-            &s.cs[self.z]
-        }
-    }
-}
-
-impl<C: Poolable> core::ops::DerefMut for Proxy<C> {
-    fn deref_mut(&mut self) -> &mut C {
-        // SAFETY: see Proxy::new.
-        unsafe {
-            let s = &mut *self.ss;
-            &mut s.cs[self.z]
-        }
-    }
-}
-
-impl<C: Poolable> Drop for Proxy<C> {
-    fn drop(&mut self) {
-        // C++ ~proxy(): ss->cs[z].clear(); --ss->z;
-        // SAFETY: see Proxy::new.
-        unsafe {
-            let s = &mut *self.ss;
-            s.cs[self.z].clear();
-            s.z -= 1;
-        }
-    }
 }
 
 impl<C: Poolable> ScopedStack<C> {
     // [spec:cg3:def:scoped-stack.cg3.scoped-stack.scoped-stack-fn]
     // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.scoped-stack-fn]
     pub fn new() -> Self {
-        ScopedStack { z: 0, cs: Vec::new() }
+        ScopedStack { cs: Vec::new() }
     }
 
     // [spec:cg3:def:scoped-stack.cg3.scoped-stack.get-fn]
     // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.get-fn]
-    pub fn get(&mut self) -> Proxy<C>
+    /// A cleared scratch `C` — a recycled spare when available (its capacity
+    /// retained from a previous user, contents cleared), else a fresh default.
+    pub fn get(&mut self) -> C
     where
         C: Default,
     {
-        Proxy::new(self as *mut Self)
+        self.cs.pop().unwrap_or_default()
+    }
+
+    /// Return a scratch object (the C++ `~proxy()`): clear it and keep it as a
+    /// spare. Dropping the value instead is allowed (capacity loss only).
+    pub fn put(&mut self, mut c: C) {
+        c.clear();
+        self.cs.push(c);
     }
 }
 
@@ -124,52 +69,32 @@ impl<C: Poolable + Default> Default for ScopedStack<C> {
 mod tests {
     use super::*;
 
-    /// Minimal `Poolable + Default` slot type: a growable string whose `clear`
-    /// empties it (so we can observe "cleared on release, not on acquire").
-    #[derive(Default)]
-    struct Slot {
-        s: String,
-    }
-
-    impl Poolable for Slot {
+    impl Poolable for Vec<u32> {
         fn clear(&mut self) {
-            self.s.clear();
+            Vec::clear(self);
         }
     }
 
-    // `new()` builds an empty stack; `get()` hands out a `Proxy` (via
-    // `Proxy::new`, which reserves the next slot and post-increments depth); the
-    // proxy derefs (operator-> / operator* / operator C&, all Deref/DerefMut) to
-    // that slot; and dropping the proxy clears the slot and pops the depth.
-    // Nested `get()` reserves a deeper slot without disturbing the outer one.
+    // get() hands out cleared scratch objects; put() recycles capacity (the
+    // C++ proxy's clear-on-release), and nested get()s coexist safely.
     // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.scoped-stack-fn/test]
     // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.get-fn/test]
     // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.proxy-fn/test]
     // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.operator-fn/test]
     #[test]
-    fn nested_scopes_and_deref() {
-        let mut ss: ScopedStack<Slot> = ScopedStack::new();
-        {
-            // Outer scope reserves slot 0.
-            let mut a = ss.get();
-            a.s.push_str("outer"); // DerefMut -> slot 0
-            assert_eq!(a.s, "outer"); // Deref -> slot 0
-            {
-                // Nested scope reserves slot 1 while `a` (slot 0) stays live.
-                let mut b = ss.get();
-                assert_eq!(b.s, "", "a fresh deeper slot starts empty");
-                b.s.push_str("inner");
-                assert_eq!(b.s, "inner");
-                // Outer proxy still refers to its own slot, unchanged.
-                assert_eq!(a.s, "outer");
-            } // `b` dropped: slot 1 cleared, depth back to 1.
-            // Outer still valid.
-            assert_eq!(a.s, "outer");
-        } // `a` dropped: slot 0 cleared, depth back to 0.
-
-        // Reuse: the next get() re-hands slot 0, which was cleared on release
-        // (not on acquire), so it comes back empty even though we wrote to it.
+    fn get_put_recycles_cleared() {
+        let mut ss: ScopedStack<Vec<u32>> = ScopedStack::new();
+        let mut a = ss.get();
+        a.extend([1, 2, 3]);
+        let cap = a.capacity();
+        // Nested scratch while `a` is live (the C++ nested-proxy case).
+        let mut b = ss.get();
+        b.push(9);
+        ss.put(b);
+        ss.put(a);
+        // Recycled spare comes back CLEARED with capacity retained (LIFO).
         let c = ss.get();
-        assert_eq!(c.s, "", "released slot was cleared before reuse");
+        assert!(c.is_empty(), "clear-on-release");
+        assert_eq!(c.capacity(), cap, "capacity recycled");
     }
 }

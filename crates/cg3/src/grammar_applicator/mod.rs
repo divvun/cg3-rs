@@ -32,7 +32,6 @@
 use std::collections::BTreeMap;
 
 use crate::arena::{CohortId, CtxId, ReadingId, RuleId, TagId};
-use crate::cohort::CohortSet;
 use crate::cohort_iterator::{
     CohortIterator, DepAncestorIter, DepDescendentIter, DepParentIter, TopologyLeftIter,
     TopologyRightIter,
@@ -102,18 +101,28 @@ pub struct tmpl_context_t {
     pub in_template: bool,
 }
 
+/// Wave-4 descriptor for a per-window cohort set (the C++ `CohortSet*` into
+/// `SingleWindow::rule_to_cohorts` / `nested_rule_to_cohorts`). Resolved
+/// against the store at every access via `cs_ref`/`cs_mut`.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum CsRef {
+    /// `&current.rule_to_cohorts[rule]`.
+    Window { sw: crate::arena::SwId, rule: u32 },
+    /// `&*current.nested_rule_to_cohorts`.
+    Nested { sw: crate::arena::SwId },
+}
+
 // [spec:cg3:def:grammar-applicator.cg3.d-smc-context]
 /// C++ `struct dSMC_Context` — the mutable context threaded through the
 /// `doesSetMatchCohort*` matchers (the pending test, the `deep`/`origin`
 /// out-targets, the option bitmask, and the match/barrier flags). `Cohort**
-/// deep` (a pointer to the caller's `Cohort*` slot) → `*mut Option<CohortId>`,
-/// itself nullable.
-#[derive(Default, Clone)]
-pub struct dSMC_Context {
+/// deep` (a pointer to the caller's `Cohort*` slot) → a safe reborrowable
+/// `Option<&mut Option<CohortId>>` (wave 4; was a raw `*mut`).
+pub struct dSMC_Context<'a> {
     /// C++ `const ContextualTest* test`.
     pub test: Option<CtxId>,
     /// C++ `Cohort** deep`.
-    pub deep: Option<*mut Option<CohortId>>,
+    pub deep: Option<&'a mut Option<CohortId>>,
     /// C++ `Cohort* origin`.
     pub origin: Option<CohortId>,
     pub options: crate::contextual_test::PosFlags,
@@ -162,7 +171,11 @@ pub struct Rule_Context {
 
 // [spec:cg3:def:grammar-applicator.cg3.rule-callback]
 /// C++ `typedef std::function<void(void)> RuleCallback` — the reading/cohort
-/// callbacks handed to `runSingleRule`.
+/// callbacks handed to `runSingleRule`. DISSOLVED (wave 4): the only two
+/// callbacks ever constructed were `reading_cb_dispatch`/`cohort_cb_dispatch`
+/// closing over `this` + the shared `RRState`; `run_single_rule` now takes
+/// `&mut RRState` and calls the dispatch methods directly, so the type-erased
+/// closures (and their raw-pointer trampolines) are gone.
 pub type RuleCallback = Box<dyn FnMut()>;
 
 // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.all-mappings-t]
@@ -352,10 +365,16 @@ pub struct GrammarApplicator {
     pub merge_with: Option<CohortId>,
     pub current_rule: Option<RuleId>,
     pub context_stack: Vec<Rule_Context>,
-    /// C++ `std::vector<CohortSet*> cohortsets` — aliases per-window cohort sets.
-    pub cohortsets: Vec<*mut CohortSet>,
-    /// C++ `std::vector<size_t*> rocits` — aliases per-window cursor indices.
-    pub rocits: Vec<*mut usize>,
+    /// C++ `std::vector<CohortSet*> cohortsets` — wave 4: safe DESCRIPTORS of
+    /// the per-window cohort sets the active `run_single_rule` frames iterate
+    /// (resolved against the store on every access, so window restructuring
+    /// can never leave a dangling pointer).
+    pub cohortsets: Vec<CsRef>,
+    /// C++ `std::vector<size_t*> rocits` — wave 4: the per-frame iteration
+    /// cursors OWNED by value (the C++ parked pointers to stack locals). Inner
+    /// frames and `update_rule_to_cohorts` adjust outer frames' cursors by
+    /// index, exactly as the C++ wrote through the parked pointers.
+    pub rocits: Vec<usize>,
 
     pub readings_plain: readings_plain_t,
     /// C++ `std::vector<URegularExpression*> text_delimiters` — owned compiled

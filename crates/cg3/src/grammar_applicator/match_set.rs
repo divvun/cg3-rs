@@ -1261,9 +1261,9 @@ impl super::GrammarApplicator {
                     (c.parent, c.local_number)
                 };
                 let res = if lpos.intersects(POS_NO_PASS_ORIGIN) {
-                    self.run_contextual_test(cparent, clocal, l, context.deep, Some(cohort))
+                    self.run_contextual_test(cparent, clocal, l, context.deep.as_deref_mut(), Some(cohort))
                 } else {
-                    self.run_contextual_test(cparent, clocal, l, context.deep, context.origin)
+                    self.run_contextual_test(cparent, clocal, l, context.deep.as_deref_mut(), context.origin)
                 };
                 context.matched_tests = res.is_some();
                 let child_unify = self.grammar.set_by_number(set).r#type.intersects(ST_CHILD_UNIFY);
@@ -1321,8 +1321,8 @@ impl super::GrammarApplicator {
                 let f = self.context_stack.last().unwrap();
                 (f.unif_tags.unwrap(), f.unif_sets.unwrap())
             };
-            *utags = self.unif_tags_store[ut_idx].clone();
-            *usets = self.unif_sets_store[us_idx].clone();
+            utags = self.unif_tags_store[ut_idx].clone();
+            usets = self.unif_sets_store[us_idx].clone();
         }
 
         let bypass = stype.intersects(ST_CHILD_UNIFY | ST_SPECIAL);
@@ -1371,18 +1371,18 @@ impl super::GrammarApplicator {
         {
             let ut_idx = self.context_stack.last().unwrap().unif_tags.unwrap();
             let entry = &mut self.unif_tags_store[ut_idx];
-            let differs = (*utags).len() != entry.len() || *utags != *entry;
+            let differs = utags.len() != entry.len() || utags != *entry;
             if differs {
-                std::mem::swap(entry, &mut *utags);
+                std::mem::swap(entry, &mut utags);
             }
         }
         if !retval && context.is_some() && !cap_unif && child_unify && !self.context_stack.is_empty()
         {
             let us_idx = self.context_stack.last().unwrap().unif_sets.unwrap();
             let entry = &mut self.unif_sets_store[us_idx];
-            let differs = (*usets).len() != entry.len();
+            let differs = usets.len() != entry.len();
             if differs {
-                std::mem::swap(entry, &mut *usets);
+                std::mem::swap(entry, &mut usets);
             }
         }
         if !retval && !self.context_stack.is_empty() {

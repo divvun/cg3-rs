@@ -235,6 +235,25 @@ pub fn alloc_reading_copy(store: &mut RuntimeStore, o: &Reading) -> ReadingId {
     ReadingId(idx)
 }
 
+// [spec:cg3:def:inlines.cg3.reverse-fn]
+// [spec:cg3:sem:inlines.cg3.reverse-fn]
+/// C++ `inlines.hpp` `template<typename T> T* reverse(T* head)` — in-place
+/// singly-linked-list reversal. The only linked type in the port is the
+/// `Reading::next` chain, so the raw-pointer generic becomes safe id-chain
+/// reversal over the arena (wave 4; previously duplicated per applicator).
+/// Returns the new head (the old tail), or `head` for a 1-element chain.
+pub fn reverse(store: &mut RuntimeStore, head: ReadingId) -> ReadingId {
+    let mut nr: Option<ReadingId> = None;
+    let mut cur: Option<ReadingId> = Some(head);
+    while let Some(h) = cur {
+        let next = store.readings.get(h.0).next;
+        store.readings.get_mut(h.0).next = nr;
+        nr = Some(h);
+        cur = next;
+    }
+    nr.unwrap_or(head)
+}
+
 // [spec:cg3:def:reading.cg3.free-reading-fn]
 // [spec:cg3:sem:reading.cg3.free-reading-fn]
 /// C++ `void free_reading(Reading*& r)`.
@@ -397,5 +416,33 @@ impl Reading {
             return a.hash < b.hash;
         }
         a.number < b.number
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // reverse(): in-place reversal of the Reading::next id chain (the safe
+    // arena form of the C++ raw-pointer inlines::reverse).
+    // [spec:cg3:sem:inlines.cg3.reverse-fn/test]
+    #[test]
+    fn reverse_reading_chain() {
+        let mut store = RuntimeStore::new();
+        let a = alloc_reading(&mut store, None);
+        let b = alloc_reading(&mut store, None);
+        let c = alloc_reading(&mut store, None);
+        store.readings.get_mut(a.0).next = Some(b);
+        store.readings.get_mut(b.0).next = Some(c);
+
+        let new_head = reverse(&mut store, a);
+        assert_eq!(new_head, c);
+        assert_eq!(store.readings.get(c.0).next, Some(b));
+        assert_eq!(store.readings.get(b.0).next, Some(a));
+        assert_eq!(store.readings.get(a.0).next, None);
+
+        // Single-element chain: unchanged head.
+        let solo = alloc_reading(&mut store, None);
+        assert_eq!(reverse(&mut store, solo), solo);
     }
 }

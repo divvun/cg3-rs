@@ -43,7 +43,6 @@ use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{isnl, ui32};
-use crate::store::RuntimeStore;
 use crate::tag::T_WORDFORM;
 use crate::uextras::{u_fflush, u_fputc};
 
@@ -129,9 +128,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
         output: &mut W,
         profiling: bool,
     ) {
-        let mut store = std::mem::take(&mut app.store);
-        app.mwe_print_single_window(&mut store, window, output, profiling);
-        app.store = store;
+        app.mwe_print_single_window(window, output, profiling);
     }
 
     fn print_stream_command<W: std::io::Write>(
@@ -165,12 +162,12 @@ impl GrammarApplicator {
     /// C++ `const Tag* MweSplitApplicator::maybeWfTag(const Reading* r)`. Returns
     /// the first "extra" wordform-type (`T_WORDFORM`) tag on `r` that is neither
     /// the reading's own baseform nor its cohort's wordform, or `None`.
-    pub fn mwe_maybe_wf_tag(&self, store: &RuntimeStore, r: ReadingId) -> Option<TagId> {
-        let rr = store.readings.get(r.0);
+    pub fn mwe_maybe_wf_tag(&self, r: ReadingId) -> Option<TagId> {
+        let rr = self.store.readings.get(r.0);
         let baseform = rr.baseform;
         let wordform_hash = {
             let p = rr.parent.expect("reading parent");
-            store
+            self.store
                 .cohorts
                 .get(p.0)
                 .wordform
@@ -198,7 +195,7 @@ impl GrammarApplicator {
     /// Splits one MWE cohort into a vector of new cohorts (one per component
     /// word), or returns the original cohort unchanged if it cannot/should not be
     /// split.
-    pub fn mwe_split_mwe(&mut self, store: &mut RuntimeStore, cohort: CohortId) -> Vec<CohortId> {
+    pub fn mwe_split_mwe(&mut self, cohort: CohortId) -> Vec<CohortId> {
         // rtrimblank = { ' ', '\n', '\r', '\t' }; textprefix = ":".
         const RTRIMBLANK: &[char] = &[' ', '\n', '\r', '\t'];
         const TEXTPREFIX: &str = ":";
@@ -206,11 +203,11 @@ impl GrammarApplicator {
         let mut cos: Vec<CohortId> = Vec::new();
 
         // Eligibility check.
-        let head_readings = store.cohorts.get(cohort.0).readings.clone();
+        let head_readings = self.store.cohorts.get(cohort.0).readings.clone();
         let mut n_wftags = 0usize;
         let mut n_goodreadings = 0usize;
         for &rter1 in &head_readings {
-            if self.mwe_maybe_wf_tag(store, rter1).is_some() {
+            if self.mwe_maybe_wf_tag(rter1).is_some() {
                 n_wftags += 1;
             }
             n_goodreadings += 1;
@@ -224,7 +221,7 @@ impl GrammarApplicator {
             return cos;
         }
 
-        let parent = store.cohorts.get(cohort.0).parent.expect("cohort parent");
+        let parent = self.store.cohorts.get(cohort.0).parent.expect("cohort parent");
         let mut pretext: String = String::new();
 
         for r in head_readings {
@@ -235,29 +232,29 @@ impl GrammarApplicator {
             // Walk the sub-reading chain (for sub = r; sub; sub = sub->next).
             let mut sub_opt: Option<ReadingId> = Some(r);
             while let Some(sub) = sub_opt {
-                let wf_tag = self.mwe_maybe_wf_tag(store, sub);
+                let wf_tag = self.mwe_maybe_wf_tag(sub);
                 if wf_tag.is_none() {
                     // prev = prev->next (prev is guaranteed non-null by eligibility).
                     let prev_id = prev.expect("splitMwe: null prev on wf-less sub-reading");
-                    prev = store.readings.get(prev_id.0).next;
+                    prev = self.store.readings.get(prev_id.0).next;
                 } else {
                     let wf_tag = wf_tag.unwrap();
                     pos = pos.wrapping_add(1);
 
                     // Ensure a cohort exists at index pos.
                     while cos.len() < pos + 1 {
-                        let c = crate::cohort::alloc_cohort(store, Some(parent));
+                        let c = crate::cohort::alloc_cohort(&mut self.store, Some(parent));
                         let gn = self.gWindow.cohort_counter;
                         self.gWindow.cohort_counter = self.gWindow.cohort_counter.wrapping_add(1);
-                        store.cohorts.get_mut(c.0).global_number = gn;
+                        self.store.cohorts.get_mut(c.0).global_number = gn;
                         crate::single_window::append_cohort(
                             &mut self.gWindow,
-                            store,
+                            &mut self.store,
                             parent,
                             c,
                         );
                         if !pretext.is_empty() {
-                            store.cohorts.get_mut(c.0).text = pretext.clone();
+                            self.store.cohorts.get_mut(c.0).text = pretext.clone();
                             pretext.clear();
                         }
                         cos.push(c);
@@ -265,7 +262,7 @@ impl GrammarApplicator {
                     let c = cos[pos];
 
                     // Reconstruct the trimmed wordform from wfTag->tag ("<...>").
-                    let has_next = store.readings.get(sub.0).next.is_some();
+                    let has_next = self.store.readings.get(sub.0).next.is_some();
                     let wf_chars: Vec<char> =
                         self.grammar.single_tags_list[wf_tag.0].tag.chars().collect();
                     let wf_beg = 2usize; // index just after "\"<"
@@ -280,7 +277,7 @@ impl GrammarApplicator {
                     wf.extend(&wf_chars[wf_end + 1..]);
 
                     // Ambiguity guard.
-                    let existing_wf = store.cohorts.get(c.0).wordform;
+                    let existing_wf = self.store.cohorts.get(c.0).wordform;
                     if let Some(ewf) = existing_wf {
                         let existing_text = &self.grammar.single_tags_list[ewf.0].tag;
                         if &wf != existing_text {
@@ -291,7 +288,7 @@ impl GrammarApplicator {
                         }
                     }
                     let wf_id = self.add_tag(&wf, crate::tag::TagType::empty());
-                    store.cohorts.get_mut(c.0).wordform = Some(wf_id);
+                    self.store.cohorts.get_mut(c.0).wordform = Some(wf_id);
 
                     // Blank/text handling.
                     if sp_beg > wf_beg {
@@ -300,21 +297,21 @@ impl GrammarApplicator {
                     }
                     if sp_end < wf_end + 1 {
                         let mid: String = wf_chars[sp_end..wf_end + 1].iter().collect();
-                        store.cohorts.get_mut(c.0).text = format!("{TEXTPREFIX}{mid}");
+                        self.store.cohorts.get_mut(c.0).text = format!("{TEXTPREFIX}{mid}");
                     }
 
                     // Reading migration: rNew = alloc_reading(*sub) (deep copy of chain).
                     let r_new = {
-                        let src = clone_reading(store.readings.get(sub.0));
-                        crate::reading::alloc_reading_copy(store, &src)
+                        let src = clone_reading(self.store.readings.get(sub.0));
+                        crate::reading::alloc_reading_copy(&mut self.store, &src)
                     };
                     // Erase every tag equal to wfTag->hash or rNew->parent->wordform->hash.
                     let wf_hash = self.grammar.single_tags_list[wf_tag.0].hash;
                     let new_parent_wf_hash = {
                         // rNew->parent is still `sub`'s parent (the original cohort)
                         // until reparented below; the C++ reads it before reparenting.
-                        let p = store.readings.get(r_new.0).parent.expect("rNew parent");
-                        store
+                        let p = self.store.readings.get(r_new.0).parent.expect("rNew parent");
+                        self.store
                             .cohorts
                             .get(p.0)
                             .wordform
@@ -322,7 +319,7 @@ impl GrammarApplicator {
                             .unwrap_or(0)
                     };
                     {
-                        let rr = store.readings.get_mut(r_new.0);
+                        let rr = self.store.readings.get_mut(r_new.0);
                         let mut i = 0usize;
                         while i < rr.tags_list.len() {
                             let tter = rr.tags_list[i];
@@ -334,19 +331,19 @@ impl GrammarApplicator {
                             }
                         }
                     }
-                    crate::cohort::append_reading(store, c, r_new);
-                    store.readings.get_mut(r_new.0).parent = Some(c);
+                    crate::cohort::append_reading(&mut self.store, c, r_new);
+                    self.store.readings.get_mut(r_new.0).parent = Some(c);
 
                     // Free the leftover sub-reading chain hanging off `prev`.
                     if let Some(prev_id) = prev {
-                        let leftover = store.readings.get(prev_id.0).next;
-                        crate::reading::free_reading(store, leftover);
-                        store.readings.get_mut(prev_id.0).next = None;
+                        let leftover = self.store.readings.get(prev_id.0).next;
+                        crate::reading::free_reading(&mut self.store, leftover);
+                        self.store.readings.get_mut(prev_id.0).next = None;
                     }
                     prev = Some(r_new);
                 }
 
-                sub_opt = store.readings.get(sub.0).next;
+                sub_opt = self.store.readings.get(sub.0).next;
             }
         }
 
@@ -355,8 +352,8 @@ impl GrammarApplicator {
             cos.push(cohort);
         }
         // cos[0] = the head reading = the LAST word: move the original text onto it.
-        let orig_text = store.cohorts.get(cohort.0).text.clone();
-        store.cohorts.get_mut(cos[0].0).text = orig_text;
+        let orig_text = self.store.cohorts.get(cohort.0).text.clone();
+        self.store.cohorts.get_mut(cos[0].0).text = orig_text;
         cos.reverse();
         cos
     }
@@ -371,13 +368,13 @@ impl GrammarApplicator {
     /// set (the C++ virtual dispatch).
     pub fn mwe_print_single_window<W: Write>(
         &mut self,
-        store: &mut RuntimeStore,
         window: SwId,
         output: &mut W,
         profiling: bool,
     ) {
         // Variables block.
-        let vars_output: Vec<u32> = store
+        let vars_output: Vec<u32> = self
+            .store
             .single_windows
             .get(window.0)
             .variables_output
@@ -390,7 +387,7 @@ impl GrammarApplicator {
                 self.grammar.single_tags_list[tid.0].tag.clone()
             };
             let value_hash: Option<u32> = {
-                let w = store.single_windows.get(window.0);
+                let w = self.store.single_windows.get(window.0);
                 let it = w.variables_set.find(var);
                 if it != w.variables_set.end() {
                     Some(it.get().1)
@@ -415,7 +412,7 @@ impl GrammarApplicator {
         }
 
         let (text, text_post, flush_after) = {
-            let w = store.single_windows.get(window.0);
+            let w = self.store.single_windows.get(window.0);
             (w.text.clone(), w.text_post.clone(), w.flush_after)
         };
 
@@ -428,13 +425,13 @@ impl GrammarApplicator {
 
         // Cohorts: cs is captured BEFORE the loop (splitMwe appends mid-iteration,
         // but those new cohorts are NOT re-iterated).
-        let cs = ui32(store.single_windows.get(window.0).cohorts.len());
+        let cs = ui32(self.store.single_windows.get(window.0).cohorts.len());
         for c in 0..cs {
-            let cohort = store.single_windows.get(window.0).cohorts[c as usize];
-            let split = self.mwe_split_mwe(store, cohort);
+            let cohort = self.store.single_windows.get(window.0).cohorts[c as usize];
+            let split = self.mwe_split_mwe(cohort);
             for iter in split {
                 // Inherited GrammarApplicator::printCohort.
-                self.print_cohort(store, iter, output, profiling);
+                self.print_cohort(iter, output, profiling);
             }
         }
 

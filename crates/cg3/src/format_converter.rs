@@ -262,9 +262,7 @@ impl FormatConverter {
         use cg3_sformat::*;
         match self.base.fmt_output {
             CG3SF_CG => {
-                let mut store = std::mem::take(&mut self.base.store);
-                self.base.print_cohort(&mut store, cohort, output, profiling);
-                self.base.store = store;
+                self.base.print_cohort(cohort, output, profiling);
             }
             CG3SF_NICELINE => {
                 self.fmt.with_niceline(&mut self.base, |a| a.print_cohort(cohort, output, profiling))
@@ -352,9 +350,7 @@ impl StreamFormat for ConvFormat {
         use cg3_sformat::*;
         match app.fmt_output {
             CG3SF_CG => {
-                let mut store = std::mem::take(&mut app.store);
-                app.print_single_window(&mut store, window, output, profiling);
-                app.store = store;
+                app.print_single_window(window, output, profiling);
             }
             CG3SF_NICELINE => {
                 self.with_niceline(app, |a| a.print_single_window(window, output, profiling))

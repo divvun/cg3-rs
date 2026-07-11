@@ -1191,29 +1191,10 @@ impl<'a> Drop for scope_guard<'a> {
 // Linked-list reverse, reversed-range iteration, erase, make_array, concat
 // ---------------------------------------------------------------------------
 
-// A node linked through a public `->next` raw pointer.
-pub trait Linked {
-    fn next(&self) -> *mut Self;
-    fn set_next(&mut self, n: *mut Self);
-}
-
-// [spec:cg3:def:inlines.cg3.reverse-fn]
-// [spec:cg3:sem:inlines.cg3.reverse-fn]
-// In-place singly-linked-list reversal. Inherently raw-pointer work, so `unsafe`.
-///
-/// # Safety
-/// `head` must be null or a valid pointer to a `Linked` node whose `->next`
-/// chain is valid and non-cyclic.
-pub unsafe fn reverse<T: Linked>(mut head: *mut T) -> *mut T {
-    let mut nr: *mut T = std::ptr::null_mut();
-    while !head.is_null() {
-        let next = unsafe { (*head).next() };
-        unsafe { (*head).set_next(nr) };
-        nr = head;
-        head = next;
-    }
-    nr
-}
+// [spec:cg3:def:inlines.cg3.reverse-fn] — see `crate::reading::reverse`:
+// wave 4 moved the linked-list reversal onto the arena Reading chain (the only
+// linked type in the port), replacing the raw-pointer `Linked` trait + unsafe
+// generic with safe id-chain reversal.
 
 // [spec:cg3:def:inlines.cg3.reversed]
 pub struct Reversed<'a, T: ?Sized> {
@@ -1859,51 +1840,6 @@ mod tests {
             g.set(false);
         }
         assert!(!ran2.get(), "disarmed guard does not run");
-    }
-
-    // A tiny intrusive singly-linked node to drive reverse().
-    struct Node {
-        val: i32,
-        next: *mut Node,
-    }
-    impl Linked for Node {
-        fn next(&self) -> *mut Self {
-            self.next
-        }
-        fn set_next(&mut self, n: *mut Self) {
-            self.next = n;
-        }
-    }
-
-    // reverse(): in-place singly-linked-list reversal over raw pointers.
-    // The `next` writes are read back only through raw pointers inside
-    // `reverse`, which the borrow-checker's dataflow cannot see; silence the
-    // resulting false "never read" lint.
-    // [spec:cg3:sem:inlines.cg3.reverse-fn/test]
-    #[test]
-    #[allow(unused_assignments)]
-    fn reverse_linked_list() {
-        let mut n1 = Node { val: 1, next: std::ptr::null_mut() };
-        let mut n2 = Node { val: 2, next: std::ptr::null_mut() };
-        let mut n3 = Node { val: 3, next: std::ptr::null_mut() };
-        n1.next = &mut n2;
-        n2.next = &mut n3;
-        let head: *mut Node = &mut n1;
-
-        let new_head = unsafe { reverse(head) };
-        // Walk the reversed chain: 3 -> 2 -> 1.
-        let mut got = Vec::new();
-        let mut cur = new_head;
-        while !cur.is_null() {
-            unsafe {
-                got.push((*cur).val);
-                cur = (*cur).next;
-            }
-        }
-        assert_eq!(got, vec![3, 2, 1]);
-
-        // Reversing an empty list yields null.
-        assert!(unsafe { reverse::<Node>(std::ptr::null_mut()) }.is_null());
     }
 
     // reversed()/begin()/end() reverse-range adapters over a container.

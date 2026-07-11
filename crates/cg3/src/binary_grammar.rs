@@ -1508,13 +1508,15 @@ fn c_ops_from_u32(v: u32) -> C_OPS {
 // contiguous discriminants `0..=KEYWORD_COUNT`; the transmute is sound for that
 // range (out-of-range ids — never emitted by a valid writer — fall to K_IGNORE).
 fn keywords_from_u32(v: u32) -> KEYWORDS {
-    if v <= KEYWORDS::KEYWORD_COUNT as u32 {
-        // SAFETY: `v` is a valid `KEYWORDS` discriminant (0..=KEYWORD_COUNT) and
-        // `KEYWORDS` is `#[repr(u32)]`, so the bit pattern is a valid variant.
-        unsafe { std::mem::transmute::<u32, KEYWORDS>(v) }
-    } else {
-        KEYWORDS::K_IGNORE
-    }
+    // Safe table lookup (wave 4; was a transmute). Out-of-range ids — never
+    // emitted by a valid writer — fall to K_IGNORE, as before. NOTE: the old
+    // bound was `v <= KEYWORD_COUNT` inclusive; `v == KEYWORD_COUNT` would have
+    // transmuted to the sentinel variant itself, which the table cannot
+    // produce — it now falls to K_IGNORE (unreachable from any valid stream).
+    crate::strings::KEYWORDS_BY_ID
+        .get(v as usize)
+        .copied()
+        .unwrap_or(KEYWORDS::K_IGNORE)
 }
 
 impl IGrammarParser for BinaryGrammar {

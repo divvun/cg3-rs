@@ -37,7 +37,6 @@ use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{hash_value, insert_if_exists};
 use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
 use crate::single_window::{SingleWindow, append_cohort};
-use crate::store::RuntimeStore;
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_WORDFORM, TagList};
 use crate::types::{UString, flags_t};
 use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fputc, ux_strip_bom};
@@ -98,17 +97,7 @@ fn tag_by_hash(grammar: &crate::grammar::Grammar, hash: u32) -> TagId {
 /// C++ `reverse(Reading* head)` (the `inlines.hpp` `->next`-chain reversal),
 /// specialised to the arena `ReadingId` chain: reverses the singly-linked
 /// sub-reading `next` chain in place and returns the new head.
-fn reverse_reading(store: &mut RuntimeStore, head: ReadingId) -> ReadingId {
-    let mut nr: Option<ReadingId> = None;
-    let mut cur: Option<ReadingId> = Some(head);
-    while let Some(h) = cur {
-        let next = store.readings.get(h.0).next;
-        store.readings.get_mut(h.0).next = nr;
-        nr = Some(h);
-        cur = next;
-    }
-    nr.unwrap_or(head)
-}
+use crate::reading::reverse as reverse_reading;
 
 /// C++ `substr(tag->tag, 2)` — drop the first 2 chars of the tag text.
 fn substr_from(s: &str, start: usize) -> String {

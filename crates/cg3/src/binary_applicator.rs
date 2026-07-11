@@ -528,7 +528,6 @@ impl BinaryFormat {
     pub fn bin_print_single_window<W: Write>(
         &mut self,
         app: &mut GrammarApplicator,
-        store: &mut crate::store::RuntimeStore,
         window: SwId,
         output: &mut W,
         _profiling: bool,
@@ -570,7 +569,7 @@ impl BinaryFormat {
         // Variables.
         let mut var_count: u16 = 0;
         let mut var_buffer: Vec<u8> = Vec::new();
-        let vars_output: Vec<u32> = store
+        let vars_output: Vec<u32> = app.store
             .single_windows
             .get(window.0)
             .variables_output
@@ -581,7 +580,7 @@ impl BinaryFormat {
             var_count += 1;
             let key = tag_by_hash(&app.grammar, var);
             let value: Option<u32> = {
-                let sw = store.single_windows.get(window.0);
+                let sw = app.store.single_windows.get(window.0);
                 let it = sw.variables_set.find(var);
                 if it != sw.variables_set.end() {
                     Some(it.get().1)
@@ -613,30 +612,30 @@ impl BinaryFormat {
         // Reflow removed-cohort text to the nearest prior non-removed cohort (or
         // the window). QUIRK: the inner loop has NO break — after clearing, later
         // iterations append the now-empty string (no-op).
-        let all_cohorts: Vec<CohortId> = store.single_windows.get(window.0).all_cohorts.clone();
+        let all_cohorts: Vec<CohortId> = app.store.single_windows.get(window.0).all_cohorts.clone();
         for i in 0..all_cohorts.len() {
             let cohort = all_cohorts[i];
             let (ln, ty, has_text) = {
-                let c = store.cohorts.get(cohort.0);
+                let c = app.store.cohorts.get(cohort.0);
                 (c.local_number, c.r#type, !c.text.is_empty())
             };
             if (ln == 0 || (ty.intersects(CT_REMOVED))) && has_text {
                 for j in (1..=i).rev() {
                     let prior = all_cohorts[j - 1];
                     let (pln, pty) = {
-                        let c = store.cohorts.get(prior.0);
+                        let c = app.store.cohorts.get(prior.0);
                         (c.local_number, c.r#type)
                     };
                     if pln == 0 || (pty.intersects(CT_REMOVED)) {
                         continue;
                     }
-                    let txt = store.cohorts.get(cohort.0).text.clone();
-                    store.cohorts.get_mut(prior.0).text.push_str(&txt);
-                    store.cohorts.get_mut(cohort.0).text.clear();
+                    let txt = app.store.cohorts.get(cohort.0).text.clone();
+                    app.store.cohorts.get_mut(prior.0).text.push_str(&txt);
+                    app.store.cohorts.get_mut(cohort.0).text.clear();
                 }
-                let txt = store.cohorts.get(cohort.0).text.clone();
-                store.single_windows.get_mut(window.0).text.push_str(&txt);
-                store.cohorts.get_mut(cohort.0).text.clear();
+                let txt = app.store.cohorts.get(cohort.0).text.clone();
+                app.store.single_windows.get_mut(window.0).text.push_str(&txt);
+                app.store.cohorts.get_mut(cohort.0).text.clear();
             }
         }
 
@@ -645,30 +644,30 @@ impl BinaryFormat {
         let mut cohort_count: u16 = 0;
         for cohort in all_cohorts {
             let (ln, ty) = {
-                let c = store.cohorts.get(cohort.0);
+                let c = app.store.cohorts.get(cohort.0);
                 (c.local_number, c.r#type)
             };
             if ln == 0 || (ty.intersects(CT_REMOVED)) {
                 continue;
             }
-            crate::cohort::unignore_all(store, cohort);
+            crate::cohort::unignore_all(&mut app.store, cohort);
             cohort_count += 1;
 
             let mut cflags: u16 = 0;
-            if store.cohorts.get(cohort.0).r#type.intersects(CT_RELATED) {
+            if app.store.cohorts.get(cohort.0).r#type.intersects(CT_RELATED) {
                 cflags |= BFC_RELATED as u16;
             }
             wu16(&mut cohort_buffer, cflags);
 
-            let wf = store.cohorts.get(cohort.0).wordform.expect("cohort wordform");
+            let wf = app.store.cohorts.get(cohort.0).wordform.expect("cohort wordform");
             let wf_hash = app.grammar.single_tags_list[wf.0].hash;
             write_tag(&mut tags_to_write, &mut tag_index, &mut cohort_buffer, wf);
 
             // Static tags (wread), excluding the wordform hash.
-            if let Some(wr) = store.cohorts.get(cohort.0).wread {
+            if let Some(wr) = app.store.cohorts.get(cohort.0).wread {
                 let mut tag_buf: Vec<u8> = Vec::new();
                 let mut stag_count: u16 = 0;
-                let tags: Vec<u32> = store.readings.get(wr.0).tags_list.clone();
+                let tags: Vec<u32> = app.store.readings.get(wr.0).tags_list.clone();
                 for tter in tags {
                     if tter == wf_hash {
                         continue;
@@ -685,18 +684,18 @@ impl BinaryFormat {
 
             // Dependency: self = global_number; parent per the cohort_map lookup.
             let (global_number, dep_parent) = {
-                let c = store.cohorts.get(cohort.0);
+                let c = app.store.cohorts.get(cohort.0);
                 (c.global_number, c.dep_parent)
             };
             wu32(&mut cohort_buffer, global_number);
             if dep_parent == 0 || dep_parent == DEP_NO_PARENT {
                 wu32(&mut cohort_buffer, dep_parent);
             } else if let Some(&pr) = app.gWindow.cohort_map.get(&dep_parent) {
-                let pr_local = store.cohorts.get(pr.0).local_number;
+                let pr_local = app.store.cohorts.get(pr.0).local_number;
                 if pr_local == 0 {
                     wu32(&mut cohort_buffer, 0);
                 } else {
-                    wu32(&mut cohort_buffer, store.cohorts.get(pr.0).global_number);
+                    wu32(&mut cohort_buffer, app.store.cohorts.get(pr.0).global_number);
                 }
             } else {
                 wu32(&mut cohort_buffer, DEP_NO_PARENT);
@@ -705,7 +704,7 @@ impl BinaryFormat {
             // Relations.
             let mut rel_buffer: Vec<u8> = Vec::new();
             let mut rel_count: u16 = 0;
-            let relations: Vec<(u32, Vec<u32>)> = store
+            let relations: Vec<(u32, Vec<u32>)> = app.store
                 .cohorts
                 .get(cohort.0)
                 .relations
@@ -724,7 +723,7 @@ impl BinaryFormat {
             cohort_buffer.extend_from_slice(&rel_buffer);
 
             let (ctext, cwblank) = {
-                let c = store.cohorts.get(cohort.0);
+                let c = app.store.cohorts.get(cohort.0);
                 (c.text.clone(), c.wblank.clone())
             };
             write_str(&mut cohort_buffer, &ctext);
@@ -735,10 +734,10 @@ impl BinaryFormat {
             let mut reading_buffer: Vec<u8> = Vec::new();
             let mut reading_count: u16 = 0;
             let mut readings: Vec<crate::arena::ReadingId> =
-                store.cohorts.get(cohort.0).readings.clone();
+                app.store.cohorts.get(cohort.0).readings.clone();
             readings.sort_by(|&a, &b| {
-                let ra = store.readings.get(a.0);
-                let rb = store.readings.get(b.0);
+                let ra = app.store.readings.get(a.0);
+                let rb = app.store.readings.get(b.0);
                 if Reading::cmp_number(ra, rb) {
                     std::cmp::Ordering::Less
                 } else if Reading::cmp_number(rb, ra) {
@@ -747,9 +746,9 @@ impl BinaryFormat {
                     std::cmp::Ordering::Equal
                 }
             });
-            store.cohorts.get_mut(cohort.0).readings = readings.clone();
+            app.store.cohorts.get_mut(cohort.0).readings = readings.clone();
             for top_reading in readings {
-                if store.readings.get(top_reading.0).noprint {
+                if app.store.readings.get(top_reading.0).noprint {
                     continue;
                 }
                 let mut reading = Some(top_reading);
@@ -760,7 +759,7 @@ impl BinaryFormat {
                         rflags |= BFR_SUBREADING as u16;
                     }
                     wu16(&mut reading_buffer, rflags);
-                    let baseform = store.readings.get(rid.0).baseform;
+                    let baseform = app.store.readings.get(rid.0).baseform;
                     let btid = tag_by_hash(&app.grammar, baseform);
                     write_tag(&mut tags_to_write, &mut tag_index, &mut reading_buffer, btid);
 
@@ -768,10 +767,10 @@ impl BinaryFormat {
                     let mut tag_count: u16 = 0;
                     let mut unique: crate::sorted_vector::uint32SortedVector =
                         crate::sorted_vector::uint32SortedVector::new();
-                    let tags: Vec<u32> = store.readings.get(rid.0).tags_list.clone();
+                    let tags: Vec<u32> = app.store.readings.get(rid.0).tags_list.clone();
                     let parent_wf_hash = {
-                        let cid = store.readings.get(rid.0).parent.unwrap();
-                        let w = store.cohorts.get(cid.0).wordform;
+                        let cid = app.store.readings.get(rid.0).parent.unwrap();
+                        let w = app.store.cohorts.get(cid.0).wordform;
                         w.map(|t| app.grammar.single_tags_list[t.0].hash).unwrap_or(0)
                     };
                     for tter in tags {
@@ -794,7 +793,7 @@ impl BinaryFormat {
                     }
                     wu16(&mut reading_buffer, tag_count);
                     reading_buffer.extend_from_slice(&tag_buf);
-                    reading = store.readings.get(rid.0).next;
+                    reading = app.store.readings.get(rid.0).next;
                 }
             }
             wu16(&mut cohort_buffer, reading_count);
@@ -817,7 +816,7 @@ impl BinaryFormat {
         wu16(&mut header_buffer, var_count);
         header_buffer.extend_from_slice(&var_buffer);
         let (wtext, wtext_post, flush_after) = {
-            let w = store.single_windows.get(window.0);
+            let w = app.store.single_windows.get(window.0);
             (w.text.clone(), w.text_post.clone(), w.flush_after)
         };
         write_str(&mut header_buffer, &wtext);
@@ -847,9 +846,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for BinaryFormat {
         output: &mut W,
         profiling: bool,
     ) {
-        let mut store = std::mem::take(&mut app.store);
-        self.bin_print_single_window(app, &mut store, window, output, profiling);
-        app.store = store;
+        self.bin_print_single_window(app, window, output, profiling);
     }
 
     fn print_stream_command<W: Write>(

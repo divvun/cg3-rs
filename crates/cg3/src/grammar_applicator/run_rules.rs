@@ -135,6 +135,39 @@ impl super::GrammarApplicator {
     /// `run_single_rule` iterators (`cohortsets`/`rocits`) valid across the sorted
     /// insert (the live-iterator-safe insert quirk, reproduced via the raw-pointer
     /// bookkeeping the struct already carries).
+    /// Resolve a [`CsRef`] descriptor to the live cohort set (wave 4 — the
+    /// safe replacement for the parked `CohortSet*`).
+    fn cs_ref(&self, r: super::CsRef) -> &CohortSet {
+        match r {
+            super::CsRef::Window { sw, rule } => {
+                &self.store.single_windows.get(sw.0).rule_to_cohorts[rule as usize]
+            }
+            super::CsRef::Nested { sw } => self
+                .store
+                .single_windows
+                .get(sw.0)
+                .nested_rule_to_cohorts
+                .as_deref()
+                .expect("CsRef::Nested resolved with no nested_rule_to_cohorts"),
+        }
+    }
+
+    /// Mutable [`Self::cs_ref`].
+    fn cs_mut(&mut self, r: super::CsRef) -> &mut CohortSet {
+        match r {
+            super::CsRef::Window { sw, rule } => {
+                &mut self.store.single_windows.get_mut(sw.0).rule_to_cohorts[rule as usize]
+            }
+            super::CsRef::Nested { sw } => self
+                .store
+                .single_windows
+                .get_mut(sw.0)
+                .nested_rule_to_cohorts
+                .as_deref_mut()
+                .expect("CsRef::Nested resolved with no nested_rule_to_cohorts"),
+        }
+    }
+
     pub fn update_rule_to_cohorts(&mut self, c: CohortId, rsit: u32) -> bool {
         // --rule(s) cmdline filter.
         if !self.valid_rules.empty() && !self.valid_rules.contains(rsit) {
@@ -151,16 +184,13 @@ impl super::GrammarApplicator {
             self.index_single_window(current);
         }
 
-        // cohortset = &current->rule_to_cohorts[rsit]. We identify it by (window,
-        // rule) rather than by a raw pointer to reproduce the aliasing check.
-        // Scan the active-iterator stack for entries pointing at this cohortset.
-        let cohortset_ptr: *mut CohortSet = {
-            let sw = self.store.single_windows.get_mut(current.0);
-            &mut sw.rule_to_cohorts[rsit as usize] as *mut CohortSet
-        };
+        // cohortset = &current->rule_to_cohorts[rsit], identified by (window,
+        // rule) descriptor. Scan the active-iterator stack for frames iterating
+        // this same set (the C++ pointer-identity check, now CsRef equality).
+        let r_ref = super::CsRef::Window { sw: current, rule: rsit };
         let mut csi: Vec<usize> = Vec::new();
         for i in 0..self.cohortsets.len() {
-            if self.cohortsets[i] != cohortset_ptr {
+            if self.cohortsets[i] != r_ref {
                 continue;
             }
             csi.push(i);
@@ -168,74 +198,40 @@ impl super::GrammarApplicator {
 
         if !csi.is_empty() {
             // Snapshot capacity, then split the active iterators into "parked at
-            // end" and "(position, cohort-at-position)".
-            let cap = unsafe { (*cohortset_ptr).capacity() };
-            let mut ends: Vec<*mut usize> = Vec::new();
-            let mut chs: Vec<(*mut usize, CohortId)> = Vec::new();
+            // end" and "(frame, cohort-at-position)".
+            let cap = self.cs_ref(r_ref).capacity();
+            let mut ends: Vec<usize> = Vec::new();
+            let mut chs: Vec<(usize, CohortId)> = Vec::new();
             for &i in &csi {
-                let rocit = self.rocits[i];
-                let pos = unsafe { *rocit };
-                let size = unsafe { (*cohortset_ptr).size() };
+                let pos = self.rocits[i];
+                let size = self.cs_ref(r_ref).size();
                 if pos >= size {
-                    ends.push(rocit);
+                    ends.push(i);
                 } else {
-                    let at = *unsafe { (*cohortset_ptr).at(pos) };
-                    chs.push((rocit, at));
+                    let at = self.cs_ref(r_ref).as_slice()[pos];
+                    chs.push((i, at));
                 }
             }
-            self.cohortset_insert(cohortset_ptr, c);
-            let new_size = unsafe { (*cohortset_ptr).size() };
-            for it in ends {
-                unsafe {
-                    *it = new_size;
-                }
+            self.cohortset_insert_at(r_ref, c);
+            let new_size = self.cs_ref(r_ref).size();
+            for i in ends {
+                self.rocits[i] = new_size;
             }
-            if cap != unsafe { (*cohortset_ptr).capacity() } {
-                for (pos_ptr, cohort) in chs {
-                    let n = self.cohortset_find_n(cohortset_ptr, cohort);
-                    unsafe {
-                        *pos_ptr = n;
-                    }
+            if cap != self.cs_ref(r_ref).capacity() {
+                for (i, cohort) in chs {
+                    self.rocits[i] = self.cohortset_find_n_at(r_ref, cohort);
                 }
             }
         } else {
-            self.cohortset_insert(cohortset_ptr, c);
+            self.cohortset_insert_at(r_ref, c);
         }
 
         self.store.single_windows.get_mut(current.0).valid_rules.insert(rsit)
     }
 
-    /// Store-aware `CohortSet::insert` — the `sorted_vector<Cohort*,
-    /// compare_Cohort>` sorted insert needs the runtime store to order two
-    /// `CohortId`s (via [`crate::single_window::less_cohort`]). Not a manifest
-    /// symbol; the engine-side realisation of the deferred `compare_Cohort`.
-    fn cohortset_insert(&mut self, cs: *mut CohortSet, c: CohortId) {
-        let cs = unsafe { &mut *cs };
-        // Find sorted position with the store-aware comparator.
-        let slice = cs.as_slice();
-        let mut lo = 0usize;
-        let mut hi = slice.len();
-        while lo < hi {
-            let mid = (lo + hi) / 2;
-            if crate::single_window::less_cohort(&self.store, slice[mid], c) {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
-        }
-        // Dedup: C++ sorted_vector insert is a set-insert (no dup).
-        if lo < slice.len() && slice[lo] == c {
-            return;
-        }
-        cs.get().insert(lo, c);
-    }
-
-    /// Store-aware `CohortSet::lower_bound` — first index whose element is not
-    /// `less_cohort`-less than `c` (the C++ `std::lower_bound` with
-    /// `compare_Cohort`). Must be used on sets built via [`Self::cohortset_insert`]
-    /// (sorted by `(local_number, window number)`, NOT raw `CohortId`).
-    fn cohortset_lower_bound(&self, cs: *const CohortSet, c: CohortId) -> usize {
-        let slice = unsafe { (*cs).as_slice() };
+    /// The `std::lower_bound` core over a cohort-set slice with the store-aware
+    /// `compare_Cohort` ([`crate::single_window::less_cohort`]).
+    fn cs_lower_bound_slice(&self, slice: &[CohortId], c: CohortId) -> usize {
         let mut lo = 0usize;
         let mut hi = slice.len();
         while lo < hi {
@@ -249,11 +245,9 @@ impl super::GrammarApplicator {
         lo
     }
 
-    /// Store-aware `CohortSet::find_n` — mirrors C++ `sorted_vector::find`
-    /// (front/back early-outs, `lower_bound`, comparator-equivalence check)
-    /// with `compare_Cohort`; returns the index or `size()` when absent.
-    fn cohortset_find_n(&self, cs: *const CohortSet, c: CohortId) -> usize {
-        let slice = unsafe { (*cs).as_slice() };
+    /// The C++ `sorted_vector::find` core (front/back early-outs, lower_bound,
+    /// comparator-equivalence check) over a slice; index or `len()` if absent.
+    fn cs_find_n_slice(&self, slice: &[CohortId], c: CohortId) -> usize {
         if slice.is_empty() {
             return 0;
         }
@@ -265,7 +259,7 @@ impl super::GrammarApplicator {
         if crate::single_window::less_cohort(store, c, slice[0]) {
             return slice.len();
         }
-        let it = self.cohortset_lower_bound(cs, c);
+        let it = self.cs_lower_bound_slice(slice, c);
         if it != slice.len()
             && (crate::single_window::less_cohort(store, slice[it], c)
                 || crate::single_window::less_cohort(store, c, slice[it]))
@@ -275,14 +269,48 @@ impl super::GrammarApplicator {
         it
     }
 
-    /// Store-aware `CohortSet::erase` — mirrors C++ `sorted_vector::erase` with
-    /// `compare_Cohort` (comparator-equivalence, not id-equality, exactly as the
-    /// C++ does). Returns `true` iff an element was removed.
-    fn cohortset_erase(&mut self, cs: *mut CohortSet, c: CohortId) -> bool {
-        let n = self.cohortset_find_n(cs, c);
-        let csr = unsafe { &mut *cs };
-        if n != csr.size() {
-            csr.erase_n(n);
+    /// Store-aware `CohortSet::insert` on a LOCAL set (a set not owned by the
+    /// store, e.g. the collect_subtree scratch sets). Two-phase: position with
+    /// `&self`, then mutate the caller's set — no aliasing.
+    fn cohortset_insert(&self, cs: &mut CohortSet, c: CohortId) {
+        let lo = self.cs_lower_bound_slice(cs.as_slice(), c);
+        // Dedup: C++ sorted_vector insert is a set-insert (no dup).
+        if lo < cs.as_slice().len() && cs.as_slice()[lo] == c {
+            return;
+        }
+        cs.get().insert(lo, c);
+    }
+
+    /// Store-aware `CohortSet::insert` on a store-owned set (by descriptor).
+    fn cohortset_insert_at(&mut self, r: super::CsRef, c: CohortId) {
+        let lo = self.cs_lower_bound_slice(self.cs_ref(r).as_slice(), c);
+        let cs = self.cs_mut(r);
+        if lo < cs.as_slice().len() && cs.as_slice()[lo] == c {
+            return;
+        }
+        cs.get().insert(lo, c);
+    }
+
+    /// Store-aware `CohortSet::lower_bound` on a store-owned set. Must be used
+    /// on sets built via the sorted inserts above (`(local_number, window
+    /// number)` order, NOT raw `CohortId`).
+    fn cohortset_lower_bound_at(&self, r: super::CsRef, c: CohortId) -> usize {
+        self.cs_lower_bound_slice(self.cs_ref(r).as_slice(), c)
+    }
+
+    /// Store-aware `CohortSet::find_n` on a store-owned set.
+    fn cohortset_find_n_at(&self, r: super::CsRef, c: CohortId) -> usize {
+        self.cs_find_n_slice(self.cs_ref(r).as_slice(), c)
+    }
+
+    /// Store-aware `CohortSet::erase` on a store-owned set — mirrors C++
+    /// `sorted_vector::erase` with `compare_Cohort` (comparator-equivalence,
+    /// not id-equality, exactly as the C++ does). `true` iff removed.
+    fn cohortset_erase_at(&mut self, r: super::CsRef, c: CohortId) -> bool {
+        let n = self.cohortset_find_n_at(r, c);
+        let cs = self.cs_mut(r);
+        if n != cs.size() {
+            cs.erase_n(n);
             return true;
         }
         false
@@ -1144,15 +1172,10 @@ impl super::GrammarApplicator {
                 st.removed.clear();
                 st.selected.clear();
 
-                // Build the two callback trampolines aliasing self + st.
-                let this_ptr = self as *mut Self;
-                let st_ptr: *mut RRState = &mut *st;
-                let reading_cb: super::RuleCallback =
-                    Box::new(move || unsafe { (*this_ptr).reading_cb_dispatch(&mut *st_ptr) });
-                let cohort_cb: super::RuleCallback =
-                    Box::new(move || unsafe { (*this_ptr).cohort_cb_dispatch(&mut *st_ptr) });
-
-                let rv = self.run_single_rule(current, RuleId(j), reading_cb, cohort_cb);
+                // C++ builds two RuleCallback closures aliasing this + the
+                // shared state; the port threads `st` directly (wave 4 — the
+                // raw-pointer trampolines are gone).
+                let rv = self.run_single_rule(current, RuleId(j), &mut *st);
                 if rv || st.readings_changed {
                     if !((rflags.intersects(RF_NOITERATE)) && self.section_max_count != 1) {
                         section_did_something = true;
@@ -1261,9 +1284,9 @@ impl super::GrammarApplicator {
                     (c.global_number, c.dep_parent)
                 };
                 if gn == head_gn {
-                    self.cohortset_insert(cs as *mut CohortSet, *iter);
+                    self.cohortset_insert(cs, *iter);
                 } else if dp == head_gn && self.does_set_match_cohort_normal(*iter, cset, None) {
-                    self.cohortset_insert(cs as *mut CohortSet, *iter);
+                    self.cohortset_insert(cs, *iter);
                 }
             }
             let mut more: CohortSet = CohortSet::new();
@@ -1274,15 +1297,15 @@ impl super::GrammarApplicator {
                         continue;
                     }
                     if self.is_child_of(*iter, cht) {
-                        self.cohortset_insert(&mut more as *mut CohortSet, *iter);
+                        self.cohortset_insert(&mut more, *iter);
                     }
                 }
             }
             for m in more.as_slice().to_vec() {
-                self.cohortset_insert(cs as *mut CohortSet, m);
+                self.cohortset_insert(cs, m);
             }
         } else {
-            self.cohortset_insert(cs as *mut CohortSet, head);
+            self.cohortset_insert(cs, head);
         }
     }
 
@@ -1430,40 +1453,23 @@ impl super::GrammarApplicator {
     /// `Option<Box<Vec<CohortId>>>`). Sibling engine methods
     /// (`does_set_match_reading`, `run_contextual_test`, `get_sub_reading`,
     /// reflow/context) are called by their C++-matching, arena-adapted signatures.
-    pub fn run_single_rule(
-        &mut self,
-        current: SwId,
-        rule: RuleId,
-        mut reading_cb: super::RuleCallback,
-        mut cohort_cb: super::RuleCallback,
-    ) -> bool {
+    fn run_single_rule(&mut self, current: SwId, rule: RuleId, st: &mut RRState) -> bool {
         self.finish_cohort_loop = true;
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
 
         // cohortset = &current.rule_to_cohorts[rule.number]; override_cohortset()
         // may re-seat it to the nested set (in_nested). `nested` records which one.
         let nested = self.rr_override_cohortset(current, rnumber);
-        let cohortset_ptr: *mut CohortSet = self.rr_cohortset_ptr(current, rnumber, nested);
-        self.cohortsets.push(cohortset_ptr);
-        // `rocit` lives in a heap box so a stable `*mut usize` can be parked in
-        // `rocits` (the C++ parks `&rocit`, a stack local). C++ pushes `nullptr`
-        // then re-seats `rocits.back() = &rocit` each cohort iteration; the box's
-        // address is stable so it is parked once here.
-        let mut rocit_box: Box<usize> = Box::new(0);
-        self.rocits.push(&mut *rocit_box as *mut usize);
+        let cohortset = self.rr_cohortset_ref(current, rnumber, nested);
+        self.cohortsets.push(cohortset);
+        // The frame's iteration cursor, OWNED in `rocits` (the C++ parks
+        // `&rocit`, a stack local; wave 4 makes the parked slot the cursor).
+        self.rocits.push(0);
 
         // Run the body; the scope_guard `popper` (pop cohortsets/rocits) runs on
         // EVERY exit path, so it is applied here after the body returns.
-        let anything_changed = self.run_single_rule_body(
-            current,
-            rule,
-            rnumber,
-            nested,
-            cohortset_ptr,
-            &mut rocit_box,
-            &mut reading_cb,
-            &mut cohort_cb,
-        );
+        let anything_changed =
+            self.run_single_rule_body(current, rule, rnumber, nested, cohortset, st);
 
         // popper dtor: cohortsets.pop_back(); rocits.pop_back();
         self.cohortsets.pop();
@@ -1510,15 +1516,13 @@ impl super::GrammarApplicator {
         if sw.nested_rule_to_cohorts.is_none() {
             sw.nested_rule_to_cohorts = Some(Box::new(CohortSet::new()));
         }
-        let nested = sw.nested_rule_to_cohorts.as_mut().unwrap();
-        nested.clear();
+        sw.nested_rule_to_cohorts.as_mut().unwrap().clear();
         if let Some(a) = apply {
-            let np: *mut CohortSet = &mut **nested;
             // insert apply-to + context cohorts with the store-aware comparator.
-            drop(nested);
-            self.cohortset_insert(np, a);
+            let np = super::CsRef::Nested { sw: current };
+            self.cohortset_insert_at(np, a);
             for c in ctx_cohorts {
-                self.cohortset_insert(np, c);
+                self.cohortset_insert_at(np, c);
             }
         }
         true
@@ -1528,12 +1532,11 @@ impl super::GrammarApplicator {
     /// when `nested`, else `current.rule_to_cohorts[rule_number]`.
     ///
     /// RECONCILIATION: both must be `CohortSet` (NOTED single_window.rs change).
-    fn rr_cohortset_ptr(&mut self, current: SwId, rule_number: u32, nested: bool) -> *mut CohortSet {
-        let sw = self.store.single_windows.get_mut(current.0);
+    fn rr_cohortset_ref(&self, current: SwId, rule_number: u32, nested: bool) -> super::CsRef {
         if nested {
-            &mut **sw.nested_rule_to_cohorts.as_mut().unwrap() as *mut CohortSet
+            super::CsRef::Nested { sw: current }
         } else {
-            &mut sw.rule_to_cohorts[rule_number as usize] as *mut CohortSet
+            super::CsRef::Window { sw: current, rule: rule_number }
         }
     }
 
@@ -1542,23 +1545,19 @@ impl super::GrammarApplicator {
     /// so both borrows can be satisfied, then restore it. Diagnostic-only (gated
     /// on `debug_rules`).
     fn rr_print_debug_rule(&mut self, rule: RuleId, target: bool, cntx: bool) {
-        let mut store = std::mem::take(&mut self.store);
-        self.print_debug_rule(&mut store, rule, target, cntx);
-        self.store = store;
+        self.print_debug_rule(rule, target, cntx);
     }
 
     /// `reset_cohorts` lambda body of `runSingleRule`: re-seat the active
     /// cohortset (and the outer `rocit` cursor) after a window-restructuring
     /// action. Returns the (possibly re-seated) cohortset pointer.
-    fn rr_reset_cohorts(
-        &mut self,
-        current: SwId,
-        rule_number: u32,
-        rocit: &mut usize,
-    ) -> *mut CohortSet {
+    /// Writes the (possibly re-seated) cursor into the CURRENT frame's
+    /// `rocits` slot — the C++ wrote `rocit` (the frame's parked object).
+    fn rr_reset_cohorts(&mut self, current: SwId, rule_number: u32) -> super::CsRef {
         let nested = self.rr_override_cohortset(current, rule_number);
-        let cs = self.rr_cohortset_ptr(current, rule_number, nested);
+        let cs = self.rr_cohortset_ref(current, rule_number, nested);
         *self.cohortsets.last_mut().unwrap() = cs;
+        let idx = self.rocits.len() - 1;
         let gac = self.get_apply_to().cohort;
         if let Some(gac) = gac {
             let gac_local = self.store.cohorts.get(gac.0).local_number as usize;
@@ -1575,18 +1574,18 @@ impl super::GrammarApplicator {
                 .get(gac_local)
                 .copied()
                 .unwrap_or(gac);
-            let lb = self.cohortset_lower_bound(cs, front_at_local);
-            let size = unsafe { (*cs).size() };
+            let lb = self.cohortset_lower_bound_at(cs, front_at_local);
+            let size = self.cs_ref(cs).size();
             if lb == size {
-                *rocit = size;
+                self.rocits[idx] = size;
             } else {
-                let at = unsafe { *(*cs).at(lb) };
-                *rocit = self.cohortset_find_n(cs, at);
+                let at = self.cs_ref(cs).as_slice()[lb];
+                self.rocits[idx] = self.cohortset_find_n_at(cs, at);
             }
             let gac_type = self.store.cohorts.get(gac.0).r#type;
-            let new_size = unsafe { (*cs).size() };
-            if !gac_type.intersects(CT_REMOVED | CT_IGNORED) && *rocit < new_size {
-                *rocit += 1;
+            let new_size = self.cs_ref(cs).size();
+            if !gac_type.intersects(CT_REMOVED | CT_IGNORED) && self.rocits[idx] < new_size {
+                self.rocits[idx] += 1;
             }
         }
         cs
@@ -1602,10 +1601,8 @@ impl super::GrammarApplicator {
         rule: RuleId,
         rnumber: u32,
         nested: bool,
-        mut cohortset: *mut CohortSet,
-        rocit_box: &mut Box<usize>,
-        reading_cb: &mut super::RuleCallback,
-        cohort_cb: &mut super::RuleCallback,
+        mut cohortset: super::CsRef,
+        st: &mut RRState,
     ) -> bool {
         let mut anything_changed = false;
         let (rtype0, rflags, rsub_reading, rtarget, rline) = {
@@ -1615,13 +1612,17 @@ impl super::GrammarApplicator {
         let set_type = self.grammar.set_by_number(rtarget).r#type;
         let _ = (nested, rline);
 
-        let mut rocit: usize = 0;
-        while rocit < unsafe { (*cohortset).size() } {
-            *self.rocits.last_mut().unwrap() = &mut **rocit_box as *mut usize;
-            **rocit_box = rocit;
-            let cohort = unsafe { *(*cohortset).at(rocit) };
-            rocit += 1;
-            **rocit_box = rocit;
+        // The frame's cursor lives in `rocits[depth]` — ONE object, exactly the
+        // C++ parked `rocit`; inner frames and update_rule_to_cohorts may adjust
+        // it, so it is re-read from the slot at every use.
+        let depth = self.rocits.len() - 1;
+        loop {
+            let rocit = self.rocits[depth];
+            if rocit >= self.cs_ref(cohortset).size() {
+                break;
+            }
+            let cohort = self.cs_ref(cohortset).as_slice()[rocit];
+            self.rocits[depth] = rocit + 1;
 
             self.finish_reading_loop = true;
 
@@ -1962,14 +1963,14 @@ impl super::GrammarApplicator {
                             if with_deep {
                                 self.merge_with = None;
                             }
-                            let deep_ptr: Option<*mut Option<CohortId>> =
-                                if with_deep { Some(&mut result as *mut _) } else { None };
+                            let mut deep_ref: Option<&mut Option<CohortId>> =
+                                if with_deep { Some(&mut result) } else { None };
                             let next_test = if !tpos.intersects(POS_PASS_ORIGIN)
                                 && (self.no_pass_origin || (tpos.intersects(POS_NO_PASS_ORIGIN)))
                             {
-                                self.run_contextual_test(Some(current), c, test, deep_ptr, Some(cohort))
+                                self.run_contextual_test(Some(current), c, test, deep_ref.take(), Some(cohort))
                             } else {
-                                self.run_contextual_test(Some(current), c, test, deep_ptr, None)
+                                self.run_contextual_test(Some(current), c, test, deep_ref.take(), None)
                             };
                             let ctx_push = if self.merge_with.is_some() {
                                 self.merge_with
@@ -2038,9 +2039,7 @@ impl super::GrammarApplicator {
                             let e = p.entries.entry(k).or_default();
                             e.num_match += 1;
                             if e.example_window == 0 {
-                                let mut store = std::mem::take(&mut self.store);
-                                self.add_profiling_example(&mut store, k);
-                                self.store = store;
+                                self.add_profiling_example(k);
                             }
                         }
                         if !self.debug_rules.empty() && self.debug_rules.contains(rline) {
@@ -2129,8 +2128,9 @@ impl super::GrammarApplicator {
             // No valid targets → drop this cohort from the rule set.
             if num_active == 0 && (num_iff == 0 || rtype0 != K_IFF) {
                 if num_immutable == 0 && !matched_target {
-                    rocit -= 1;
-                    unsafe { (*cohortset).erase_n(rocit) };
+                    let ro = self.rocits[depth] - 1;
+                    self.cs_mut(cohortset).erase_n(ro);
+                    self.rocits[depth] = ro;
                 }
                 self.context_stack.pop();
                 continue;
@@ -2166,13 +2166,13 @@ impl super::GrammarApplicator {
                 }
                 *self.context_stack.last_mut().unwrap() = ctx;
                 self.reset_cohorts_for_loop = false;
-                reading_cb();
+                self.reading_cb_dispatch(st);
                 if !self.finish_cohort_loop {
                     self.context_stack.pop();
                     return anything_changed;
                 }
                 if self.reset_cohorts_for_loop {
-                    cohortset = self.rr_reset_cohorts(current, rnumber, &mut rocit);
+                    cohortset = self.rr_reset_cohorts(current, rnumber);
                     broke = true;
                     break;
                 }
@@ -2183,13 +2183,13 @@ impl super::GrammarApplicator {
             let _ = broke;
 
             self.reset_cohorts_for_loop = false;
-            cohort_cb();
+            self.cohort_cb_dispatch(st);
             if !self.finish_cohort_loop {
                 self.context_stack.pop();
                 return anything_changed;
             }
             if self.reset_cohorts_for_loop {
-                cohortset = self.rr_reset_cohorts(current, rnumber, &mut rocit);
+                cohortset = self.rr_reset_cohorts(current, rnumber);
             }
             self.context_stack.pop();
         }
@@ -2224,9 +2224,7 @@ impl super::GrammarApplicator {
     fn rr_erase_from_all_cohortsets(&mut self, current: SwId, cohort: CohortId) {
         let n = self.store.single_windows.get(current.0).rule_to_cohorts.len();
         for i in 0..n {
-            let cs: *mut CohortSet =
-                &mut self.store.single_windows.get_mut(current.0).rule_to_cohorts[i];
-            self.cohortset_erase(cs, cohort);
+            self.cohortset_erase_at(super::CsRef::Window { sw: current, rule: i as u32 }, cohort);
         }
     }
 
@@ -2408,7 +2406,7 @@ impl super::GrammarApplicator {
     /// invoked once after all matched readings have been through `reading_cb`.
     /// Dispatches SELECT/REMOVE finalisation, IFF, JUMP, REM/SETVARIABLE, DELIMIT,
     /// EXTERNAL, and REMCOHORT. `&mut RRState` carries the mutable rule-loop state.
-    pub fn cohort_cb_dispatch(&mut self, st: &mut RRState) {
+    fn cohort_cb_dispatch(&mut self, st: &mut RRState) {
         let rule = st.rule;
         let rtype = self.grammar.rule_by_number.get(rule.0).r#type;
         let rflags = self.grammar.rule_by_number.get(rule.0).flags;
@@ -2639,10 +2637,8 @@ impl super::GrammarApplicator {
             // of self.externals (and the store out of self) for the duration of
             // the round-trip to satisfy the borrow checker, then restores both.
             let mut es = self.externals.remove(&varname).expect("external process");
-            let mut store = std::mem::take(&mut self.store);
-            self.pipe_out_single_window(&store, current, &mut es);
-            self.pipe_in_single_window(&mut store, current, &mut es);
-            self.store = store;
+            self.pipe_out_single_window(current, &mut es);
+            self.pipe_in_single_window(current, &mut es);
             self.externals.insert(varname, es);
 
             self.index_single_window(current);
@@ -2705,7 +2701,7 @@ impl super::GrammarApplicator {
     /// The heavier window-restructuring types (ADDCOHORT, SPLITCOHORT, MERGECOHORTS,
     /// COPYCOHORT, MOVE/SWITCH, the dependency/relation family) are delegated to
     /// `rr_*` helper methods so this dispatcher stays a readable jump table.
-    pub fn reading_cb_dispatch(&mut self, st: &mut RRState) {
+    fn reading_cb_dispatch(&mut self, st: &mut RRState) {
         let rule = st.rule;
         let (rtype, rflags, rnumber, rsub_reading) = {
             let r = self.grammar.rule_by_number.get(rule.0);
@@ -2884,14 +2880,7 @@ impl super::GrammarApplicator {
             let sr_flags = self.grammar.rule_by_number.get(sr.0).flags;
             loop {
                 st.readings_changed = false;
-                // Rebuild trampolines aliasing self+st for the nested call.
-                let this_ptr = self as *mut Self;
-                let st_ptr: *mut RRState = st;
-                let reading_cb: super::RuleCallback =
-                    Box::new(move || unsafe { (*this_ptr).reading_cb_dispatch(&mut *st_ptr) });
-                let cohort_cb: super::RuleCallback =
-                    Box::new(move || unsafe { (*this_ptr).cohort_cb_dispatch(&mut *st_ptr) });
-                let result = self.run_single_rule(current, sr, reading_cb, cohort_cb);
+                let result = self.run_single_rule(current, sr, st);
                 any_readings_changed = any_readings_changed || result || st.readings_changed;
                 if !((result || st.readings_changed) && (sr_flags.intersects(RF_REPEAT))) {
                     break;
@@ -3487,21 +3476,12 @@ impl super::GrammarApplicator {
                     for r in wf_rules {
                         let rw = self.grammar.rule_by_number.get(r.0).wordform;
                         let rn = self.grammar.rule_by_number.get(r.0).number;
+                        let cs = super::CsRef::Window { sw: current, rule: rn };
                         if self.does_wordforms_match(Some(wf), rw) {
-                            let cs: *mut CohortSet = &mut self
-                                .store
-                                .single_windows
-                                .get_mut(current.0)
-                                .rule_to_cohorts[rn as usize];
-                            self.cohortset_insert(cs, cohort);
+                            self.cohortset_insert_at(cs, cohort);
                             st.intersects.insert(rn);
                         } else {
-                            let cs: *mut CohortSet = &mut self
-                                .store
-                                .single_windows
-                                .get_mut(current.0)
-                                .rule_to_cohorts[rn as usize];
-                            self.cohortset_erase(cs, cohort);
+                            self.cohortset_erase_at(cs, cohort);
                         }
                     }
                     let wf_hash = self.grammar.single_tags_list.get(wf.0).hash;
@@ -3585,7 +3565,7 @@ impl super::GrammarApplicator {
                 tparent,
                 tlocal,
                 dep_target,
-                Some(&mut attach_out as *mut _),
+                Some(&mut attach_out),
                 None,
             );
             if res.is_some() && attach_out.is_some() {
@@ -3816,7 +3796,7 @@ impl super::GrammarApplicator {
         self.context_stack.last_mut().unwrap().attach_to = super::ReadingSpec::default();
         let mut attach_out: Option<CohortId> = None;
         let res =
-            self.run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out as *mut _), None);
+            self.run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None);
         let attach0 = attach_out;
         let same_parent = attach0
             .map(|a| self.store.cohorts.get(a.0).parent == self.store.cohorts.get(cohort.0).parent)
@@ -4365,7 +4345,7 @@ impl super::GrammarApplicator {
                 (c.parent, c.local_number)
             };
             let mut attach: Option<CohortId> = None;
-            let tg = self.run_contextual_test(tparent, tlocal, it, Some(&mut attach as *mut _), None).is_some()
+            let tg = self.run_contextual_test(tparent, tlocal, it, Some(&mut attach), None).is_some()
                 && attach.is_some();
             self.profile_rule_context(tg, rule, it);
             if !tg {
@@ -4461,7 +4441,7 @@ impl super::GrammarApplicator {
             Some(current),
             c,
             dep_target,
-            Some(&mut attach_out as *mut _),
+            Some(&mut attach_out),
             None,
         );
         if !(res.is_some() && attach_out.is_some()) {

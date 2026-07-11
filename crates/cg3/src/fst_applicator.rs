@@ -35,7 +35,6 @@ use crate::inlines::{NUMERIC_MAX, insert_if_exists, isnl, isspace, reversed, ski
 use crate::cohort::append_reading;
 use crate::reading::alloc_reading;
 use crate::single_window::{append_cohort, free_swindow};
-use crate::store::RuntimeStore;
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
 use crate::types::UString;
 use crate::uextras::{get_line_clean, u_fputc, ux_strip_bom};
@@ -55,17 +54,7 @@ fn tag_by_hash(grammar: &Grammar, hash: u32) -> TagId {
 /// C++ `reverse(Reading* head)` (the `inlines.hpp` `->next`-chain reversal),
 /// specialised to the arena `ReadingId` chain: reverses the singly-linked
 /// sub-reading `next` chain in place and returns the new head.
-fn reverse_reading(store: &mut RuntimeStore, head: ReadingId) -> ReadingId {
-    let mut nr: Option<ReadingId> = None;
-    let mut cur: Option<ReadingId> = Some(head);
-    while let Some(h) = cur {
-        let next = store.readings.get(h.0).next;
-        store.readings.get_mut(h.0).next = nr;
-        nr = Some(h);
-        cur = next;
-    }
-    nr.unwrap_or(head)
-}
+use crate::reading::reverse as reverse_reading;
 
 // [spec:cg3:def:fst-applicator.cg3.fst-applicator]
 /// C++ `class FSTApplicator : public virtual GrammarApplicator`. Composition
@@ -110,12 +99,11 @@ impl FSTApplicator {
     /// `&mut store` borrows (matching the base print methods).
     pub fn print_reading<W: Write>(
         &self,
-        store: &crate::store::RuntimeStore,
         reading: ReadingId,
         output: &mut W,
     ) {
         let (noprint, deleted, next, baseform, parent) = {
-            let r = store.readings.get(reading.0);
+            let r = self.base.store.readings.get(reading.0);
             (r.noprint, r.deleted, r.next, r.baseform, r.parent)
         };
         if noprint {
@@ -126,7 +114,7 @@ impl FSTApplicator {
         }
 
         if let Some(next_id) = next {
-            self.print_reading(store, next_id, output);
+            self.print_reading(next_id, output);
             let _ = write!(output, "{}", self.sub_delims);
         }
 
@@ -145,11 +133,11 @@ impl FSTApplicator {
         // parent->wordform->hash for the skip test.
         let parent_wf_hash = {
             let cid = parent.expect("reading has no parent cohort");
-            let wf = store.cohorts.get(cid.0).wordform;
+            let wf = self.base.store.cohorts.get(cid.0).wordform;
             wf.map(|t| self.base.grammar.single_tags_list[t.0].hash).unwrap_or(0)
         };
 
-        let tags_list: Vec<u32> = store.readings.get(reading.0).tags_list.clone();
+        let tags_list: Vec<u32> = self.base.store.readings.get(reading.0).tags_list.clone();
         let mut unique: crate::sorted_vector::uint32SortedVector =
             crate::sorted_vector::uint32SortedVector::new();
         for tter in tags_list {
@@ -185,20 +173,19 @@ impl FSTApplicator {
     /// otherwise dropped from FST output.
     pub fn print_cohort<W: Write>(
         &mut self,
-        store: &mut crate::store::RuntimeStore,
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
     ) {
         let (local_number, ctype) = {
-            let c = store.cohorts.get(cohort.0);
+            let c = self.base.store.cohorts.get(cohort.0);
             (c.local_number, c.r#type)
         };
         // if (local_number == 0 || (type & CT_REMOVED)) goto removed;
         let goto_removed = local_number == 0 || (ctype.intersects(CT_REMOVED));
 
         if !goto_removed {
-            let wblank = store.cohorts.get(cohort.0).wblank.clone();
+            let wblank = self.base.store.cohorts.get(cohort.0).wblank.clone();
             if !wblank.is_empty() {
                 let _ = write!(output, "{wblank}");
                 if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
@@ -206,7 +193,7 @@ impl FSTApplicator {
                 }
             }
 
-            if store.cohorts.get(cohort.0).wread.is_some() && !self.did_warn_statictags {
+            if self.base.store.cohorts.get(cohort.0).wread.is_some() && !self.did_warn_statictags {
                 // u_fprintf(ux_stderr, "Warning: FST CG format cannot output
                 // static tags! You are losing information!\n"); ux_stderr is a
                 // placeholder — emission deferred; the one-shot flag is set.
@@ -214,22 +201,16 @@ impl FSTApplicator {
             }
 
             if !profiling {
-                crate::cohort::unignore_all(store, cohort);
+                crate::cohort::unignore_all(&mut self.base.store, cohort);
                 if !self.base.split_mappings {
-                    // mergeMappings(*cohort) — needs &mut self.base with the store
-                    // swapped out (its signature threads self.base.store inline).
-                    let mut s = std::mem::take(store);
-                    std::mem::swap(&mut s, &mut self.base.store);
                     self.base.merge_mappings(cohort);
-                    std::mem::swap(&mut self.base.store, &mut s);
-                    *store = s;
                 }
             }
 
             // wform = cohort->wordform->tag; print stripped of `"<` and `>"`:
             // wform.size() - 4 chars starting at wform.data() + 2.
             let wform: Vec<char> = {
-                let wf = store.cohorts.get(cohort.0).wordform.expect("cohort wordform");
+                let wf = self.base.store.cohorts.get(cohort.0).wordform.expect("cohort wordform");
                 self.base.grammar.single_tags_list[wf.0].tag.chars().collect()
             };
             let wform_inner: String = if wform.len() >= 4 {
@@ -238,8 +219,8 @@ impl FSTApplicator {
                 String::new()
             };
 
-            let readings: Vec<ReadingId> = store.cohorts.get(cohort.0).readings.clone();
-            let only_noprint = readings.len() == 1 && store.readings.get(readings[0].0).noprint;
+            let readings: Vec<ReadingId> = self.base.store.cohorts.get(cohort.0).readings.clone();
+            let only_noprint = readings.len() == 1 && self.base.store.readings.get(readings[0].0).noprint;
             if readings.is_empty() || only_noprint {
                 // "<wordform>\t+?\n" — the FST "no analysis" marker.
                 let _ = write!(output, "{wform_inner}\t+?\n");
@@ -248,7 +229,7 @@ impl FSTApplicator {
                 // applicator) — iterate the current vector order verbatim.
                 for rter in readings {
                     let _ = write!(output, "{wform_inner}\t");
-                    self.print_reading(store, rter, output);
+                    self.print_reading(rter, output);
                     u_fputc('\n', output);
                 }
             }
@@ -256,7 +237,7 @@ impl FSTApplicator {
         }
 
         // removed:
-        let text = store.cohorts.get(cohort.0).text.clone();
+        let text = self.base.store.cohorts.get(cohort.0).text.clone();
         if !text.is_empty() && text.chars().any(|c| !self.is_ws(c)) {
             let _ = write!(output, "{text}");
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
@@ -288,13 +269,12 @@ impl FSTApplicator {
     /// forwarded to `printCohort` only.
     pub fn print_single_window<W: Write>(
         &mut self,
-        store: &mut crate::store::RuntimeStore,
         window: SwId,
         output: &mut W,
         profiling: bool,
     ) {
         let (text, all_cohorts, text_post) = {
-            let w = store.single_windows.get(window.0);
+            let w = self.base.store.single_windows.get(window.0);
             (w.text.clone(), w.all_cohorts.clone(), w.text_post.clone())
         };
 
@@ -306,7 +286,7 @@ impl FSTApplicator {
         }
 
         for cohort in all_cohorts {
-            self.print_cohort(store, cohort, output, profiling);
+            self.print_cohort(cohort, output, profiling);
         }
 
         if !text_post.is_empty() {
@@ -792,9 +772,7 @@ impl FSTApplicator {
         self.base.gWindow.shuffle_windows_down(&mut self.base.store);
         while !self.base.gWindow.previous.is_empty() {
             let tmp = self.base.gWindow.previous[0];
-            let mut store = std::mem::take(&mut self.base.store);
-            self.print_single_window(&mut store, tmp, output, false);
-            self.base.store = store;
+            self.print_single_window(tmp, output, false);
             let t = Some(tmp);
             free_swindow(&mut self.base.gWindow, &mut self.base.store, t);
             self.base.gWindow.previous.remove(0);
@@ -831,9 +809,7 @@ impl FSTApplicator {
         if self.base.is_conv {
             if let Some(cc) = *c_cohort {
                 self.base.store.cohorts.get_mut(cc.0).local_number = 1;
-                let mut store = std::mem::take(&mut self.base.store);
-                self.print_cohort(&mut store, cc, output, false);
-                self.base.store = store;
+                self.print_cohort(cc, output, false);
                 let opt = Some(cc);
                 free_cohort(&mut self.base.store, Some(&mut self.base.gWindow), opt);
                 *c_cohort = None;

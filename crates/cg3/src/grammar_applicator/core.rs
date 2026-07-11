@@ -766,14 +766,13 @@ impl super::GrammarApplicator {
     /// C++ `void printReading(const Reading* reading, std::ostream& output,
     /// size_t sub = 1)`. Resolves `Reading*`/`Cohort*` through `store`.
     pub fn print_reading<W: Write>(
-        &self,
-        store: &mut RuntimeStore,
+        &mut self,
         reading: ReadingId,
         output: &mut W,
         sub: usize,
     ) {
         let (noprint, deleted, baseform, parent_cid) = {
-            let r = store.readings.get(reading.0);
+            let r = self.store.readings.get(reading.0);
             (r.noprint, r.deleted, r.baseform, r.parent)
         };
         if noprint {
@@ -790,7 +789,7 @@ impl super::GrammarApplicator {
         }
         let parent_cid = parent_cid.expect("reading has no parent cohort");
         let wordform_hash = {
-            let wf = store.cohorts.get(parent_cid.0).wordform;
+            let wf = self.store.cohorts.get(parent_cid.0).wordform;
             wf.map(|t| self.grammar.single_tags_list[t.0].hash).unwrap_or(0)
         };
 
@@ -799,7 +798,7 @@ impl super::GrammarApplicator {
             let _ = write!(output, "{}", self.grammar.single_tags_list[tid.0].tag);
         }
 
-        let tags_list: Vec<u32> = store.readings.get(reading.0).tags_list.clone();
+        let tags_list: Vec<u32> = self.store.readings.get(reading.0).tags_list.clone();
         let mut unique: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         let mut mappings: Vec<TagId> = Vec::new();
         for tter in tags_list {
@@ -834,16 +833,16 @@ impl super::GrammarApplicator {
         }
 
         // --- dependency annotation ---
-        let parent_removed = store.cohorts.get(parent_cid.0).r#type.intersects(CT_REMOVED);
+        let parent_removed = self.store.cohorts.get(parent_cid.0).r#type.intersects(CT_REMOVED);
         if self.has_dep && !parent_removed {
             {
-                let c = store.cohorts.get_mut(parent_cid.0);
+                let c = self.store.cohorts.get_mut(parent_cid.0);
                 if c.dep_self == 0 {
                     c.dep_self = c.global_number;
                 }
             }
             let (p_global, p_local, p_dep_parent, p_sw) = {
-                let c = store.cohorts.get(parent_cid.0);
+                let c = self.store.cohorts.get(parent_cid.0);
                 (c.global_number, c.local_number, c.dep_parent, c.parent)
             };
             let mut pr = parent_cid;
@@ -851,7 +850,7 @@ impl super::GrammarApplicator {
                 if p_dep_parent == 0 {
                     // parent->parent->cohorts[0]
                     if let Some(sw) = p_sw {
-                        pr = store.single_windows.get(sw.0).cohorts[0];
+                        pr = self.store.single_windows.get(sw.0).cohorts[0];
                     }
                 } else if let Some(&mapped) = self.gWindow.cohort_map.get(&p_dep_parent) {
                     pr = mapped;
@@ -859,14 +858,14 @@ impl super::GrammarApplicator {
             }
             let arrow = if self.unicode_tags { "\u{2192}" } else { "->" };
             if self.dep_absolute {
-                let pr_global = store.cohorts.get(pr.0).global_number;
+                let pr_global = self.store.cohorts.get(pr.0).global_number;
                 let _ = write!(output, " #{p_global}{arrow}{pr_global}");
             } else if !self.dep_has_spanned {
-                let pr_local = store.cohorts.get(pr.0).local_number;
+                let pr_local = self.store.cohorts.get(pr.0).local_number;
                 let _ = write!(output, " #{p_local}{arrow}{pr_local}");
             } else {
                 let w = self.dep_span_width();
-                let p_win = p_sw.map(|s| store.single_windows.get(s.0).number).unwrap_or(0);
+                let p_win = p_sw.map(|s| self.store.single_windows.get(s.0).number).unwrap_or(0);
                 if p_dep_parent == DEP_NO_PARENT {
                     let _ = write!(output, " #{a}{b:0w$}{arrow}{c}{d:0w$}",
                             a = p_win,
@@ -876,8 +875,8 @@ impl super::GrammarApplicator {
                             w = w);
                 } else {
                     let (pr_local, pr_win) = {
-                        let c = store.cohorts.get(pr.0);
-                        let win = c.parent.map(|s| store.single_windows.get(s.0).number).unwrap_or(0);
+                        let c = self.store.cohorts.get(pr.0);
+                        let win = c.parent.map(|s| self.store.single_windows.get(s.0).number).unwrap_or(0);
                         (c.local_number, win)
                     };
                     let _ = write!(output, " #{a}{b:0w$}{arrow}{c}{d:0w$}",
@@ -892,7 +891,7 @@ impl super::GrammarApplicator {
 
         // --- ID + relations ---
         let (p_related, p_global2, relations) = {
-            let c = store.cohorts.get(parent_cid.0);
+            let c = self.store.cohorts.get(parent_cid.0);
             (c.r#type.intersects(CT_RELATED), c.global_number, c.relations.clone())
         };
         if self.print_ids || p_related {
@@ -906,7 +905,7 @@ impl super::GrammarApplicator {
         }
 
         if self.trace {
-            let hit_by: Vec<u32> = store.readings.get(reading.0).hit_by.clone();
+            let hit_by: Vec<u32> = self.store.readings.get(reading.0).hit_by.clone();
             for hb in hit_by {
                 u_fputc(' ', output);
                 self.print_trace(output, hb);
@@ -915,10 +914,10 @@ impl super::GrammarApplicator {
 
         u_fputc('\n', output);
 
-        let next = store.readings.get(reading.0).next;
+        let next = self.store.readings.get(reading.0).next;
         if let Some(next_id) = next {
-            store.readings.get_mut(next_id.0).deleted = deleted;
-            self.print_reading(store, next_id, output, sub + 1);
+            self.store.readings.get_mut(next_id.0).deleted = deleted;
+            self.print_reading(next_id, output, sub + 1);
         }
     }
 
@@ -928,19 +927,18 @@ impl super::GrammarApplicator {
     /// bool profiling = false)`.
     pub fn print_cohort<W: Write>(
         &mut self,
-        store: &mut RuntimeStore,
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
     ) {
-        let local_number = store.cohorts.get(cohort.0).local_number;
+        let local_number = self.store.cohorts.get(cohort.0).local_number;
         // `goto removed` from local_number == 0 skips the entire main body.
         if local_number != 0 {
             if profiling && Some(cohort) == self.rule_target {
                 let _ = write!(output, "# RULE TARGET BEGIN\n");
             }
 
-            let wblank = store.cohorts.get(cohort.0).wblank.clone();
+            let wblank = self.store.cohorts.get(cohort.0).wblank.clone();
             if !wblank.is_empty() {
                 self.print_plain_text_line(&wblank, output);
                 if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
@@ -949,7 +947,7 @@ impl super::GrammarApplicator {
             }
 
             let mut removed_goto = false;
-            if store.cohorts.get(cohort.0).r#type.intersects(CT_REMOVED) {
+            if self.store.cohorts.get(cohort.0).r#type.intersects(CT_REMOVED) {
                 if !self.trace || self.trace_no_removed {
                     removed_goto = true;
                 } else {
@@ -960,13 +958,13 @@ impl super::GrammarApplicator {
 
             if !removed_goto {
                 let (wf_tag, wf_hash) = {
-                    let wf = store.cohorts.get(cohort.0).wordform.expect("cohort wordform");
+                    let wf = self.store.cohorts.get(cohort.0).wordform.expect("cohort wordform");
                     let t = &self.grammar.single_tags_list[wf.0];
                     (t.tag.clone(), t.hash)
                 };
                 let _ = write!(output, "{wf_tag}");
-                if let Some(wr) = store.cohorts.get(cohort.0).wread {
-                    let tags: Vec<u32> = store.readings.get(wr.0).tags_list.clone();
+                if let Some(wr) = self.store.cohorts.get(cohort.0).wread {
+                    let tags: Vec<u32> = self.store.readings.get(wr.0).tags_list.clone();
                     for tter in tags {
                         if tter == wf_hash {
                             continue;
@@ -978,44 +976,39 @@ impl super::GrammarApplicator {
                 u_fputc('\n', output);
 
                 if !profiling {
-                    unignore_all(store, cohort);
+                    unignore_all(&mut self.store, cohort);
                     if !self.split_mappings {
-                        // merge_mappings reads self.store; the live store is the
-                        // param here (self.store is empty during the caller's
-                        // mem::take swap), so swap it in around the call.
-                        std::mem::swap(&mut self.store, store);
                         self.merge_mappings(cohort);
-                        std::mem::swap(&mut self.store, store);
                     }
                 }
 
                 // std::sort(readings, cmp_number)
-                let mut readings: Vec<ReadingId> = store.cohorts.get(cohort.0).readings.clone();
-                sort_readings(store, &mut readings);
-                store.cohorts.get_mut(cohort.0).readings = readings.clone();
+                let mut readings: Vec<ReadingId> = self.store.cohorts.get(cohort.0).readings.clone();
+                sort_readings(&self.store, &mut readings);
+                self.store.cohorts.get_mut(cohort.0).readings = readings.clone();
                 for r in readings {
-                    self.print_reading(store, r, output, 1);
+                    self.print_reading(r, output, 1);
                 }
 
                 if self.trace && !self.trace_no_removed {
-                    let mut delayed: Vec<ReadingId> = store.cohorts.get(cohort.0).delayed.clone();
-                    sort_readings(store, &mut delayed);
-                    store.cohorts.get_mut(cohort.0).delayed = delayed.clone();
+                    let mut delayed: Vec<ReadingId> = self.store.cohorts.get(cohort.0).delayed.clone();
+                    sort_readings(&self.store, &mut delayed);
+                    self.store.cohorts.get_mut(cohort.0).delayed = delayed.clone();
                     for r in delayed {
-                        self.print_reading(store, r, output, 1);
+                        self.print_reading(r, output, 1);
                     }
-                    let mut del: Vec<ReadingId> = store.cohorts.get(cohort.0).deleted.clone();
-                    sort_readings(store, &mut del);
-                    store.cohorts.get_mut(cohort.0).deleted = del.clone();
+                    let mut del: Vec<ReadingId> = self.store.cohorts.get(cohort.0).deleted.clone();
+                    sort_readings(&self.store, &mut del);
+                    self.store.cohorts.get_mut(cohort.0).deleted = del.clone();
                     for r in del {
-                        self.print_reading(store, r, output, 1);
+                        self.print_reading(r, output, 1);
                     }
                 }
             }
         }
 
         // removed:
-        let text = store.cohorts.get(cohort.0).text.clone();
+        let text = self.store.cohorts.get(cohort.0).text.clone();
         if !text.is_empty() && text.chars().any(|c| !self.is_ws(c)) {
             self.print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
@@ -1048,7 +1041,6 @@ impl super::GrammarApplicator {
     /// std::ostream& output, bool profiling = false)`.
     pub fn print_single_window<W: Write>(
         &mut self,
-        store: &mut RuntimeStore,
         window: SwId,
         output: &mut W,
         profiling: bool,
@@ -1057,7 +1049,7 @@ impl super::GrammarApplicator {
         // overrides is the StreamFormat strategy; this is the base CG
         // implementation.)
         let (vars_output, all_cohorts, text, text_post, flush_after) = {
-            let w = store.single_windows.get(window.0);
+            let w = self.store.single_windows.get(window.0);
             (
                 w.variables_output.iter().copied().collect::<Vec<u32>>(),
                 w.all_cohorts.clone(),
@@ -1073,7 +1065,7 @@ impl super::GrammarApplicator {
                 self.grammar.single_tags_list[tid.0].tag.clone()
             };
             let value_hash: Option<u32> = {
-                let w = store.single_windows.get(window.0);
+                let w = self.store.single_windows.get(window.0);
                 let it = w.variables_set.find(var);
                 if it != w.variables_set.end() {
                     Some(it.get().1)
@@ -1111,7 +1103,7 @@ impl super::GrammarApplicator {
         }
 
         for cohort in all_cohorts {
-            self.print_cohort(store, cohort, output, profiling);
+            self.print_cohort(cohort, output, profiling);
         }
 
         if !text_post.is_empty() && text_post.chars().any(|c| !self.is_ws(c)) {
@@ -1133,13 +1125,12 @@ impl super::GrammarApplicator {
     /// C++ `void pipeOutReading(const Reading* reading, std::ostream& output)`.
     pub fn pipe_out_reading<W: Write>(
         &self,
-        store: &RuntimeStore,
         reading: ReadingId,
         output: &mut W,
     ) {
         let mut ss: Vec<u8> = Vec::new();
 
-        let r = store.readings.get(reading.0);
+        let r = self.store.readings.get(reading.0);
         let mut flags: u32 = 0;
         if r.noprint {
             flags |= 1 << 1;
@@ -1157,7 +1148,8 @@ impl super::GrammarApplicator {
             write_utf8_raw(&mut ss, &self.grammar.single_tags_list[tid.0].tag);
         }
 
-        let wordform_hash = store
+        let wordform_hash = self
+            .store
             .cohorts
             .get(r.parent.expect("reading parent").0)
             .wordform
@@ -1197,13 +1189,12 @@ impl super::GrammarApplicator {
     /// C++ `void pipeOutCohort(const Cohort* cohort, std::ostream& output)`.
     pub fn pipe_out_cohort<W: Write>(
         &self,
-        store: &RuntimeStore,
         cohort: CohortId,
         output: &mut W,
     ) {
         let mut ss: Vec<u8> = Vec::new();
 
-        let c = store.cohorts.get(cohort.0);
+        let c = self.store.cohorts.get(cohort.0);
         write_raw(&mut ss, c.global_number);
 
         let mut flags: u32 = 0;
@@ -1227,7 +1218,7 @@ impl super::GrammarApplicator {
         let readings: Vec<ReadingId> = c.readings.clone();
         let text = c.text.clone();
         for rter1 in readings {
-            self.pipe_out_reading(store, rter1, &mut ss);
+            self.pipe_out_reading(rter1, &mut ss);
         }
         if !text.is_empty() {
             write_utf8_raw(&mut ss, &text);
@@ -1243,14 +1234,13 @@ impl super::GrammarApplicator {
     /// C++ `void pipeOutSingleWindow(const SingleWindow& window, Process& output)`.
     pub fn pipe_out_single_window(
         &self,
-        store: &RuntimeStore,
         window: SwId,
         output: &mut Process,
     ) {
         let mut ss: Vec<u8> = Vec::new();
 
         let (number, cohorts) = {
-            let w = store.single_windows.get(window.0);
+            let w = self.store.single_windows.get(window.0);
             (w.number, w.cohorts.clone())
         };
         write_raw(&mut ss, number);
@@ -1259,7 +1249,7 @@ impl super::GrammarApplicator {
         write_raw(&mut ss, cs);
 
         for c in 1..(cs + 1) {
-            self.pipe_out_cohort(store, cohorts[c as usize], &mut ss);
+            self.pipe_out_cohort(cohorts[c as usize], &mut ss);
         }
 
         let cs = ui32(ss.len());
@@ -1282,7 +1272,6 @@ impl super::GrammarApplicator {
     /// placeholder). `reflowReading` lives in the empty reflow.rs partial.
     pub fn pipe_in_reading(
         &mut self,
-        store: &mut RuntimeStore,
         reading: ReadingId,
         input: &mut Process,
         force: bool,
@@ -1301,30 +1290,31 @@ impl super::GrammarApplicator {
         }
 
         {
-            let r = store.readings.get_mut(reading.0);
+            let r = self.store.readings.get_mut(reading.0);
             r.noprint = (flags & (1 << 1)) != 0;
             r.deleted = (flags & (1 << 2)) != 0;
         }
 
         if flags & (1 << 3) != 0 {
             let str = read_utf8_raw(&mut ss);
-            let baseform = store.readings.get(reading.0).baseform;
+            let baseform = self.store.readings.get(reading.0).baseform;
             let cur = {
                 let tid = tag_by_hash(&self.grammar, baseform);
                 self.grammar.single_tags_list[tid.0].tag.clone()
             };
             if str != cur {
                 let tag = self.add_tag(&str, crate::tag::TagType::empty());
-                store.readings.get_mut(reading.0).baseform =
+                self.store.readings.get_mut(reading.0).baseform =
                     self.grammar.single_tags_list[tag.0].hash;
             }
         } else {
-            store.readings.get_mut(reading.0).baseform = 0;
+            self.store.readings.get_mut(reading.0).baseform = 0;
         }
 
         let (wordform_hash, baseform) = {
-            let r = store.readings.get(reading.0);
-            let wf = store
+            let r = self.store.readings.get(reading.0);
+            let wf = self
+                .store
                 .cohorts
                 .get(r.parent.expect("reading parent").0)
                 .wordform
@@ -1333,7 +1323,7 @@ impl super::GrammarApplicator {
             (wf, r.baseform)
         };
         {
-            let r = store.readings.get_mut(reading.0);
+            let r = self.store.readings.get_mut(reading.0);
             r.tags_list.clear();
             r.tags_list.push(wordform_hash);
             if baseform != 0 {
@@ -1346,25 +1336,22 @@ impl super::GrammarApplicator {
             let str = read_utf8_raw(&mut ss);
             let tag = self.add_tag(&str, crate::tag::TagType::empty());
             let hash = self.grammar.single_tags_list[tag.0].hash;
-            store.readings.get_mut(reading.0).tags_list.push(hash);
+            self.store.readings.get_mut(reading.0).tags_list.push(hash);
         }
 
-        // reflowReading(*reading); — reflow_reading reads self.store, but the
-        // caller has lifted the store out of self (mem::take) to hand it to the
-        // pipe_* fns; swap the real store back in around the call.
-        std::mem::swap(&mut self.store, store);
+        // reflowReading(*reading) — direct now that the pipe fns use
+        // self.store (the old take/swap dance is gone).
         self.reflow_reading(reading);
-        std::mem::swap(&mut self.store, store);
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn]
     /// C++ `void pipeInCohort(Cohort* cohort, Process& input)`.
-    pub fn pipe_in_cohort(&mut self, store: &mut RuntimeStore, cohort: CohortId, input: &mut Process) {
+    pub fn pipe_in_cohort(&mut self, cohort: CohortId, input: &mut Process) {
         let _packet_len: u32 = read_raw(&mut ProcRead(input));
 
         let cs: u32 = read_raw(&mut ProcRead(input));
-        let global_number = store.cohorts.get(cohort.0).global_number;
+        let global_number = self.store.cohorts.get(cohort.0).global_number;
         if cs != global_number {
             // "Error: External returned data for cohort ... but we expected ...!"
             cg3_quit(1, Some(file!()), self.numLines);
@@ -1374,12 +1361,13 @@ impl super::GrammarApplicator {
 
         if flags & (1 << 1) != 0 {
             let dp: u32 = read_raw(&mut ProcRead(input));
-            store.cohorts.get_mut(cohort.0).dep_parent = dp;
+            self.store.cohorts.get_mut(cohort.0).dep_parent = dp;
         }
 
         let mut force_readings = false;
         let str = read_utf8_raw(&mut ProcRead(input));
-        let cur_wf = store
+        let cur_wf = self
+            .store
             .cohorts
             .get(cohort.0)
             .wordform
@@ -1387,33 +1375,33 @@ impl super::GrammarApplicator {
             .unwrap_or_default();
         if str != cur_wf {
             let tag = self.add_tag(&str, crate::tag::TagType::empty());
-            store.cohorts.get_mut(cohort.0).wordform = Some(tag);
+            self.store.cohorts.get_mut(cohort.0).wordform = Some(tag);
             force_readings = true;
         }
 
         let cs: u32 = read_raw(&mut ProcRead(input));
         for i in 0..cs {
-            let rid = store.cohorts.get(cohort.0).readings[i as usize];
-            self.pipe_in_reading(store, rid, input, force_readings);
+            let rid = self.store.cohorts.get(cohort.0).readings[i as usize];
+            self.pipe_in_reading(rid, input, force_readings);
         }
 
         if flags & (1 << 0) != 0 {
             let text = read_utf8_raw(&mut ProcRead(input));
-            store.cohorts.get_mut(cohort.0).text = text;
+            self.store.cohorts.get_mut(cohort.0).text = text;
         }
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn]
     /// C++ `void pipeInSingleWindow(SingleWindow& window, Process& input)`.
-    pub fn pipe_in_single_window(&mut self, store: &mut RuntimeStore, window: SwId, input: &mut Process) {
+    pub fn pipe_in_single_window(&mut self, window: SwId, input: &mut Process) {
         let cs: u32 = read_raw(&mut ProcRead(input));
         if cs == 0 {
             return;
         }
 
         let cs: u32 = read_raw(&mut ProcRead(input));
-        let number = store.single_windows.get(window.0).number;
+        let number = self.store.single_windows.get(window.0).number;
         if cs != number {
             // "Error: External returned data for window ... but we expected ...!"
             cg3_quit(1, Some(file!()), self.numLines);
@@ -1421,8 +1409,8 @@ impl super::GrammarApplicator {
 
         let cs: u32 = read_raw(&mut ProcRead(input));
         for i in 0..cs {
-            let cid = store.single_windows.get(window.0).cohorts[(i + 1) as usize];
-            self.pipe_in_cohort(store, cid, input);
+            let cid = self.store.single_windows.get(window.0).cohorts[(i + 1) as usize];
+            self.pipe_in_cohort(cid, input);
         }
     }
 
@@ -1688,7 +1676,7 @@ impl super::GrammarApplicator {
     /// Renders the whole in-flight window set (profiling mode) with `trace`
     /// force-disabled, into a buffer written to stderr (the C++ `ux_stderr`);
     /// the C++ `swapper<bool>` is a manual save/restore of `trace`.
-    pub fn print_debug_rule(&mut self, store: &mut RuntimeStore, rule: RuleId, target: bool, cntx: bool) {
+    pub fn print_debug_rule(&mut self, rule: RuleId, target: bool, cntx: bool) {
         let saved_trace = self.trace;
         self.trace = false; // swapper<bool>(true, trace, ttrace=false)
 
@@ -1701,15 +1689,15 @@ impl super::GrammarApplicator {
 
         let _ = write!(&mut buf, "# PREVIOUS WINDOWS\n");
         for s in self.gWindow.previous.clone() {
-            self.print_single_window(store, s, &mut buf, true);
+            self.print_single_window(s, &mut buf, true);
         }
         let _ = write!(&mut buf, "# CURRENT WINDOW\n");
         if let Some(cur) = self.gWindow.current {
-            self.print_single_window(store, cur, &mut buf, true);
+            self.print_single_window(cur, &mut buf, true);
         }
         let _ = write!(&mut buf, "# NEXT WINDOWS\n");
         for s in self.gWindow.next.clone() {
-            self.print_single_window(store, s, &mut buf, true);
+            self.print_single_window(s, &mut buf, true);
         }
 
         let _ = write!(&mut buf, "# ===== END RULE {line} =====\n");
@@ -1729,22 +1717,22 @@ impl super::GrammarApplicator {
     /// passes the entry by reference; the port passes its `key` — same entry,
     /// borrow-checker-friendly.) Caller guarantees `self.profiler` is `Some` and
     /// the entry exists.
-    pub(super) fn add_profiling_example(&mut self, store: &mut RuntimeStore, key: crate::profiler::Key) {
+    pub(super) fn add_profiling_example(&mut self, key: crate::profiler::Key) {
         let saved_trace = self.trace;
         self.trace = false; // swapper<bool> _st(true, trace, ttrace=false)
 
         let mut buf: Vec<u8> = Vec::new();
         let _ = write!(&mut buf, "# PREVIOUS WINDOWS\n");
         for s in self.gWindow.previous.clone() {
-            self.print_single_window(store, s, &mut buf, true);
+            self.print_single_window(s, &mut buf, true);
         }
         let _ = write!(&mut buf, "# CURRENT WINDOW\n");
         if let Some(cur) = self.gWindow.current {
-            self.print_single_window(store, cur, &mut buf, true);
+            self.print_single_window(cur, &mut buf, true);
         }
         let _ = write!(&mut buf, "# NEXT WINDOWS\n");
         for s in self.gWindow.next.clone() {
-            self.print_single_window(store, s, &mut buf, true);
+            self.print_single_window(s, &mut buf, true);
         }
         self.trace = saved_trace;
 
@@ -1783,10 +1771,7 @@ impl super::GrammarApplicator {
             let need_example = t.example_window == 0;
             *p.rule_contexts.entry((rule_number + 1, test_hash)).or_insert(0) += 1;
             if need_example {
-                // print_single_window needs `store` distinct from `&mut self`.
-                let mut store = std::mem::take(&mut self.store);
-                self.add_profiling_example(&mut store, key);
-                self.store = store;
+                self.add_profiling_example(key);
             }
         } else {
             t.num_fail += 1;

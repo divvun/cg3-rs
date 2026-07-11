@@ -72,10 +72,7 @@ impl StreamFormat for CgFormat {
         output: &mut W,
         profiling: bool,
     ) {
-        // The base printer threads `store` separately from `&mut self`.
-        let mut store = std::mem::take(&mut app.store);
-        app.print_single_window(&mut store, window, output, profiling);
-        app.store = store;
+        app.print_single_window(window, output, profiling);
     }
 
     fn print_stream_command<W: Write>(
