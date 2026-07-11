@@ -487,7 +487,7 @@ impl DepDescendentIter {
             // Seed with the direct children.
             let dch0 = store.cohorts[cohort_id.0].dep_children.clone();
             for dter in dch0.as_slice() {
-                let current = match window.cohort_map.get(dter) {
+                let current = match window.cohort_map.get(&crate::types::GlobalNumber(*dter)) {
                     None => continue,
                     Some(&c) => c,
                 };
@@ -511,7 +511,7 @@ impl DepDescendentIter {
                     cs_insert(store, &mut seen, cohort_inner);
                     let dch = store.cohorts[cohort_inner.0].dep_children.clone();
                     for dter in dch.as_slice() {
-                        let current = match window.cohort_map.get(dter) {
+                        let current = match window.cohort_map.get(&crate::types::GlobalNumber(*dter)) {
                             None => continue,
                             Some(&c) => c,
                         };

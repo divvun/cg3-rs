@@ -12,6 +12,7 @@ use crate::rule::{
 };
 use crate::set::{ST_CHILD_UNIFY, ST_MAPPING, ST_SPECIAL};
 use crate::tag::T_VARSTRING;
+use crate::types::GlobalNumber;
 
 // C++ anonymous `enum { RV_NOTHING = 1, RV_SOMETHING = 2, RV_DELIMITED = 4,
 // RV_TRACERULE = 8 };` — the return-value bit flags of runRulesOnSingleWindow.
@@ -343,7 +344,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             }
 
             // rule/cohort no-match cache.
-            let gn = self.store.cohorts.get(cohort.0).global_number;
+            let gn = self.store.cohorts.get(cohort.0).global_number.get();
             let ih = hash_value(rnumber, gn);
             if self.index_ruleCohort_no.contains(ih) {
                 continue;
@@ -941,10 +942,10 @@ impl crate::grammar_applicator::GrammarApplicator {
                 dc.back()
             };
             let dp = self.store.cohorts.get(cohort.0).dep_parent;
-            let parent_key = dp.unwrap_or(0);
+            let parent_key = dp.unwrap_or(GlobalNumber(0));
             let (pc, cc) = (
                 self.gWindow.cohort_map.get(&parent_key).copied(),
-                self.gWindow.cohort_map.get(&ch).copied(),
+                self.gWindow.cohort_map.get(&GlobalNumber(ch)).copied(),
             );
             if let (Some(pc), Some(cc)) = (pc, cc) {
                 self.attach_parent_child(pc, cc, true, true);
@@ -953,8 +954,13 @@ impl crate::grammar_applicator::GrammarApplicator {
         }
         self.store.cohorts.get_mut(cohort.0).r#type |= CT_REMOVED;
         crate::cohort::detach(&mut self.store, cohort);
-        let dep_self = self.store.cohorts.get(cohort.0).dep_self;
-        let keys: Vec<u32> = self.gWindow.cohort_map.keys().copied().collect();
+        let dep_self = self
+            .store
+            .cohorts
+            .get(cohort.0)
+            .dep_self
+            .map_or(0, |g| g.get());
+        let keys: Vec<GlobalNumber> = self.gWindow.cohort_map.keys().copied().collect();
         for k in keys {
             let cid = *self.gWindow.cohort_map.get(&k).unwrap();
             self.store
@@ -980,8 +986,13 @@ impl crate::grammar_applicator::GrammarApplicator {
             let empty_cohort = self.store.single_windows.get(current.0).cohorts[0];
             self.rr_erase_from_all_cohortsets(current, empty_cohort);
             crate::cohort::detach(&mut self.store, empty_cohort);
-            let ds = self.store.cohorts.get(empty_cohort.0).dep_self;
-            let keys: Vec<u32> = self.gWindow.cohort_map.keys().copied().collect();
+            let ds = self
+                .store
+                .cohorts
+                .get(empty_cohort.0)
+                .dep_self
+                .map_or(0, |g| g.get());
+            let keys: Vec<GlobalNumber> = self.gWindow.cohort_map.keys().copied().collect();
             for k in keys {
                 let cid = *self.gWindow.cohort_map.get(&k).unwrap();
                 self.store.cohorts.get_mut(cid.0).dep_children.erase(ds);

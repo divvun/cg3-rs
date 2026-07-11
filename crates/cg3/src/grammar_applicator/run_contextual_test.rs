@@ -72,6 +72,7 @@ use crate::inlines::{make_64, si32};
 use crate::single_window::less_cohort;
 use crate::store::RuntimeStore;
 use crate::tag::T_VARSTRING;
+use crate::types::GlobalNumber;
 
 use crate::sorted_vector::uint32SortedVector;
 
@@ -1229,7 +1230,7 @@ impl super::GrammarApplicator {
         };
 
         if test_pos.intersects(POS_DEP_DEEP) {
-            let key = (test_hash, self.store.cohorts.get(current.0).global_number);
+            let key = (test_hash, self.store.cohorts.get(current.0).global_number.get());
             if self.dep_deep_seen.contains(key) {
                 return None;
             }
@@ -1259,7 +1260,7 @@ impl super::GrammarApplicator {
                 .as_slice()
                 .to_vec();
         } else {
-            if self.store.cohorts.get(current.0).dep_parent == Some(0) {
+            if self.store.cohorts.get(current.0).dep_parent == Some(GlobalNumber(0)) {
                 let parent_sw = self.store.cohorts.get(current.0).parent.unwrap();
                 let root = self.store.single_windows.get(parent_sw.0).cohorts[0];
                 deps = self
@@ -1292,8 +1293,8 @@ impl super::GrammarApplicator {
                             };
                             tracing::warn!(
                                 "Warning: Cohort {} (parent {}) did not have any siblings.",
-                                ds,
-                                dp.unwrap_or(crate::cohort::DEP_NO_PARENT)
+                                ds.map_or(0, |g| g.get()),
+                                dp.map_or(crate::cohort::DEP_NO_PARENT, |g| g.get())
                             );
                         }
                         return None;
@@ -1307,7 +1308,7 @@ impl super::GrammarApplicator {
             let mut tmp_deps = uint32SortedVector::new();
             let map: Vec<CohortId> = self.gWindow.cohort_map.values().copied().collect();
             for citer in map {
-                let gnum = self.store.cohorts.get(citer.0).global_number;
+                let gnum = self.store.cohorts.get(citer.0).global_number.get();
                 if deps.contains(&gnum) {
                     if test_pos.intersects(POS_LEFT) {
                         if less_cohort(&self.store, citer, current) {
@@ -1323,7 +1324,7 @@ impl super::GrammarApplicator {
                 }
             }
             if test_pos.intersects(POS_SELF) {
-                let gnum = self.store.cohorts.get(current.0).global_number;
+                let gnum = self.store.cohorts.get(current.0).global_number.get();
                 tmp_deps.insert(gnum);
             }
             let mut tmp_vec = tmp_deps.as_slice().to_vec();
@@ -1333,16 +1334,16 @@ impl super::GrammarApplicator {
             deps = tmp_vec;
         }
 
-        let cur_gnum = self.store.cohorts.get(current.0).global_number;
+        let cur_gnum = self.store.cohorts.get(current.0).global_number.get();
         for dter in deps {
             if dter == cur_gnum && (!test_pos.intersects(POS_SELF)) {
                 continue;
             }
-            let mapped = self.gWindow.cohort_map.get(&dter).copied();
+            let mapped = self.gWindow.cohort_map.get(&GlobalNumber(dter)).copied();
             let cohort = match mapped {
                 None => {
                     if self.verbosity_level > 0 {
-                        let ds = self.store.cohorts.get(current.0).dep_self;
+                        let ds = self.store.cohorts.get(current.0).dep_self.map_or(0, |g| g.get());
                         if test_pos.intersects(POS_DEP_CHILD) {
                             tracing::warn!(
                                 "Warning: Child dependency {} -> {} does not exist - ignoring.",
@@ -1523,7 +1524,7 @@ impl super::GrammarApplicator {
         if rtag_hash == self.grammar.tag_any {
             for (_name, targets) in &relations {
                 for &citer in targets {
-                    if let Some(&c) = self.gWindow.cohort_map.get(&citer) {
+                    if let Some(&c) = self.gWindow.cohort_map.get(&GlobalNumber(citer)) {
                         cs_insert(&self.store, &mut rels, c);
                     }
                 }
@@ -1539,10 +1540,10 @@ impl super::GrammarApplicator {
             let rtag = self.grammar.single_tags_list[rtag_id.0].clone();
             for (name, targets) in &relations {
                 for &citer in targets {
-                    if self.gWindow.cohort_map.contains_key(&citer)
+                    if self.gWindow.cohort_map.contains_key(&GlobalNumber(citer))
                         && self.does_tag_match_regexp(*name, &rtag, caps != 0) != 0
                     {
-                        let c = *self.gWindow.cohort_map.get(&citer).unwrap();
+                        let c = *self.gWindow.cohort_map.get(&GlobalNumber(citer)).unwrap();
                         cs_insert(&self.store, &mut rels, c);
                         let cur = self.context_stack.last().unwrap().regexgrp_ct;
                         let capped = (regexgrpz as i32 + caps).clamp(0, u8::MAX as i32) as u8;
@@ -1553,7 +1554,7 @@ impl super::GrammarApplicator {
         } else {
             if let Some((_name, targets)) = relations.iter().find(|(k, _)| *k == rtag_hash) {
                 for &citer in targets {
-                    if let Some(&c) = self.gWindow.cohort_map.get(&citer) {
+                    if let Some(&c) = self.gWindow.cohort_map.get(&GlobalNumber(citer)) {
                         cs_insert(&self.store, &mut rels, c);
                     }
                 }

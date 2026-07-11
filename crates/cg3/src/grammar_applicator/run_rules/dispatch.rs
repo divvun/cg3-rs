@@ -1289,7 +1289,7 @@ impl crate::grammar_applicator::GrammarApplicator {
 
         loop {
             let target = self.context_stack.last().unwrap().target.cohort.unwrap();
-            let target_gn = self.store.cohorts.get(target.0).global_number;
+            let target_gn = self.store.cohorts.get(target.0).global_number.get();
             seen_targets.push(target_gn);
             self.dep_deep_seen.clear();
             self.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
@@ -1355,7 +1355,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 if break_after {
                     break;
                 }
-                let attach_gn = self.store.cohorts.get(attach.0).global_number;
+                let attach_gn = self.store.cohorts.get(attach.0).global_number.get();
                 if seen_targets.contains(&attach_gn) {
                     break;
                 }
@@ -1457,7 +1457,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 tter = self.generate_varstring_tag_id(tter);
             }
             let thash = self.grammar.single_tags_list.get(tter.0).hash;
-            let attach_gn = self.store.cohorts.get(attach.0).global_number;
+            let attach_gn = self.store.cohorts.get(attach.0).global_number.get();
             match rtype {
                 K_ADDRELATION | K_ADDRELATIONS => {
                     if !is_plural {
@@ -1500,7 +1500,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 Some(sl) => self.get_tag_list_of_set(sl, false),
                 None => TagList::new(),
             };
-            let target_gn = self.store.cohorts.get(target.0).global_number;
+            let target_gn = self.store.cohorts.get(target.0).global_number.get();
             for t0 in sub_tags {
                 let mut tter = t0;
                 while self

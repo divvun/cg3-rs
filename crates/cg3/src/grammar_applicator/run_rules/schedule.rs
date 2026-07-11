@@ -54,7 +54,9 @@ impl crate::grammar_applicator::GrammarApplicator {
 
         // current.parent->cohort_map[0] = current.cohorts.front()
         let front = self.store.single_windows.get(current.0).cohorts[0];
-        self.gWindow.cohort_map.insert(0, front);
+        self.gWindow
+            .cohort_map
+            .insert(crate::types::GlobalNumber(0), front);
 
         let mut cursor = iv_first(&st.intersects);
         'outer: while let Some(start) = cursor {

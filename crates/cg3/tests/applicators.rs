@@ -634,7 +634,7 @@ fn format_converter_print_dispatch() {
         {
             let co = b.store.cohorts.get_mut(c.0);
             co.wordform = Some(wf);
-            co.global_number = 1;
+            co.global_number = cg3::types::GlobalNumber(1);
         }
         let r = cg3::reading::alloc_reading(&mut b.store, Some(c));
         b.add_tag_to_reading(r, wf);

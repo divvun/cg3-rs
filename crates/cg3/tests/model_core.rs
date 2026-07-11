@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cg3::arena::{Arena, CohortId, CtxId, SwId};
+use cg3::types::GlobalNumber;
 use cg3::cohort::{
     CT_ENCLOSED, CT_NUM_CURRENT, CT_RELATED, CT_REMOVED, Cohort, alloc_cohort,
     allocate_append_reading, append_reading, append_reading_to, cohort_clear, cohort_dtor, detach,
@@ -58,7 +59,7 @@ fn setup_window(n: u32) -> (RuntimeStore, Window, SwId, Vec<CohortId>) {
     let mut ids = Vec::new();
     for g in 1..=n {
         let c = alloc_cohort(&mut store, Some(sw));
-        store.cohorts.get_mut(c.0).global_number = g;
+        store.cohorts.get_mut(c.0).global_number = GlobalNumber(g);
         append_cohort(&mut w, &mut store, sw, c);
         ids.push(c);
     }
@@ -103,16 +104,16 @@ fn cohort_alloc_detach_clear_dtor_free() {
     let r = allocate_append_reading(&mut store, c3);
     let ig = alloc_reading(&mut store, Some(c3));
     store.cohorts.get_mut(c3.0).ignored.push(ig);
-    store.cohorts.get_mut(c3.0).dep_parent = Some(1);
-    assert!(w.cohort_map.contains_key(&3));
+    store.cohorts.get_mut(c3.0).dep_parent = Some(GlobalNumber(1));
+    assert!(w.cohort_map.contains_key(&GlobalNumber(3)));
     cohort_clear(&mut store, Some(&mut w), c3);
     assert!(
-        !w.cohort_map.contains_key(&3),
+        !w.cohort_map.contains_key(&GlobalNumber(3)),
         "clear erases from cohort_map"
     );
-    assert!(!w.dep_window.contains_key(&3));
+    assert!(!w.dep_window.contains_key(&GlobalNumber(3)));
     let c3r = store.cohorts.get(c3.0);
-    assert_eq!(c3r.global_number, 0);
+    assert_eq!(c3r.global_number, GlobalNumber(0));
     assert_eq!(c3r.dep_parent, None);
     assert_eq!(c3r.parent, None);
     assert!(c3r.readings.is_empty());
@@ -124,13 +125,13 @@ fn cohort_alloc_detach_clear_dtor_free() {
     );
 
     // dtor: erases from the window maps and detaches, but does NOT reset fields.
-    assert!(w.cohort_map.contains_key(&1));
+    assert!(w.cohort_map.contains_key(&GlobalNumber(1)));
     cohort_dtor(&mut store, Some(&mut w), c1);
-    assert!(!w.cohort_map.contains_key(&1));
-    assert!(!w.dep_window.contains_key(&1));
+    assert!(!w.cohort_map.contains_key(&GlobalNumber(1)));
+    assert!(!w.dep_window.contains_key(&GlobalNumber(1)));
     assert_eq!(
         store.cohorts.get(c1.0).global_number,
-        1,
+        GlobalNumber(1),
         "dtor keeps fields"
     );
 
@@ -341,7 +342,7 @@ fn topology_iterators() {
     let sw2 = w.alloc_append_single_window(&mut store); // linked sw1 <-> sw2
     let mut mk = |sw: SwId, gn: u32| {
         let c = alloc_cohort(&mut store, Some(sw));
-        store.cohorts.get_mut(c.0).global_number = gn;
+        store.cohorts.get_mut(c.0).global_number = GlobalNumber(gn);
         append_cohort(&mut w, &mut store, sw, c);
         c
     };
@@ -382,8 +383,8 @@ fn topology_iterators() {
 fn dep_parent_iterator() {
     let (mut store, w, _sw, ids) = setup_window(3);
     let (c1, c2, c3) = (ids[0], ids[1], ids[2]);
-    store.cohorts.get_mut(c2.0).dep_parent = Some(1);
-    store.cohorts.get_mut(c3.0).dep_parent = Some(2);
+    store.cohorts.get_mut(c2.0).dep_parent = Some(GlobalNumber(1));
+    store.cohorts.get_mut(c3.0).dep_parent = Some(GlobalNumber(2));
     let mut g = Grammar::default();
     let ctx = g.allocate_contextual_test();
 
@@ -406,7 +407,7 @@ fn dep_parent_iterator() {
     );
 
     // Cycle guard: c1 -> c3 closes a loop; the duplicate m_seen hit ends it.
-    store.cohorts.get_mut(c1.0).dep_parent = Some(3);
+    store.cohorts.get_mut(c1.0).dep_parent = Some(GlobalNumber(3));
     it.reset(Some(c3), Some(ctx), false, &store, &g, &w);
     assert_eq!(it.base.current(), Some(c2));
     it.advance(&store, &g, &w);
@@ -435,9 +436,9 @@ fn dep_descendent_and_ancestor_iterators() {
     store.cohorts.get_mut(c1.0).dep_children.insert(2);
     store.cohorts.get_mut(c1.0).dep_children.insert(3);
     store.cohorts.get_mut(c2.0).dep_children.insert(4);
-    store.cohorts.get_mut(c2.0).dep_parent = Some(1);
-    store.cohorts.get_mut(c3.0).dep_parent = Some(1);
-    store.cohorts.get_mut(c4.0).dep_parent = Some(2);
+    store.cohorts.get_mut(c2.0).dep_parent = Some(GlobalNumber(1));
+    store.cohorts.get_mut(c3.0).dep_parent = Some(GlobalNumber(1));
+    store.cohorts.get_mut(c4.0).dep_parent = Some(GlobalNumber(2));
 
     let mut g = Grammar::default();
     let ctx = g.allocate_contextual_test();
@@ -1150,7 +1151,7 @@ fn single_window_alloc_append_clear_destroy() {
     let s2 = w.alloc_append_single_window(&mut store); // s1 <-> s2 siblings
     let mk = |store: &mut RuntimeStore, sw: SwId, gn: u32| {
         let c = alloc_cohort(store, Some(sw));
-        store.cohorts.get_mut(c.0).global_number = gn;
+        store.cohorts.get_mut(c.0).global_number = GlobalNumber(gn);
         c
     };
     // Append to s2 FIRST so appending into s1 exercises the forward-link branch.
@@ -1166,9 +1167,9 @@ fn single_window_alloc_append_clear_destroy() {
         "forward cross-window link"
     );
     assert_eq!(store.cohorts.get(cb.0).prev, Some(ca));
-    assert_eq!(w.cohort_map.get(&5), Some(&ca));
-    assert_eq!(w.cohort_map.get(&0), Some(&ca), "local 0 aliased at key 0");
-    assert_eq!(w.dep_window.get(&10), Some(&cb));
+    assert_eq!(w.cohort_map.get(&GlobalNumber(5)), Some(&ca));
+    assert_eq!(w.cohort_map.get(&GlobalNumber(0)), Some(&ca), "local 0 aliased at key 0");
+    assert_eq!(w.dep_window.get(&GlobalNumber(10)), Some(&cb));
     let ca2 = mk(&mut store, s1, 6);
     append_cohort(&mut w, &mut store, s1, ca2);
     assert_eq!(store.cohorts.get(ca2.0).local_number, 1);
@@ -1205,7 +1206,7 @@ fn single_window_alloc_append_clear_destroy() {
     assert_eq!(store.single_windows.get(s1.0).parent, None);
     assert!(store.cohorts.try_get(ca.0).is_none(), "cohorts recycled");
     assert!(
-        !w.cohort_map.contains_key(&5),
+        !w.cohort_map.contains_key(&GlobalNumber(5)),
         "clear routed through free_cohort"
     );
 
@@ -1300,10 +1301,10 @@ fn window_alloc_shuffle_rebuild_destroy() {
 
     // rebuildCohortLinks: cohorts chained across window boundaries.
     let c1 = alloc_cohort(&mut store, Some(s1));
-    store.cohorts.get_mut(c1.0).global_number = 1;
+    store.cohorts.get_mut(c1.0).global_number = GlobalNumber(1);
     append_cohort(&mut w, &mut store, s1, c1);
     let c2 = alloc_cohort(&mut store, Some(s3));
-    store.cohorts.get_mut(c2.0).global_number = 2;
+    store.cohorts.get_mut(c2.0).global_number = GlobalNumber(2);
     append_cohort(&mut w, &mut store, s3, c2);
     // Scramble, then rebuild.
     store.cohorts.get_mut(c1.0).next = None;

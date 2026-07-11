@@ -564,7 +564,7 @@ impl MatxinApplicator {
             }
 
             let global_number = self.base.store.cohorts.get(cohort.0).global_number;
-            n.self_ = global_number as i32;
+            n.self_ = global_number.get() as i32;
             n.form = wf_escaped;
 
             // Only the FIRST reading.
@@ -579,16 +579,16 @@ impl MatxinApplicator {
                 }
             }
 
-            self.nodes.insert(global_number as i32, n);
+            self.nodes.insert(global_number.get() as i32, n);
 
             let dep_parent = self.base.store.cohorts.get(cohort.0).dep_parent;
             if dep_parent.is_none() {
-                self.deps.entry(r).or_default().push(global_number as i32);
+                self.deps.entry(r).or_default().push(global_number.get() as i32);
             } else {
                 self.deps
-                    .entry(dep_parent.unwrap() as i32)
+                    .entry(dep_parent.unwrap().get() as i32)
                     .or_default()
-                    .push(global_number as i32);
+                    .push(global_number.get() as i32);
             }
 
             u_fflush(output);

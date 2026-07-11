@@ -41,6 +41,7 @@ use crate::inlines::{
 use crate::options::{OPTIONS, options_t};
 use crate::process::Process;
 use crate::reading::Reading;
+use crate::types::GlobalNumber;
 use crate::store::RuntimeStore;
 use crate::strings::KEYWORDS;
 use crate::tag::{
@@ -846,8 +847,8 @@ impl super::GrammarApplicator {
         if self.has_dep && !parent_removed {
             {
                 let c = self.store.cohorts.get_mut(parent_cid.0);
-                if c.dep_self == 0 {
-                    c.dep_self = c.global_number;
+                if c.dep_self.is_none() {
+                    c.dep_self = Some(c.global_number);
                 }
             }
             let (p_global, p_local, p_dep_parent, p_sw) = {
@@ -856,7 +857,7 @@ impl super::GrammarApplicator {
             };
             let mut pr = parent_cid;
             if p_dep_parent.is_some() {
-                if p_dep_parent == Some(0) {
+                if p_dep_parent == Some(GlobalNumber(0)) {
                     // parent->parent->cohorts[0]
                     if let Some(sw) = p_sw {
                         pr = self.store.single_windows.get(sw.0).cohorts[0];
@@ -1226,7 +1227,7 @@ impl super::GrammarApplicator {
         let mut ss: Vec<u8> = Vec::new();
 
         let c = self.store.cohorts.get(cohort.0);
-        write_raw(&mut ss, c.global_number);
+        write_raw(&mut ss, c.global_number.get());
 
         let mut flags: u32 = 0;
         if !c.text.is_empty() {
@@ -1238,7 +1239,7 @@ impl super::GrammarApplicator {
         write_raw(&mut ss, flags);
 
         if self.has_dep && c.dep_parent.is_some() {
-            write_raw(&mut ss, c.dep_parent.unwrap());
+            write_raw(&mut ss, c.dep_parent.unwrap().get());
         }
 
         let wf = c.wordform.expect("cohort wordform");
@@ -1373,7 +1374,7 @@ impl super::GrammarApplicator {
         let _packet_len: u32 = read_raw(&mut ProcRead(input));
 
         let cs: u32 = read_raw(&mut ProcRead(input));
-        let global_number = self.store.cohorts.get(cohort.0).global_number;
+        let global_number = self.store.cohorts.get(cohort.0).global_number.get();
         if cs != global_number {
             // "Error: External returned data for cohort ... but we expected ...!"
             cg3_quit(1, Some(file!()), self.numLines);
@@ -1383,8 +1384,11 @@ impl super::GrammarApplicator {
 
         if flags & (1 << 1) != 0 {
             let dp: u32 = read_raw(&mut ProcRead(input));
-            self.store.cohorts.get_mut(cohort.0).dep_parent =
-                if dp == DEP_NO_PARENT { None } else { Some(dp) };
+            self.store.cohorts.get_mut(cohort.0).dep_parent = if dp == DEP_NO_PARENT {
+                None
+            } else {
+                Some(GlobalNumber(dp))
+            };
         }
 
         let mut force_readings = false;

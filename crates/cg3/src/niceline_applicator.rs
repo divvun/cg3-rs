@@ -597,8 +597,8 @@ impl<'a> NicelineApplicator<'a> {
         if self.base.has_dep && !parent_removed {
             {
                 let c = self.base.store.cohorts.get_mut(parent_cid.0);
-                if c.dep_self == 0 {
-                    c.dep_self = c.global_number;
+                if c.dep_self.is_none() {
+                    c.dep_self = Some(c.global_number);
                 }
             }
             let (p_global, p_local, p_dep_parent, p_dep_self, p_sw) = {
@@ -607,13 +607,13 @@ impl<'a> NicelineApplicator<'a> {
                     c.global_number,
                     c.local_number,
                     c.dep_parent,
-                    c.dep_self,
+                    c.dep_self.map_or(0, |g| g.get()),
                     c.parent,
                 )
             };
             let mut pr = parent_cid;
             if p_dep_parent.is_some() {
-                if p_dep_parent == Some(0) {
+                if p_dep_parent == Some(crate::types::GlobalNumber(0)) {
                     if let Some(sw) = p_sw {
                         pr = self.base.store.single_windows.get(sw.0).cohorts[0];
                     }

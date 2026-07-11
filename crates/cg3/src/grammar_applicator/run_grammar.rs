@@ -145,8 +145,7 @@ impl super::GrammarApplicator {
         // C++ SingleWindow::appendCohort: if (cohort->dep_self)
         // parent->parent->dep_highest_seen = cohort->dep_self;
         {
-            let ds = self.store.cohorts.get(c_cohort.0).dep_self;
-            if ds != 0 {
+            if let Some(ds) = self.store.cohorts.get(c_cohort.0).dep_self {
                 self.dep_highest_seen = ds;
             }
         }
@@ -382,14 +381,19 @@ impl super::GrammarApplicator {
         self.numReadings += 1;
 
         // Check whether the cohort still belongs to the window, as per --dep-delimit
-        let dep_self = self.store.cohorts.get(c_cohort.0).dep_self;
+        let dep_self = self
+            .store
+            .cohorts
+            .get(c_cohort.0)
+            .dep_self
+            .map_or(0, |g| g.get());
         if !is_deleted
             && self.dep_delimit != 0
-            && self.dep_highest_seen != 0
-            && (dep_self <= self.dep_highest_seen
-                || dep_self.wrapping_sub(self.dep_highest_seen) > self.dep_delimit)
+            && self.dep_highest_seen.get() != 0
+            && (dep_self <= self.dep_highest_seen.get()
+                || dep_self.wrapping_sub(self.dep_highest_seen.get()) > self.dep_delimit)
         {
-            let gn = self.store.cohorts.get(c_cohort.0).global_number;
+            let gn = self.store.cohorts.get(c_cohort.0).global_number.get();
             self.reflow_dependency_window(gn);
 
             let cur = *c_swindow;
@@ -435,7 +439,7 @@ impl super::GrammarApplicator {
             *l_swindow = Some(nsw);
             self.numWindows += 1;
             *did_soft_lookback = false;
-            self.dep_highest_seen = 0;
+            self.dep_highest_seen = crate::types::GlobalNumber(0);
 
             if self.grammar.has_bag_of_tags {
                 // Slow and not 100% correct as it doesn't remove tags from prev.
@@ -651,8 +655,7 @@ impl super::GrammarApplicator {
                             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                             // parent->parent->dep_highest_seen = cohort->dep_self;
                             {
-                                let ds = self.store.cohorts.get(cc.0).dep_self;
-                                if ds != 0 {
+                                if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
                                     self.dep_highest_seen = ds;
                                 }
                             }
@@ -693,8 +696,7 @@ impl super::GrammarApplicator {
                             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                             // parent->parent->dep_highest_seen = cohort->dep_self;
                             {
-                                let ds = self.store.cohorts.get(cc.0).dep_self;
-                                if ds != 0 {
+                                if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
                                     self.dep_highest_seen = ds;
                                 }
                             }
@@ -730,8 +732,7 @@ impl super::GrammarApplicator {
                         // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                         // parent->parent->dep_highest_seen = cohort->dep_self;
                         {
-                            let ds = self.store.cohorts.get(cc.0).dep_self;
-                            if ds != 0 {
+                            if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
                                 self.dep_highest_seen = ds;
                             }
                         }
@@ -873,8 +874,7 @@ impl super::GrammarApplicator {
                             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                             // parent->parent->dep_highest_seen = cohort->dep_self;
                             {
-                                let ds = self.store.cohorts.get(cc.0).dep_self;
-                                if ds != 0 {
+                                if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
                                     self.dep_highest_seen = ds;
                                 }
                             }
@@ -1107,8 +1107,7 @@ impl super::GrammarApplicator {
                             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                             // parent->parent->dep_highest_seen = cohort->dep_self;
                             {
-                                let ds = self.store.cohorts.get(cc.0).dep_self;
-                                if ds != 0 {
+                                if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
                                     self.dep_highest_seen = ds;
                                 }
                             }
@@ -1155,8 +1154,7 @@ impl super::GrammarApplicator {
             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
             // parent->parent->dep_highest_seen = cohort->dep_self;
             {
-                let ds = self.store.cohorts.get(cc.0).dep_self;
-                if ds != 0 {
+                if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
                     self.dep_highest_seen = ds;
                 }
             }

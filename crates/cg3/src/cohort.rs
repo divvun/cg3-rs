@@ -28,7 +28,7 @@ use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, ui32};
 use crate::reading::{Reading, ReadingList, alloc_reading, alloc_reading_copy, free_reading};
 use crate::sorted_vector::{sorted_vector, uint32SortedVector};
 use crate::store::RuntimeStore;
-use crate::types::{UString, flags_t};
+use crate::types::{GlobalNumber, UString, flags_t};
 use crate::window::Window;
 
 // Cohort `type` bit flags (C++ anonymous enum, OR'd into the `uint8_t type`
@@ -112,14 +112,16 @@ pub struct Cohort {
     /// C++ `uint8_t type` (Rust keyword → `r#type`); holds the `CT_*` bit flags.
     pub r#type: CohortType,
     // ToDo (C++): Get rid of global_number in favour of Cohort* relations
-    pub global_number: u32,
+    pub global_number: GlobalNumber,
     pub local_number: u32,
     pub enclosed: u32,
     /// C++ `Tag* wordform = nullptr`.
     pub wordform: Option<TagId>,
-    pub dep_self: u32,
-    /// Defaults to [`DEP_NO_PARENT`] (not 0) — see [`Default`] impl.
-    pub dep_parent: Option<u32>,
+    /// Wave 4: the cohort's own dependency number (C++ `uint32_t dep_self = 0`).
+    /// `None` = unset (the C++ `0` sentinel); the wire boundary maps `0`↔`None`.
+    pub dep_self: Option<GlobalNumber>,
+    /// C++ `dep_parent` (`DEP_NO_PARENT` = no parent). `None` = no parent.
+    pub dep_parent: Option<GlobalNumber>,
     pub is_pleft: u32,
     pub is_pright: u32,
     /// C++ `SingleWindow* parent = nullptr`.
@@ -153,11 +155,11 @@ impl Default for Cohort {
     fn default() -> Self {
         Cohort {
             r#type: CohortType::empty(),
-            global_number: 0,
+            global_number: GlobalNumber(0),
             local_number: 0,
             enclosed: 0,
             wordform: None,
-            dep_self: 0,
+            dep_self: None,
             dep_parent: None,
             is_pleft: 0,
             is_pright: 0,
@@ -334,11 +336,11 @@ pub fn cohort_clear(store: &mut RuntimeStore, window: Option<&mut Window>, this:
     {
         let c = store.cohorts.get_mut(this.0);
         c.r#type = CohortType::empty();
-        c.global_number = 0;
+        c.global_number = GlobalNumber(0);
         c.local_number = 0;
         c.enclosed = 0;
         c.wordform = None;
-        c.dep_self = 0;
+        c.dep_self = None;
         c.dep_parent = None;
         c.is_pleft = 0;
         c.is_pright = 0;

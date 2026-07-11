@@ -33,3 +33,56 @@ pub type flags_t = Vec<bool>;
 /// closest faithful unit for the code that treats it as "one character".
 /// Code that scanned raw `UChar*` buffers becomes `&str` / `char` iteration.
 pub type UChar = char;
+
+// ---------------------------------------------------------------------------
+// Wave 4 (w4-sentinels-newtypes): domain newtypes over the raw `uint32_t`
+// identity values that the C++ passed around untyped. `#[repr(transparent)]`
+// keeps them layout-identical to `u32`, and `.get()` / `.0` extract the raw
+// value at the wire read/write boundary so the `.cg3b` / pipe / JSONL byte
+// streams are unchanged. They make "a tag hash", "a set number", and "a global
+// cohort number" distinct types so they can't be crossed by accident.
+// ---------------------------------------------------------------------------
+macro_rules! value_newtype {
+    ($(#[$m:meta])* $name:ident) => {
+        $(#[$m])*
+        #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, Default)]
+        #[repr(transparent)]
+        pub struct $name(pub u32);
+
+        impl $name {
+            /// The underlying `u32` (for wire I/O and raw-keyed containers).
+            #[inline]
+            pub const fn get(self) -> u32 {
+                self.0
+            }
+
+            /// Wrapping `+ n`, staying in the domain (C++ `++global_number`).
+            #[inline]
+            pub const fn wrapping_add(self, n: u32) -> Self {
+                Self(self.0.wrapping_add(n))
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            #[inline]
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.fmt(f)
+            }
+        }
+    };
+}
+
+value_newtype!(
+    /// A tag's `SuperFastHash` value (C++ `Tag::hash`, `Reading::baseform`, …).
+    /// `0` is never a real hash, so `Option<TagHash>` models "no tag".
+    TagHash
+);
+value_newtype!(
+    /// A set's dense list number (C++ `Set::number`), as serialized in `.cg3b`.
+    SetNumber
+);
+value_newtype!(
+    /// A cohort's monotonically-increasing global number (C++
+    /// `Cohort::global_number` / `dep_self` / `dep_parent`).
+    GlobalNumber
+);

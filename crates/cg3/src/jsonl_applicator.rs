@@ -438,7 +438,8 @@ impl<'a> JsonlApplicator<'a> {
         // Dependency ("ds" / "dp").
         if let Some(ds) = obj.get("ds") {
             if let Some(v) = as_uint(ds) {
-                self.base.store.cohorts.get_mut(c_cohort.0).dep_self = v;
+                self.base.store.cohorts.get_mut(c_cohort.0).dep_self =
+                    (v != 0).then_some(crate::types::GlobalNumber(v));
             }
         }
         if let Some(dp) = obj.get("dp") {
@@ -447,7 +448,7 @@ impl<'a> JsonlApplicator<'a> {
                     if v == crate::cohort::DEP_NO_PARENT {
                         None
                     } else {
-                        Some(v)
+                        Some(crate::types::GlobalNumber(v))
                     };
             }
         }
@@ -623,14 +624,10 @@ impl<'a> JsonlApplicator<'a> {
                 let c = self.base.store.cohorts.get(cohort.0);
                 (c.dep_self, c.global_number, c.dep_parent)
             };
-            let self_id = if dep_self == 0 {
-                global_number
-            } else {
-                dep_self
-            };
-            doc.insert("ds".to_string(), json!(self_id));
+            let self_id = dep_self.unwrap_or(global_number);
+            doc.insert("ds".to_string(), json!(self_id.get()));
             if let Some(dp) = dep_parent {
-                doc.insert("dp".to_string(), json!(dp));
+                doc.insert("dp".to_string(), json!(dp.get()));
             }
         }
 

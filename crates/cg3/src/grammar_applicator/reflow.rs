@@ -52,6 +52,7 @@
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::{CT_DEP_DONE, CT_ENCLOSED, CT_IGNORED, CT_NUM_CURRENT, CT_REMOVED};
+use crate::types::GlobalNumber;
 use crate::inlines::{erase, hash_value, insert_if_exists, ui32};
 use crate::reading::{Reading, ReadingList, alloc_reading_copy, free_reading, reading_rehash};
 use crate::tag::{
@@ -190,7 +191,7 @@ impl super::GrammarApplicator {
             let mut inner = child;
             while i < 1000 {
                 let inner_dp = self.store.cohorts.get(inner.0).dep_parent;
-                if inner_dp == Some(0) || inner_dp.is_none() {
+                if inner_dp == Some(GlobalNumber(0)) || inner_dp.is_none() {
                     retval = false;
                     break;
                 }
@@ -239,7 +240,7 @@ impl super::GrammarApplicator {
             let mut inner = parent;
             while i < 1000 {
                 let inner_dp = self.store.cohorts.get(inner.0).dep_parent;
-                if inner_dp == Some(0) || inner_dp.is_none() {
+                if inner_dp == Some(GlobalNumber(0)) || inner_dp.is_none() {
                     retval = false;
                     break;
                 }
@@ -308,9 +309,9 @@ impl super::GrammarApplicator {
     ) -> bool {
         {
             let pgn = self.store.cohorts.get(parent.0).global_number;
-            self.store.cohorts.get_mut(parent.0).dep_self = pgn;
+            self.store.cohorts.get_mut(parent.0).dep_self = Some(pgn);
             let cgn = self.store.cohorts.get(child.0).global_number;
-            self.store.cohorts.get_mut(child.0).dep_self = cgn;
+            self.store.cohorts.get_mut(child.0).dep_self = Some(cgn);
         }
 
         if !allowloop && self.dep_block_loops && self.would_parent_child_loop(parent, child) {
@@ -332,20 +333,25 @@ impl super::GrammarApplicator {
             };
             let cdp = match cdp {
                 None => {
-                    self.store.cohorts.get_mut(child.0).dep_parent = Some(cds);
+                    self.store.cohorts.get_mut(child.0).dep_parent = cds;
                     cds
                 }
-                Some(v) => v,
+                Some(v) => Some(v),
             };
-            if let Some(&old) = self.gWindow.cohort_map.get(&cdp) {
-                self.store.cohorts.get_mut(old.0).rem_child(cds);
+            if let Some(dp) = cdp {
+                if let Some(&old) = self.gWindow.cohort_map.get(&dp) {
+                    self.store
+                        .cohorts
+                        .get_mut(old.0)
+                        .rem_child(cds.map_or(0, |g| g.get()));
+                }
             }
         }
 
         let parent_gn = self.store.cohorts.get(parent.0).global_number;
         let child_gn = self.store.cohorts.get(child.0).global_number;
         self.store.cohorts.get_mut(child.0).dep_parent = Some(parent_gn);
-        self.store.cohorts.get_mut(parent.0).add_child(child_gn);
+        self.store.cohorts.get_mut(parent.0).add_child(child_gn.get());
 
         self.store.cohorts.get_mut(parent.0).r#type |= CT_DEP_DONE;
         self.store.cohorts.get_mut(child.0).r#type |= CT_DEP_DONE;
@@ -377,7 +383,7 @@ impl super::GrammarApplicator {
             let back = *self.gWindow.next.last().unwrap();
             if self.store.single_windows.get(back.0).cohorts.len() > 1 {
                 let c1 = self.store.single_windows.get(back.0).cohorts[1];
-                max = self.store.cohorts.get(c1.0).global_number;
+                max = self.store.cohorts.get(c1.0).global_number.get();
             }
         }
 
@@ -391,32 +397,32 @@ impl super::GrammarApplicator {
         } {
             let cur = self.gWindow.current.unwrap();
             let c0 = self.store.single_windows.get(cur.0).cohorts[0];
-            self.gWindow.dep_window.insert(0, c0);
-        } else if !self.gWindow.dep_window.contains_key(&0) {
+            self.gWindow.dep_window.insert(GlobalNumber(0), c0);
+        } else if !self.gWindow.dep_window.contains_key(&GlobalNumber(0)) {
             let first = *self.gWindow.dep_window.values().next().unwrap();
             let tmp = {
                 let sw = self.store.cohorts.get(first.0).parent.unwrap();
                 self.store.single_windows.get(sw.0).cohorts[0]
             };
-            self.gWindow.dep_window.insert(0, tmp);
+            self.gWindow.dep_window.insert(GlobalNumber(0), tmp);
         }
         // Ensure cohort_map[0].
         if self.gWindow.cohort_map.is_empty() {
             let cur = self.gWindow.current.unwrap();
             let c0 = self.store.single_windows.get(cur.0).cohorts[0];
-            self.gWindow.cohort_map.insert(0, c0);
-        } else if !self.gWindow.cohort_map.contains_key(&0) {
+            self.gWindow.cohort_map.insert(GlobalNumber(0), c0);
+        } else if !self.gWindow.cohort_map.contains_key(&GlobalNumber(0)) {
             let cur = self.gWindow.current.unwrap();
             let mut tmp = self.store.single_windows.get(cur.0).cohorts[0];
             let first = *self.gWindow.cohort_map.values().next().unwrap();
             if let Some(sw) = self.store.cohorts.get(first.0).parent {
                 tmp = self.store.single_windows.get(sw.0).cohorts[0];
             }
-            self.gWindow.cohort_map.insert(0, tmp);
+            self.gWindow.cohort_map.insert(GlobalNumber(0), tmp);
         }
 
         // Snapshot dep_window in id order (BTreeMap iteration == C++ std::map).
-        let dw: Vec<(u32, CohortId)> = self
+        let dw: Vec<(GlobalNumber, CohortId)> = self
             .gWindow
             .dep_window
             .iter()
@@ -431,7 +437,7 @@ impl super::GrammarApplicator {
                     let co = self.store.cohorts.get(c.0);
                     (co.r#type, co.dep_self)
                 };
-                if ty.intersects(CT_DEP_DONE) || ds == 0 {
+                if ty.intersects(CT_DEP_DONE) || ds.is_none() {
                     begin += 1;
                 } else {
                     break;
@@ -451,18 +457,19 @@ impl super::GrammarApplicator {
                     end += 1;
                     continue;
                 }
-                if ds == 0 {
+                if ds.is_none() {
                     end += 1;
                     continue;
                 }
-                if max != 0 && gn >= max {
+                let ds_raw = ds.map_or(0, |g| g.get());
+                if max != 0 && gn.get() >= max {
                     break;
                 }
-                if self.gWindow.dep_map.contains(ds) {
+                if self.gWindow.dep_map.contains(ds_raw) {
                     break;
                 }
-                self.gWindow.dep_map.insert((ds, gn));
-                self.store.cohorts.get_mut(cohort.0).dep_self = gn;
+                self.gWindow.dep_map.insert((ds_raw, gn.get()));
+                self.store.cohorts.get_mut(cohort.0).dep_self = Some(gn);
                 end += 1;
             }
 
@@ -484,15 +491,15 @@ impl super::GrammarApplicator {
                         co.local_number,
                     )
                 };
-                if max != 0 && gn >= max {
+                if max != 0 && gn.get() >= max {
                     break;
                 }
                 if dp.is_none() {
                     b += 1;
                     continue;
                 }
-                if ds == gn {
-                    let dpv = dp.unwrap();
+                if ds == Some(gn) {
+                    let dpv = dp.unwrap().get();
                     let dp_present = self.gWindow.dep_map.find(dpv) != self.gWindow.dep_map.end();
                     if !ty.intersects(CT_DEP_DONE) && !dp_present {
                         if self.verbosity_level > 0 {
@@ -502,15 +509,21 @@ impl super::GrammarApplicator {
                     } else {
                         if !ty.intersects(CT_DEP_DONE) {
                             let dep_real = self.gWindow.dep_map.find(dpv).get().1;
-                            self.store.cohorts.get_mut(cohort.0).dep_parent = Some(dep_real);
+                            self.store.cohorts.get_mut(cohort.0).dep_parent =
+                                Some(GlobalNumber(dep_real));
                         }
                         let par = self.store.cohorts.get(cohort.0).parent.unwrap();
                         let c0 = self.store.single_windows.get(par.0).cohorts[0];
-                        self.gWindow.cohort_map.insert(0, c0);
+                        self.gWindow.cohort_map.insert(GlobalNumber(0), c0);
                         let real_dp = self.store.cohorts.get(cohort.0).dep_parent;
                         if let Some(rdp) = real_dp {
                             if let Some(&pc) = self.gWindow.cohort_map.get(&rdp) {
-                                let dep_self = self.store.cohorts.get(cohort.0).dep_self;
+                                let dep_self = self
+                                    .store
+                                    .cohorts
+                                    .get(cohort.0)
+                                    .dep_self
+                                    .map_or(0, |g| g.get());
                                 self.store.cohorts.get_mut(pc.0).add_child(dep_self);
                             }
                         }
@@ -550,7 +563,7 @@ impl super::GrammarApplicator {
             let back = *self.gWindow.next.last().unwrap();
             if self.store.single_windows.get(back.0).cohorts.len() > 1 {
                 let c0 = self.store.single_windows.get(back.0).cohorts[0];
-                max = self.store.cohorts.get(c0.0).global_number;
+                max = self.store.cohorts.get(c0.0).global_number.get();
             }
         }
 
@@ -565,7 +578,7 @@ impl super::GrammarApplicator {
         }
 
         while let Some(c) = cohort {
-            let gn = self.store.cohorts.get(c.0).global_number;
+            let gn = self.store.cohorts.get(c.0).global_number.get();
             if max != 0 && gn >= max {
                 break;
             }
@@ -977,8 +990,8 @@ impl super::GrammarApplicator {
                 .intersects(CT_DEP_DONE))
         {
             let c = self.store.cohorts.get_mut(parent.unwrap().0);
-            c.dep_self = tds;
-            c.dep_parent = Some(tdp);
+            c.dep_self = if tds == 0 { None } else { Some(GlobalNumber(tds)) };
+            c.dep_parent = Some(GlobalNumber(tdp));
             if tdp == tds {
                 c.dep_parent = None;
             }
@@ -995,7 +1008,7 @@ impl super::GrammarApplicator {
                     .insert(tdp);
             }
             if tds != 0 {
-                let gn = self.store.cohorts.get(parent.unwrap().0).global_number;
+                let gn = self.store.cohorts.get(parent.unwrap().0).global_number.get();
                 self.gWindow.relation_map.insert((tds, gn));
             }
             self.has_relations = true;
@@ -1522,8 +1535,7 @@ impl super::GrammarApplicator {
         // C++ SingleWindow::appendCohort: if (cohort->dep_self)
         // parent->parent->dep_highest_seen = cohort->dep_self;
         {
-            let ds = self.store.cohorts.get(ccohort.0).dep_self;
-            if ds != 0 {
+            if let Some(ds) = self.store.cohorts.get(ccohort.0).dep_self {
                 self.dep_highest_seen = ds;
             }
         }
@@ -1556,8 +1568,7 @@ impl super::GrammarApplicator {
                 // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                 // parent->parent->dep_highest_seen = cohort->dep_self;
                 {
-                    let ds = self.store.cohorts.get(c.0).dep_self;
-                    if ds != 0 {
+                    if let Some(ds) = self.store.cohorts.get(c.0).dep_self {
                         self.dep_highest_seen = ds;
                     }
                 }

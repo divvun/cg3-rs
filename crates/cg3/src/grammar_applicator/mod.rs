@@ -43,7 +43,7 @@ use crate::process::Process;
 use crate::scoped_stack::ScopedStack;
 use crate::sorted_vector::{sorted_vector, uint32SortedVector};
 use crate::tag::TagList;
-use crate::types::{UChar, UString, Uint32Vector};
+use crate::types::{GlobalNumber, UChar, UString, Uint32Vector};
 
 pub mod context;
 pub mod core;
@@ -283,7 +283,7 @@ pub struct GrammarApplicator {
 
     pub has_dep: bool,
     pub parse_dep: bool,
-    pub dep_highest_seen: u32,
+    pub dep_highest_seen: GlobalNumber,
     /// C++ `std::unique_ptr<Window> gWindow` — the owned document window.
     pub gWindow: crate::window::Window,
     pub has_relations: bool,
@@ -478,7 +478,7 @@ impl GrammarApplicator {
 
             has_dep: false,
             parse_dep: false,
-            dep_highest_seen: 0,
+            dep_highest_seen: GlobalNumber(0),
             gWindow: crate::window::Window::new(None),
             has_relations: false,
 

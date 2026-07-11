@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 
 use crate::arena::{CohortId, SwId};
 use crate::flat_unordered_map::Uint32FlatHashMap;
+use crate::types::GlobalNumber;
 use crate::single_window::{alloc_swindow, free_swindow};
 use crate::store::RuntimeStore;
 
@@ -29,18 +30,18 @@ pub struct Window {
     /// yet (wired in a later engine pass), so it is represented as a raw handle
     /// placeholder here.
     pub parent: Option<u32>,
-    pub cohort_counter: u32,
+    pub cohort_counter: GlobalNumber,
     pub window_counter: u32,
     pub window_span: u32,
 
     /// C++ `std::map<uint32_t, Cohort*> cohort_map` — ordered (global cohort
     /// number → cohort). `std::map` (a red-black tree) → `BTreeMap`.
-    pub cohort_map: BTreeMap<u32, CohortId>,
+    pub cohort_map: BTreeMap<GlobalNumber, CohortId>,
     /// C++ `uint32FlatHashMap dep_map` (u32 → u32).
     pub dep_map: Uint32FlatHashMap,
     /// C++ `std::map<uint32_t, Cohort*> dep_window` — ordered (global cohort
     /// number → cohort). `std::map` → `BTreeMap`.
-    pub dep_window: BTreeMap<u32, CohortId>,
+    pub dep_window: BTreeMap<GlobalNumber, CohortId>,
     /// C++ `uint32FlatHashMap relation_map` (u32 → u32).
     pub relation_map: Uint32FlatHashMap,
 

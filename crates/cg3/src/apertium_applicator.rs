@@ -721,7 +721,7 @@ impl ApertiumApplicator {
                     // Determine parent cohort `pr`.
                     let mut pr = pcid;
                     if dep_parent.is_some() {
-                        if dep_parent == Some(0) {
+                        if dep_parent == Some(crate::types::GlobalNumber(0)) {
                             if let Some(sw) = sw_parent {
                                 if let Some(&first) = store.single_windows.get(sw.0).cohorts.first()
                                 {

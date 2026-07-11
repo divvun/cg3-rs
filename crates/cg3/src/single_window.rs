@@ -17,7 +17,7 @@ use crate::inlines::ui32;
 use crate::interval_vector::uint32IntervalVector;
 use crate::sorted_vector::uint32SortedVector;
 use crate::store::RuntimeStore;
-use crate::types::UString;
+use crate::types::{GlobalNumber, UString};
 use crate::window::Window;
 
 // [spec:cg3:def:single-window.cg3.single-window]
@@ -146,7 +146,7 @@ fn single_window_teardown(window: &mut Window, store: &mut RuntimeStore, sw_id: 
         let mut to_erase: Vec<u32> = Vec::new();
         {
             for &pair in window.relation_map.iter() {
-                if pair.1 <= threshold {
+                if pair.1 <= threshold.get() {
                     to_erase.push(pair.0);
                 }
             }
@@ -307,7 +307,7 @@ pub fn append_cohort(
     window.dep_window.insert(global_number, cohort_id);
     // if (cohort->local_number == 0) parent->cohort_map[0] = cohort;
     if local_number == 0 {
-        window.cohort_map.insert(0, cohort_id);
+        window.cohort_map.insert(GlobalNumber(0), cohort_id);
     }
 }
 
