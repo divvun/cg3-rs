@@ -134,7 +134,7 @@ impl<'a> JsonlApplicator<'a> {
                     .wordform
                     .map(|wf| self.base.grammar.single_tags_list.get(wf.0).hash)
             });
-            (r.tags_list.clone(), r.baseform, parent_wf_hash)
+            (r.tags_list.clone(), r.baseform.unwrap_or(0), parent_wf_hash)
         };
 
         let mut unique = uint32SortedVector::new();
@@ -186,7 +186,7 @@ impl<'a> JsonlApplicator<'a> {
         let mut reading_json = Map::new();
 
         // Baseform ("l").
-        let baseform = self.base.store.readings.get(reading.0).baseform;
+        let baseform = self.base.store.readings.get(reading.0).baseform.unwrap_or(0);
         let mut baseform_utf8 = String::new();
         if baseform != 0 {
             let it = self.base.grammar.single_tags.find(baseform);
@@ -331,9 +331,9 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         // Ensure baseform exists.
-        if self.base.store.readings.get(c_reading.0).baseform == 0 {
+        if self.base.store.readings.get(c_reading.0).baseform.is_none() {
             let wf_hash = self.base.grammar.single_tags_list.get(wordform.0).hash;
-            self.base.store.readings.get_mut(c_reading.0).baseform = wf_hash;
+            self.base.store.readings.get_mut(c_reading.0).baseform = Some(wf_hash);
             tracing::warn!(
                 "Warning: Reading on line {} ended up with no baseform. Using wordform.",
                 self.base.numLines
@@ -385,7 +385,7 @@ impl<'a> JsonlApplicator<'a> {
                 self.base.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
                 self.base.add_tag_to_reading(wread, wf);
                 let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
-                self.base.store.readings.get_mut(wread.0).baseform = wf_hash;
+                self.base.store.readings.get_mut(wread.0).baseform = Some(wf_hash);
             }
             let wread = self.base.store.cohorts.get(c_cohort.0).wread.unwrap();
             for tag_val in sts {

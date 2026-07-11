@@ -122,7 +122,7 @@ impl super::GrammarApplicator {
             c.wordform = self.tag_begin;
         }
         let c_reading = crate::reading::alloc_reading(&mut self.store, Some(c_cohort));
-        self.store.readings.get_mut(c_reading.0).baseform = self.begintag;
+        self.store.readings.get_mut(c_reading.0).baseform = Some(self.begintag);
         // insert_if_exists(cReading->parent->possible_sets, grammar->sets_any);
         // cReading->parent == c_cohort.
         crate::inlines::insert_if_exists(
@@ -177,11 +177,11 @@ impl super::GrammarApplicator {
             // baseform = makeBaseFromWord(cCohort.wordform)->hash
             let base = self.make_base_from_word(wordform);
             let h = self.grammar.single_tags_list.get(base.0).hash;
-            self.store.readings.get_mut(c_reading.0).baseform = h;
+            self.store.readings.get_mut(c_reading.0).baseform = Some(h);
         } else {
             // baseform = cCohort.wordform->hash
             let h = self.grammar.single_tags_list.get(wordform.0).hash;
-            self.store.readings.get_mut(c_reading.0).baseform = h;
+            self.store.readings.get_mut(c_reading.0).baseform = Some(h);
         }
         crate::inlines::insert_if_exists(
             &mut self.store.cohorts.get_mut(c_cohort.0).possible_sets,
@@ -347,7 +347,7 @@ impl super::GrammarApplicator {
                 self.add_tag_to_reading(c_reading, tag);
             }
         }
-        if self.store.readings.get(c_reading.0).baseform == 0 {
+        if self.store.readings.get(c_reading.0).baseform.is_none() {
             // "Line %u had no valid baseform.": deferred emission.
         }
         if indents.is_empty() || indent <= indents.last().unwrap().0 {

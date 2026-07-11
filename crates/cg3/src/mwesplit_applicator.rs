@@ -165,7 +165,7 @@ impl GrammarApplicator {
     /// the reading's own baseform nor its cohort's wordform, or `None`.
     pub fn mwe_maybe_wf_tag(&self, r: ReadingId) -> Option<TagId> {
         let rr = self.store.readings.get(r.0);
-        let baseform = rr.baseform;
+        let baseform = rr.baseform.unwrap_or(0);
         let wordform_hash = {
             let p = rr.parent.expect("reading parent");
             self.store

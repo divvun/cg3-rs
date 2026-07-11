@@ -60,7 +60,12 @@ pub struct Reading {
     pub immutable: bool,
     pub active: bool,
 
-    pub baseform: u32,
+    /// Wave 4: the tag HASH of this reading's baseform, `None` when unset
+    /// (the C++ `uint32_t baseform = 0` zero-sentinel). A real baseform hash is
+    /// never 0 (SuperFastHash never returns the reserved value), so `Some`/`None`
+    /// partitions cleanly; the pipe/binary wire boundary still reads/writes the
+    /// C++ `0` byte-for-byte.
+    pub baseform: Option<u32>,
     pub hash: u32,
     pub hash_plain: u32,
     pub number: u32,
@@ -299,7 +304,7 @@ pub fn reading_clear(store: &mut RuntimeStore, id: ReadingId) {
         r.matched_tests = false;
         r.immutable = false;
         r.active = false;
-        r.baseform = 0;
+        r.baseform = None;
         r.hash = 0;
         r.hash_plain = 0;
         r.number = 0;

@@ -611,7 +611,7 @@ impl super::GrammarApplicator {
         } else if tag.r#type.intersects(T_REGEXP_ANY) {
             // (7) <.*>/".*" any-forms
             if tag.r#type.intersects(T_BASEFORM) {
-                let bf = self.store.readings.get(reading.0).baseform;
+                let bf = self.store.readings.get(reading.0).baseform.unwrap_or(0);
                 m = bf;
                 if unif_mode {
                     if self.unif_last_baseform != 0 {
@@ -884,7 +884,7 @@ impl super::GrammarApplicator {
                 } else if (tag.r#type.intersects(T_REGEXP_ANY)) && (itype.intersects(T_TEXTUAL)) {
                     if tag.r#type.intersects(T_BASEFORM) {
                         if itype.intersects(T_BASEFORM) {
-                            m = self.store.readings.get(reading.0).baseform;
+                            m = self.store.readings.get(reading.0).baseform.unwrap_or(0);
                         }
                     } else if tag.r#type.intersects(T_WORDFORM) {
                         if itype.intersects(T_WORDFORM) {

@@ -484,7 +484,7 @@ impl ApertiumApplicator {
                     .intersects(T_BASEFORM)
                 {
                     // sub-reading if the current reading already has a baseform.
-                    if self.base.store.readings.get(reading.0).baseform != 0 {
+                    if self.base.store.readings.get(reading.0).baseform.is_some() {
                         let parent = self.base.store.readings.get(reading.0).parent;
                         let nr = Reading::allocate_reading(&mut self.base.store, parent);
                         self.base.store.readings.get_mut(reading.0).next = Some(nr);
@@ -597,7 +597,7 @@ impl ApertiumApplicator {
             u_fputc('+', output);
         }
 
-        let baseform = r.baseform;
+        let baseform = r.baseform.unwrap_or(0);
         let parent = r.parent;
 
         if baseform != 0 {
@@ -763,11 +763,11 @@ impl ApertiumApplicator {
             loop {
                 let r = store.readings.get(last.0);
                 match r.next {
-                    Some(next) if store.readings.get(next.0).baseform != 0 => last = next,
+                    Some(next) if store.readings.get(next.0).baseform.is_some() => last = next,
                     _ => break,
                 }
             }
-            if store.readings.get(last.0).baseform != 0 {
+            if store.readings.get(last.0).baseform.is_some() {
                 if let Some(pcid) = store.readings.get(reading.0).parent {
                     if let Some(wf) = store.cohorts.get(pcid.0).wordform {
                         let wftag: Vec<char> =
@@ -1350,7 +1350,7 @@ impl ApertiumApplicator {
                                 append_reading(&mut self.base.store, cc, c_reading);
                             }
                             self.base.numReadings = self.base.numReadings.wrapping_add(1);
-                            if self.base.store.readings.get(c_reading.0).baseform == 0 {
+                            if self.base.store.readings.get(c_reading.0).baseform.is_none() {
                                 tracing::warn!(
                                     "Warning: Cohort {} on line {} had no valid baseform.",
                                     self.base.numCohorts,

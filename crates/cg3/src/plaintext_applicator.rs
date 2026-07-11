@@ -335,7 +335,7 @@ impl PlaintextApplicator {
                         self.base.add_tag_to_reading(cr, tag);
                     }
                     if self.add_tags && (first_upper || all_upper || mixed_upper) {
-                        let baseform = self.base.store.readings.get(cr.0).baseform;
+                        let baseform = self.base.store.readings.get(cr.0).baseform.unwrap_or(0);
                         self.base.del_tag_from_reading_hash(cr, baseform);
                         let lowered: String = token_str.to_lowercase();
                         let base_tag_text = format!("\"{lowered}\"");

@@ -116,7 +116,7 @@ impl FSTApplicator {
             let _ = write!(output, "{}", self.sub_delims);
         }
 
-        if baseform != 0 {
+        if let Some(baseform) = baseform {
             // grammar->single_tags[baseform]->tag, stripped of the surrounding
             // quotes: print `tag.size() - 2` chars starting at `tag.data() + 1`.
             let tid = tag_by_hash(&self.base.grammar, baseform);
@@ -144,7 +144,7 @@ impl FSTApplicator {
             {
                 continue;
             }
-            if tter == baseform || tter == parent_wf_hash {
+            if baseform == Some(tter) || tter == parent_wf_hash {
                 continue;
             }
             if self.base.unique_tags {
@@ -609,7 +609,7 @@ impl FSTApplicator {
 
                                 // if (cReading->baseform == 0) { tag = '"'+base+'"';
                                 //   base = tag.data(); }
-                                if self.base.store.readings.get(c_reading.0).baseform == 0 {
+                                if self.base.store.readings.get(c_reading.0).baseform.is_none() {
                                     let inner = cleaned_cstr(&cleaned, base_idx);
                                     tag.clear();
                                     tag.push('"');
@@ -677,7 +677,7 @@ impl FSTApplicator {
                             None => cleaned.get(base_idx).copied().unwrap_or('\0'),
                         };
                         if base_first != '\0' {
-                            if self.base.store.readings.get(c_reading.0).baseform == 0 {
+                            if self.base.store.readings.get(c_reading.0).baseform.is_none() {
                                 let inner = match &base_str {
                                     Some(s) => s.clone(),
                                     None => cleaned_cstr(&cleaned, base_idx),
@@ -709,17 +709,23 @@ impl FSTApplicator {
                             self.base.add_tag_to_reading(c_reading, wt);
                         }
                         // if (!cReading->baseform) { baseform = wordform->hash; warn }
-                        if self.base.store.readings.get(c_reading.0).baseform == 0 {
+                        if self.base.store.readings.get(c_reading.0).baseform.is_none() {
                             let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                             let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
-                            self.base.store.readings.get_mut(c_reading.0).baseform = wf_hash;
+                            self.base.store.readings.get_mut(c_reading.0).baseform = Some(wf_hash);
                             tracing::warn!(
                                 "Warning: Line {} had no valid baseform.",
                                 self.base.numLines
                             );
                         }
                         // if (single_tags[baseform]->tag.size() == 2) { ... }
-                        let bf_hash = self.base.store.readings.get(c_reading.0).baseform;
+                        let bf_hash = self
+                            .base
+                            .store
+                            .readings
+                            .get(c_reading.0)
+                            .baseform
+                            .unwrap_or(0);
                         let bf_size = {
                             let tid = tag_by_hash(&self.base.grammar, bf_hash);
                             self.base
@@ -735,7 +741,7 @@ impl FSTApplicator {
                             let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                             let base = self.base.make_base_from_word(wf);
                             let h = self.base.grammar.single_tags_list.get(base.0).hash;
-                            self.base.store.readings.get_mut(c_reading.0).baseform = h;
+                            self.base.store.readings.get_mut(c_reading.0).baseform = Some(h);
                         }
                         if !mappings.is_empty() {
                             self.base.split_mappings(&mut mappings, cc, c_reading, true);

@@ -963,8 +963,9 @@ impl super::GrammarApplicator {
                 .insert(thash, tag);
             self.store.cohorts.get_mut(parent.unwrap().0).r#type &= !CT_NUM_CURRENT;
         }
-        if self.store.readings.get(reading.0).baseform == 0 && (ttype.intersects(T_BASEFORM)) {
-            self.store.readings.get_mut(reading.0).baseform = thash;
+        if self.store.readings.get(reading.0).baseform.is_none() && (ttype.intersects(T_BASEFORM))
+        {
+            self.store.readings.get_mut(reading.0).baseform = Some(thash);
         }
         if self.parse_dep
             && (ttype.intersects(T_DEPENDENCY))
@@ -1027,8 +1028,8 @@ impl super::GrammarApplicator {
             if ttype.intersects(T_NUMERICAL) {
                 bot.tags_numerical.insert(thash, tag);
             }
-            if reading_baseform == 0 && (ttype.intersects(T_BASEFORM)) {
-                bot.baseform = thash;
+            if reading_baseform.is_none() && (ttype.intersects(T_BASEFORM)) {
+                bot.baseform = Some(thash);
             }
             if !ttype.intersects(T_SPECIAL) {
                 bot.tags_plain.insert(thash);
@@ -1101,8 +1102,8 @@ impl super::GrammarApplicator {
                 self.store.readings.get_mut(reading.0).mapping = None;
             }
         }
-        if utag == self.store.readings.get(reading.0).baseform {
-            self.store.readings.get_mut(reading.0).baseform = 0;
+        if self.store.readings.get(reading.0).baseform == Some(utag) {
+            self.store.readings.get_mut(reading.0).baseform = None;
         }
         reading_rehash(&mut self.store, &self.grammar, reading);
         let parent = self.store.readings.get(reading.0).parent.unwrap();
@@ -1509,7 +1510,7 @@ impl super::GrammarApplicator {
             c.wordform = self.tag_begin;
         }
         let creading = crate::reading::alloc_reading(&mut self.store, Some(ccohort));
-        self.store.readings.get_mut(creading.0).baseform = self.begintag;
+        self.store.readings.get_mut(creading.0).baseform = Some(self.begintag);
         insert_if_exists(
             &mut self.store.cohorts.get_mut(ccohort.0).possible_sets,
             self.grammar.sets_any.as_ref(),

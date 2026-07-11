@@ -808,7 +808,7 @@ impl BinaryFormat {
                         rflags |= BFR_SUBREADING as u16;
                     }
                     wu16(&mut reading_buffer, rflags);
-                    let baseform = app.store.readings.get(rid.0).baseform;
+                    let baseform = app.store.readings.get(rid.0).baseform.unwrap_or(0);
                     let btid = tag_by_hash(&app.grammar, baseform);
                     write_tag(
                         &mut tags_to_write,

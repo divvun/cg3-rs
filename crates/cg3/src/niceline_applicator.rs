@@ -419,7 +419,7 @@ impl<'a> NicelineApplicator<'a> {
                             }
                         }
 
-                        if self.base.store.readings.get(cr.0).baseform == 0 {
+                        if self.base.store.readings.get(cr.0).baseform.is_none() {
                             let h = {
                                 let wfid = self
                                     .base
@@ -430,7 +430,7 @@ impl<'a> NicelineApplicator<'a> {
                                     .expect("cohort wordform");
                                 self.base.grammar.single_tags_list[wfid.0].hash
                             };
-                            self.base.store.readings.get_mut(cr.0).baseform = h;
+                            self.base.store.readings.get_mut(cr.0).baseform = Some(h);
                             // "Line %u had no valid baseform." warning: deferred.
                         }
                         if !mappings.is_empty() {
@@ -535,7 +535,7 @@ impl<'a> NicelineApplicator<'a> {
     pub fn print_reading<W: Write>(&mut self, reading: ReadingId, output: &mut W) {
         let (noprint, deleted, baseform, parent_cid, next) = {
             let r = self.base.store.readings.get(reading.0);
-            (r.noprint, r.deleted, r.baseform, r.parent, r.next)
+            (r.noprint, r.deleted, r.baseform.unwrap_or(0), r.parent, r.next)
         };
         if noprint {
             return;

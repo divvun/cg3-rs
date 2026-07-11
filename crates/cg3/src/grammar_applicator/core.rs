@@ -776,7 +776,7 @@ impl super::GrammarApplicator {
     pub fn print_reading<W: Write>(&mut self, reading: ReadingId, output: &mut W, sub: usize) {
         let (noprint, deleted, baseform, parent_cid) = {
             let r = self.store.readings.get(reading.0);
-            (r.noprint, r.deleted, r.baseform, r.parent)
+            (r.noprint, r.deleted, r.baseform.unwrap_or(0), r.parent)
         };
         if noprint {
             return;
@@ -1165,13 +1165,13 @@ impl super::GrammarApplicator {
         if r.deleted {
             flags |= 1 << 2;
         }
-        if r.baseform != 0 {
+        if r.baseform.is_some() {
             flags |= 1 << 3;
         }
         write_raw(&mut ss, flags);
 
-        if r.baseform != 0 {
-            let tid = tag_by_hash(&self.grammar, r.baseform);
+        if r.baseform.is_some() {
+            let tid = tag_by_hash(&self.grammar, r.baseform.unwrap_or(0));
             write_utf8_raw(&mut ss, &self.grammar.single_tags_list[tid.0].tag);
         }
 
@@ -1185,7 +1185,7 @@ impl super::GrammarApplicator {
 
         let mut cs: u32 = 0;
         for &tter in &r.tags_list {
-            if tter == r.baseform || tter == wordform_hash {
+            if r.baseform == Some(tter) || tter == wordform_hash {
                 continue;
             }
             let tid = tag_by_hash(&self.grammar, tter);
@@ -1200,7 +1200,7 @@ impl super::GrammarApplicator {
         }
         write_raw(&mut ss, cs);
         for &tter in &r.tags_list {
-            if tter == r.baseform || tter == wordform_hash {
+            if r.baseform == Some(tter) || tter == wordform_hash {
                 continue;
             }
             let tid = tag_by_hash(&self.grammar, tter);
@@ -1319,7 +1319,7 @@ impl super::GrammarApplicator {
 
         if flags & (1 << 3) != 0 {
             let str = read_utf8_raw(&mut ss);
-            let baseform = self.store.readings.get(reading.0).baseform;
+            let baseform = self.store.readings.get(reading.0).baseform.unwrap_or(0);
             let cur = {
                 let tid = tag_by_hash(&self.grammar, baseform);
                 self.grammar.single_tags_list[tid.0].tag.clone()
@@ -1327,10 +1327,10 @@ impl super::GrammarApplicator {
             if str != cur {
                 let tag = self.add_tag(&str, crate::tag::TagType::empty());
                 self.store.readings.get_mut(reading.0).baseform =
-                    self.grammar.single_tags_list[tag.0].hash;
+                    Some(self.grammar.single_tags_list[tag.0].hash);
             }
         } else {
-            self.store.readings.get_mut(reading.0).baseform = 0;
+            self.store.readings.get_mut(reading.0).baseform = None;
         }
 
         let (wordform_hash, baseform) = {
@@ -1342,7 +1342,7 @@ impl super::GrammarApplicator {
                 .wordform
                 .map(|t| self.grammar.single_tags_list[t.0].hash)
                 .unwrap_or(0);
-            (wf, r.baseform)
+            (wf, r.baseform.unwrap_or(0))
         };
         {
             let r = self.store.readings.get_mut(reading.0);

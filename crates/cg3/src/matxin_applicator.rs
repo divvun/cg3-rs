@@ -263,7 +263,7 @@ impl MatxinApplicator {
 
         if unknown {
             let h = self.base.grammar.single_tags_list.get(tag.0).hash;
-            self.base.store.readings.get_mut(c_reading.0).baseform = h;
+            self.base.store.readings.get_mut(c_reading.0).baseform = Some(h);
             self.base.add_tag_to_reading(c_reading, tag);
             return;
         }
@@ -355,7 +355,7 @@ impl MatxinApplicator {
                     .r#type
                     .intersects(T_BASEFORM)
                 {
-                    if self.base.store.readings.get(reading.0).baseform != 0 {
+                    if self.base.store.readings.get(reading.0).baseform.is_some() {
                         // Sub-reading — NOTE: Matxin does NOT re-add the wordform.
                         let parent = self.base.store.readings.get(reading.0).parent;
                         let nr = Reading::allocate_reading(&mut self.base.store, parent);
@@ -417,12 +417,12 @@ impl MatxinApplicator {
             // C++ exit(-1); wave 4: Cg3Exit unwind (bins convert to the exit).
             crate::error::cg3_exit(-1);
         }
-        if r.baseform == 0 {
+        if r.baseform.is_none() {
             return;
         }
 
         // Lop off the surrounding '"' quotes.
-        let tid = tag_by_hash(&self.base.grammar, r.baseform);
+        let tid = tag_by_hash(&self.base.grammar, r.baseform.unwrap_or(0));
         let tagtext: Vec<char> = self
             .base
             .grammar
@@ -877,7 +877,7 @@ impl MatxinApplicator {
                 self.base.store.cohorts.get_mut(cc.0).global_number = gn;
                 self.base.store.cohorts.get_mut(cc.0).wordform = self.base.tag_begin;
                 let cr = alloc_reading(&mut self.base.store, Some(cc));
-                self.base.store.readings.get_mut(cr.0).baseform = self.base.begintag;
+                self.base.store.readings.get_mut(cr.0).baseform = Some(self.base.begintag);
                 insert_if_exists(
                     &mut self.base.store.cohorts.get_mut(cc.0).possible_sets,
                     self.base.grammar.sets_any.as_ref(),
@@ -1018,7 +1018,7 @@ impl MatxinApplicator {
 
             // if (!cReading->baseform) warn
             let no_baseform = match c_reading {
-                Some(cr) => self.base.store.readings.get(cr.0).baseform == 0,
+                Some(cr) => self.base.store.readings.get(cr.0).baseform.is_none(),
                 None => true,
             };
             if no_baseform {

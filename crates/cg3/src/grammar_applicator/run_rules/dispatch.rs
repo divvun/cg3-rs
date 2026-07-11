@@ -834,8 +834,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             r.tags_list.clear();
             r.tags_list.push(wf_hash);
         }
-        let bform = self.store.readings.get(reading.0).baseform;
-        self.store.readings.get_mut(reading.0).baseform = 0;
+        let bform = self.store.readings.get(reading.0).baseform.unwrap_or(0);
+        self.store.readings.get_mut(reading.0).baseform = None;
         self.reflow_reading(reading);
 
         let mut mappings = TagList::new();
@@ -850,7 +850,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         for tter in excepts {
             self.add_tag_to_reading(reading, tter);
         }
-        if self.store.readings.get(reading.0).baseform == 0 {
+        if self.store.readings.get(reading.0).baseform.is_none() {
             let bf_tag = self.tag_by_hash(bform);
             self.add_tag_to_reading(reading, bf_tag);
         }
@@ -1074,8 +1074,8 @@ impl crate::grammar_applicator::GrammarApplicator {
         while i < self.store.readings.get(sr.0).tags_list.len() {
             let remter = self.store.readings.get(sr.0).tags_list[i];
             if plain && !the_hashes.is_empty() && remter == the_hashes[0] {
-                if self.store.readings.get(sr.0).baseform == remter {
-                    self.store.readings.get_mut(sr.0).baseform = 0;
+                if self.store.readings.get(sr.0).baseform == Some(remter) {
+                    self.store.readings.get_mut(sr.0).baseform = None;
                 }
                 self.store.readings.get_mut(sr.0).tags_list[i] = substtag;
                 tpos = i;
@@ -1089,8 +1089,8 @@ impl crate::grammar_applicator::GrammarApplicator {
                     }
                     self.store.readings.get_mut(sr.0).tags_list.remove(i);
                     self.store.readings.get_mut(sr.0).tags.erase(tter);
-                    if self.store.readings.get(sr.0).baseform == tter {
-                        self.store.readings.get_mut(sr.0).baseform = 0;
+                    if self.store.readings.get(sr.0).baseform == Some(tter) {
+                        self.store.readings.get_mut(sr.0).baseform = None;
                     }
                     j += 1;
                 }
@@ -1103,8 +1103,8 @@ impl crate::grammar_applicator::GrammarApplicator {
                 tpos = i;
                 self.store.readings.get_mut(sr.0).tags_list[i] = substtag;
                 self.store.readings.get_mut(sr.0).tags.erase(th);
-                if self.store.readings.get(sr.0).baseform == th {
-                    self.store.readings.get_mut(sr.0).baseform = 0;
+                if self.store.readings.get(sr.0).baseform == Some(th) {
+                    self.store.readings.get_mut(sr.0).baseform = None;
                 }
             }
             i += 1;
