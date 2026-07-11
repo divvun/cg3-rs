@@ -341,13 +341,15 @@ impl<'a> BinaryApplicator<'a> {
             // Dependency.
             let dep_self = read_u32!();
             let dep_parent = read_u32!();
+            let dep_parent =
+                if dep_parent == crate::cohort::DEP_NO_PARENT { None } else { Some(dep_parent) };
             {
                 let c = self.base.store.cohorts.get_mut(c_cohort.0);
                 c.dep_self = dep_self;
                 c.dep_parent = dep_parent;
             }
             self.base.gWindow.relation_map.insert((dep_self, gn));
-            if dep_parent != DEP_NO_PARENT {
+            if dep_parent.is_some() {
                 self.base.has_dep = true;
             }
 
@@ -688,9 +690,10 @@ impl BinaryFormat {
                 (c.global_number, c.dep_parent)
             };
             wu32(&mut cohort_buffer, global_number);
-            if dep_parent == 0 || dep_parent == DEP_NO_PARENT {
-                wu32(&mut cohort_buffer, dep_parent);
-            } else if let Some(&pr) = app.gWindow.cohort_map.get(&dep_parent) {
+            if dep_parent == Some(0) || dep_parent.is_none() {
+                // C++ writes the raw field (0 or DEP_NO_PARENT).
+                wu32(&mut cohort_buffer, dep_parent.unwrap_or(crate::cohort::DEP_NO_PARENT));
+            } else if let Some(&pr) = app.gWindow.cohort_map.get(&dep_parent.unwrap()) {
                 let pr_local = app.store.cohorts.get(pr.0).local_number;
                 if pr_local == 0 {
                     wu32(&mut cohort_buffer, 0);

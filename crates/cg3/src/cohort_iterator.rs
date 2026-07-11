@@ -23,7 +23,7 @@
 //! never alias.
 
 use crate::arena::{CohortId, CtxId, SwId};
-use crate::cohort::{CT_ENCLOSED, CT_REMOVED, DEP_NO_PARENT};
+use crate::cohort::{CT_ENCLOSED, CT_REMOVED};
 use crate::contextual_test::{
     POS_LEFT, POS_RIGHT, POS_RIGHTMOST, POS_SELF, POS_SPAN_BOTH, POS_SPAN_LEFT, POS_SPAN_RIGHT,
 };
@@ -375,8 +375,8 @@ impl DepParentIter {
         let test_id = self.base.m_test.unwrap();
         let pos = grammar.contexts_arena[test_id.0].pos;
         let dep_parent = store.cohorts[cur_id.0].dep_parent;
-        if dep_parent != DEP_NO_PARENT {
-            if let Some(&p_id) = window.cohort_map.get(&dep_parent) {
+        if dep_parent.is_some() {
+            if let Some(&p_id) = window.cohort_map.get(&dep_parent.unwrap()) {
                 if store.cohorts[p_id.0].r#type.intersects(CT_REMOVED) {
                     self.base.m_cohort = None;
                     return;
@@ -602,7 +602,9 @@ impl DepAncestorIter {
             let mut current = cohort_id;
             loop {
                 let dep_parent = store.cohorts[current.0].dep_parent;
-                current = match window.cohort_map.get(&dep_parent) {
+                // C++ looks the raw value up unconditionally; DEP_NO_PARENT
+                // simply misses the map, exactly like None here.
+                current = match dep_parent.and_then(|dp| window.cohort_map.get(&dp)) {
                     None => break,
                     Some(&c) => c,
                 };

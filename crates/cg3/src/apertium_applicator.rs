@@ -31,7 +31,7 @@ use std::io::Write;
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::{
-    CT_AP_UNKNOWN, CT_REMOVED, DEP_NO_PARENT, alloc_cohort, append_reading, unignore_all,
+    CT_AP_UNKNOWN, CT_REMOVED, alloc_cohort, append_reading, unignore_all,
 };
 use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{hash_value, insert_if_exists};
@@ -688,8 +688,8 @@ impl ApertiumApplicator {
                     let _ = dep_self; // C++ sets it below (read-only path here).
                     // Determine parent cohort `pr`.
                     let mut pr = pcid;
-                    if dep_parent != DEP_NO_PARENT {
-                        if dep_parent == 0 {
+                    if dep_parent.is_some() {
+                        if dep_parent == Some(0) {
                             if let Some(sw) = sw_parent {
                                 if let Some(&first) =
                                     store.single_windows.get(sw.0).cohorts.first()
@@ -697,7 +697,7 @@ impl ApertiumApplicator {
                                     pr = first;
                                 }
                             }
-                        } else if let Some(&cid) = self.base.gWindow.cohort_map.get(&dep_parent) {
+                        } else if let Some(&cid) = self.base.gWindow.cohort_map.get(&dep_parent.unwrap()) {
                             pr = cid;
                         }
                     }

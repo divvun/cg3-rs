@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
-use crate::cohort::{CT_REMOVED, DEP_NO_PARENT, alloc_cohort, append_reading, unignore_all};
+use crate::cohort::{CT_REMOVED, alloc_cohort, append_reading, unignore_all};
 use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{hash_value, insert_if_exists};
 use crate::reading::{Reading, ReadingList, alloc_reading, alloc_reading_copy};
@@ -530,10 +530,10 @@ impl MatxinApplicator {
             self.nodes.insert(global_number as i32, n);
 
             let dep_parent = self.base.store.cohorts.get(cohort.0).dep_parent;
-            if dep_parent == DEP_NO_PARENT {
+            if dep_parent.is_none() {
                 self.deps.entry(r).or_default().push(global_number as i32);
             } else {
-                self.deps.entry(dep_parent as i32).or_default().push(global_number as i32);
+                self.deps.entry(dep_parent.unwrap() as i32).or_default().push(global_number as i32);
             }
 
             u_fflush(output);

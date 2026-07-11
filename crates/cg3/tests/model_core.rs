@@ -86,7 +86,7 @@ fn cohort_alloc_detach_clear_dtor_free() {
     // alloc_cohort: parent set, everything else at C++ defaults.
     let fresh = alloc_cohort(&mut store, Some(sw));
     assert_eq!(store.cohorts.get(fresh.0).parent, Some(sw));
-    assert_eq!(store.cohorts.get(fresh.0).dep_parent, DEP_NO_PARENT);
+    assert_eq!(store.cohorts.get(fresh.0).dep_parent, None);
     assert!(store.cohorts.get(fresh.0).readings.is_empty());
     store.cohorts.free_slot(fresh.0);
 
@@ -103,14 +103,14 @@ fn cohort_alloc_detach_clear_dtor_free() {
     let r = allocate_append_reading(&mut store, c3);
     let ig = alloc_reading(&mut store, Some(c3));
     store.cohorts.get_mut(c3.0).ignored.push(ig);
-    store.cohorts.get_mut(c3.0).dep_parent = 1;
+    store.cohorts.get_mut(c3.0).dep_parent = Some(1);
     assert!(w.cohort_map.contains_key(&3));
     cohort_clear(&mut store, Some(&mut w), c3);
     assert!(!w.cohort_map.contains_key(&3), "clear erases from cohort_map");
     assert!(!w.dep_window.contains_key(&3));
     let c3r = store.cohorts.get(c3.0);
     assert_eq!(c3r.global_number, 0);
-    assert_eq!(c3r.dep_parent, DEP_NO_PARENT);
+    assert_eq!(c3r.dep_parent, None);
     assert_eq!(c3r.parent, None);
     assert!(c3r.readings.is_empty());
     assert_eq!(c3r.ignored.len(), 1, "quirk: ignored NOT cleared");
@@ -362,8 +362,8 @@ fn topology_iterators() {
 fn dep_parent_iterator() {
     let (mut store, w, _sw, ids) = setup_window(3);
     let (c1, c2, c3) = (ids[0], ids[1], ids[2]);
-    store.cohorts.get_mut(c2.0).dep_parent = 1;
-    store.cohorts.get_mut(c3.0).dep_parent = 2;
+    store.cohorts.get_mut(c2.0).dep_parent = Some(1);
+    store.cohorts.get_mut(c3.0).dep_parent = Some(2);
     let mut g = Grammar::default();
     let ctx = g.allocate_contextual_test();
 
@@ -378,7 +378,7 @@ fn dep_parent_iterator() {
     assert_eq!(it.base.current(), Some(c2), "reset clears m_seen and re-seats");
 
     // Cycle guard: c1 -> c3 closes a loop; the duplicate m_seen hit ends it.
-    store.cohorts.get_mut(c1.0).dep_parent = 3;
+    store.cohorts.get_mut(c1.0).dep_parent = Some(3);
     it.reset(Some(c3), Some(ctx), false, &store, &g, &w);
     assert_eq!(it.base.current(), Some(c2));
     it.advance(&store, &g, &w);
@@ -407,9 +407,9 @@ fn dep_descendent_and_ancestor_iterators() {
     store.cohorts.get_mut(c1.0).dep_children.insert(2);
     store.cohorts.get_mut(c1.0).dep_children.insert(3);
     store.cohorts.get_mut(c2.0).dep_children.insert(4);
-    store.cohorts.get_mut(c2.0).dep_parent = 1;
-    store.cohorts.get_mut(c3.0).dep_parent = 1;
-    store.cohorts.get_mut(c4.0).dep_parent = 2;
+    store.cohorts.get_mut(c2.0).dep_parent = Some(1);
+    store.cohorts.get_mut(c3.0).dep_parent = Some(1);
+    store.cohorts.get_mut(c4.0).dep_parent = Some(2);
 
     let mut g = Grammar::default();
     let ctx = g.allocate_contextual_test();

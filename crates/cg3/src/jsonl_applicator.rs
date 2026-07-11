@@ -422,7 +422,8 @@ impl<'a> JsonlApplicator<'a> {
         }
         if let Some(dp) = obj.get("dp") {
             if let Some(v) = as_uint(dp) {
-                self.base.store.cohorts.get_mut(c_cohort.0).dep_parent = v;
+                self.base.store.cohorts.get_mut(c_cohort.0).dep_parent =
+                    if v == crate::cohort::DEP_NO_PARENT { None } else { Some(v) };
             }
         }
 
@@ -592,8 +593,8 @@ impl<'a> JsonlApplicator<'a> {
             };
             let self_id = if dep_self == 0 { global_number } else { dep_self };
             doc.insert("ds".to_string(), json!(self_id));
-            if dep_parent != DEP_NO_PARENT {
-                doc.insert("dp".to_string(), json!(dep_parent));
+            if let Some(dp) = dep_parent {
+                doc.insert("dp".to_string(), json!(dp));
             }
         }
 

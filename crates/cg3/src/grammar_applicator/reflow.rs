@@ -51,7 +51,7 @@
 //!     iteration).
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
-use crate::cohort::{CT_DEP_DONE, CT_ENCLOSED, CT_IGNORED, CT_NUM_CURRENT, CT_REMOVED, DEP_NO_PARENT};
+use crate::cohort::{CT_DEP_DONE, CT_ENCLOSED, CT_IGNORED, CT_NUM_CURRENT, CT_REMOVED};
 use crate::inlines::{erase, hash_value, insert_if_exists, ui32};
 use crate::reading::{Reading, ReadingList, alloc_reading_copy, free_reading, reading_rehash};
 use crate::tag::{
@@ -183,22 +183,22 @@ impl super::GrammarApplicator {
 
         if parent_gn == child_gn {
             retval = true;
-        } else if parent_gn == child_dp {
+        } else if Some(parent_gn) == child_dp {
             retval = true;
         } else {
             let mut i = 0usize;
             let mut inner = child;
             while i < 1000 {
                 let inner_dp = self.store.cohorts.get(inner.0).dep_parent;
-                if inner_dp == 0 || inner_dp == DEP_NO_PARENT {
+                if inner_dp == Some(0) || inner_dp.is_none() {
                     retval = false;
                     break;
                 }
-                match self.gWindow.cohort_map.get(&inner_dp).copied() {
+                match self.gWindow.cohort_map.get(&inner_dp.unwrap()).copied() {
                     Some(next) => inner = next,
                     None => break,
                 }
-                if self.store.cohorts.get(inner.0).dep_parent == parent_gn {
+                if self.store.cohorts.get(inner.0).dep_parent == Some(parent_gn) {
                     retval = true;
                     break;
                 }
@@ -228,26 +228,26 @@ impl super::GrammarApplicator {
 
         if parent_gn == child_gn {
             retval = true;
-        } else if parent_gn == child_dp {
+        } else if Some(parent_gn) == child_dp {
             retval = false;
-        } else if parent_gn == parent_dp {
+        } else if Some(parent_gn) == parent_dp {
             retval = false;
-        } else if parent_dp == child_gn {
+        } else if parent_dp == Some(child_gn) {
             retval = true;
         } else {
             let mut i = 0usize;
             let mut inner = parent;
             while i < 1000 {
                 let inner_dp = self.store.cohorts.get(inner.0).dep_parent;
-                if inner_dp == 0 || inner_dp == DEP_NO_PARENT {
+                if inner_dp == Some(0) || inner_dp.is_none() {
                     retval = false;
                     break;
                 }
-                match self.gWindow.cohort_map.get(&inner_dp).copied() {
+                match self.gWindow.cohort_map.get(&inner_dp.unwrap()).copied() {
                     Some(next) => inner = next,
                     None => break,
                 }
-                if self.store.cohorts.get(inner.0).dep_parent == child_gn {
+                if self.store.cohorts.get(inner.0).dep_parent == Some(child_gn) {
                     retval = true;
                     break;
                 }
@@ -277,10 +277,14 @@ impl super::GrammarApplicator {
 
         let mut i = mn.wrapping_add(1);
         while i < mx {
-            if let Some(&mid) = self.gWindow.cohort_map.get(&parent_dp) {
-                let mid_dp = self.store.cohorts.get(mid.0).dep_parent;
-                if mid_dp != DEP_NO_PARENT && (mid_dp < mn || mid_dp > mx) {
-                    return true;
+            if let Some(pdp) = parent_dp {
+                if let Some(&mid) = self.gWindow.cohort_map.get(&pdp) {
+                    let mid_dp = self.store.cohorts.get(mid.0).dep_parent;
+                    if let Some(mdp) = mid_dp {
+                        if mdp < mn || mdp > mx {
+                            return true;
+                        }
+                    }
                 }
             }
             i = i.wrapping_add(1);
@@ -325,11 +329,12 @@ impl super::GrammarApplicator {
                 let c = self.store.cohorts.get(child.0);
                 (c.dep_self, c.dep_parent)
             };
-            let cdp = if cdp == DEP_NO_PARENT {
-                self.store.cohorts.get_mut(child.0).dep_parent = cds;
-                cds
-            } else {
-                cdp
+            let cdp = match cdp {
+                None => {
+                    self.store.cohorts.get_mut(child.0).dep_parent = Some(cds);
+                    cds
+                }
+                Some(v) => v,
             };
             if let Some(&old) = self.gWindow.cohort_map.get(&cdp) {
                 self.store.cohorts.get_mut(old.0).rem_child(cds);
@@ -338,7 +343,7 @@ impl super::GrammarApplicator {
 
         let parent_gn = self.store.cohorts.get(parent.0).global_number;
         let child_gn = self.store.cohorts.get(child.0).global_number;
-        self.store.cohorts.get_mut(child.0).dep_parent = parent_gn;
+        self.store.cohorts.get_mut(child.0).dep_parent = Some(parent_gn);
         self.store.cohorts.get_mut(parent.0).add_child(child_gn);
 
         self.store.cohorts.get_mut(parent.0).r#type |= CT_DEP_DONE;
@@ -473,29 +478,32 @@ impl super::GrammarApplicator {
                 if max != 0 && gn >= max {
                     break;
                 }
-                if dp == DEP_NO_PARENT {
+                if dp.is_none() {
                     b += 1;
                     continue;
                 }
                 if ds == gn {
-                    let dp_present = self.gWindow.dep_map.find(dp) != self.gWindow.dep_map.end();
+                    let dpv = dp.unwrap();
+                    let dp_present = self.gWindow.dep_map.find(dpv) != self.gWindow.dep_map.end();
                     if !ty.intersects(CT_DEP_DONE) && !dp_present {
                         if self.verbosity_level > 0 {
                             let _ = ln; // "Warning: Parent %u of dep %u ..." — I/O deferred.
                         }
-                        self.store.cohorts.get_mut(cohort.0).dep_parent = DEP_NO_PARENT;
+                        self.store.cohorts.get_mut(cohort.0).dep_parent = None;
                     } else {
                         if !ty.intersects(CT_DEP_DONE) {
-                            let dep_real = self.gWindow.dep_map.find(dp).get().1;
-                            self.store.cohorts.get_mut(cohort.0).dep_parent = dep_real;
+                            let dep_real = self.gWindow.dep_map.find(dpv).get().1;
+                            self.store.cohorts.get_mut(cohort.0).dep_parent = Some(dep_real);
                         }
                         let par = self.store.cohorts.get(cohort.0).parent.unwrap();
                         let c0 = self.store.single_windows.get(par.0).cohorts[0];
                         self.gWindow.cohort_map.insert(0, c0);
                         let real_dp = self.store.cohorts.get(cohort.0).dep_parent;
-                        if let Some(&pc) = self.gWindow.cohort_map.get(&real_dp) {
-                            let dep_self = self.store.cohorts.get(cohort.0).dep_self;
-                            self.store.cohorts.get_mut(pc.0).add_child(dep_self);
+                        if let Some(rdp) = real_dp {
+                            if let Some(&pc) = self.gWindow.cohort_map.get(&rdp) {
+                                let dep_self = self.store.cohorts.get(cohort.0).dep_self;
+                                self.store.cohorts.get_mut(pc.0).add_child(dep_self);
+                            }
                         }
                         self.store.cohorts.get_mut(cohort.0).r#type |= CT_DEP_DONE;
                     }
@@ -923,9 +931,9 @@ impl super::GrammarApplicator {
         {
             let c = self.store.cohorts.get_mut(parent.unwrap().0);
             c.dep_self = tds;
-            c.dep_parent = tdp;
+            c.dep_parent = Some(tdp);
             if tdp == tds {
-                c.dep_parent = DEP_NO_PARENT;
+                c.dep_parent = None;
             }
             self.has_dep = true;
         }

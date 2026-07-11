@@ -1285,7 +1285,7 @@ impl super::GrammarApplicator {
                 };
                 if gn == head_gn {
                     self.cohortset_insert(cs, *iter);
-                } else if dp == head_gn && self.does_set_match_cohort_normal(*iter, cset, None) {
+                } else if dp == Some(head_gn) && self.does_set_match_cohort_normal(*iter, cset, None) {
                     self.cohortset_insert(cs, *iter);
                 }
             }
@@ -1708,14 +1708,14 @@ impl super::GrammarApplicator {
 
             // SETPARENT SAFE / NOPARENT with existing parent.
             let dep_parent = self.store.cohorts.get(cohort.0).dep_parent;
-            if r#type == K_SETPARENT && (rflags.intersects(RF_SAFE)) && dep_parent != DEP_NO_PARENT {
+            if r#type == K_SETPARENT && (rflags.intersects(RF_SAFE)) && dep_parent.is_some() {
                 continue;
             }
-            if (rflags.intersects(RF_NOPARENT)) && dep_parent != DEP_NO_PARENT {
+            if (rflags.intersects(RF_NOPARENT)) && dep_parent.is_some() {
                 continue;
             }
             // REMPARENT / SWITCHPARENT with no parent.
-            if (r#type == K_REMPARENT || r#type == K_SWITCHPARENT) && dep_parent == DEP_NO_PARENT {
+            if (r#type == K_REMPARENT || r#type == K_SWITCHPARENT) && dep_parent.is_none() {
                 continue;
             }
 
@@ -2256,7 +2256,7 @@ impl super::GrammarApplicator {
                 dc.back()
             };
             let dp = self.store.cohorts.get(cohort.0).dep_parent;
-            let parent_key = if dp == DEP_NO_PARENT { 0 } else { dp };
+            let parent_key = dp.unwrap_or(0);
             let (pc, cc) = (
                 self.gWindow.cohort_map.get(&parent_key).copied(),
                 self.gWindow.cohort_map.get(&ch).copied(),
@@ -2820,7 +2820,7 @@ impl super::GrammarApplicator {
                 self.finish_reading_loop = false;
                 self.trace(rnumber, rsub_reading);
                 self.store.cohorts.get_mut(self.get_apply_to().cohort.unwrap().0).dep_parent =
-                    DEP_NO_PARENT;
+                    None;
             }
             K_SWITCHPARENT => {
                 self.finish_reading_loop = false;
@@ -2900,24 +2900,24 @@ impl super::GrammarApplicator {
         let child = self.get_apply_to().cohort.unwrap();
         let current = self.store.cohorts.get(child.0).parent.unwrap();
         let child_dp = self.store.cohorts.get(child.0).dep_parent;
-        let parent = *self.gWindow.cohort_map.get(&child_dp).unwrap();
+        let parent = *self.gWindow.cohort_map.get(&child_dp.unwrap()).unwrap();
         let parent_gn = self.store.cohorts.get(parent.0).global_number;
         let grandparent_number = self.store.cohorts.get(parent.0).dep_parent;
         let mut siblings: Vec<CohortId> = Vec::new();
         let cohorts = self.store.single_windows.get(current.0).cohorts.clone();
         for c in cohorts {
-            if self.store.cohorts.get(c.0).dep_parent == parent_gn
+            if self.store.cohorts.get(c.0).dep_parent == Some(parent_gn)
                 && self.does_set_match_cohort_normal(c, childset1, None)
             {
                 siblings.push(c);
             }
         }
-        self.store.cohorts.get_mut(child.0).dep_parent = DEP_NO_PARENT;
-        self.store.cohorts.get_mut(parent.0).dep_parent = DEP_NO_PARENT;
+        self.store.cohorts.get_mut(child.0).dep_parent = None;
+        self.store.cohorts.get_mut(parent.0).dep_parent = None;
         for &s in &siblings {
-            self.store.cohorts.get_mut(s.0).dep_parent = DEP_NO_PARENT;
+            self.store.cohorts.get_mut(s.0).dep_parent = None;
         }
-        if let Some(&gp) = self.gWindow.cohort_map.get(&grandparent_number) {
+        if let Some(&gp) = grandparent_number.and_then(|g| self.gWindow.cohort_map.get(&g)) {
             self.attach_parent_child(gp, child, false, false);
         }
         self.attach_parent_child(child, parent, false, false);
@@ -4169,7 +4169,7 @@ impl super::GrammarApplicator {
     fn rr_mergecohorts_attach(&mut self, insertion: CohortId, ccohort: CohortId, withs: Option<&CohortSet>) {
         let target = self.context_stack.last().unwrap().target.cohort.unwrap();
         let dp = self.store.cohorts.get(target.0).dep_parent;
-        let has_parent = dp != DEP_NO_PARENT && self.gWindow.cohort_map.contains_key(&dp);
+        let has_parent = dp.is_some() && self.gWindow.cohort_map.contains_key(&dp.unwrap());
         if !has_parent {
             if self.has_dep {
                 let in_withs = withs.map(|w| w.contains(insertion)).unwrap_or(false);
@@ -4212,7 +4212,7 @@ impl super::GrammarApplicator {
                 }
             }
         } else {
-            let parent = *self.gWindow.cohort_map.get(&dp).unwrap();
+            let parent = *self.gWindow.cohort_map.get(&dp.unwrap()).unwrap();
             self.attach_parent_child(parent, ccohort, false, false);
         }
 
@@ -4253,7 +4253,7 @@ impl super::GrammarApplicator {
         let all_cohorts = self.store.single_windows.get(current.0).all_cohorts.clone();
         for c in all_cohorts {
             let cdp = self.store.cohorts.get(c.0).dep_parent;
-            if ps.contains(&cdp) {
+            if cdp.is_some_and(|v| ps.contains(&v)) {
                 self.attach_parent_child(ccohort, c, false, false);
             }
             let keys: Vec<u32> = self.store.cohorts.get(c.0).relations.keys().copied().collect();
@@ -4875,7 +4875,7 @@ impl super::GrammarApplicator {
 
             if cohort_dep[idx].1 == DEP_NO_PARENT {
                 let dp = self.store.cohorts.get(apply.0).dep_parent;
-                if let Some(&parent) = self.gWindow.cohort_map.get(&dp) {
+                if let Some(&parent) = dp.and_then(|v| self.gWindow.cohort_map.get(&v)) {
                     self.attach_parent_child(parent, ccohort, true, true);
                 }
             } else {

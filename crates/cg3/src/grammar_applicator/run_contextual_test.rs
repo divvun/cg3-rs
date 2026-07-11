@@ -1207,13 +1207,13 @@ impl super::GrammarApplicator {
         if test_pos.intersects(POS_DEP_CHILD) {
             deps = self.store.cohorts.get(current.0).dep_children.as_slice().to_vec();
         } else {
-            if self.store.cohorts.get(current.0).dep_parent == 0 {
+            if self.store.cohorts.get(current.0).dep_parent == Some(0) {
                 let parent_sw = self.store.cohorts.get(current.0).parent.unwrap();
                 let root = self.store.single_windows.get(parent_sw.0).cohorts[0];
                 deps = self.store.cohorts.get(root.0).dep_children.as_slice().to_vec();
             } else {
                 let dep_parent = self.store.cohorts.get(current.0).dep_parent;
-                let mapped = self.gWindow.cohort_map.get(&dep_parent).copied();
+                let mapped = dep_parent.and_then(|dp| self.gWindow.cohort_map.get(&dp)).copied();
                 match mapped {
                     Some(pc) if !self.store.cohorts.get(pc.0).dep_children.empty() => {
                         deps = self.store.cohorts.get(pc.0).dep_children.as_slice().to_vec();
@@ -1226,7 +1226,8 @@ impl super::GrammarApplicator {
                             };
                             tracing::warn!(
                                 "Warning: Cohort {} (parent {}) did not have any siblings.",
-                                ds, dp
+                                ds,
+                                dp.unwrap_or(crate::cohort::DEP_NO_PARENT)
                             );
                         }
                         return None;

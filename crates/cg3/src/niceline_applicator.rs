@@ -31,7 +31,7 @@
 use std::io::{Read, Seek, Write};
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
-use crate::cohort::{CT_RELATED, CT_REMOVED, DEP_NO_PARENT, unignore_all};
+use crate::cohort::{CT_RELATED, CT_REMOVED, unignore_all};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{isnl, skipto_nospan};
@@ -599,12 +599,12 @@ impl<'a> NicelineApplicator<'a> {
                 (c.global_number, c.local_number, c.dep_parent, c.dep_self, c.parent)
             };
             let mut pr = parent_cid;
-            if p_dep_parent != DEP_NO_PARENT {
-                if p_dep_parent == 0 {
+            if p_dep_parent.is_some() {
+                if p_dep_parent == Some(0) {
                     if let Some(sw) = p_sw {
                         pr = self.base.store.single_windows.get(sw.0).cohorts[0];
                     }
-                } else if let Some(&mapped) = self.base.gWindow.cohort_map.get(&p_dep_parent) {
+                } else if let Some(&mapped) = self.base.gWindow.cohort_map.get(&p_dep_parent.unwrap()) {
                     pr = mapped;
                 }
             }
@@ -615,10 +615,11 @@ impl<'a> NicelineApplicator<'a> {
             } else if !self.base.dep_has_spanned {
                 let pr_local = self.base.store.cohorts.get(pr.0).local_number;
                 let _ = write!(output, " #{p_local}{arrow}{pr_local}");
-            } else if p_dep_parent == DEP_NO_PARENT {
+            } else if p_dep_parent.is_none() {
                 let _ = write!(output, " #{p_dep_self}{arrow}{p_dep_self}");
             } else {
-                let _ = write!(output, " #{p_dep_self}{arrow}{p_dep_parent}");
+                let pdp = p_dep_parent.unwrap();
+                let _ = write!(output, " #{p_dep_self}{arrow}{pdp}");
             }
         }
 

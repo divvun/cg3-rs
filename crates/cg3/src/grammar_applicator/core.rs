@@ -846,13 +846,13 @@ impl super::GrammarApplicator {
                 (c.global_number, c.local_number, c.dep_parent, c.parent)
             };
             let mut pr = parent_cid;
-            if p_dep_parent != DEP_NO_PARENT {
-                if p_dep_parent == 0 {
+            if p_dep_parent.is_some() {
+                if p_dep_parent == Some(0) {
                     // parent->parent->cohorts[0]
                     if let Some(sw) = p_sw {
                         pr = self.store.single_windows.get(sw.0).cohorts[0];
                     }
-                } else if let Some(&mapped) = self.gWindow.cohort_map.get(&p_dep_parent) {
+                } else if let Some(&mapped) = self.gWindow.cohort_map.get(&p_dep_parent.unwrap()) {
                     pr = mapped;
                 }
             }
@@ -866,7 +866,7 @@ impl super::GrammarApplicator {
             } else {
                 let w = self.dep_span_width();
                 let p_win = p_sw.map(|s| self.store.single_windows.get(s.0).number).unwrap_or(0);
-                if p_dep_parent == DEP_NO_PARENT {
+                if p_dep_parent.is_none() {
                     let _ = write!(output, " #{a}{b:0w$}{arrow}{c}{d:0w$}",
                             a = p_win,
                             b = p_local,
@@ -1201,13 +1201,13 @@ impl super::GrammarApplicator {
         if !c.text.is_empty() {
             flags |= 1 << 0;
         }
-        if self.has_dep && c.dep_parent != DEP_NO_PARENT {
+        if self.has_dep && c.dep_parent.is_some() {
             flags |= 1 << 1;
         }
         write_raw(&mut ss, flags);
 
-        if self.has_dep && c.dep_parent != DEP_NO_PARENT {
-            write_raw(&mut ss, c.dep_parent);
+        if self.has_dep && c.dep_parent.is_some() {
+            write_raw(&mut ss, c.dep_parent.unwrap());
         }
 
         let wf = c.wordform.expect("cohort wordform");
@@ -1361,7 +1361,8 @@ impl super::GrammarApplicator {
 
         if flags & (1 << 1) != 0 {
             let dp: u32 = read_raw(&mut ProcRead(input));
-            self.store.cohorts.get_mut(cohort.0).dep_parent = dp;
+            self.store.cohorts.get_mut(cohort.0).dep_parent =
+                if dp == DEP_NO_PARENT { None } else { Some(dp) };
         }
 
         let mut force_readings = false;

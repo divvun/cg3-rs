@@ -58,6 +58,10 @@ pub const CT_AP_UNKNOWN: CohortType = CohortType::AP_UNKNOWN;
 pub const CT_IGNORED: CohortType = CohortType::IGNORED;
 
 /// C++ `constexpr auto DEP_NO_PARENT = std::numeric_limits<uint32_t>::max()`.
+/// C++ `DEP_NO_PARENT = UINT32_MAX` — the raw wire value of "no parent".
+/// Wave 4: `Cohort::dep_parent` is `Option<u32>` (`None` = no parent); this
+/// constant remains ONLY for the serialization boundaries that must write or
+/// read the C++ sentinel byte-for-byte.
 pub const DEP_NO_PARENT: u32 = u32::MAX;
 
 // [spec:cg3:def:cohort.cg3.relation-ctn]
@@ -115,7 +119,7 @@ pub struct Cohort {
     pub wordform: Option<TagId>,
     pub dep_self: u32,
     /// Defaults to [`DEP_NO_PARENT`] (not 0) — see [`Default`] impl.
-    pub dep_parent: u32,
+    pub dep_parent: Option<u32>,
     pub is_pleft: u32,
     pub is_pright: u32,
     /// C++ `SingleWindow* parent = nullptr`.
@@ -154,7 +158,7 @@ impl Default for Cohort {
             enclosed: 0,
             wordform: None,
             dep_self: 0,
-            dep_parent: DEP_NO_PARENT,
+            dep_parent: None,
             is_pleft: 0,
             is_pright: 0,
             parent: None,
@@ -333,7 +337,7 @@ pub fn cohort_clear(store: &mut RuntimeStore, window: Option<&mut Window>, this:
         c.enclosed = 0;
         c.wordform = None;
         c.dep_self = 0;
-        c.dep_parent = DEP_NO_PARENT;
+        c.dep_parent = None;
         c.is_pleft = 0;
         c.is_pright = 0;
         c.parent = None;
