@@ -462,16 +462,81 @@ pub fn find_and_replace(str: &mut UString, from: UStringView, to: UStringView) -
 // [spec:cg3:def:uextras.cg3.get-line-clean-fn]
 // [spec:cg3:sem:uextras.cg3.get-line-clean-fn]
 //
-// `line`/`cleaned` are pre-sized `UChar` scratch buffers the algorithm indexes
-// and grows; represented here as `&mut Vec<char>` (NOT `&mut UString`) to
-// preserve the O(1) code-unit indexing and in-place mutation the C++ relies on.
-// NOTE for the lead: callers must supply `Vec<char>` buffers (or wrappers), with
-// `cleaned.len() >= line.len() + 1`. The `line.size()-offset-1` size is computed
-// as `i32` so an over-run of `offset` yields `n <= 0` (→ `u_fgets` reads
-// nothing) instead of a `usize` underflow, matching the C++ termination. The
-// added `offset < line.len()` bounds (C++ relies solely on the NUL terminator)
-// keep an all-whitespace exactly-full buffer from panicking where C++ would UB.
+// Wave 4 (w4-utf8-native-strings): native-`String` form. `line` receives the
+// raw line exactly as read (newline INCLUDED, original spacing kept); `cleaned`
+// receives the whitespace-collapsed copy (each run of non-newline whitespace
+// becomes one `' '`, or the run's last `'\t'` when `keep_tabs`), stopping at
+// the newline (which is NOT copied) or an embedded NUL. Returns `cleaned`'s
+// byte length. A BLANK line yields `line == "\n"` with an empty `cleaned`
+// (the C++ u_fgets nullptr-on-lone-newline quirk); true EOF yields an empty
+// `line` — callers distinguish the two exactly as the C++ did via `line[0]`.
+// The C++ fixed-buffer doubling and NUL terminators are buffer management with
+// no observable effect and are not reproduced.
 pub fn get_line_clean<R: Read>(
+    line: &mut String,
+    cleaned: &mut String,
+    input: &mut R,
+    keep_tabs: bool,
+) -> usize {
+    line.clear();
+    cleaned.clear();
+
+    // u_fgets: read chars (UTF-8-decoded) until a stored newline or EOF.
+    loop {
+        let c = u_fgetc(input);
+        if c == U_EOF {
+            break;
+        }
+        line.push(c);
+        if isnl(c) {
+            break;
+        }
+    }
+    // The u_fgets lone-newline quirk: a blank line reports "read nothing", so
+    // nothing is copied to `cleaned` (the C++ broke before the copy loop).
+    if line == "\n" || (line.chars().count() == 1 && line.chars().next().map(isnl).unwrap_or(false))
+    {
+        return 0;
+    }
+
+    // Copy to `cleaned`, collapsing whitespace runs; stop at newline/NUL.
+    let mut it = line.chars().peekable();
+    while let Some(&c) = it.peek() {
+        if isspace(c) && !isnl(c) {
+            let mut space = if c == '\t' { '\t' } else { ' ' };
+            while let Some(&d) = it.peek() {
+                if !isspace(d) || isnl(d) {
+                    break;
+                }
+                if d == '\t' {
+                    space = d;
+                }
+                it.next();
+            }
+            if !keep_tabs {
+                space = ' ';
+            }
+            cleaned.push(space);
+            continue;
+        }
+        if isnl(c) || c == '\0' {
+            break;
+        }
+        cleaned.push(c);
+        it.next();
+    }
+    cleaned.len()
+}
+
+// Scalar-buffer (`Vec<char>`) form of [`get_line_clean`], retained for the
+// reading/grammar LEXERS (`run_grammar_on_text`, the FST applicator, and the
+// `TextualParser`) that scan their working buffer with `Char*`-style cursors and
+// NUL-cut it in place, then rebuild the slices into `String` tags — the wave-4
+// "symbols later rebuilt into a string" carve-out. Line-oriented stream readers
+// (Niceline/Plaintext) use the native-`String` [`get_line_clean`]. Byte-for-byte
+// identical to the wave-2/3 buffer semantics (fixed buffer, doubling, trailing
+// NUL padding that the cursor loops rely on for out-of-range reads).
+pub fn get_line_clean_chars<R: Read>(
     line: &mut Vec<char>,
     cleaned: &mut Vec<char>,
     input: &mut R,
@@ -805,27 +870,31 @@ mod tests {
     // [spec:cg3:sem:uextras.u-fgetc-fn/test]
     #[test]
     fn get_line_clean_collapses_spaces() {
-        let mut input = Cursor::new(b"foo    bar\nnext".to_vec());
-        let mut line = vec!['\0'; 64];
-        let mut cleaned = vec!['\0'; 128];
+        let mut input = Cursor::new("a  \t b\tc\nnext".as_bytes().to_vec());
+        let mut line = String::new();
+        let mut cleaned = String::new();
         let n = get_line_clean(&mut line, &mut cleaned, &mut input, false);
-        let got: String = cleaned[..n].iter().collect();
-        // The run of spaces between "foo" and "bar" collapses to one space.
-        assert_eq!(got, "foo bar");
+        assert_eq!(cleaned, "a b c");
+        assert_eq!(n, cleaned.len());
+        assert!(line.starts_with("a  \t b\tc"), "raw line keeps original spacing");
 
-        // u_fgets directly: reads up to a newline, stores it, reports success.
-        let mut in2 = Cursor::new(b"hi\nrest".to_vec());
-        let mut buf = vec!['\0'; 16];
-        assert!(u_fgets(&mut buf, 8, &mut in2));
-        assert_eq!(buf[0], 'h');
-        assert_eq!(buf[1], 'i');
-        assert!(isnl(buf[2])); // the '\n' is stored at s[i]
+        // keep_tabs: a run containing a tab collapses to the tab.
+        let mut input = Cursor::new("x \t y\n".as_bytes().to_vec());
+        let n = get_line_clean(&mut line, &mut cleaned, &mut input, true);
+        assert_eq!(cleaned, "x\ty");
+        assert_eq!(n, cleaned.len());
 
-        // u_fgetc directly: one code point at a time; U_EOF at end.
-        let mut in3 = Cursor::new("é!".as_bytes().to_vec());
-        assert_eq!(u_fgetc(&mut in3), 'é'); // 2-byte UTF-8 decoded to one char
-        assert_eq!(u_fgetc(&mut in3), '!');
-        assert_eq!(u_fgetc(&mut in3), U_EOF);
+        // Blank line: raw newline in `line`, empty cleaned, 0 (NOT EOF).
+        let mut input = Cursor::new("\nz\n".as_bytes().to_vec());
+        let n = get_line_clean(&mut line, &mut cleaned, &mut input, false);
+        assert_eq!(n, 0);
+        assert_eq!(line, "\n");
+
+        // EOF: empty line distinguishes it from a blank line.
+        let mut input = Cursor::new(Vec::<u8>::new());
+        let n = get_line_clean(&mut line, &mut cleaned, &mut input, false);
+        assert_eq!(n, 0);
+        assert!(line.is_empty());
     }
 
     // read_utf8 reads a byte block but never splits a multi-byte UTF-8 sequence:

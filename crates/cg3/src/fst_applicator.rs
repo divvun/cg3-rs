@@ -32,12 +32,14 @@ use crate::cohort::append_reading;
 use crate::cohort::{CT_REMOVED, alloc_cohort, free_cohort};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
-use crate::inlines::{NUMERIC_MAX, insert_if_exists, isnl, isspace, reversed, skipto_nospan_raw};
+use crate::inlines::{
+    NUMERIC_MAX, insert_if_exists, isnl, isspace, reversed, skipto_nospan_raw_chars,
+};
 use crate::reading::alloc_reading;
 use crate::single_window::{append_cohort, free_swindow};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
 use crate::types::UString;
-use crate::uextras::{get_line_clean, u_fputc, ux_strip_bom};
+use crate::uextras::{get_line_clean_chars, u_fputc, ux_strip_bom};
 
 /// C++ `grammar->single_tags[hash]` — resolves a tag hash to its `TagId`, else
 /// `TagId(0)`. Reproduces `grammar_applicator::core::tag_by_hash` (which is
@@ -358,7 +360,7 @@ impl FSTApplicator {
         // progress (get_line_clean returns 0 and the line buffer stays empty).
         'mainloop: loop {
             lines += 1;
-            let mut packoff = get_line_clean(&mut line, &mut cleaned, input, true);
+            let mut packoff = get_line_clean_chars(&mut line, &mut cleaned, input, true);
 
             // C++ `while (!input.eof())`: eofbit is set when a read attempt hits
             // end-of-stream. `u_fgets` distinguishes a blank line (packoff == 0
@@ -381,7 +383,7 @@ impl FSTApplicator {
             if !is_text {
                 // space = &cleaned[0]; SKIPTO_NOSPAN_RAW(space, '\t');
                 let mut space = 0usize;
-                skipto_nospan_raw(&cleaned, &mut space, '\t');
+                skipto_nospan_raw_chars(&cleaned, &mut space, '\t');
 
                 if cleaned[space] != '\t' {
                     // If this line looks like markup, don't warn about it.

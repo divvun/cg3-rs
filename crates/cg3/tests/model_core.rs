@@ -15,7 +15,7 @@ use std::process::Command;
 
 use cg3::arena::{Arena, CohortId, CtxId, SwId};
 use cg3::cohort::{
-    CT_ENCLOSED, CT_NUM_CURRENT, CT_RELATED, CT_REMOVED, Cohort, DEP_NO_PARENT, alloc_cohort,
+    CT_ENCLOSED, CT_NUM_CURRENT, CT_RELATED, CT_REMOVED, Cohort, alloc_cohort,
     allocate_append_reading, append_reading, append_reading_to, cohort_clear, cohort_dtor, detach,
     free_cohort, get_max, get_min, set_related, unignore_all, update_min_max,
 };

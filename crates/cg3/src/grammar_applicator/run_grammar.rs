@@ -16,9 +16,12 @@
 //! `u_fprintf(ux_stderr,…)` are deferred with the I/O layer, but their
 //! control-flow effects are reproduced faithfully.
 //!
-//! `line`/`cleaned` are `Vec<char>` scratch buffers (what `get_line_clean`
-//! expects); the C++ `UChar*` pointer walks over `cleaned`/`line` are translated
-//! to `usize` indices over those buffers using the ported `skip*` helpers.
+//! `line`/`cleaned` are `Vec<char>` scratch buffers (what `get_line_clean_chars`
+//! fills); the C++ `UChar*` pointer walks over `cleaned`/`line` are translated
+//! to `usize` indices over those buffers using the ported `skip*_chars` helpers.
+//! This reading lexer stays on the scalar-buffer cursor model — the wave-4
+//! "symbols later rebuilt into a string" carve-out (see `inlines::scan`); the
+//! line-oriented Niceline/Plaintext readers use the native-`String` scanners.
 
 // [spec:cg3:def:grammar-applicator-run-grammar.cg3.test-string-against-fn]
 // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.test-string-against-fn]
@@ -257,8 +260,8 @@ impl super::GrammarApplicator {
         let mut base = space;
         if cleaned[space] == '"' {
             space += 1;
-            crate::inlines::skipto_nospan(cleaned, &mut space, '"');
-            crate::inlines::skiptows(cleaned, &mut space, '\0', true, true);
+            crate::inlines::skipto_nospan_chars(cleaned, &mut space, '"');
+            crate::inlines::skiptows_chars(cleaned, &mut space, '\0', true, true);
             space -= 1;
         }
 
@@ -266,8 +269,8 @@ impl super::GrammarApplicator {
         if cleaned[space] != '"' {
             space = base;
             space += 1;
-            crate::inlines::skipto_nospan_raw(cleaned, &mut space, '"');
-            crate::inlines::skiptows(cleaned, &mut space, '\0', true, true);
+            crate::inlines::skipto_nospan_raw_chars(cleaned, &mut space, '"');
+            crate::inlines::skiptows_chars(cleaned, &mut space, '\0', true, true);
             space -= 1;
         }
 
@@ -324,7 +327,7 @@ impl super::GrammarApplicator {
                     base = space;
                     if cleaned[space] == '"' {
                         space += 1;
-                        crate::inlines::skipto_nospan(cleaned, &mut space, '"');
+                        crate::inlines::skipto_nospan_chars(cleaned, &mut space, '"');
                     }
                 }
             }
@@ -548,7 +551,7 @@ impl super::GrammarApplicator {
         // no more progress (the `packoff == 0` check at the bottom).
         'mainloop: loop {
             lines += 1;
-            let mut packoff = crate::uextras::get_line_clean(&mut line, &mut cleaned, input, false);
+            let mut packoff = crate::uextras::get_line_clean_chars(&mut line, &mut cleaned, input, false);
 
             // C++ `while (!input.eof())`: eofbit is set when a read attempt hits
             // end-of-stream. `u_fgets` distinguishes a blank line (packoff == 0
@@ -572,12 +575,12 @@ impl super::GrammarApplicator {
                 let mut space = 0usize;
                 if cleaned[space] == '"' && cleaned[space + 1] == '<' {
                     space += 1;
-                    crate::inlines::skipto_nospan(&cleaned, &mut space, '"');
+                    crate::inlines::skipto_nospan_chars(&cleaned, &mut space, '"');
                     while cleaned[space] != '\0' && cleaned[space - 1] != '>' {
                         space += 1;
-                        crate::inlines::skipto_nospan(&cleaned, &mut space, '"');
+                        crate::inlines::skipto_nospan_chars(&cleaned, &mut space, '"');
                     }
-                    crate::inlines::skiptows(&cleaned, &mut space, '\0', true, true);
+                    crate::inlines::skiptows_chars(&cleaned, &mut space, '\0', true, true);
                     space -= 1;
                 }
                 if cleaned[space] != '"' || cleaned[space - 1] != '>' {
@@ -782,13 +785,13 @@ impl super::GrammarApplicator {
                         self.store.cohorts.get_mut(cc.0).wread = Some(wread);
                         self.add_tag_to_reading(wread, wf);
                         while cleaned[space] != '\0' {
-                            crate::inlines::skipws(&cleaned, &mut space, '\0', '\0', true);
+                            crate::inlines::skipws_chars(&cleaned, &mut space, '\0', '\0', true);
                             let mut n = space;
                             if cleaned[n] == '"' {
                                 n += 1;
-                                crate::inlines::skipto_nospan(&cleaned, &mut n, '"');
+                                crate::inlines::skipto_nospan_chars(&cleaned, &mut n, '"');
                             }
-                            crate::inlines::skiptows(&cleaned, &mut n, '\0', true, true);
+                            crate::inlines::skiptows_chars(&cleaned, &mut n, '\0', true, true);
                             cleaned[n] = '\0';
                             let tag_text: String = cleaned[space..]
                                 .iter()

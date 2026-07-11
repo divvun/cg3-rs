@@ -92,8 +92,8 @@ impl PlaintextApplicator {
     {
         // ux_stdin/ux_stdout, validity guards, no-delimiter warnings: deferred I/O.
 
-        let mut line: Vec<char> = vec!['\0'; 1024];
-        let mut cleaned: Vec<char> = vec!['\0'; line.len() + 1];
+        let mut line = String::new();
+        let mut cleaned = String::new();
         let ignoreinput = false;
         let mut did_soft_lookback = false;
 
@@ -122,18 +122,20 @@ impl PlaintextApplicator {
             // `line[0]` holds the newline) is NOT end-of-stream; only a read
             // that stores nothing is. Sampled here, acted on at the bottom
             // (matches the base run_grammar_on_text driver).
-            let hit_eof = packoff == 0 && line[0] == '\0';
+            let hit_eof = packoff == 0 && line.is_empty();
 
             // Trim trailing whitespace.
-            while cleaned[0] != '\0' && packoff > 0 && crate::inlines::isspace(cleaned[packoff - 1])
-            {
-                cleaned[packoff - 1] = '\0';
-                packoff -= 1;
+            while let Some(c) = cleaned.chars().next_back() {
+                if !crate::inlines::isspace(c) {
+                    break;
+                }
+                cleaned.pop();
+                packoff = cleaned.len();
             }
 
             let mut is_text = false;
 
-            if !ignoreinput && cleaned[0] != '\0' && cleaned[0] != '<' {
+            if !ignoreinput && !cleaned.is_empty() && !cleaned.starts_with('<') {
                 // cCohort empty-readings init (dead in practice: cCohort is null).
                 if let Some(cc) = c_cohort {
                     if self.base.store.cohorts.get(cc.0).readings.is_empty() {
@@ -262,33 +264,13 @@ impl PlaintextApplicator {
                     // verbose progress: deferred.
                 }
 
-                // Raw split on spaces.
-                let mut tokens_raw: Vec<String> = Vec::new();
-                {
-                    let mut base = 0usize;
-                    let mut sp = 0usize;
-                    loop {
-                        while cleaned[sp] != '\0' && cleaned[sp] != ' ' {
-                            sp += 1;
-                        }
-                        if cleaned[sp] != ' ' {
-                            break;
-                        }
-                        cleaned[sp] = '\0';
-                        if cleaned[base] != '\0' {
-                            tokens_raw.push(cleaned[base..sp].iter().collect());
-                        }
-                        sp += 1;
-                        base = sp;
-                    }
-                    if cleaned[base] != '\0' {
-                        let mut end = base;
-                        while cleaned[end] != '\0' {
-                            end += 1;
-                        }
-                        tokens_raw.push(cleaned[base..end].iter().collect());
-                    }
-                }
+                // Raw split on spaces (empty fields dropped, as the C++
+                // NUL-splitting produced).
+                let tokens_raw: Vec<String> = cleaned
+                    .split(' ')
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
 
                 // Punctuation splitting.
                 let mut tokens: Vec<Vec<char>> = Vec::new();
@@ -393,8 +375,8 @@ impl PlaintextApplicator {
             }
 
             if is_text {
-                if cleaned[0] != '\0' && line[0] != '\0' {
-                    let text: String = line.iter().take_while(|&&c| c != '\0').collect();
+                if !cleaned.is_empty() && !line.is_empty() {
+                    let text: String = line.clone();
                     if let Some(lc) = l_cohort {
                         self.base.store.cohorts.get_mut(lc.0).text.push_str(&text);
                     } else if let Some(ls) = l_swindow {
@@ -411,8 +393,8 @@ impl PlaintextApplicator {
             }
 
             self.base.numLines += 1;
-            line[0] = '\0';
-            cleaned[0] = '\0';
+            line.clear();
+            cleaned.clear();
 
             // Loop termination: the C++ `while(!input.eof())` re-check at the
             // top of the loop, using the EOF state sampled after get_line_clean.

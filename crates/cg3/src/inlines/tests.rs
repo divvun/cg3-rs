@@ -3,14 +3,6 @@
 use super::*;
 use crate::types::{UString, UStringView};
 
-// Null-terminated char buffer helper for the pointer-walking scan/predicate
-// helpers, which require a trailing '\0' and read backward within the slice.
-fn buf(s: &str) -> Vec<char> {
-    let mut v: Vec<char> = s.chars().collect();
-    v.push('\0');
-    v
-}
-
 // The narrowing static_cast helpers over the Prim trait. Concrete in/out
 // pairs, including the truncating/sign behaviour of `as`.
 // [spec:cg3:sem:inlines.si8-fn/test]
@@ -165,50 +157,37 @@ fn char_predicates() {
 #[test]
 fn pointer_predicates() {
     // isstring: quotes/angle-brackets must be at p[pos-1] and p[pos+c+1].
-    // Layout: index 0 = '"', 1..=3 = "abc", 4 = '"'. With pos=1, c=2 the
-    // forward test hits index pos+c+1 = 4 (the closing quote) -- the +1 quirk.
-    let q = buf("\"abc\"");
-    assert!(isstring(&q, 1, 2));
+    // Layout: byte 0 = '"', 1..=3 = "abc", 4 = '"'. With pos=1, c=2 the
+    // forward test hits byte pos+c+1 = 4 (the closing quote) -- the +1 quirk.
+    // `char_at` yields '\0' past the end, so no trailing NUL is needed.
+    assert!(isstring("\"abc\"", 1, 2));
     // Angle-bracket variant.
-    let a = buf("<abc>");
-    assert!(isstring(&a, 1, 2));
+    assert!(isstring("<abc>", 1, 2));
     // No surrounding delimiters -> false.
-    let plain = buf("xabcy");
-    assert!(!isstring(&plain, 1, 2));
+    assert!(!isstring("xabcy", 1, 2));
 
     // isesc: escaped iff an ODD number of backslashes immediately precede
-    // the position. It walks backward until a non-'\' char, so the buffer
-    // must have a non-backslash sentinel before the run (same precondition
-    // as the port). "a\x": at index 2 ('x'), one preceding '\' bounded by
-    // 'a' -> odd -> escaped.
-    let one = buf("a\\x");
-    assert!(isesc(&one, 2), "single backslash escapes");
+    // the position. It walks backward until a non-'\' char. "a\x": at byte 2
+    // ('x'), one preceding '\' bounded by 'a' -> odd -> escaped.
+    assert!(isesc("a\\x", 2), "single backslash escapes");
     // "a\\x": two backslashes before x -> even -> NOT escaped.
-    let two = buf("a\\\\x");
-    assert!(!isesc(&two, 3), "double backslash does not escape");
+    assert!(!isesc("a\\\\x", 3), "double backslash does not escape");
     // No preceding backslash -> even (zero) -> NOT escaped.
-    let none = buf("ab");
-    assert!(!isesc(&none, 1));
+    assert!(!isesc("ab", 1));
 
-    // is_icase: case-insensitive fixed keyword match. `uc`/`lc` mirror C++
-    // string literals INCLUDING the trailing '\0', so keyword length = N-1.
-    // Precondition (same as the port): the cursor is never at index 0 --
-    // is_icase -> isstring reads p[pos-1], so we keep a leading char and
-    // scan from pos=1.
-    let uc: Vec<char> = "AND\0".chars().collect();
-    let lc: Vec<char> = "and\0".chars().collect();
+    // is_icase: case-insensitive fixed keyword match. The native `&str` form
+    // takes the keyword WITHOUT the C++ literal's trailing '\0', so the
+    // keyword length is its byte length. Precondition (same as the port): the
+    // cursor is never at byte 0 -- is_icase -> isstring reads p[pos-1], so we
+    // keep a leading char and scan from pos=1.
     // " and " -> matches (followed by non-alnum space) -> length 3.
-    let text = buf(" and rest");
-    assert_eq!(is_icase(&text, 1, &uc, &lc), 3);
+    assert_eq!(is_icase(" and rest", 1, "AND", "and"), 3);
     // Mixed case matches too.
-    let text2 = buf(" And ");
-    assert_eq!(is_icase(&text2, 1, &uc, &lc), 3);
+    assert_eq!(is_icase(" And ", 1, "AND", "and"), 3);
     // Followed by an alnum -> no boundary -> 0.
-    let text3 = buf(" andx");
-    assert_eq!(is_icase(&text3, 1, &uc, &lc), 0);
+    assert_eq!(is_icase(" andx", 1, "AND", "and"), 0);
     // Non-matching prefix -> 0.
-    let text4 = buf(" xyz ");
-    assert_eq!(is_icase(&text4, 1, &uc, &lc), 0);
+    assert_eq!(is_icase(" xyz ", 1, "AND", "and"), 0);
 }
 
 // Buffer scanners: backtonl, skipln, skipws, skiptows, skipto and the two
@@ -223,52 +202,56 @@ fn pointer_predicates() {
 // [spec:cg3:sem:inlines.cg3.skipto-nospan-raw-fn/test]
 #[test]
 fn buffer_scanners() {
-    // skipln: advance to just past the next newline; returns 1.
-    let s = buf("abc\ndef");
-    let mut pos = 0usize;
-    let n = skipln(&s, &mut pos);
-    assert_eq!(n, 1);
-    assert_eq!(s[pos], 'd'); // one past the '\n'
+    // Native `&str` byte cursors: `char_at` reads the char at a byte offset and
+    // yields '\0' at/after the end (the C++ NUL-terminated-buffer semantics), so
+    // no trailing NUL is needed in the fixtures.
 
-    // backtonl: walk back to the start of the current line.
-    // "abc\ndef\0"; from pos=6 ('e') it steps back over 'd','\n'... landing
-    // after the '\n' at the 'd'.
+    // skipln: advance to just past the next newline; returns 1.
+    let s = "abc\ndef";
+    let mut pos = 0usize;
+    let n = skipln(s, &mut pos);
+    assert_eq!(n, 1);
+    assert_eq!(char_at(s, pos), 'd'); // one past the '\n'
+
+    // backtonl: walk back to the start of the current line. From byte 6 ('f')
+    // it steps back over 'e','d' and halts at the '\n', then steps forward to
+    // land at the 'd' at the start of the line.
     let mut pos = 6usize;
-    backtonl(&s, &mut pos);
-    assert_eq!(s[pos], 'd', "backtonl lands at start of the line");
+    backtonl(s, &mut pos);
+    assert_eq!(char_at(s, pos), 'd', "backtonl lands at start of the line");
 
     // skipws (value form): skips leading whitespace, counts newlines.
-    let w = buf("  \n x");
+    let w = "  \n x";
     let mut pos = 0usize;
-    let nl = skipws(&w, &mut pos, '\0', '\0', true);
-    assert_eq!(w[pos], 'x');
+    let nl = skipws(w, &mut pos, '\0', '\0', true);
+    assert_eq!(char_at(w, pos), 'x');
     assert_eq!(nl, 1, "one newline traversed");
 
     // skiptows: advance over a token until whitespace; no newlines here.
-    let t = buf("word next");
+    let t = "word next";
     let mut pos = 0usize;
-    let nl = skiptows(&t, &mut pos, '\0', true, true);
-    assert_eq!(t[pos], ' ');
+    let nl = skiptows(t, &mut pos, '\0', true, true);
+    assert_eq!(char_at(t, pos), ' ');
     assert_eq!(nl, 0);
 
     // skipto: advance to the target char `a`, counting newlines en route.
-    let g = buf("aa\nbX");
+    let g = "aa\nbX";
     let mut pos = 0usize;
-    let nl = skipto(&g, &mut pos, 'X');
-    assert_eq!(g[pos], 'X');
+    let nl = skipto(g, &mut pos, 'X');
+    assert_eq!(char_at(g, pos), 'X');
     assert_eq!(nl, 1);
 
     // skipto_nospan: stops at target OR newline (does not cross lines).
-    let h = buf("ab\nX");
+    let h = "ab\nX";
     let mut pos = 0usize;
-    skipto_nospan(&h, &mut pos, 'X');
-    assert_eq!(h[pos], '\n', "nospan halts at the newline");
+    skipto_nospan(h, &mut pos, 'X');
+    assert_eq!(char_at(h, pos), '\n', "nospan halts at the newline");
 
     // skipto_nospan_raw: same, but escape-insensitive; stops at target here.
-    let r = buf("abX");
+    let r = "abX";
     let mut pos = 0usize;
-    skipto_nospan_raw(&r, &mut pos, 'X');
-    assert_eq!(r[pos], 'X');
+    skipto_nospan_raw(r, &mut pos, 'X');
+    assert_eq!(char_at(r, pos), 'X');
 }
 
 // Endian byte IO round-trips + explicit byte-order assertions (one BE, one

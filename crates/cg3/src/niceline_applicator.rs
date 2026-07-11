@@ -99,8 +99,9 @@ impl<'a> NicelineApplicator<'a> {
     /// the "looked like a cohort but wasn't" and "no valid baseform" warnings)
     /// are deferred with the I/O layer, but their control-flow effects
     /// (`goto istext`, baseform fallback) are preserved. `line`/`cleaned` are
-    /// `Vec<char>` scratch buffers (what `get_line_clean` expects); the C++
-    /// `UChar*` pointer walks become `usize` indices over that buffer.
+    /// native `String`s filled by `get_line_clean`; the C++ `UChar*` pointer
+    /// walks become BYTE-offset `usize` cursors read via `inlines::char_at`
+    /// (which yields `'\0'` past the end, matching the NUL-terminated buffer).
     // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
     // the ported reads were elided (see the deferred-I/O / driver notes).
     #[allow(unused_assignments, unused_variables)]
@@ -115,8 +116,8 @@ impl<'a> NicelineApplicator<'a> {
         // u_fprintf diagnostic) are deferred with the I/O layer.
         // No-hard/soft-delimiter warnings: deferred I/O.
 
-        let mut line: Vec<char> = vec!['\0'; 1024];
-        let mut cleaned: Vec<char> = vec!['\0'; line.len() + 1];
+        let mut line = String::new();
+        let mut cleaned = String::new();
         let ignoreinput = false;
         let mut did_soft_lookback = false;
 
@@ -146,30 +147,32 @@ impl<'a> NicelineApplicator<'a> {
             // `line[0]` holds the newline) is NOT end-of-stream; only a read
             // that stores nothing is. Sampled here, acted on at the bottom
             // (matches the base run_grammar_on_text driver).
-            let hit_eof = packoff == 0 && line[0] == '\0';
+            let hit_eof = packoff == 0 && line.is_empty();
 
             // Trim trailing whitespace.
-            while cleaned[0] != '\0' && packoff > 0 && crate::inlines::isspace(cleaned[packoff - 1])
-            {
-                cleaned[packoff - 1] = '\0';
-                packoff -= 1;
+            while let Some(c) = cleaned.chars().next_back() {
+                if !crate::inlines::isspace(c) {
+                    break;
+                }
+                cleaned.pop();
+                packoff = cleaned.len();
             }
 
             let mut is_text = false;
 
-            if !ignoreinput && cleaned[0] != '\0' && cleaned[0] != '<' {
+            if !ignoreinput && !cleaned.is_empty() && !cleaned.starts_with('<') {
                 // space = &cleaned[0]; SKIPTO_NOSPAN(space, '\t');
                 let mut space = 0usize;
                 skipto_nospan(&cleaned, &mut space, '\t');
 
-                if cleaned[space] != '\0' && cleaned[space] != '\t' {
+                if crate::inlines::char_at(&cleaned, space) != '\0'
+                    && crate::inlines::char_at(&cleaned, space) != '\t'
+                {
                     // "looked like a cohort but wasn't - treated as text": deferred.
                     is_text = true;
                 } else {
-                    if cleaned[space] == '\0' {
-                        cleaned[space + 1] = '\0';
-                    }
-                    cleaned[space] = '\0';
+                    // The C++ NUL-cuts the buffer at the TAB; natively the
+                    // wordform is cleaned[..space] and readings start past it.
 
                     // (a) Soft-limit lookback.
                     if let Some(sw) = c_swindow {
@@ -305,7 +308,7 @@ impl<'a> NicelineApplicator<'a> {
 
                     // Build wordform: "\"<" + text-before-TAB + ">\"".
                     let sw = c_swindow.unwrap();
-                    let inner: String = cleaned[0..space].iter().collect();
+                    let inner: String = cleaned[0..space].to_string();
                     let wf_text = format!("\"<{inner}>\"");
 
                     let cc = crate::cohort::alloc_cohort(&mut self.base.store, Some(sw));
@@ -322,9 +325,9 @@ impl<'a> NicelineApplicator<'a> {
                     l_cohort = Some(cc);
                     self.base.numCohorts += 1;
 
-                    // Reading loop: advance past the (nulled) TAB.
+                    // Reading loop: advance past the TAB.
                     space += 1;
-                    while cleaned[space] != '\0' {
+                    while crate::inlines::char_at(&cleaned, space) != '\0' {
                         let cr = crate::reading::alloc_reading(&mut self.base.store, Some(cc));
                         c_reading = Some(cr);
                         crate::inlines::insert_if_exists(
@@ -334,48 +337,43 @@ impl<'a> NicelineApplicator<'a> {
 
                         // base = space; skip a leading quoted baseform / [bracket].
                         let mut base = space;
-                        if cleaned[space] == '"' {
+                        if crate::inlines::char_at(&cleaned, space) == '"' {
                             space += 1;
                             skipto_nospan(&cleaned, &mut space, '"');
                         }
-                        if cleaned[space] == '[' {
+                        if crate::inlines::char_at(&cleaned, space) == '[' {
                             skipto_nospan(&cleaned, &mut space, ']');
                         }
 
                         let mut mappings: crate::tag::TagList = Vec::new();
 
-                        // tab = u_strchr(space, '\t'); if found tab[0]=0.
-                        let mut tab: Option<usize> = None;
-                        {
-                            let mut t = space;
-                            while cleaned[t] != '\0' && cleaned[t] != '\t' {
-                                t += 1;
-                            }
-                            if cleaned[t] == '\t' {
-                                cleaned[t] = '\0';
-                                tab = Some(t);
-                            }
-                        }
+                        // tab = u_strchr(space, '\t'); the C++ NUL-cuts there —
+                        // natively the reading segment is cleaned[..seg_end].
+                        let tab: Option<usize> =
+                            cleaned[space..].find('\t').map(|i| space + i);
+                        let seg_end = tab.unwrap_or(cleaned.len());
+                        let seg = &cleaned[..seg_end];
 
                         // Token loop: while (space=strchr(space,' ')) != null.
                         loop {
                             // advance space to next ' ' within this reading region.
                             let mut sp = space;
-                            while cleaned[sp] != '\0' && cleaned[sp] != ' ' {
+                            while crate::inlines::char_at(seg, sp) != '\0'
+                                && crate::inlines::char_at(seg, sp) != ' '
+                            {
                                 sp += 1;
                             }
-                            if cleaned[sp] != ' ' {
+                            if crate::inlines::char_at(seg, sp) != ' ' {
                                 break;
                             }
                             space = sp;
-                            cleaned[space] = '\0';
-                            if cleaned[base] != '\0' {
-                                // [x] -> "x" rewrite.
-                                if cleaned[base] == '[' && space > 0 && cleaned[space - 1] == ']' {
-                                    cleaned[base] = '"';
-                                    cleaned[space - 1] = '"';
+                            if base < space {
+                                // [x] -> "x" rewrite (applied to the extracted
+                                // token; the C++ rewrote the buffer in place).
+                                let mut tok: String = seg[base..space].to_string();
+                                if tok.starts_with('[') && tok.ends_with(']') {
+                                    tok = format!("\"{}\"", &tok[1..tok.len() - 1]);
                                 }
-                                let tok: String = cleaned[base..space].iter().collect();
                                 let tag = self.base.add_tag(&tok, crate::tag::TagType::empty());
                                 let (ttype, first) = {
                                     let t = &self.base.grammar.single_tags_list[tag.0];
@@ -392,26 +390,21 @@ impl<'a> NicelineApplicator<'a> {
                             // base = ++space; skip quoted / bracketed base again.
                             space += 1;
                             base = space;
-                            if cleaned[space] == '"' {
+                            if crate::inlines::char_at(seg, space) == '"' {
                                 space += 1;
-                                skipto_nospan(&cleaned, &mut space, '"');
+                                skipto_nospan(seg, &mut space, '"');
                             }
-                            if cleaned[space] == '[' {
-                                skipto_nospan(&cleaned, &mut space, ']');
+                            if crate::inlines::char_at(seg, space) == '[' {
+                                skipto_nospan(seg, &mut space, ']');
                             }
                         }
-                        // Trailing token `base`.
-                        if cleaned[base] != '\0' {
-                            // find end of this trailing token (up to NUL).
-                            let mut end = base;
-                            while cleaned[end] != '\0' {
-                                end += 1;
+                        // Trailing token `base` (runs to the segment end).
+                        if base < seg_end {
+                            let end = seg_end;
+                            let mut tok: String = seg[base..end].to_string();
+                            if tok.starts_with('[') && tok.ends_with(']') {
+                                tok = format!("\"{}\"", &tok[1..tok.len() - 1]);
                             }
-                            if cleaned[base] == '[' && end > 0 && cleaned[end - 1] == ']' {
-                                cleaned[base] = '"';
-                                cleaned[end - 1] = '"';
-                            }
-                            let tok: String = cleaned[base..end].iter().collect();
                             let tag = self.base.add_tag(&tok, crate::tag::TagType::empty());
                             let (ttype, first) = {
                                 let t = &self.base.grammar.single_tags_list[tag.0];
@@ -462,8 +455,8 @@ impl<'a> NicelineApplicator<'a> {
 
             if is_text {
                 // istext:
-                if cleaned[0] != '\0' && line[0] != '\0' {
-                    let text: String = line.iter().take_while(|&&c| c != '\0').collect();
+                if !cleaned.is_empty() && !line.is_empty() {
+                    let text: String = line.clone();
                     if let Some(lc) = l_cohort {
                         self.base.store.cohorts.get_mut(lc.0).text.push_str(&text);
                     } else if let Some(ls) = l_swindow {
@@ -481,8 +474,8 @@ impl<'a> NicelineApplicator<'a> {
             }
 
             self.base.numLines += 1;
-            line[0] = '\0';
-            cleaned[0] = '\0';
+            line.clear();
+            cleaned.clear();
 
             // Loop termination: the C++ `while(!input.eof())` re-check at the
             // top of the loop, using the EOF state sampled after get_line_clean.
