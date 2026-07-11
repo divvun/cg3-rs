@@ -705,7 +705,7 @@ impl TextualParser {
         if ty.intersects(T_VARSTRING) && !tagstr.contains('{') && !tagstr.contains('$') {
             self.error_near(near); // "Varstring tag had no variables"
         }
-        if !self.strict_tags.empty() && self.strict_tags.count(plain) == 0 {
+        if !self.strict_tags.empty() && self.strict_tags.count(plain.get()) == 0 {
             if ty.intersects(
                 T_ANY
                     | T_VARSTRING
@@ -1243,7 +1243,7 @@ impl TextualParser {
                 let token: String = buf[*pos..nn].iter().collect();
                 let tag = self.parse_tag(&token, &buf[*pos..]);
                 self.grammar.contexts_arena[t.0].relation =
-                    self.grammar.single_tags_list[tag.0].hash;
+                    self.grammar.single_tags_list[tag.0].hash.get();
                 *pos = nn;
             }
             if buf[*pos] == 'r' {

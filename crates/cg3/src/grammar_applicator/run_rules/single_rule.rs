@@ -12,7 +12,7 @@ use crate::rule::{
 };
 use crate::set::{ST_CHILD_UNIFY, ST_MAPPING, ST_SPECIAL};
 use crate::tag::T_VARSTRING;
-use crate::types::GlobalNumber;
+use crate::types::{GlobalNumber, TagHash};
 
 // C++ anonymous `enum { RV_NOTHING = 1, RV_SOMETHING = 2, RV_DELIMITED = 4,
 // RV_TRACERULE = 8 };` — the return-value bit flags of runRulesOnSingleWindow.
@@ -539,9 +539,9 @@ impl crate::grammar_applicator::GrammarApplicator {
                     self.unif_sets_store[uss].clear();
                 }
 
-                self.unif_last_wordform = 0;
-                self.unif_last_baseform = 0;
-                self.unif_last_textual = 0;
+                self.unif_last_wordform = TagHash(0);
+                self.unif_last_baseform = TagHash(0);
+                self.unif_last_textual = TagHash(0);
                 self.same_basic = r_hash_plain;
                 self.rule_target = None;
                 self.context_target = None;

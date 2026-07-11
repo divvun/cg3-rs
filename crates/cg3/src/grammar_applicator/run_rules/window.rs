@@ -9,7 +9,7 @@ use crate::interval_vector::uint32IntervalVector;
 use crate::reading::Reading;
 use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY, Set};
 use crate::tag::TagList;
-use crate::types::SetNumber;
+use crate::types::{SetNumber, TagHash};
 
 // C++ anonymous `enum { RV_NOTHING = 1, RV_SOMETHING = 2, RV_DELIMITED = 4,
 // RV_TRACERULE = 8 };` — the return-value bit flags of runRulesOnSingleWindow.
@@ -22,8 +22,8 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// Resolve a tag *hash* to its `TagId` via `grammar.single_tags`
     /// (`grammar->single_tags.find(h)->second`).
     #[inline]
-    pub(crate) fn tag_by_hash(&self, h: u32) -> TagId {
-        self.grammar.single_tags.find(h).get().1
+    pub(crate) fn tag_by_hash(&self, h: TagHash) -> TagId {
+        self.grammar.single_tags.find(h.get()).get().1
     }
 
     /// By-id wrapper for the sibling `generate_varstring_tag(&mut self, &Tag)`:
@@ -67,7 +67,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let rword_tag = self.grammar.single_tags_list.get(rw.0).clone();
                 let chash = cword
                     .map(|c| self.grammar.single_tags_list.get(c.0).hash)
-                    .unwrap_or(0);
+                    .map_or(0, |h| h.get());
                 if rword_tag.r#type.intersects(crate::tag::T_REGEXP) {
                     if self.does_tag_match_regexp(chash, &rword_tag, false) == 0 {
                         return false;
@@ -829,11 +829,11 @@ impl crate::grammar_applicator::GrammarApplicator {
                         }
                         self.par_left_tag = {
                             let ac = self.store.single_windows.get(current.0).all_cohorts[la + 1];
-                            self.store.cohorts.get(ac.0).is_pleft
+                            TagHash(self.store.cohorts.get(ac.0).is_pleft)
                         };
                         self.par_right_tag = {
                             let ac = self.store.single_windows.get(current.0).all_cohorts[ra - 1];
-                            self.store.cohorts.get(ac.0).is_pright
+                            TagHash(self.store.cohorts.get(ac.0).is_pright)
                         };
                         self.par_left_pos = ui32(ni + 1);
                         self.par_right_pos = ui32(ni + ne);
@@ -849,8 +849,8 @@ impl crate::grammar_applicator::GrammarApplicator {
                     return true;
                 }
                 if !self.did_final_enclosure {
-                    self.par_left_tag = 0;
-                    self.par_right_tag = 0;
+                    self.par_left_tag = TagHash(0);
+                    self.par_right_tag = TagHash(0);
                     self.par_left_pos = 0;
                     self.par_right_pos = 0;
                     self.did_final_enclosure = true;
@@ -1036,7 +1036,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             self.variables.erase(k);
         }
         let (mk, mv) = (self.mprefix_key, self.mprefix_value);
-        *self.variables.index_or_insert(mk) = mv;
+        *self.variables.index_or_insert(mk.get()) = mv.get();
 
         if self.has_dep {
             self.reflow_dependency_window(0);
@@ -1068,8 +1068,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             while self.rr_wrap_one_enclosure(current) {}
         }
 
-        self.par_left_tag = 0;
-        self.par_right_tag = 0;
+        self.par_left_tag = TagHash(0);
+        self.par_right_tag = TagHash(0);
         self.par_left_pos = 0;
         self.par_right_pos = 0;
         let mut pass: u32 = 0;

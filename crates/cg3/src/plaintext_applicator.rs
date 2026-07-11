@@ -36,12 +36,13 @@ use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::CT_REMOVED;
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
+use crate::types::TagHash;
 use crate::uextras::{get_line_clean, u_fflush, u_fputc, ux_strip_bom};
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — hash → `TagId`, `TagId(0)` on
 /// a miss (benign; see `niceline_applicator`).
-fn tag_by_hash(grammar: &Grammar, hash: u32) -> TagId {
-    let it = grammar.single_tags.find(hash);
+fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
+    let it = grammar.single_tags.find(hash.get());
     if it != grammar.single_tags.end() {
         it.get().1
     } else {
@@ -335,7 +336,13 @@ impl PlaintextApplicator {
                         self.base.add_tag_to_reading(cr, tag);
                     }
                     if self.add_tags && (first_upper || all_upper || mixed_upper) {
-                        let baseform = self.base.store.readings.get(cr.0).baseform.unwrap_or(0);
+                        let baseform = self
+                            .base
+                            .store
+                            .readings
+                            .get(cr.0)
+                            .baseform
+                            .unwrap_or(TagHash(0));
                         self.base.del_tag_from_reading_hash(cr, baseform);
                         let lowered: String = token_str.to_lowercase();
                         let base_tag_text = format!("\"{lowered}\"");

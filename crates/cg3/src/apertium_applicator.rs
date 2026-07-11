@@ -36,7 +36,7 @@ use crate::inlines::{hash_value, insert_if_exists};
 use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
 use crate::single_window::{SingleWindow, append_cohort};
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_WORDFORM, TagList};
-use crate::types::{UString, flags_t};
+use crate::types::{TagHash, UString, flags_t};
 use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fputc, ux_strip_bom};
 
 // C++ `constexpr UChar esc_lt = '\1';` — the sentinel the reading scanner
@@ -83,8 +83,8 @@ pub struct ApertiumApplicator {
 /// Resolve a tag hash to its `TagId` via `grammar->single_tags[hash]`. Mirrors
 /// the engine's private `tag_by_hash` (not visible from this sibling module):
 /// a miss returns `TagId(0)` (benign — call sites pass always-present hashes).
-fn tag_by_hash(grammar: &crate::grammar::Grammar, hash: u32) -> TagId {
-    let it = grammar.single_tags.find(hash);
+fn tag_by_hash(grammar: &crate::grammar::Grammar, hash: TagHash) -> TagId {
+    let it = grammar.single_tags.find(hash.get());
     if it != grammar.single_tags.end() {
         it.get().1
     } else {
@@ -233,7 +233,7 @@ impl ApertiumApplicator {
                 // Case (a): single bare identifier.
                 let ident = slice_str(s0, len);
                 let tag = self.base.add_tag(&ident, crate::tag::TagType::empty());
-                let hash = self.base.grammar.single_tags_list.get(tag.0).hash;
+                let hash = self.base.grammar.single_tags_list.get(tag.0).hash.get();
                 variables_set.insert((hash, tag_any));
                 variables_rem.erase(hash);
                 variables_output.insert(hash);
@@ -262,7 +262,7 @@ impl ApertiumApplicator {
                             } else {
                                 let ident = slice_str(ss, dd);
                                 let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
-                                a = self.base.grammar.single_tags_list.get(t.0).hash;
+                                a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                             }
                             // if (c) { *c = 0; s = c + 1; }
                             let mut new_s = s;
@@ -280,7 +280,7 @@ impl ApertiumApplicator {
                             } else {
                                 let val = slice_str(dd + 1, val_end);
                                 let t = self.base.add_tag(&val, crate::tag::TagType::empty());
-                                b = self.base.grammar.single_tags_list.get(t.0).hash;
+                                b = self.base.grammar.single_tags_list.get(t.0).hash.get();
                             }
                             if c.is_none() {
                                 d = None;
@@ -302,7 +302,7 @@ impl ApertiumApplicator {
                             } else {
                                 let ident = slice_str(ss, cc);
                                 let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
-                                a = self.base.grammar.single_tags_list.get(t.0).hash;
+                                a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                             }
                             s = Some(cc + 1);
                             variables_set.insert((a, tag_any));
@@ -321,7 +321,7 @@ impl ApertiumApplicator {
                         } else {
                             let ident = slice_str(ss, cc);
                             let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
-                            a = self.base.grammar.single_tags_list.get(t.0).hash;
+                            a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                         }
                         s = Some(cc + 1);
                         variables_set.insert((a, tag_any));
@@ -336,7 +336,7 @@ impl ApertiumApplicator {
                             // final bare identifier.
                             let ident = slice_str(ss, len);
                             let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
-                            a = self.base.grammar.single_tags_list.get(t.0).hash;
+                            a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                             variables_set.insert((a, tag_any));
                             variables_rem.erase(a);
                             variables_output.insert(a);
@@ -360,7 +360,7 @@ impl ApertiumApplicator {
                 if s < cc {
                     let ident = slice_str(s, cc);
                     let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
-                    let a = self.base.grammar.single_tags_list.get(t.0).hash;
+                    let a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                     variables_set.erase(a);
                     variables_rem.insert(a);
                     variables_output.insert(a);
@@ -372,7 +372,7 @@ impl ApertiumApplicator {
             if s < len {
                 let ident = slice_str(s, len);
                 let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
-                let a = self.base.grammar.single_tags_list.get(t.0).hash;
+                let a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                 variables_set.erase(a);
                 variables_rem.insert(a);
                 variables_output.insert(a);
@@ -561,7 +561,7 @@ impl ApertiumApplicator {
         for i in 0..6 {
             let text = texts[i];
             let reading = alloc_reading(&mut self.base.store, None);
-            let wform = tag_by_hash(&self.base.grammar, self.base.grammar.tag_any);
+            let wform = tag_by_hash(&self.base.grammar, TagHash(self.base.grammar.tag_any));
             self.process_reading_str(reading, text, wform);
             let mut reading = reading;
             if self.base.grammar.sub_readings_ltr
@@ -597,10 +597,10 @@ impl ApertiumApplicator {
             u_fputc('+', output);
         }
 
-        let baseform = r.baseform.unwrap_or(0);
+        let baseform = r.baseform.unwrap_or(TagHash(0));
         let parent = r.parent;
 
-        if baseform != 0 {
+        if baseform != TagHash(0) {
             // Lop off the surrounding '"' quotes.
             let tid = tag_by_hash(grammar, baseform);
             let tagtext = &grammar.single_tags_list.get(tid.0).tag;
@@ -659,7 +659,7 @@ impl ApertiumApplicator {
         let mut multitags_list: Vec<u32> = Vec::new();
         let mut multi = false;
         for &tter in r.tags_list.iter() {
-            let tag = grammar.single_tags_list.get(tag_by_hash(grammar, tter).0);
+            let tag = grammar.single_tags_list.get(tag_by_hash(grammar, TagHash(tter)).0);
             if tag.tag.chars().next() == Some('+') {
                 multi = true;
             } else if tag.r#type.intersects(T_MAPPING) {
@@ -685,10 +685,10 @@ impl ApertiumApplicator {
                 }
                 used_tags.insert(tter);
             }
-            if tter == self.base.endtag || tter == self.base.begintag {
+            if tter == self.base.endtag.get() || tter == self.base.begintag.get() {
                 continue;
             }
-            let tag = grammar.single_tags_list.get(tag_by_hash(grammar, tter).0);
+            let tag = grammar.single_tags_list.get(tag_by_hash(grammar, TagHash(tter)).0);
             if !tag.r#type.intersects(T_BASEFORM) && !tag.r#type.intersects(T_WORDFORM) {
                 let first = tag.tag.chars().next();
                 if first == Some('+') {
@@ -872,6 +872,7 @@ impl ApertiumApplicator {
                 let wf_hash = self.base.grammar.single_tags_list.get(wf_tid.0).hash;
                 let tags_list = self.base.store.readings.get(wread.0).tags_list.clone();
                 for tter in tags_list {
+                    let tter = TagHash(tter);
                     if tter == wf_hash {
                         continue;
                     }
@@ -1495,7 +1496,7 @@ impl ApertiumApplicator {
                     .readings
                     .get(front.0)
                     .tags
-                    .find(self.base.endtag)
+                    .find(self.base.endtag.get())
                     == self.base.store.readings.get(front.0).tags.end()
             }
             None => false,

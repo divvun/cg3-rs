@@ -36,15 +36,15 @@ use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
 use crate::sorted_vector::uint32SortedVector;
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
-use crate::types::{UString, UStringView};
+use crate::types::{TagHash, UString, UStringView};
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — resolve a hash to its
 /// `TagId`. operator[] would default-insert a null `Tag*` on a miss (deref
 /// crash); a miss here returns `TagId(0)` which cannot crash — benign for the
 /// always-present hashes the call sites use. Reproduces
 /// `grammar_applicator::core::tag_by_hash` (which is `pub(super)`).
-fn tag_by_hash(grammar: &Grammar, hash: u32) -> TagId {
-    let it = grammar.single_tags.find(hash);
+fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
+    let it = grammar.single_tags.find(hash.get());
     if it != grammar.single_tags.end() {
         it.get().1
     } else {
@@ -134,11 +134,16 @@ impl<'a> JsonlApplicator<'a> {
                     .wordform
                     .map(|wf| self.base.grammar.single_tags_list.get(wf.0).hash)
             });
-            (r.tags_list.clone(), r.baseform.unwrap_or(0), parent_wf_hash)
+            (
+                r.tags_list.clone(),
+                r.baseform.unwrap_or(TagHash(0)),
+                parent_wf_hash,
+            )
         };
 
         let mut unique = uint32SortedVector::new();
         for tter in tags_list {
+            let tter = TagHash(tter);
             if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag
             {
                 continue;
@@ -148,10 +153,10 @@ impl<'a> JsonlApplicator<'a> {
             }
 
             if self.base.unique_tags {
-                if unique.find(tter) != unique.end() {
+                if unique.find(tter.get()) != unique.end() {
                     continue;
                 }
-                unique.insert(tter);
+                unique.insert(tter.get());
             }
 
             let tag = tag_by_hash(&self.base.grammar, tter);
@@ -186,10 +191,16 @@ impl<'a> JsonlApplicator<'a> {
         let mut reading_json = Map::new();
 
         // Baseform ("l").
-        let baseform = self.base.store.readings.get(reading.0).baseform.unwrap_or(0);
+        let baseform = self
+            .base
+            .store
+            .readings
+            .get(reading.0)
+            .baseform
+            .unwrap_or(TagHash(0));
         let mut baseform_utf8 = String::new();
-        if baseform != 0 {
-            let it = self.base.grammar.single_tags.find(baseform);
+        if baseform != TagHash(0) {
+            let it = self.base.grammar.single_tags.find(baseform.get());
             if it != self.base.grammar.single_tags.end() {
                 let tid = it.get().1;
                 let tag = &self.base.grammar.single_tags_list.get(tid.0).tag;
@@ -399,7 +410,7 @@ impl<'a> JsonlApplicator<'a> {
                         .readings
                         .get_mut(wread.0)
                         .tags_list
-                        .push(hash);
+                        .push(hash.get());
                 }
             }
         }
@@ -582,7 +593,7 @@ impl<'a> JsonlApplicator<'a> {
                 let mut static_tags_json: Vec<Value> = Vec::new();
                 let mut unique_sts = uint32SortedVector::new();
                 for tag_hash in tags_list {
-                    if wf_hash == Some(tag_hash) {
+                    if wf_hash == Some(TagHash(tag_hash)) {
                         continue;
                     }
                     if self.base.unique_tags {
@@ -695,7 +706,7 @@ impl<'a> JsonlApplicator<'a> {
         // (1) Variables as commands.
         for var in vars_output {
             let key_tag = {
-                let key = tag_by_hash(&self.base.grammar, var);
+                let key = tag_by_hash(&self.base.grammar, TagHash(var));
                 self.base.grammar.single_tags_list.get(key.0).tag.clone()
             };
             let value_hash: Option<u32> = {
@@ -712,7 +723,7 @@ impl<'a> JsonlApplicator<'a> {
                 Some(vh) => {
                     if vh != self.base.grammar.tag_any {
                         let value_tag = {
-                            let value = tag_by_hash(&self.base.grammar, vh);
+                            let value = tag_by_hash(&self.base.grammar, TagHash(vh));
                             self.base.grammar.single_tags_list.get(value.0).tag.clone()
                         };
                         cmd_buf.push_str(STR_CMD_SETVAR);
@@ -942,12 +953,12 @@ impl<'a> JsonlApplicator<'a> {
                             let value_str = &payload[eq + '='.len_utf8()..];
                             key_tag = self.base.add_tag(key_str, crate::tag::TagType::empty());
                             let vt = self.base.add_tag(value_str, crate::tag::TagType::empty());
-                            value_hash = self.base.grammar.single_tags_list.get(vt.0).hash;
+                            value_hash = self.base.grammar.single_tags_list.get(vt.0).hash.get();
                         } else {
                             key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty());
                             value_hash = self.base.grammar.tag_any;
                         }
-                        let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash;
+                        let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash.get();
                         // variables_set[key_hash] = value_hash; (operator[] overwrites)
                         *variables_set.index_or_insert(key_hash) = value_hash;
                         variables_rem.erase(key_hash);
@@ -955,7 +966,7 @@ impl<'a> JsonlApplicator<'a> {
                     } else if cmd_ustr.starts_with(STR_CMD_REMVAR) {
                         let payload = substr_strip_prefix_and_last(&cmd_ustr, STR_CMD_REMVAR);
                         let key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty());
-                        let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash;
+                        let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash.get();
                         variables_set.erase(key_hash);
                         variables_rem.insert(key_hash);
                         variables_output.insert(key_hash);
@@ -1134,7 +1145,7 @@ impl<'a> JsonlApplicator<'a> {
             // Emit any still-pending GLOBAL variable commands.
             for &var in variables_output.as_slice() {
                 let key = {
-                    let key_tag = tag_by_hash(&self.base.grammar, var);
+                    let key_tag = tag_by_hash(&self.base.grammar, TagHash(var));
                     self.base
                         .grammar
                         .single_tags_list
@@ -1148,7 +1159,7 @@ impl<'a> JsonlApplicator<'a> {
                     let val = it.get().1;
                     if val != self.base.grammar.tag_any {
                         let value = {
-                            let vt = tag_by_hash(&self.base.grammar, val);
+                            let vt = tag_by_hash(&self.base.grammar, TagHash(val));
                             self.base.grammar.single_tags_list.get(vt.0).tag.clone()
                         };
                         cmd_buf.push_str(STR_CMD_SETVAR);

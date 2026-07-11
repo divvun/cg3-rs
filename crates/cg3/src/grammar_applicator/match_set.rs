@@ -95,7 +95,7 @@ use crate::tag::{
     T_VARIABLE, T_VARSTRING, T_WORDFORM, Tag, TagList, TagSortedVector,
 };
 use crate::tag_trie::trie_t;
-use crate::types::{SetNumber, UString};
+use crate::types::{SetNumber, TagHash, UString};
 
 use super::{dSMC_Context, regexgrps_t};
 
@@ -187,10 +187,10 @@ pub fn tag_set_subset_of_t_set(
     let a_slice = a.as_slice();
     let b_slice = b.as_slice();
     let first_hash = grammar.single_tags_list[a_slice[0].0].hash;
-    let mut bi = b.lower_bound(first_hash);
+    let mut bi = b.lower_bound(first_hash.get());
     let bend = b.end();
     for &aid in a_slice {
-        let ah = grammar.single_tags_list[aid.0].hash;
+        let ah = grammar.single_tags_list[aid.0].hash.get();
         while bi != bend && b_slice[bi] < ah {
             bi += 1;
         }
@@ -215,11 +215,11 @@ pub fn test_tag_numerical(
     reading: ReadingId,
     tag: &Tag,
     itag: &Tag,
-) -> u32 {
+) -> TagHash {
     use C_OPS::*;
-    let mut m: u32 = 0;
+    let mut m = TagHash(0);
     if tag.comparison_hash != itag.comparison_hash {
-        return 0;
+        return TagHash(0);
     }
     let parent = store.readings.get(reading.0).parent.unwrap();
     let mut compval = tag.comparison_val;
@@ -363,7 +363,7 @@ impl super::GrammarApplicator {
     pub fn does_tag_match_regexp(&mut self, test: u32, tag: &Tag, bypass_index: bool) -> u32 {
         let gc = group_count(tag);
         let mut m: u32 = 0;
-        let ih = make_64(tag.hash, test);
+        let ih = make_64(tag.hash.get(), test);
         if !bypass_index && self.index_regexp_no.contains(ih) {
             m = 0;
         } else if !bypass_index && gc == 0 && self.index_regexp_yes.contains(ih) {
@@ -374,7 +374,7 @@ impl super::GrammarApplicator {
                 let it = self.grammar.single_tags.find(test);
                 let tid = it.get().1;
                 let t = &self.grammar.single_tags_list[tid.0];
-                (t.hash, t.tag.clone())
+                (t.hash.get(), t.tag.clone())
             };
             // uregex_setText + uregex_find(-1) == unanchored `is_match`.
             if let Some(re) = &tag.regexp {
@@ -411,7 +411,7 @@ impl super::GrammarApplicator {
     /// `tag`, with a yes/no memo cache.
     pub fn does_tag_match_icase(&mut self, test: u32, tag: &Tag, bypass_index: bool) -> u32 {
         let mut m: u32 = 0;
-        let ih = make_64(tag.hash, test);
+        let ih = make_64(tag.hash.get(), test);
         if !bypass_index && self.index_icase_no.contains(ih) {
             m = 0;
         } else if !bypass_index && self.index_icase_yes.contains(ih) {
@@ -421,7 +421,7 @@ impl super::GrammarApplicator {
                 let it = self.grammar.single_tags.find(test);
                 let tid = it.get().1;
                 let t = &self.grammar.single_tags_list[tid.0];
-                (t.hash, t.tag.clone())
+                (t.hash.get(), t.tag.clone())
             };
             if ux_str_case_compare(&tag.tag, &itag_text) {
                 m = itag_hash;
@@ -453,7 +453,7 @@ impl super::GrammarApplicator {
             let r = self.store.readings.get(reading.0);
             (r.tags_string_hash, r.tags_string.clone())
         };
-        let ih = make_64(tsh, tag.hash);
+        let ih = make_64(tsh, tag.hash.get());
         if !bypass_index && self.index_regexp_no.contains(ih) {
             m = 0;
         } else if !bypass_index && gc == 0 && self.index_regexp_yes.contains(ih) {
@@ -539,14 +539,14 @@ impl super::GrammarApplicator {
         if !tag.r#type.intersects(T_SPECIAL) || tag.r#type.intersects(T_FAILFAST) {
             // (1) plain / fail-fast tag
             let r = self.store.readings.get(reading.0);
-            let mut raw_in = r.tags_plain_bloom.matches(tag.hash);
+            let mut raw_in = r.tags_plain_bloom.matches(tag.hash.get());
             if tag.r#type.intersects(T_FAILFAST) {
-                raw_in = r.tags_plain.find(tag.plain_hash) != r.tags_plain.end();
+                raw_in = r.tags_plain.find(tag.plain_hash.get()) != r.tags_plain.end();
             } else if raw_in {
-                raw_in = r.tags_plain.find(tag.hash) != r.tags_plain.end();
+                raw_in = r.tags_plain.find(tag.hash.get()) != r.tags_plain.end();
             }
             if raw_in {
-                m = tag.hash;
+                m = tag.hash.get();
             }
         } else if tag.r#type.intersects(T_SET) {
             // (2) inline set reference
@@ -574,7 +574,7 @@ impl super::GrammarApplicator {
                 if !text.is_empty() {
                     let re = tag.regexp.as_ref().unwrap();
                     if re.is_match(&text) {
-                        m = tag.hash;
+                        m = tag.hash.get();
                     }
                     if m != 0 {
                         let gc = group_count(tag);
@@ -611,10 +611,10 @@ impl super::GrammarApplicator {
         } else if tag.r#type.intersects(T_REGEXP_ANY) {
             // (7) <.*>/".*" any-forms
             if tag.r#type.intersects(T_BASEFORM) {
-                let bf = self.store.readings.get(reading.0).baseform.unwrap_or(0);
-                m = bf;
+                let bf = self.store.readings.get(reading.0).baseform.unwrap_or(TagHash(0));
+                m = bf.get();
                 if unif_mode {
-                    if self.unif_last_baseform != 0 {
+                    if self.unif_last_baseform != TagHash(0) {
                         if self.unif_last_baseform != bf {
                             m = 0;
                         }
@@ -628,9 +628,9 @@ impl super::GrammarApplicator {
                     let wf = self.store.cohorts.get(cid.0).wordform.unwrap();
                     self.grammar.single_tags_list[wf.0].hash
                 };
-                m = wf_hash;
+                m = wf_hash.get();
                 if unif_mode {
-                    if self.unif_last_wordform != 0 {
+                    if self.unif_last_wordform != TagHash(0) {
                         if self.unif_last_wordform != wf_hash {
                             m = 0;
                         }
@@ -654,14 +654,14 @@ impl super::GrammarApplicator {
                         (t.r#type, t.hash)
                     };
                     if !itype.intersects(T_BASEFORM | T_WORDFORM) {
-                        m = ihash;
+                        m = ihash.get();
                         if unif_mode {
-                            if self.unif_last_textual != 0 {
-                                if self.unif_last_textual != mter {
+                            if self.unif_last_textual != TagHash(0) {
+                                if self.unif_last_textual != TagHash(mter) {
                                     m = 0;
                                 }
                             } else {
-                                self.unif_last_textual = mter;
+                                self.unif_last_textual = TagHash(mter);
                             }
                         }
                     }
@@ -683,8 +683,8 @@ impl super::GrammarApplicator {
             for tid in nums {
                 let itag = self.grammar.single_tags_list[tid.0].clone();
                 let rv = test_tag_numerical(&mut self.store, &self.grammar, reading, tag, &itag);
-                if rv != 0 {
-                    m = rv;
+                if rv != TagHash(0) {
+                    m = rv.get();
                 }
             }
         } else if tag.r#type.intersects(T_VARIABLE | T_LOCAL_VARIABLE) {
@@ -744,7 +744,7 @@ impl super::GrammarApplicator {
                 };
                 if let Some(itval) = found_value {
                     if tag.variable_hash() == 0 {
-                        m = tag.hash;
+                        m = tag.hash.get();
                     } else {
                         let comp_tid = {
                             let it = self.grammar.single_tags.find(tag.variable_hash());
@@ -753,25 +753,25 @@ impl super::GrammarApplicator {
                         let comp_tag = self.grammar.single_tags_list[comp_tid.0].clone();
                         if comp_tag.r#type.intersects(T_REGEXP) {
                             if self.does_tag_match_regexp(itval, &comp_tag, bypass_index) != 0 {
-                                m = tag.hash;
+                                m = tag.hash.get();
                             }
                         } else if comp_tag.r#type.intersects(T_CASE_INSENSITIVE) {
                             if self.does_tag_match_icase(itval, &comp_tag, bypass_index) != 0 {
-                                m = tag.hash;
+                                m = tag.hash.get();
                             }
-                        } else if comp_tag.hash == itval {
-                            m = tag.hash;
+                        } else if comp_tag.hash.get() == itval {
+                            m = tag.hash.get();
                         }
                     }
                 }
             }
         } else if tag.r#type.intersects(T_PAR_LEFT) {
             // (10)
-            if self.par_left_tag != 0 {
+            if self.par_left_tag != TagHash(0) {
                 let (ln, has) = {
                     let r = self.store.readings.get(reading.0);
                     let cid = r.parent.unwrap();
-                    let has = r.tags.find(self.par_left_tag) != r.tags.end();
+                    let has = r.tags.find(self.par_left_tag.get()) != r.tags.end();
                     (self.store.cohorts.get(cid.0).local_number, has)
                 };
                 if ln == self.par_left_pos && has {
@@ -780,11 +780,11 @@ impl super::GrammarApplicator {
             }
         } else if tag.r#type.intersects(T_PAR_RIGHT) {
             // (11)
-            if self.par_right_tag != 0 {
+            if self.par_right_tag != TagHash(0) {
                 let (ln, has) = {
                     let r = self.store.readings.get(reading.0);
                     let cid = r.parent.unwrap();
-                    let has = r.tags.find(self.par_right_tag) != r.tags.end();
+                    let has = r.tags.find(self.par_right_tag.get()) != r.tags.end();
                     (self.store.cohorts.get(cid.0).local_number, has)
                 };
                 if ln == self.par_right_pos && has {
@@ -884,25 +884,30 @@ impl super::GrammarApplicator {
                 } else if (tag.r#type.intersects(T_REGEXP_ANY)) && (itype.intersects(T_TEXTUAL)) {
                     if tag.r#type.intersects(T_BASEFORM) {
                         if itype.intersects(T_BASEFORM) {
-                            m = self.store.readings.get(reading.0).baseform.unwrap_or(0);
+                            m = self
+                                .store
+                                .readings
+                                .get(reading.0)
+                                .baseform
+                                .map_or(0, |h| h.get());
                         }
                     } else if tag.r#type.intersects(T_WORDFORM) {
                         if itype.intersects(T_WORDFORM) {
                             let cid = self.store.readings.get(reading.0).parent.unwrap();
                             let wf = self.store.cohorts.get(cid.0).wordform.unwrap();
-                            m = self.grammar.single_tags_list[wf.0].hash;
+                            m = self.grammar.single_tags_list[wf.0].hash.get();
                         }
                     } else if !itype.intersects(T_BASEFORM | T_WORDFORM) {
                         let tag0 = tag.tag.chars().next().unwrap_or('\0');
                         if (tag0 == '"' && itag0 == '"') || (tag0 == '<' && itag0 == '<') {
-                            m = ihash;
+                            m = ihash.get();
                         }
                     }
                 } else if (tag.r#type.intersects(T_NUMERICAL)) && (itype.intersects(T_NUMERICAL)) {
                     let itag = self.grammar.single_tags_list[itag_id.0].clone();
-                    m = test_tag_numerical(&mut self.store, &self.grammar, reading, &tag, &itag);
+                    m = test_tag_numerical(&mut self.store, &self.grammar, reading, &tag, &itag).get();
                 } else if tag.hash == ihash {
-                    m = ihash;
+                    m = ihash.get();
                 }
                 if m != 0 {
                     rv_tags.push(itag_id);
@@ -928,7 +933,7 @@ impl super::GrammarApplicator {
     ) -> bool {
         let mut entries: Vec<(TagId, u32)> = trie
             .iter()
-            .map(|(k, _)| (*k, self.grammar.single_tags_list[k.0].hash))
+            .map(|(k, _)| (*k, self.grammar.single_tags_list[k.0].hash.get()))
             .collect();
         entries.sort_by_key(|e| e.1);
         for (tid, _h) in entries {
@@ -999,7 +1004,7 @@ impl super::GrammarApplicator {
         if !trie.is_empty() && !plain.is_empty() {
             let mut entries: Vec<(TagId, u32)> = trie
                 .iter()
-                .map(|(k, _)| (*k, self.grammar.single_tags_list[k.0].hash))
+                .map(|(k, _)| (*k, self.grammar.single_tags_list[k.0].hash.get()))
                 .collect();
             entries.sort_by_key(|e| e.1);
 

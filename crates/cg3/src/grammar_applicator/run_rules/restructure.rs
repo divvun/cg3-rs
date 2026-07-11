@@ -8,7 +8,7 @@ use crate::inlines::{hash_value, insert_if_exists, ui32};
 use crate::rule::{RF_BEFORE, RF_DETACH, RF_REVERSE};
 use crate::strings::KEYWORDS::{self};
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_VARSTRING, T_WORDFORM, TagList};
-use crate::types::GlobalNumber;
+use crate::types::{GlobalNumber, TagHash};
 
 // C++ anonymous `enum { RV_NOTHING = 1, RV_SOMETHING = 2, RV_DELIMITED = 4,
 // RV_TRACERULE = 8 };` — the return-value bit flags of runRulesOnSingleWindow.
@@ -326,17 +326,17 @@ impl crate::grammar_applicator::GrammarApplicator {
         for tags in readings.iter_mut() {
             let mut k = 0usize;
             while k < tags.len() {
-                if self.grammar.single_tags_list.get(tags[k].0).hash == self.grammar.tag_any {
+                if self.grammar.single_tags_list.get(tags[k].0).hash.get() == self.grammar.tag_any {
                     let nt = self.store.cohorts.get(insertion.0).readings[0];
                     let nt_list = self.store.readings.get(nt.0).tags_list.clone();
                     if nt_list.len() <= 2 {
                         k += 1;
                         continue;
                     }
-                    tags[k] = self.tag_by_hash(nt_list[2]);
+                    tags[k] = self.tag_by_hash(TagHash(nt_list[2]));
                     let mut kk = 1usize;
                     for j in 3..nt_list.len() {
-                        let tid = self.tag_by_hash(nt_list[j]);
+                        let tid = self.tag_by_hash(TagHash(nt_list[j]));
                         if self
                             .grammar
                             .single_tags_list
@@ -392,7 +392,8 @@ impl crate::grammar_applicator::GrammarApplicator {
                 } else {
                     hash = self.add_tag_to_reading(creading, tter);
                 }
-                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, hash, creading) {
+                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, hash.get(), creading)
+                {
                     st.iter_val = rnumber;
                 }
             }
@@ -639,7 +640,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let brs = self.store.cohorts.get(ccohort.0).readings.clone();
             for r in brs {
                 self.add_tag_to_reading(r, endtag_id);
-                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, self.endtag, r) {
+                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, self.endtag.get(), r) {
                     st.iter_val = rnumber;
                 }
             }
@@ -734,7 +735,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let back_front = self.store.cohorts.get(back.0).readings[0];
         let has_endtag = {
             let r = self.store.readings.get(back_front.0);
-            r.tags.find(self.endtag) != r.tags.end()
+            r.tags.find(self.endtag.get()) != r.tags.end()
         };
         if !has_endtag {
             let len = self.store.single_windows.get(current.0).cohorts.len();
@@ -747,7 +748,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let brs = self.store.cohorts.get(back.0).readings.clone();
             for r in brs {
                 self.add_tag_to_reading(r, endtag_id);
-                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, self.endtag, r) {
+                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, self.endtag.get(), r) {
                     st.iter_val = rnumber;
                 }
             }
@@ -877,7 +878,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let mut mappings = TagList::new();
                 let src_tags = self.store.readings.get(r.0).tags_list.clone();
                 for hash0 in src_tags {
-                    let mut hash = hash0;
+                    let mut hash = TagHash(hash0);
                     let tter = self.tag_by_hash(hash);
                     let (ttype, first) = {
                         let t = self.grammar.single_tags_list.get(tter.0);
@@ -891,7 +892,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     if self.update_valid_rules(
                         &st.rules.clone(),
                         &mut st.intersects,
-                        hash,
+                        hash.get(),
                         creading,
                     ) {
                         st.iter_val = rnumber;
@@ -899,7 +900,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 }
                 for &tter in &the_tags {
                     let mut hash = self.grammar.single_tags_list.get(tter.0).hash;
-                    if hash == tag_any {
+                    if hash.get() == tag_any {
                         continue;
                     }
                     let (ttype, first) = {
@@ -914,7 +915,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     if self.update_valid_rules(
                         &st.rules.clone(),
                         &mut st.intersects,
-                        hash,
+                        hash.get(),
                         creading,
                     ) {
                         st.iter_val = rnumber;
@@ -960,9 +961,9 @@ impl crate::grammar_applicator::GrammarApplicator {
             self.store.cohorts.get_mut(ccohort.0).wread = Some(cwread);
             let wtags = self.store.readings.get(wread.0).tags_list.clone();
             for hash0 in wtags {
-                let tter = self.tag_by_hash(hash0);
+                let tter = self.tag_by_hash(TagHash(hash0));
                 let hash = self.add_tag_to_reading(cwread, tter);
-                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, hash, cwread) {
+                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, hash.get(), cwread) {
                     st.iter_val = rnumber;
                 }
             }
@@ -1148,17 +1149,17 @@ impl crate::grammar_applicator::GrammarApplicator {
                 // (*) expansion against the apply-to cohort's first reading.
                 let mut k = 0usize;
                 while k < tags.len() {
-                    if self.grammar.single_tags_list.get(tags[k].0).hash == tag_any {
+                    if self.grammar.single_tags_list.get(tags[k].0).hash.get() == tag_any {
                         let nt = self.store.cohorts.get(apply.0).readings[0];
                         let nt_list = self.store.readings.get(nt.0).tags_list.clone();
                         if nt_list.len() <= 2 {
                             k += 1;
                             continue;
                         }
-                        tags[k] = self.tag_by_hash(nt_list[2]);
+                        tags[k] = self.tag_by_hash(TagHash(nt_list[2]));
                         let mut kk = 1usize;
                         for j in 3..nt_list.len() {
-                            let tid = self.tag_by_hash(nt_list[j]);
+                            let tid = self.tag_by_hash(TagHash(nt_list[j]));
                             if self
                                 .grammar
                                 .single_tags_list
@@ -1189,7 +1190,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     if self.update_valid_rules(
                         &st.rules.clone(),
                         &mut st.intersects,
-                        hash,
+                        hash.get(),
                         creading,
                     ) {
                         st.iter_val = rnumber;

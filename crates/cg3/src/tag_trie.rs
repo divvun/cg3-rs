@@ -205,7 +205,7 @@ pub fn trie_rehash(trie: &trie_t, grammar: &Grammar) -> u32 {
     let mut retval: u32 = 0;
     for (k, node) in ordered_entries(trie, grammar) {
         let h = grammar.single_tags_list[k.0].hash;
-        retval = hash_value(h, retval);
+        retval = hash_value(h.get(), retval);
         if let Some(sub) = &node.trie {
             retval = hash_value(trie_rehash(sub, grammar), retval);
         }
@@ -443,7 +443,7 @@ mod tests {
     /// the real `Grammar` arena the trie functions read through.
     fn mk_tag(g: &mut Grammar, hash: u32, number: u32, type_: crate::tag::TagType) -> TagId {
         let mut t = Tag::default();
-        t.hash = hash;
+        t.hash = crate::types::TagHash(hash);
         t.number = number;
         t.r#type = type_;
         TagId(g.single_tags_list.alloc(t))

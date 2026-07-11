@@ -9,7 +9,7 @@ use crate::interval_vector::uint32IntervalVector;
 use crate::reading::ReadingList;
 use crate::rule::{RF_ENCL_FINAL, RF_NOITERATE, RF_REPEAT};
 use crate::tag::{T_MAPPING, T_VARSTRING, TagList};
-use crate::types::UString;
+use crate::types::{TagHash, UString};
 
 // C++ anonymous `enum { RV_NOTHING = 1, RV_SOMETHING = 2, RV_DELIMITED = 4,
 // RV_TRACERULE = 8 };` — the return-value bit flags of runRulesOnSingleWindow.
@@ -289,7 +289,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let utag = self
                     .grammar
                     .single_tags_list
-                    .get(self.tag_by_hash(h).0)
+                    .get(self.tag_by_hash(TagHash(h)).0)
                     .tag
                     .clone();
                 let matches = utag.starts_with("R:")
@@ -348,7 +348,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let t = self.grammar.single_tags_list.get(tag.0);
                 (t.hash, t.r#type, t.tag.chars().next())
             };
-            if thash == self.grammar.tag_any {
+            if thash.get() == self.grammar.tag_any {
                 break;
             }
             if ttype.intersects(T_MAPPING) || first_char == Some(mapping_prefix) {
@@ -358,11 +358,11 @@ impl crate::grammar_applicator::GrammarApplicator {
                     .readings
                     .get_mut(reading.0)
                     .tags_list
-                    .insert(at, thash);
+                    .insert(at, thash.get());
                 at += 1;
             }
             let rule = st.rule.0;
-            if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, thash, reading) {
+            if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, thash.get(), reading) {
                 st.iter_val = self.grammar.rule_by_number.get(rule).number;
             }
         }

@@ -52,7 +52,7 @@
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::{CT_DEP_DONE, CT_ENCLOSED, CT_IGNORED, CT_NUM_CURRENT, CT_REMOVED};
-use crate::types::GlobalNumber;
+use crate::types::{GlobalNumber, TagHash};
 use crate::inlines::{erase, hash_value, insert_if_exists, ui32};
 use crate::reading::{Reading, ReadingList, alloc_reading_copy, free_reading, reading_rehash};
 use crate::tag::{
@@ -870,7 +870,7 @@ impl super::GrammarApplicator {
     /// C++ `uint32_t addTagToReading(Reading& reading, Tag* tag)` (the 2-arg form
     /// with default `rehash = true`). See `add_tag_to_reading_rehash` for the
     /// full body.
-    pub fn add_tag_to_reading(&mut self, reading: ReadingId, tag: TagId) -> u32 {
+    pub fn add_tag_to_reading(&mut self, reading: ReadingId, tag: TagId) -> TagHash {
         self.add_tag_to_reading_rehash(reading, tag, true)
     }
 
@@ -883,7 +883,7 @@ impl super::GrammarApplicator {
         reading: ReadingId,
         mut tag: TagId,
         rehash: bool,
-    ) -> u32 {
+    ) -> TagHash {
         if self.grammar.single_tags_list[tag.0]
             .r#type
             .intersects(T_VARSTRING)
@@ -913,7 +913,7 @@ impl super::GrammarApplicator {
         let parent = self.store.readings.get(reading.0).parent;
 
         // possible_sets |= grammar->sets_by_tag[tag->hash]
-        if let Some(bits) = self.grammar.sets_by_tag.get(&thash) {
+        if let Some(bits) = self.grammar.sets_by_tag.get(&thash.get()) {
             let parent = parent.unwrap();
             let ps = &mut self.store.cohorts.get_mut(parent.0).possible_sets;
             if ps.len() < bits.len() {
@@ -928,9 +928,9 @@ impl super::GrammarApplicator {
 
         {
             let r = self.store.readings.get_mut(reading.0);
-            r.tags.insert(thash);
-            r.tags_list.push(thash);
-            r.tags_bloom.insert(thash);
+            r.tags.insert(thash.get());
+            r.tags_list.push(thash.get());
+            r.tags_bloom.insert(thash.get());
         }
 
         // ToDo: Remove for real ordered mode
@@ -944,11 +944,11 @@ impl super::GrammarApplicator {
             r.tags_string_hash = crate::inlines::hash_value_ustring(&r.tags_string, 0);
         }
 
-        if self.grammar.parentheses.contains_key(&thash) {
-            self.store.cohorts.get_mut(parent.unwrap().0).is_pleft = thash;
+        if self.grammar.parentheses.contains_key(&thash.get()) {
+            self.store.cohorts.get_mut(parent.unwrap().0).is_pleft = thash.get();
         }
-        if self.grammar.parentheses_reverse.contains_key(&thash) {
-            self.store.cohorts.get_mut(parent.unwrap().0).is_pright = thash;
+        if self.grammar.parentheses_reverse.contains_key(&thash.get()) {
+            self.store.cohorts.get_mut(parent.unwrap().0).is_pright = thash.get();
         }
 
         if ttype.intersects(T_MAPPING) || first_char == self.grammar.mapping_prefix {
@@ -965,15 +965,15 @@ impl super::GrammarApplicator {
         }
         if ttype.intersects(T_TEXTUAL | T_WORDFORM | T_BASEFORM) {
             let r = self.store.readings.get_mut(reading.0);
-            r.tags_textual.insert(thash);
-            r.tags_textual_bloom.insert(thash);
+            r.tags_textual.insert(thash.get());
+            r.tags_textual_bloom.insert(thash.get());
         }
         if ttype.intersects(T_NUMERICAL) {
             self.store
                 .readings
                 .get_mut(reading.0)
                 .tags_numerical
-                .insert(thash, tag);
+                .insert(thash.get(), tag);
             self.store.cohorts.get_mut(parent.unwrap().0).r#type &= !CT_NUM_CURRENT;
         }
         if self.store.readings.get(reading.0).baseform.is_none() && (ttype.intersects(T_BASEFORM))
@@ -1016,8 +1016,8 @@ impl super::GrammarApplicator {
         }
         if !ttype.intersects(T_SPECIAL) {
             let r = self.store.readings.get_mut(reading.0);
-            r.tags_plain.insert(thash);
-            r.tags_plain_bloom.insert(thash);
+            r.tags_plain.insert(thash.get());
+            r.tags_plain_bloom.insert(thash.get());
         }
         if rehash {
             reading_rehash(&mut self.store, &self.grammar, reading);
@@ -1031,22 +1031,22 @@ impl super::GrammarApplicator {
             // had a baseform (likely-bug, reproduced).
             let reading_baseform = self.store.readings.get(reading.0).baseform;
             let bot = &mut self.store.single_windows.get_mut(sw.0).bag_of_tags;
-            bot.tags.insert(thash);
-            bot.tags_list.push(thash);
-            bot.tags_bloom.insert(thash);
+            bot.tags.insert(thash.get());
+            bot.tags_list.push(thash.get());
+            bot.tags_bloom.insert(thash.get());
             if ttype.intersects(T_TEXTUAL | T_WORDFORM | T_BASEFORM) {
-                bot.tags_textual.insert(thash);
-                bot.tags_textual_bloom.insert(thash);
+                bot.tags_textual.insert(thash.get());
+                bot.tags_textual_bloom.insert(thash.get());
             }
             if ttype.intersects(T_NUMERICAL) {
-                bot.tags_numerical.insert(thash, tag);
+                bot.tags_numerical.insert(thash.get(), tag);
             }
             if reading_baseform.is_none() && (ttype.intersects(T_BASEFORM)) {
                 bot.baseform = Some(thash);
             }
             if !ttype.intersects(T_SPECIAL) {
-                bot.tags_plain.insert(thash);
-                bot.tags_plain_bloom.insert(thash);
+                bot.tags_plain.insert(thash.get());
+                bot.tags_plain_bloom.insert(thash.get());
             }
             if rehash {
                 // bot.rehash(): the bag-of-tags is an embedded `Reading` VALUE
@@ -1060,7 +1060,7 @@ impl super::GrammarApplicator {
                 for &iter in bot.tags.iter() {
                     let fold = match mapping_hash {
                         None => true,
-                        Some(mh) => mh != iter,
+                        Some(mh) => mh.get() != iter,
                     };
                     if fold {
                         h = hash_value(iter, h);
@@ -1068,7 +1068,7 @@ impl super::GrammarApplicator {
                 }
                 bot.hash_plain = h;
                 if let Some(mh) = mapping_hash {
-                    h = hash_value(mh, h);
+                    h = hash_value(mh.get(), h);
                 }
                 bot.hash = h;
             }
@@ -1095,7 +1095,7 @@ impl super::GrammarApplicator {
     }
 
     /// The `uint32_t utag` (hash) form.
-    pub fn del_tag_from_reading_hash(&mut self, reading: ReadingId, utag: u32) {
+    pub fn del_tag_from_reading_hash(&mut self, reading: ReadingId, utag: TagHash) {
         let mapping_hash = self
             .store
             .readings
@@ -1104,11 +1104,11 @@ impl super::GrammarApplicator {
             .map(|m| self.grammar.single_tags_list[m.0].hash);
         {
             let r = self.store.readings.get_mut(reading.0);
-            erase(&mut r.tags_list, &utag);
-            r.tags.erase(utag);
-            r.tags_textual.erase(utag);
-            r.tags_numerical.remove(&utag);
-            r.tags_plain.erase(utag);
+            erase(&mut r.tags_list, &utag.get());
+            r.tags.erase(utag.get());
+            r.tags_textual.erase(utag.get());
+            r.tags_numerical.remove(&utag.get());
+            r.tags_plain.erase(utag.get());
         }
         if let Some(mh) = mapping_hash {
             if utag == mh {
@@ -1242,7 +1242,7 @@ impl super::GrammarApplicator {
             i -= 1;
             let mp = self.add_tag_to_reading(nr, ttag);
             if mp != ttag_hash {
-                let mtid = self.grammar.single_tags.find(mp).get().1;
+                let mtid = self.grammar.single_tags.find(mp.get()).get().1;
                 self.store.readings.get_mut(nr.0).mapping = Some(mtid);
             } else {
                 self.store.readings.get_mut(nr.0).mapping = Some(ttag);
@@ -1256,7 +1256,7 @@ impl super::GrammarApplicator {
         let tag_hash = self.grammar.single_tags_list[tag.0].hash;
         let mp = self.add_tag_to_reading(reading, tag);
         if mp != tag_hash {
-            let mtid = self.grammar.single_tags.find(mp).get().1;
+            let mtid = self.grammar.single_tags.find(mp.get()).get().1;
             self.store.readings.get_mut(reading.0).mapping = Some(mtid);
         } else {
             self.store.readings.get_mut(reading.0).mapping = Some(tag);
@@ -1293,7 +1293,7 @@ impl super::GrammarApplicator {
             for reading in rs {
                 if let Some(m) = self.store.readings.get(reading.0).mapping {
                     let mh = self.grammar.single_tags_list[m.0].hash;
-                    if self.grammar.reopen_mappings.count(mh) != 0 {
+                    if self.grammar.reopen_mappings.count(mh.get()) != 0 {
                         self.store.readings.get_mut(reading.0).mapped = false;
                     }
                 }
@@ -1402,15 +1402,20 @@ impl super::GrammarApplicator {
             let nr = alloc_reading_copy(&mut self.store, &front_val);
             if let Some(m) = self.store.readings.get(nr.0).mapping {
                 let mh = self.grammar.single_tags_list[m.0].hash;
-                erase(&mut self.store.readings.get_mut(nr.0).tags_list, &mh);
+                erase(&mut self.store.readings.get_mut(nr.0).tags_list, &mh.get());
             }
             for iter1 in clist {
                 let imap = self.store.readings.get(iter1.0).mapping;
                 if let Some(im) = imap {
                     let imh = self.grammar.single_tags_list[im.0].hash;
-                    let present = self.store.readings.get(nr.0).tags_list.contains(&imh);
+                    let present = self
+                        .store
+                        .readings
+                        .get(nr.0)
+                        .tags_list
+                        .contains(&imh.get());
                     if !present {
-                        self.store.readings.get_mut(nr.0).tags_list.push(imh);
+                        self.store.readings.get_mut(nr.0).tags_list.push(imh.get());
                     }
                 }
                 let opt = Some(iter1);
@@ -1528,7 +1533,7 @@ impl super::GrammarApplicator {
             &mut self.store.cohorts.get_mut(ccohort.0).possible_sets,
             self.grammar.sets_any.as_ref(),
         );
-        let begintag_tid = self.grammar.single_tags.find(self.begintag).get().1;
+        let begintag_tid = self.grammar.single_tags.find(self.begintag.get()).get().1;
         self.add_tag_to_reading(creading, begintag_tid);
         crate::cohort::append_reading(&mut self.store, ccohort, creading);
         crate::single_window::append_cohort(&mut self.gWindow, &mut self.store, nwin, ccohort);
@@ -1589,7 +1594,7 @@ impl super::GrammarApplicator {
             .cohorts
             .last()
             .unwrap();
-        let endtag_tid = self.grammar.single_tags.find(self.endtag).get().1;
+        let endtag_tid = self.grammar.single_tags.find(self.endtag.get()).get().1;
         let rs = self.store.cohorts.get(cohort.0).readings.clone();
         for reading in rs {
             self.add_tag_to_reading(reading, endtag_tid);

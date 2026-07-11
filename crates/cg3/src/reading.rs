@@ -27,7 +27,7 @@ use crate::grammar::Grammar;
 use crate::inlines::{hash_value, ui32};
 use crate::sorted_vector::uint32SortedVector;
 use crate::store::RuntimeStore;
-use crate::types::{UString, Uint32Vector};
+use crate::types::{TagHash, UString, Uint32Vector};
 
 // [spec:cg3:def:reading.cg3.reading-list]
 /// C++ `typedef std::vector<Reading*> ReadingList` → `Vec<ReadingId>`.
@@ -65,7 +65,7 @@ pub struct Reading {
     /// never 0 (SuperFastHash never returns the reserved value), so `Some`/`None`
     /// partitions cleanly; the pipe/binary wire boundary still reads/writes the
     /// C++ `0` byte-for-byte.
-    pub baseform: Option<u32>,
+    pub baseform: Option<TagHash>,
     pub hash: u32,
     pub hash_plain: u32,
     pub number: u32,
@@ -377,7 +377,7 @@ pub fn reading_rehash(store: &mut RuntimeStore, grammar: &Grammar, id: ReadingId
         for &iter in r.tags.iter() {
             let fold = match mapping_hash {
                 None => true,
-                Some(mh) => mh != iter,
+                Some(mh) => mh.get() != iter,
             };
             if fold {
                 hash = hash_value(iter, hash);
@@ -386,7 +386,7 @@ pub fn reading_rehash(store: &mut RuntimeStore, grammar: &Grammar, id: ReadingId
     }
     let hash_plain = hash;
     if let Some(mh) = mapping_hash {
-        hash = hash_value(mh, hash);
+        hash = hash_value(mh.get(), hash);
     }
     let next = store.readings.get(id.0).next;
     if let Some(next_id) = next {

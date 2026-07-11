@@ -43,7 +43,7 @@ use crate::process::Process;
 use crate::scoped_stack::ScopedStack;
 use crate::sorted_vector::{sorted_vector, uint32SortedVector};
 use crate::tag::TagList;
-use crate::types::{GlobalNumber, UChar, UString, Uint32Vector};
+use crate::types::{GlobalNumber, TagHash, UChar, UString, Uint32Vector};
 
 pub mod context;
 pub mod core;
@@ -337,19 +337,19 @@ pub struct GrammarApplicator {
     pub match_single: u32,
     pub match_comp: u32,
     pub match_sub: u32,
-    pub begintag: u32,
-    pub endtag: u32,
-    pub substtag: u32,
+    pub begintag: TagHash,
+    pub endtag: TagHash,
+    pub substtag: TagHash,
     pub tag_begin: Option<TagId>,
     pub tag_end: Option<TagId>,
     pub tag_subst: Option<TagId>,
-    pub par_left_tag: u32,
-    pub par_right_tag: u32,
+    pub par_left_tag: TagHash,
+    pub par_right_tag: TagHash,
     pub par_left_pos: u32,
     pub par_right_pos: u32,
     pub did_final_enclosure: bool,
-    pub mprefix_key: u32,
-    pub mprefix_value: u32,
+    pub mprefix_key: TagHash,
+    pub mprefix_value: TagHash,
 
     pub tmpl_cntx: tmpl_context_t,
 
@@ -389,9 +389,9 @@ pub struct GrammarApplicator {
     /// indices into `unif_sets_store`.
     pub unif_sets_rs: BTreeMap<u32, usize>,
     pub unif_sets_store: Vec<unif_sets_t>,
-    pub unif_last_wordform: u32,
-    pub unif_last_baseform: u32,
-    pub unif_last_textual: u32,
+    pub unif_last_wordform: TagHash,
+    pub unif_last_baseform: TagHash,
+    pub unif_last_textual: TagHash,
     /// C++ `bc::flat_map<uint32_t, uint32_t> rule_hits`.
     pub rule_hits: BTreeMap<u32, u32>,
 
@@ -515,19 +515,19 @@ impl GrammarApplicator {
             match_single: 0,
             match_comp: 0,
             match_sub: 0,
-            begintag: 0,
-            endtag: 0,
-            substtag: 0,
+            begintag: TagHash(0),
+            endtag: TagHash(0),
+            substtag: TagHash(0),
             tag_begin: None,
             tag_end: None,
             tag_subst: None,
-            par_left_tag: 0,
-            par_right_tag: 0,
+            par_left_tag: TagHash(0),
+            par_right_tag: TagHash(0),
             par_left_pos: 0,
             par_right_pos: 0,
             did_final_enclosure: false,
-            mprefix_key: 0,
-            mprefix_value: 0,
+            mprefix_key: TagHash(0),
+            mprefix_value: TagHash(0),
 
             tmpl_cntx: Default::default(),
 
@@ -550,9 +550,9 @@ impl GrammarApplicator {
             unif_tags_store: Default::default(),
             unif_sets_rs: Default::default(),
             unif_sets_store: Default::default(),
-            unif_last_wordform: 0,
-            unif_last_baseform: 0,
-            unif_last_textual: 0,
+            unif_last_wordform: TagHash(0),
+            unif_last_baseform: TagHash(0),
+            unif_last_textual: TagHash(0),
             rule_hits: Default::default(),
 
             ss_taglist: ScopedStack::new(),

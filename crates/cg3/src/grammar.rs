@@ -580,7 +580,7 @@ impl Grammar {
         while seed < 10000 {
             let ih = hash.wrapping_add(seed);
             let found: Option<TagId> = {
-                let it = self.single_tags.find(ih);
+                let it = self.single_tags.find(ih.get());
                 if it != self.single_tags.end() {
                     Some(it.get().1)
                 } else {
@@ -616,7 +616,7 @@ impl Grammar {
         let new_hash = tag.rehash(); // rehash folds seed → base+seed == ih.
         let idx = self.single_tags_list.alloc(tag);
         self.single_tags_list[idx].number = idx; // UI32(size-1)
-        self.single_tags.insert((new_hash, TagId(idx)));
+        self.single_tags.insert((new_hash.get(), TagId(idx)));
         TagId(idx)
     }
 
@@ -744,7 +744,7 @@ impl Grammar {
             let tid = self.allocate_tag(to);
             self.single_tags_list[tid.0].hash
         };
-        let exists = self.anchors.contains(ah);
+        let exists = self.anchors.contains(ah.get());
         if primary && exists {
             // "Error: Redefinition attempt for anchor '<to>' on line <lines>!"
             cg3_quit(1, Some(file!()), self.lines);
@@ -754,7 +754,7 @@ impl Grammar {
             at = ui32(self.rule_by_number.capacity());
         }
         if !exists {
-            self.anchors.insert((ah, at));
+            self.anchors.insert((ah.get(), at));
         }
     }
 }
@@ -2101,7 +2101,7 @@ impl Grammar {
 pub fn trie_index_to_rule(trie: &trie_t, grammar: &mut Grammar, r: u32) {
     for (k, node) in trie.iter() {
         let h = grammar.single_tags_list[k.0].hash;
-        grammar.index_tag_to_rule(h, r);
+        grammar.index_tag_to_rule(h.get(), r);
         if let Some(sub) = &node.trie {
             trie_index_to_rule(sub, grammar, r);
         }
@@ -2115,7 +2115,7 @@ pub fn trie_index_to_rule(trie: &trie_t, grammar: &mut Grammar, r: u32) {
 pub fn trie_index_to_set(trie: &trie_t, grammar: &mut Grammar, r: u32) {
     for (k, node) in trie.iter() {
         let h = grammar.single_tags_list[k.0].hash;
-        grammar.index_tag_to_set(h, r);
+        grammar.index_tag_to_set(h.get(), r);
         if let Some(sub) = &node.trie {
             trie_index_to_set(sub, grammar, r);
         }

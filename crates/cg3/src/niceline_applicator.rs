@@ -34,6 +34,7 @@ use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::{CT_RELATED, CT_REMOVED, unignore_all};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
+use crate::types::TagHash;
 use crate::inlines::{isnl, skipto_nospan};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION};
 use crate::uextras::{get_line_clean, u_fflush, u_fputc, ux_strip_bom};
@@ -45,8 +46,8 @@ const STR_DUMMY: &str = "__CG3_DUMMY_STRINGBIT__";
 /// `TagId`. operator[] would default-insert a null `Tag*` on a miss (deref
 /// crash); a miss here returns `TagId(0)` which cannot crash — benign for the
 /// always-present hashes the call sites use.
-fn tag_by_hash(grammar: &Grammar, hash: u32) -> TagId {
-    let it = grammar.single_tags.find(hash);
+fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
+    let it = grammar.single_tags.find(hash.get());
     if it != grammar.single_tags.end() {
         it.get().1
     } else {
@@ -535,7 +536,13 @@ impl<'a> NicelineApplicator<'a> {
     pub fn print_reading<W: Write>(&mut self, reading: ReadingId, output: &mut W) {
         let (noprint, deleted, baseform, parent_cid, next) = {
             let r = self.base.store.readings.get(reading.0);
-            (r.noprint, r.deleted, r.baseform.unwrap_or(0), r.parent, r.next)
+            (
+                r.noprint,
+                r.deleted,
+                r.baseform.unwrap_or(TagHash(0)),
+                r.parent,
+                r.next,
+            )
         };
         if noprint {
             return;
@@ -544,7 +551,7 @@ impl<'a> NicelineApplicator<'a> {
             return;
         }
         u_fputc('\t', output);
-        if baseform != 0 {
+        if baseform != TagHash(0) {
             // "[%.*S]" of tag.data()+1 for tag.size()-2 → strip both quotes, wrap [].
             let tid = tag_by_hash(&self.base.grammar, baseform);
             let tag = &self.base.grammar.single_tags_list[tid.0].tag;
@@ -556,12 +563,13 @@ impl<'a> NicelineApplicator<'a> {
         let wordform_hash = {
             let wf = self.base.store.cohorts.get(parent_cid.0).wordform;
             wf.map(|t| self.base.grammar.single_tags_list[t.0].hash)
-                .unwrap_or(0)
+                .unwrap_or(TagHash(0))
         };
 
         let tags_list: Vec<u32> = self.base.store.readings.get(reading.0).tags_list.clone();
         let mut unique: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         for tter in tags_list {
+            let tter = TagHash(tter);
             if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag
             {
                 continue;
@@ -570,10 +578,10 @@ impl<'a> NicelineApplicator<'a> {
                 continue;
             }
             if self.base.unique_tags {
-                if unique.contains(&tter) {
+                if unique.contains(&tter.get()) {
                     continue;
                 }
-                unique.insert(tter);
+                unique.insert(tter.get());
             }
             let tid = tag_by_hash(&self.base.grammar, tter);
             let ttype = self.base.grammar.single_tags_list[tid.0].r#type;
@@ -655,7 +663,7 @@ impl<'a> NicelineApplicator<'a> {
             let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
                 for siter in targets.iter().copied() {
-                    let tid = tag_by_hash(&self.base.grammar, *rel_hash);
+                    let tid = tag_by_hash(&self.base.grammar, TagHash(*rel_hash));
                     let _ = write!(
                         output,
                         " R:{}:{siter}",

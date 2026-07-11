@@ -41,7 +41,7 @@ use crate::inlines::{
 use crate::options::{OPTIONS, options_t};
 use crate::process::Process;
 use crate::reading::Reading;
-use crate::types::GlobalNumber;
+use crate::types::{GlobalNumber, TagHash};
 use crate::store::RuntimeStore;
 use crate::strings::KEYWORDS;
 use crate::tag::{
@@ -190,8 +190,8 @@ impl Read for ProcRead<'_> {
 /// operator[] default-inserts a null `Tag*` on a miss (→ deref crash); here a
 /// miss returns `TagId(0)` (the first tag), which cannot crash — a benign
 /// divergence for the always-present hashes these call sites pass.
-pub(super) fn tag_by_hash(grammar: &Grammar, hash: u32) -> TagId {
-    let it = grammar.single_tags.find(hash);
+pub(super) fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
+    let it = grammar.single_tags.find(hash.get());
     if it != grammar.single_tags.end() {
         it.get().1
     } else {
@@ -315,7 +315,7 @@ impl super::GrammarApplicator {
         while seed < 10000 {
             let ih = hash.wrapping_add(seed);
             let found: Option<TagId> = {
-                let it = self.grammar.single_tags.find(ih);
+                let it = self.grammar.single_tags.find(ih.get());
                 if it != self.grammar.single_tags.end() {
                     Some(it.get().1)
                 } else {
@@ -349,7 +349,7 @@ impl super::GrammarApplicator {
         let new_hash = tag.rehash();
         let idx = self.grammar.single_tags_list.alloc(tag);
         self.grammar.single_tags_list[idx].number = idx;
-        self.grammar.single_tags.insert((new_hash, TagId(idx)));
+        self.grammar.single_tags.insert((new_hash.get(), TagId(idx)));
         TagId(idx)
     }
 
@@ -777,7 +777,7 @@ impl super::GrammarApplicator {
     pub fn print_reading<W: Write>(&mut self, reading: ReadingId, output: &mut W, sub: usize) {
         let (noprint, deleted, baseform, parent_cid) = {
             let r = self.store.readings.get(reading.0);
-            (r.noprint, r.deleted, r.baseform.unwrap_or(0), r.parent)
+            (r.noprint, r.deleted, r.baseform.unwrap_or(TagHash(0)), r.parent)
         };
         if noprint {
             return;
@@ -795,10 +795,10 @@ impl super::GrammarApplicator {
         let wordform_hash = {
             let wf = self.store.cohorts.get(parent_cid.0).wordform;
             wf.map(|t| self.grammar.single_tags_list[t.0].hash)
-                .unwrap_or(0)
+                .unwrap_or(TagHash(0))
         };
 
-        if baseform != 0 {
+        if baseform != TagHash(0) {
             let tid = tag_by_hash(&self.grammar, baseform);
             let _ = write!(output, "{}", self.grammar.single_tags_list[tid.0].tag);
         }
@@ -807,6 +807,7 @@ impl super::GrammarApplicator {
         let mut unique: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         let mut mappings: Vec<TagId> = Vec::new();
         for tter in tags_list {
+            let tter = TagHash(tter);
             if (!self.show_end_tags && tter == self.endtag) || tter == self.begintag {
                 continue;
             }
@@ -814,10 +815,10 @@ impl super::GrammarApplicator {
                 continue;
             }
             if self.unique_tags {
-                if unique.contains(&tter) {
+                if unique.contains(&tter.get()) {
                     continue;
                 }
-                unique.insert(tter);
+                unique.insert(tter.get());
             }
             let tid = tag_by_hash(&self.grammar, tter);
             let ttype = self.grammar.single_tags_list[tid.0].r#type;
@@ -923,7 +924,7 @@ impl super::GrammarApplicator {
             let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
                 for siter in targets.iter().copied() {
-                    let tid = tag_by_hash(&self.grammar, *rel_hash);
+                    let tid = tag_by_hash(&self.grammar, TagHash(*rel_hash));
                     let _ = write!(
                         output,
                         " R:{}:{siter}",
@@ -1001,6 +1002,7 @@ impl super::GrammarApplicator {
                 if let Some(wr) = self.store.cohorts.get(cohort.0).wread {
                     let tags: Vec<u32> = self.store.readings.get(wr.0).tags_list.clone();
                     for tter in tags {
+                        let tter = TagHash(tter);
                         if tter == wf_hash {
                             continue;
                         }
@@ -1093,7 +1095,7 @@ impl super::GrammarApplicator {
 
         for var in vars_output {
             let key_tag = {
-                let tid = tag_by_hash(&self.grammar, var);
+                let tid = tag_by_hash(&self.grammar, TagHash(var));
                 self.grammar.single_tags_list[tid.0].tag.clone()
             };
             let value_hash: Option<u32> = {
@@ -1109,7 +1111,7 @@ impl super::GrammarApplicator {
             match value_hash {
                 Some(vh) => {
                     if vh != self.grammar.tag_any {
-                        let vtid = tag_by_hash(&self.grammar, vh);
+                        let vtid = tag_by_hash(&self.grammar, TagHash(vh));
                         cmd_buf.push_str(STR_CMD_SETVAR);
                         cmd_buf.push_str(&key_tag);
                         cmd_buf.push('=');
@@ -1172,7 +1174,7 @@ impl super::GrammarApplicator {
         write_raw(&mut ss, flags);
 
         if r.baseform.is_some() {
-            let tid = tag_by_hash(&self.grammar, r.baseform.unwrap_or(0));
+            let tid = tag_by_hash(&self.grammar, r.baseform.unwrap_or(TagHash(0)));
             write_utf8_raw(&mut ss, &self.grammar.single_tags_list[tid.0].tag);
         }
 
@@ -1182,10 +1184,11 @@ impl super::GrammarApplicator {
             .get(r.parent.expect("reading parent").0)
             .wordform
             .map(|t| self.grammar.single_tags_list[t.0].hash)
-            .unwrap_or(0);
+            .unwrap_or(TagHash(0));
 
         let mut cs: u32 = 0;
         for &tter in &r.tags_list {
+            let tter = TagHash(tter);
             if r.baseform == Some(tter) || tter == wordform_hash {
                 continue;
             }
@@ -1201,6 +1204,7 @@ impl super::GrammarApplicator {
         }
         write_raw(&mut ss, cs);
         for &tter in &r.tags_list {
+            let tter = TagHash(tter);
             if r.baseform == Some(tter) || tter == wordform_hash {
                 continue;
             }
@@ -1320,7 +1324,12 @@ impl super::GrammarApplicator {
 
         if flags & (1 << 3) != 0 {
             let str = read_utf8_raw(&mut ss);
-            let baseform = self.store.readings.get(reading.0).baseform.unwrap_or(0);
+            let baseform = self
+                .store
+                .readings
+                .get(reading.0)
+                .baseform
+                .unwrap_or(TagHash(0));
             let cur = {
                 let tid = tag_by_hash(&self.grammar, baseform);
                 self.grammar.single_tags_list[tid.0].tag.clone()
@@ -1342,15 +1351,15 @@ impl super::GrammarApplicator {
                 .get(r.parent.expect("reading parent").0)
                 .wordform
                 .map(|t| self.grammar.single_tags_list[t.0].hash)
-                .unwrap_or(0);
-            (wf, r.baseform.unwrap_or(0))
+                .unwrap_or(TagHash(0));
+            (wf, r.baseform.unwrap_or(TagHash(0)))
         };
         {
             let r = self.store.readings.get_mut(reading.0);
             r.tags_list.clear();
-            r.tags_list.push(wordform_hash);
-            if baseform != 0 {
-                r.tags_list.push(baseform);
+            r.tags_list.push(wordform_hash.get());
+            if baseform != TagHash(0) {
+                r.tags_list.push(baseform.get());
             }
         }
 
@@ -1359,7 +1368,11 @@ impl super::GrammarApplicator {
             let str = read_utf8_raw(&mut ss);
             let tag = self.add_tag(&str, crate::tag::TagType::empty());
             let hash = self.grammar.single_tags_list[tag.0].hash;
-            self.store.readings.get_mut(reading.0).tags_list.push(hash);
+            self.store
+                .readings
+                .get_mut(reading.0)
+                .tags_list
+                .push(hash.get());
         }
 
         // reflowReading(*reading) — direct now that the pipe fns use

@@ -1527,7 +1527,7 @@ impl super::GrammarApplicator {
             .map(|(k, v)| (*k, v.as_slice().to_vec()))
             .collect();
 
-        if rtag_hash == self.grammar.tag_any {
+        if rtag_hash.get() == self.grammar.tag_any {
             for (_name, targets) in &relations {
                 for &citer in targets {
                     if let Some(&c) = self.gWindow.cohort_map.get(&GlobalNumber(citer)) {
@@ -1558,7 +1558,7 @@ impl super::GrammarApplicator {
                 }
             }
         } else {
-            if let Some((_name, targets)) = relations.iter().find(|(k, _)| *k == rtag_hash) {
+            if let Some((_name, targets)) = relations.iter().find(|(k, _)| *k == rtag_hash.get()) {
                 for &citer in targets {
                     if let Some(&c) = self.gWindow.cohort_map.get(&GlobalNumber(citer)) {
                         cs_insert(&self.store, &mut rels, c);

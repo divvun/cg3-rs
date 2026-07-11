@@ -46,7 +46,7 @@ use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{read_le, ui8, ui16, ui32, write_le, write_utf8_le};
 use crate::reading::Reading;
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION};
-use crate::types::{GlobalNumber, UString};
+use crate::types::{GlobalNumber, TagHash, UString};
 
 /// C++ `version.hpp` `constexpr uint32_t CG3_BINARY_STREAM = 1`. `version.hpp`
 /// is not yet ported, so the constant is reproduced here verbatim (its only
@@ -56,8 +56,8 @@ pub const CG3_BINARY_STREAM: u32 = 1;
 /// C++ `grammar->single_tags[hash]` — resolves a tag hash to its `TagId`, else
 /// `TagId(0)`. Reproduces `grammar_applicator::core::tag_by_hash` (which is
 /// `pub(super)`, not reachable here); the module cannot be edited.
-fn tag_by_hash(grammar: &Grammar, hash: u32) -> TagId {
-    let it = grammar.single_tags.find(hash);
+fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
+    let it = grammar.single_tags.find(hash.get());
     if it != grammar.single_tags.end() {
         it.get().1
     } else {
@@ -285,10 +285,10 @@ impl<'a> BinaryApplicator<'a> {
             pos += 1;
             let key = read_u16!() as usize;
             let value = read_u16!() as usize;
-            let hash1 = self.base.grammar.single_tags_list[window_tags[key].0].hash;
+            let hash1 = self.base.grammar.single_tags_list[window_tags[key].0].hash.get();
             let sw = self.base.store.single_windows.get_mut(c_swindow.0);
             if mode == BFV_SETVAR {
-                let vh = self.base.grammar.single_tags_list[window_tags[value].0].hash;
+                let vh = self.base.grammar.single_tags_list[window_tags[value].0].hash.get();
                 sw.variables_set.insert((hash1, vh));
                 sw.variables_rem.erase(hash1);
                 sw.variables_output.insert(hash1);
@@ -383,7 +383,7 @@ impl<'a> BinaryApplicator<'a> {
                     .cohorts
                     .get_mut(c_cohort.0)
                     .relations_input
-                    .entry(rhash)
+                    .entry(rhash.get())
                     .or_default()
                     .insert(head);
             }
@@ -466,7 +466,7 @@ impl<'a> BinaryApplicator<'a> {
                         .readings
                         .get(r.0)
                         .tags
-                        .find(self.base.endtag)
+                        .find(self.base.endtag.get())
                         != self.base.store.readings.get(r.0).tags.end();
                     if !has {
                         self.base.add_tag_to_reading(r, endtag_id);
@@ -609,7 +609,7 @@ impl BinaryFormat {
             .collect();
         for var in vars_output {
             var_count += 1;
-            let key = tag_by_hash(&app.grammar, var);
+            let key = tag_by_hash(&app.grammar, TagHash(var));
             let value: Option<u32> = {
                 let sw = app.store.single_windows.get(window.0);
                 let it = sw.variables_set.find(var);
@@ -624,7 +624,7 @@ impl BinaryFormat {
                     if vh != app.grammar.tag_any {
                         var_buffer.push(BFV_SETVAR as u8);
                         write_tag(&mut tags_to_write, &mut tag_index, &mut var_buffer, key);
-                        let vtag = tag_by_hash(&app.grammar, vh);
+                        let vtag = tag_by_hash(&app.grammar, TagHash(vh));
                         write_tag(&mut tags_to_write, &mut tag_index, &mut var_buffer, vtag);
                     } else {
                         var_buffer.push(BFV_SETVAR_ANY as u8);
@@ -715,6 +715,7 @@ impl BinaryFormat {
                 let mut stag_count: u16 = 0;
                 let tags: Vec<u32> = app.store.readings.get(wr.0).tags_list.clone();
                 for tter in tags {
+                    let tter = TagHash(tter);
                     if tter == wf_hash {
                         continue;
                     }
@@ -766,7 +767,7 @@ impl BinaryFormat {
                 .map(|(k, v)| (*k, v.iter().copied().collect()))
                 .collect();
             for (name_hash, targets) in relations {
-                let tid = tag_by_hash(&app.grammar, name_hash);
+                let tid = tag_by_hash(&app.grammar, TagHash(name_hash));
                 for target in targets {
                     rel_count += 1;
                     write_tag(&mut tags_to_write, &mut tag_index, &mut rel_buffer, tid);
@@ -813,7 +814,7 @@ impl BinaryFormat {
                         rflags |= BFR_SUBREADING as u16;
                     }
                     wu16(&mut reading_buffer, rflags);
-                    let baseform = app.store.readings.get(rid.0).baseform.unwrap_or(0);
+                    let baseform = app.store.readings.get(rid.0).baseform.unwrap_or(TagHash(0));
                     let btid = tag_by_hash(&app.grammar, baseform);
                     write_tag(
                         &mut tags_to_write,
@@ -831,9 +832,10 @@ impl BinaryFormat {
                         let cid = app.store.readings.get(rid.0).parent.unwrap();
                         let w = app.store.cohorts.get(cid.0).wordform;
                         w.map(|t| app.grammar.single_tags_list[t.0].hash)
-                            .unwrap_or(0)
+                            .unwrap_or(TagHash(0))
                     };
                     for tter in tags {
+                        let tter = TagHash(tter);
                         if tter == baseform || tter == parent_wf_hash {
                             continue;
                         }
@@ -843,10 +845,10 @@ impl BinaryFormat {
                             continue;
                         }
                         if app.unique_tags {
-                            if unique.find(tter) != unique.end() {
+                            if unique.find(tter.get()) != unique.end() {
                                 continue;
                             }
-                            unique.insert(tter);
+                            unique.insert(tter.get());
                         }
                         write_tag(&mut tags_to_write, &mut tag_index, &mut tag_buf, tid);
                         tag_count += 1;

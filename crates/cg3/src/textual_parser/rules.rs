@@ -117,7 +117,7 @@ impl TextualParser {
                 buf[*pos..n].iter().collect()
             };
             let ext = self.grammar.allocate_tag(&cmd);
-            rule.varname = self.grammar.single_tags_list[ext.0].hash;
+            rule.varname = self.grammar.single_tags_list[ext.0].hash.get();
             *pos = n;
         }
 
@@ -683,7 +683,7 @@ impl TextualParser {
                 let token: String = buf[*pos..n].iter().collect();
                 let t = self.parse_tag(&token, &buf[*pos..]);
                 let h = self.grammar.single_tags_list[t.0].hash;
-                self.grammar.preferred_targets.push(h);
+                self.grammar.preferred_targets.push(h.get());
                 *pos = n;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
@@ -709,7 +709,7 @@ impl TextualParser {
                 let token: String = buf[*pos..n].iter().collect();
                 let t = self.parse_tag(&token, &buf[*pos..]);
                 let h = self.grammar.single_tags_list[t.0].hash;
-                self.grammar.reopen_mappings.insert(h);
+                self.grammar.reopen_mappings.insert(h.get());
                 *pos = n;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
@@ -814,7 +814,7 @@ impl TextualParser {
                 self.grammar.lines += skiptows_chars(buf, &mut n, ';', true, false);
                 let token: String = buf[*pos..n].iter().collect();
                 let t = self.parse_tag(&token, &buf[*pos..]);
-                tmp.insert(self.grammar.single_tags_list[t.0].hash);
+                tmp.insert(self.grammar.single_tags_list[t.0].hash.get());
                 *pos = n;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
@@ -905,7 +905,7 @@ impl TextualParser {
                 self.grammar.lines += skiptows_chars(buf, &mut n, ';', true, false);
                 let token: String = buf[*pos..n].iter().collect();
                 let t = self.parse_tag(&token, &buf[*pos..]);
-                tmp.insert(self.grammar.single_tags_list[t.0].hash);
+                tmp.insert(self.grammar.single_tags_list[t.0].hash.get());
                 *pos = n;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }

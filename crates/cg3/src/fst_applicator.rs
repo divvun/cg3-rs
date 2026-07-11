@@ -38,14 +38,14 @@ use crate::inlines::{
 use crate::reading::alloc_reading;
 use crate::single_window::{append_cohort, free_swindow};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
-use crate::types::UString;
+use crate::types::{TagHash, UString};
 use crate::uextras::{get_line_clean_chars, u_fputc, ux_strip_bom};
 
 /// C++ `grammar->single_tags[hash]` — resolves a tag hash to its `TagId`, else
 /// `TagId(0)`. Reproduces `grammar_applicator::core::tag_by_hash` (which is
 /// `pub(super)`, not reachable here); the module cannot be edited.
-fn tag_by_hash(grammar: &Grammar, hash: u32) -> TagId {
-    let it = grammar.single_tags.find(hash);
+fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
+    let it = grammar.single_tags.find(hash.get());
     if it != grammar.single_tags.end() {
         it.get().1
     } else {
@@ -133,13 +133,14 @@ impl FSTApplicator {
             let cid = parent.expect("reading has no parent cohort");
             let wf = self.base.store.cohorts.get(cid.0).wordform;
             wf.map(|t| self.base.grammar.single_tags_list[t.0].hash)
-                .unwrap_or(0)
+                .unwrap_or(TagHash(0))
         };
 
         let tags_list: Vec<u32> = self.base.store.readings.get(reading.0).tags_list.clone();
         let mut unique: crate::sorted_vector::uint32SortedVector =
             crate::sorted_vector::uint32SortedVector::new();
         for tter in tags_list {
+            let tter = TagHash(tter);
             if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag
             {
                 continue;
@@ -148,10 +149,10 @@ impl FSTApplicator {
                 continue;
             }
             if self.base.unique_tags {
-                if unique.find(tter) != unique.end() {
+                if unique.find(tter.get()) != unique.end() {
                     continue;
                 }
-                unique.insert(tter);
+                unique.insert(tter.get());
             }
             let tid = tag_by_hash(&self.base.grammar, tter);
             let tag = &self.base.grammar.single_tags_list[tid.0];
@@ -725,7 +726,7 @@ impl FSTApplicator {
                             .readings
                             .get(c_reading.0)
                             .baseform
-                            .unwrap_or(0);
+                            .unwrap_or(TagHash(0));
                         let bf_size = {
                             let tid = tag_by_hash(&self.base.grammar, bf_hash);
                             self.base

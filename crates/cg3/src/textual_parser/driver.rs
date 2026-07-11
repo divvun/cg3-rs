@@ -300,8 +300,8 @@ impl TextualParser {
 
             let lh = self.grammar.single_tags_list[left.0].hash;
             let rh = self.grammar.single_tags_list[right.0].hash;
-            self.grammar.parentheses.insert(lh, rh);
-            self.grammar.parentheses_reverse.insert(rh, lh);
+            self.grammar.parentheses.insert(lh.get(), rh.get());
+            self.grammar.parentheses_reverse.insert(rh.get(), lh.get());
         }
         if self.grammar.parentheses.is_empty() {
             self.error_near(&buf[*pos..]);
@@ -609,7 +609,7 @@ impl TextualParser {
             .add_anchor(KEYWORDS_STR[KEYWORDS::K_START as usize], 0, true);
         // 2. Magic * tag.
         let tany = self.parse_tag(STR_ASTERIK, &[]);
-        self.grammar.tag_any = self.grammar.single_tags_list[tany.0].hash;
+        self.grammar.tag_any = self.grammar.single_tags_list[tany.0].hash.get();
         // 3. Dummy set.
         self.grammar.allocate_dummy_set();
         // 4. Magic sets.
@@ -675,7 +675,7 @@ impl TextualParser {
                 if tty.intersects(T_SPECIAL) {
                     continue;
                 }
-                if self.grammar.anchors.find(thash) == self.grammar.anchors.end() {
+                if self.grammar.anchors.find(thash.get()) == self.grammar.anchors.end() {
                     tracing::error!("Error: JUMP could not find anchor.");
                     self.error_counter += 1;
                 }

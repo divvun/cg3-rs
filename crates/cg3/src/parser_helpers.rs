@@ -416,19 +416,19 @@ pub fn parse_tag<S: ParseTagState>(
                         let t = parse_tag(&after, near, state, false);
                         state.grammar().single_tags_list[t.0].hash
                     };
-                    tag.set_variable_hash(vh);
+                    tag.set_variable_hash(vh.get());
                     let before: String = tag_tag[..bpos].to_string();
                     let ch = {
                         let t = parse_tag(&before, near, state, false);
                         state.grammar().single_tags_list[t.0].hash
                     };
-                    tag.comparison_hash = ch;
+                    tag.comparison_hash = ch.get();
                 } else {
                     let ch = {
                         let t = parse_tag(&tag_tag, near, state, false);
                         state.grammar().single_tags_list[t.0].hash
                     };
-                    tag.comparison_hash = ch;
+                    tag.comparison_hash = ch.get();
                 }
             } else {
                 tag.comparison_hash = hash_value_ustring(&tag.tag, 0);
@@ -607,7 +607,7 @@ pub fn parse_set(name: &str, near: &[char], state: &mut TextualParser) -> SetId 
     if !state.strict_tags.empty() || !state.list_tags.empty() {
         let tag = parse_tag(name, near, state, true);
         let plain = state.grammar.single_tags_list[tag.0].plain_hash;
-        if state.strict_tags.count(plain) != 0 || state.list_tags.count(plain) != 0 {
+        if state.strict_tags.count(plain.get()) != 0 || state.list_tags.count(plain.get()) != 0 {
             let ns = state.grammar.allocate_set();
             state.grammar.sets_list[ns.0].line = state.grammar.lines;
             state.grammar.sets_list[ns.0].name = name.to_string();
@@ -757,7 +757,7 @@ mod tests {
             let t = parse_tag(name, &near, &mut p, true);
             p.grammar.single_tags_list[t.0].plain_hash
         };
-        p.list_tags.insert(plain);
+        p.list_tags.insert(plain.get());
 
         // First resolution: allocates + registers a new single-tag set.
         let s1 = parse_set(name, &near, &mut p);

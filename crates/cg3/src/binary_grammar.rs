@@ -83,7 +83,7 @@ use crate::set::Set;
 use crate::strings::KEYWORDS;
 use crate::tag::{C_OPS, T_CASE_INSENSITIVE, T_CONTEXT, T_LOCAL_VARIABLE, T_VARIABLE, Tag};
 use crate::tag_trie::trie_serialize;
-use crate::types::SetNumber;
+use crate::types::{SetNumber, TagHash};
 
 // C++ `BinaryGrammar.hpp` `enum : uint32_t { BINF_* }` — the top-level feature
 // bitset. Reproduced verbatim (no `[spec:cg3:def]` id: an unnamed header enum).
@@ -352,10 +352,10 @@ impl BinaryGrammar {
                 t.number = read_be(input);
             }
             if tfields & (1 << 1) != 0 {
-                t.hash = read_be(input);
+                t.hash = TagHash(read_be(input));
             }
             if tfields & (1 << 2) != 0 {
-                t.plain_hash = read_be(input);
+                t.plain_hash = TagHash(read_be(input));
             }
             if tfields & (1 << 3) != 0 {
                 t.seed = read_be(input);
@@ -457,9 +457,9 @@ impl BinaryGrammar {
             let number = t.number;
             let is_star = t.tag == "*";
             // single_tags[t->hash] = t (id == arena slot `number`).
-            self.grammar.single_tags.insert((hash, TagId(number)));
+            self.grammar.single_tags.insert((hash.get(), TagId(number)));
             if is_star {
-                self.grammar.tag_any = hash;
+                self.grammar.tag_any = hash.get();
             }
             // single_tags_list[t->number] = t.
             self.grammar.single_tags_list[number] = t;
@@ -1008,13 +1008,13 @@ impl BinaryGrammar {
                 tfields |= 1 << 0;
                 write_be(&mut buffer, number);
             }
-            if hash != 0 {
+            if hash.get() != 0 {
                 tfields |= 1 << 1;
-                write_be(&mut buffer, hash);
+                write_be(&mut buffer, hash.get());
             }
-            if plain_hash != 0 {
+            if plain_hash.get() != 0 {
                 tfields |= 1 << 2;
-                write_be(&mut buffer, plain_hash);
+                write_be(&mut buffer, plain_hash.get());
             }
             if seed != 0 {
                 tfields |= 1 << 3;

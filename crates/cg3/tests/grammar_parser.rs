@@ -79,7 +79,7 @@ fn tag_hash_by_text(g: &Grammar, text: &str) -> Option<u32> {
     for i in 0..g.single_tags_list.capacity() {
         if let Some(t) = g.single_tags_list.try_get(i) {
             if t.tag == text {
-                return Some(t.hash);
+                return Some(t.hash.get());
             }
         }
     }

@@ -42,6 +42,7 @@ use std::io::Write;
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
+use crate::types::TagHash;
 use crate::inlines::{isnl, ui32};
 use crate::tag::T_WORDFORM;
 use crate::uextras::{u_fflush, u_fputc};
@@ -54,8 +55,8 @@ const STR_CMD_FLUSH: &str = "<STREAMCMD:FLUSH>";
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — hash → `TagId`, `TagId(0)` on
 /// a miss (benign; see `niceline_applicator`).
-fn tag_by_hash(grammar: &Grammar, hash: u32) -> TagId {
-    let it = grammar.single_tags.find(hash);
+fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
+    let it = grammar.single_tags.find(hash.get());
     if it != grammar.single_tags.end() {
         it.get().1
     } else {
@@ -165,7 +166,7 @@ impl GrammarApplicator {
     /// the reading's own baseform nor its cohort's wordform, or `None`.
     pub fn mwe_maybe_wf_tag(&self, r: ReadingId) -> Option<TagId> {
         let rr = self.store.readings.get(r.0);
-        let baseform = rr.baseform.unwrap_or(0);
+        let baseform = rr.baseform.unwrap_or(TagHash(0));
         let wordform_hash = {
             let p = rr.parent.expect("reading parent");
             self.store
@@ -173,9 +174,10 @@ impl GrammarApplicator {
                 .get(p.0)
                 .wordform
                 .map(|t| self.grammar.single_tags_list[t.0].hash)
-                .unwrap_or(0)
+                .unwrap_or(TagHash(0))
         };
         for &tter in &rr.tags_list {
+            let tter = TagHash(tter);
             if (!self.show_end_tags && tter == self.endtag) || tter == self.begintag {
                 continue;
             }
@@ -332,14 +334,14 @@ impl GrammarApplicator {
                             .get(p.0)
                             .wordform
                             .map(|t| self.grammar.single_tags_list[t.0].hash)
-                            .unwrap_or(0)
+                            .unwrap_or(TagHash(0))
                     };
                     {
                         let rr = self.store.readings.get_mut(r_new.0);
                         let mut i = 0usize;
                         while i < rr.tags_list.len() {
                             let tter = rr.tags_list[i];
-                            if tter == wf_hash || tter == new_parent_wf_hash {
+                            if tter == wf_hash.get() || tter == new_parent_wf_hash.get() {
                                 rr.tags_list.remove(i);
                                 rr.tags.erase(tter);
                             } else {
@@ -399,7 +401,7 @@ impl GrammarApplicator {
             .collect();
         for var in vars_output {
             let key_tag = {
-                let tid = tag_by_hash(&self.grammar, var);
+                let tid = tag_by_hash(&self.grammar, TagHash(var));
                 self.grammar.single_tags_list[tid.0].tag.clone()
             };
             let value_hash: Option<u32> = {
@@ -414,7 +416,7 @@ impl GrammarApplicator {
             match value_hash {
                 Some(vh) => {
                     if vh != self.grammar.tag_any {
-                        let vtid = tag_by_hash(&self.grammar, vh);
+                        let vtid = tag_by_hash(&self.grammar, TagHash(vh));
                         let _ = write!(
                             output,
                             "{STR_CMD_SETVAR}{}={}>\n",

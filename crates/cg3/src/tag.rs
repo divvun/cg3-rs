@@ -12,7 +12,7 @@ use crate::grammar::Grammar;
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_ustring, is_textual};
 use crate::math_parser::MathParser;
 use crate::sorted_vector::sorted_vector;
-use crate::types::{UString, UStringVector};
+use crate::types::{TagHash, UString, UStringVector};
 use regex::Regex;
 
 // C++ `using SetVector = std::vector<Set*>;` (forward-declared in Tag.hpp).
@@ -169,9 +169,9 @@ pub struct Tag {
     /// cross-role read occurs).
     pub extra: TagUnion,
     /// `uint32_t hash = 0;`
-    pub hash: u32,
+    pub hash: TagHash,
     /// `uint32_t plain_hash = 0;`
-    pub plain_hash: u32,
+    pub plain_hash: TagHash,
     /// `uint32_t number = 0;`
     pub number: u32,
     /// `uint32_t seed = 0;`
@@ -345,45 +345,47 @@ impl Tag {
     /// internally consistent, so hash-dedup still works). The uint32 mixer and
     /// CG3_HASH_SEED remap rules are reproduced exactly by `crate::inlines`.
     /// The static `dump_hashes_out` debug stream is not reproduced.
-    pub fn rehash(&mut self) -> u32 {
-        self.hash = 0;
-        self.plain_hash = 0;
+    pub fn rehash(&mut self) -> TagHash {
+        let mut hash: u32 = 0;
 
         if self.r#type.intersects(T_FAILFAST) {
-            self.hash = hash_value_ustring("^", self.hash);
+            hash = hash_value_ustring("^", hash);
         }
 
         if self.r#type.intersects(T_META) {
-            self.hash = hash_value_ustring("META:", self.hash);
+            hash = hash_value_ustring("META:", hash);
         }
         if self.r#type.intersects(T_VARIABLE) {
-            self.hash = hash_value_ustring("VAR:", self.hash);
+            hash = hash_value_ustring("VAR:", hash);
         }
         if self.r#type.intersects(T_LOCAL_VARIABLE) {
-            self.hash = hash_value_ustring("LVAR:", self.hash);
+            hash = hash_value_ustring("LVAR:", hash);
         }
         if self.r#type.intersects(T_SET) {
-            self.hash = hash_value_ustring("SET:", self.hash);
+            hash = hash_value_ustring("SET:", hash);
         }
 
-        self.plain_hash = hash_value_ustring(&self.tag, 0);
-        if self.hash != 0 {
-            self.hash = hash_value(self.plain_hash, self.hash);
+        let plain_hash = hash_value_ustring(&self.tag, 0);
+        if hash != 0 {
+            hash = hash_value(plain_hash, hash);
         } else {
-            self.hash = self.plain_hash;
+            hash = plain_hash;
         }
 
         if self.r#type.intersects(T_CASE_INSENSITIVE) {
-            self.hash = hash_value_ustring("i", self.hash);
+            hash = hash_value_ustring("i", hash);
         }
         if self.r#type.intersects(T_REGEXP) {
-            self.hash = hash_value_ustring("r", self.hash);
+            hash = hash_value_ustring("r", hash);
         }
         if self.r#type.intersects(T_VARSTRING) {
-            self.hash = hash_value_ustring("v", self.hash);
+            hash = hash_value_ustring("v", hash);
         }
 
-        self.hash = self.hash.wrapping_add(self.seed);
+        hash = hash.wrapping_add(self.seed);
+
+        self.plain_hash = TagHash(plain_hash);
+        self.hash = TagHash(hash);
 
         self.r#type &= !T_SPECIAL;
         if self.r#type.intersects(MASK_TAG_SPECIAL) {
@@ -776,7 +778,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
         if n == 2 && this.dep_parent() != u32::MAX {
             this.r#type |= T_RELATION;
             let reltag = allocate_tag(grammar, &relname);
-            this.comparison_hash = grammar.single_tags_list[reltag.0].hash;
+            this.comparison_hash = grammar.single_tags_list[reltag.0].hash.get();
         }
     }
 
@@ -892,7 +894,7 @@ fn add_tag(grammar: &mut Grammar, mut tag: Tag) -> TagId {
     while seed < 10000 {
         let ih = hash.wrapping_add(seed);
         let found: Option<TagId> = {
-            let it = grammar.single_tags.find(ih);
+            let it = grammar.single_tags.find(ih.get());
             if it != grammar.single_tags.end() {
                 Some(it.get().1)
             } else {
@@ -931,7 +933,7 @@ fn add_tag(grammar: &mut Grammar, mut tag: Tag) -> TagId {
     grammar.single_tags_list[idx].number = idx;
     grammar
         .single_tags
-        .insert((_hash, crate::arena::TagId(idx)));
+        .insert((_hash.get(), crate::arena::TagId(idx)));
     TagId(idx)
 }
 

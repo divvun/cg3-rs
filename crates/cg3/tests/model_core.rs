@@ -210,8 +210,8 @@ fn cohort_numeric_min_max() {
     let c = ids[0];
     let r1 = allocate_append_reading(&mut store, c);
     let r2 = allocate_append_reading(&mut store, c);
-    let h5 = g.single_tags_list[t5.0].hash;
-    let h10 = g.single_tags_list[t10.0].hash;
+    let h5 = g.single_tags_list[t5.0].hash.get();
+    let h10 = g.single_tags_list[t10.0].hash.get();
     store.readings.get_mut(r1.0).tags_numerical.insert(h5, t5);
     store.readings.get_mut(r2.0).tags_numerical.insert(h10, t10);
 
@@ -225,7 +225,7 @@ fn cohort_numeric_min_max() {
 
     // Cache: adding a smaller value is invisible until CT_NUM_CURRENT drops.
     let t1 = g.allocate_tag("<n=1>");
-    let h1 = g.single_tags_list[t1.0].hash;
+    let h1 = g.single_tags_list[t1.0].hash.get();
     store.readings.get_mut(r1.0).tags_numerical.insert(h1, t1);
     assert_eq!(get_min(&mut store, &g, c, key), 5.0, "stale cache honoured");
     store.cohorts.get_mut(c.0).r#type &= !CT_NUM_CURRENT;
@@ -630,9 +630,9 @@ fn reading_rehash_and_cmp_number() {
     let tb = g.allocate_tag("bb");
     let tm = g.allocate_tag("mapped");
     let (ha, hb, hm) = (
-        g.single_tags_list[ta.0].hash,
-        g.single_tags_list[tb.0].hash,
-        g.single_tags_list[tm.0].hash,
+        g.single_tags_list[ta.0].hash.get(),
+        g.single_tags_list[tb.0].hash.get(),
+        g.single_tags_list[tm.0].hash.get(),
     );
 
     let mut store = RuntimeStore::new();
@@ -855,7 +855,7 @@ fn tag_parse_raw_and_numeric() {
     assert!(t.r#type.intersects(T_RELATION));
     assert_eq!(t.dep_parent(), 4);
     let mark = g.allocate_tag("mark"); // dedups to the tag interned above
-    assert_eq!(t.comparison_hash, g.single_tags_list[mark.0].hash);
+    assert_eq!(t.comparison_hash, g.single_tags_list[mark.0].hash.get());
 
     // parseNumeric operators and values.
     let mut t = Tag::default();
@@ -902,7 +902,7 @@ fn tag_ctor_rehash_markused_vs_tostring() {
     let mut t = Tag::default();
     t.tag = "x".to_string();
     let base = t.rehash();
-    assert_eq!(t.plain_hash, hash_value_ustring("x", 0));
+    assert_eq!(t.plain_hash.get(), hash_value_ustring("x", 0));
     assert_eq!(base, t.plain_hash, "no flags, no seed: hash == plain_hash");
     t.seed = 5;
     assert_eq!(t.rehash(), t.plain_hash.wrapping_add(5), "seed folded last");

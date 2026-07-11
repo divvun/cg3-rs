@@ -36,7 +36,7 @@ use crate::reading::{Reading, ReadingList, alloc_reading, alloc_reading_copy};
 use crate::single_window::append_cohort;
 use crate::store::RuntimeStore;
 use crate::tag::{T_BASEFORM, T_MAPPING, T_WORDFORM, TagVector};
-use crate::types::UString;
+use crate::types::{TagHash, UString};
 use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fputc, ux_strip_bom};
 
 // C++ `Strings.hpp` string constants.
@@ -77,8 +77,8 @@ pub struct MatxinApplicator {
 
 /// Resolve a tag hash to its `TagId` via `grammar->single_tags[hash]`. Mirrors
 /// the engine's private `tag_by_hash` (not visible from this sibling module).
-fn tag_by_hash(grammar: &crate::grammar::Grammar, hash: u32) -> TagId {
-    let it = grammar.single_tags.find(hash);
+fn tag_by_hash(grammar: &crate::grammar::Grammar, hash: TagHash) -> TagId {
+    let it = grammar.single_tags.find(hash.get());
     if it != grammar.single_tags.end() {
         it.get().1
     } else {
@@ -422,7 +422,7 @@ impl MatxinApplicator {
         }
 
         // Lop off the surrounding '"' quotes.
-        let tid = tag_by_hash(&self.base.grammar, r.baseform.unwrap_or(0));
+        let tid = tag_by_hash(&self.base.grammar, r.baseform.unwrap_or(TagHash(0)));
         let tagtext: Vec<char> = self
             .base
             .grammar
@@ -447,7 +447,7 @@ impl MatxinApplicator {
                 .base
                 .grammar
                 .single_tags_list
-                .get(tag_by_hash(&self.base.grammar, tter).0);
+                .get(tag_by_hash(&self.base.grammar, TagHash(tter)).0);
             if tag.tag.chars().next() == Some('+') {
                 multi = true;
             } else if tag.r#type.intersects(T_MAPPING) {
@@ -472,14 +472,14 @@ impl MatxinApplicator {
                 }
                 used_tags.insert(tter);
             }
-            if tter == self.base.endtag || tter == self.base.begintag {
+            if tter == self.base.endtag.get() || tter == self.base.begintag.get() {
                 continue;
             }
             let tag = self
                 .base
                 .grammar
                 .single_tags_list
-                .get(tag_by_hash(&self.base.grammar, tter).0);
+                .get(tag_by_hash(&self.base.grammar, TagHash(tter)).0);
             if !tag.r#type.intersects(T_BASEFORM) && !tag.r#type.intersects(T_WORDFORM) {
                 let firstc = tag.tag.chars().next();
                 if firstc == Some('+') {
