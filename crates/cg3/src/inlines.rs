@@ -825,14 +825,16 @@ pub fn skipto_nospan_raw(p: &[char], pos: &mut usize, a: UChar) {
 // [spec:cg3:def:inlines.cg3.cg3-quit-fn]
 // [spec:cg3:sem:inlines.cg3.cg3-quit-fn]
 // [[noreturn]] -> `-> !`. Prints the diagnostic to stderr iff file is Some and
-// line != 0, then exits with code `c`.
+// line != 0, then terminates. Wave 4: the termination is a [`crate::error::Cg3Exit`]
+// unwind — only the `src/bin` entry points turn it into a real process exit
+// (see `crate::error::run_cli`), so library embedders keep their process.
 pub fn cg3_quit(c: i32, file: Option<&str>, line: u32) -> ! {
     if let Some(file) = file {
         if line != 0 {
             tracing::error!("CG3Quit triggered from {} line {}.", file, line);
         }
     }
-    std::process::exit(c)
+    crate::error::cg3_exit(c)
 }
 
 // [spec:cg3:def:inlines.cg3.usv-fn]

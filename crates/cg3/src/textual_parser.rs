@@ -188,8 +188,10 @@ struct flags_t {
     sub_reading: i32,
 }
 
-/// Panic payload for the `error(...)` / `catch(int)` control flow.
-struct ParseError(#[allow(dead_code)] i32);
+/// Panic payload for the `error(...)` / `catch(int)` control flow. `pub(crate)`
+/// so the CLI panic hook (crate::error::run_cli) can silence it like the C++
+/// caught exception (which printed nothing).
+pub(crate) struct ParseError(#[allow(dead_code)] pub(crate) i32);
 
 // ---------------------------------------------------------------------------
 // Free helpers.

@@ -33,7 +33,7 @@ fn end_program(name: Option<&str>) -> ! {
             basename(name)
         );
     }
-    std::process::exit(1)
+    crate::error::cg3_exit(1)
 }
 
 // like libcg3's, but with a non-void grammar …

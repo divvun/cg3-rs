@@ -33,7 +33,7 @@ fn end_program(name: Option<&str>) -> ! {
         println!("USAGE: {} grammar_file output_file", basename(name));
     }
     // exit(EXIT_FAILURE);
-    std::process::exit(1)
+    crate::error::cg3_exit(1)
 }
 
 // [spec:cg3:def:cg-comp.main-fn]

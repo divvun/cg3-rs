@@ -66,7 +66,7 @@ fn end_program(name: &str) -> ! {
     println!("\t-z, --null-flush:\tflush output on the null character");
     println!("\t-v, --version:\t \t version");
     println!("\t-h, --help:\t\t show this help");
-    std::process::exit(1)
+    crate::error::cg3_exit(1)
 }
 
 /// Minimal faithful `getopt_long` for the exact optstring `"ds:f:tr:n1wvhz"`

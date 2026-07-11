@@ -13,6 +13,7 @@
 
 // --- Wave 2 foundation layer (pointer-agnostic: containers + utilities) ---
 pub mod types;
+pub mod error;
 pub mod arena;
 pub mod inlines;
 pub mod sorted_vector;

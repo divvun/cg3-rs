@@ -395,7 +395,8 @@ impl MatxinApplicator {
             tracing::error!("Error: input contains sub-readings!");
             let _ = write!(output, "  </SENTENCE>\n");
             let _ = write!(output, "</corpus>\n");
-            std::process::exit(-1);
+            // C++ exit(-1); wave 4: Cg3Exit unwind (bins convert to the exit).
+            crate::error::cg3_exit(-1);
         }
         if r.baseform == 0 {
             return;

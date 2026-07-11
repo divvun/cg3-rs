@@ -2055,11 +2055,12 @@ impl Grammar {
             }
         }
 
-        // (21) used_tags dump → exit(0) (flagged quirk: terminates the process).
+        // (21) used_tags dump → exit(0) (flagged quirk: terminates). Wave 4:
+        // raised as a Cg3Exit unwind; the binaries convert it to the exit.
         if used_tags {
             // for tag in single_tags with T_USED: print toUString(true) to
             // ux_stdout — deferred I/O.
-            std::process::exit(0);
+            crate::error::cg3_exit(0);
         }
     }
 }
