@@ -328,16 +328,10 @@ pub fn main_run(args: &[String]) -> i32 {
 
     // Grammar cmdargs → parse_opts into grammar_options_{default,override}, merge.
     if !grammar.cmdargs.is_empty() {
-        let mut buf: Vec<char> = grammar.cmdargs.chars().collect();
-        buf.push('\0');
-        buf.push('\0');
-        parse_opts(&mut buf, &mut grammar_options_default);
+        parse_opts(&grammar.cmdargs, &mut grammar_options_default);
     }
     if !grammar.cmdargs_override.is_empty() {
-        let mut buf: Vec<char> = grammar.cmdargs_override.chars().collect();
-        buf.push('\0');
-        buf.push('\0');
-        parse_opts(&mut buf, &mut grammar_options_override);
+        parse_opts(&grammar.cmdargs_override, &mut grammar_options_override);
     }
     for i in 0..OPTIONS::NUM_OPTIONS as usize {
         if grammar_options_default[i].does_occur && !options[i].does_occur {
