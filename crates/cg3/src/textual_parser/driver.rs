@@ -9,6 +9,7 @@ use std::panic::{self, AssertUnwindSafe};
 
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::ast::{ASTHelper, ASTType};
+use crate::types::SetNumber;
 use crate::contextual_test::{POS_CAREFUL, POS_NUMERIC_BRANCH, copy_cntx};
 use crate::grammar::Grammar;
 use crate::igrammar_parser::IGrammarParser;
@@ -450,7 +451,7 @@ impl TextualParser {
             };
             self.grammar.contexts.remove(&key);
 
-            let target = self.grammar.contexts_arena[unsafec.0].target;
+            let target = self.grammar.contexts_arena[unsafec.0].target.get();
             if !sets_cache.contains_key(&target) {
                 let stripped = self.grammar.remove_numeric_tags(target);
                 sets_cache.insert(target, stripped);
@@ -463,7 +464,7 @@ impl TextualParser {
                 copy_cntx(&src, &mut self.grammar.contexts_arena[safec.0]);
             }
             self.grammar.contexts_arena[safec.0].pos |= POS_CAREFUL;
-            self.grammar.contexts_arena[safec.0].target = sets_cache[&target];
+            self.grammar.contexts_arena[safec.0].target = SetNumber(sets_cache[&target]);
 
             let tmp = unsafec;
             let unsafec2 = self.grammar.add_contextual_test(Some(unsafec)).unwrap();

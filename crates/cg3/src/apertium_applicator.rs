@@ -1399,7 +1399,8 @@ impl ApertiumApplicator {
                 {
                     let sd = self.base.grammar.sets_list
                         [self.base.grammar.soft_delimiters.unwrap().0]
-                        .number;
+                        .number
+                        .get();
                     if self.base.does_set_match_cohort_normal(cc, sd, None) {
                         let readings = self.base.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
@@ -1419,7 +1420,8 @@ impl ApertiumApplicator {
                     let delim_match = self.base.grammar.delimiters.is_some() && {
                         let d = self.base.grammar.sets_list
                             [self.base.grammar.delimiters.unwrap().0]
-                            .number;
+                            .number
+                            .get();
                         self.base.does_set_match_cohort_normal(cc, d, None)
                     };
                     if hard || delim_match {

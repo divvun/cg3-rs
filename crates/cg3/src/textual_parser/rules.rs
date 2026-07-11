@@ -6,6 +6,7 @@
 
 use crate::arena::RuleId;
 use crate::ast::{ASTHelper, ASTType};
+use crate::types::SetNumber;
 use crate::contextual_test::{GSR_SPECIALS, POS_JUMP, POS_JUMP_POS};
 use crate::inlines::{backtonl_chars, isnl, isspace, skiptows_chars, skipws_chars};
 use crate::rule::{
@@ -162,10 +163,10 @@ impl TextualParser {
         if rule.flags.intersects(RF_WITHCHILD) {
             self.grammar.has_dep = true;
             let s = self.parse_set_inline_wrapper(buf, pos);
-            rule.childset1 = self.grammar.sets_list[s.0].hash;
+            rule.childset1 = SetNumber(self.grammar.sets_list[s.0].hash);
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
         } else if rule.flags.intersects(RF_NOCHILD) {
-            rule.childset1 = 0;
+            rule.childset1 = SetNumber(0);
         }
 
         lp = *pos;
@@ -291,7 +292,7 @@ impl TextualParser {
             }
             if key != KEYWORDS::K_COPYCOHORT && (rule.flags.intersects(RF_BEFORE | RF_AFTER)) {
                 let s = self.parse_set_inline_wrapper(buf, pos);
-                rule.childset1 = self.grammar.sets_list[s.0].hash;
+                rule.childset1 = SetNumber(self.grammar.sets_list[s.0].hash);
             }
         }
 
@@ -307,18 +308,18 @@ impl TextualParser {
             self.grammar.has_dep = true;
             rule.flags |= RF_WITHCHILD;
             rule.flags &= !RF_NOCHILD;
-            rule.childset1 = self.grammar.sets_list[s.0].hash;
+            rule.childset1 = SetNumber(self.grammar.sets_list[s.0].hash);
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
         } else if simplecasecmp(buf, *pos, G_FLAGS[FL_NOCHILD]) {
             *pos += slen(G_FLAGS[FL_NOCHILD]);
             rule.flags |= RF_NOCHILD;
             rule.flags &= !RF_WITHCHILD;
-            rule.childset1 = 0;
+            rule.childset1 = SetNumber(0);
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
         }
 
         let s = self.parse_set_inline_wrapper(buf, pos);
-        rule.target = self.grammar.sets_list[s.0].hash;
+        rule.target = SetNumber(self.grammar.sets_list[s.0].hash);
 
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
         if simplecasecmp(buf, *pos, STR_IF) {
@@ -396,11 +397,11 @@ impl TextualParser {
                     *pos += slen(G_FLAGS[FL_WITHCHILD]);
                     self.grammar.has_dep = true;
                     let s = self.parse_set_inline_wrapper(buf, pos);
-                    rule.childset2 = self.grammar.sets_list[s.0].hash;
+                    rule.childset2 = SetNumber(self.grammar.sets_list[s.0].hash);
                     self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
                 } else if simplecasecmp(buf, *pos, G_FLAGS[FL_NOCHILD]) {
                     *pos += slen(G_FLAGS[FL_NOCHILD]);
-                    rule.childset2 = 0;
+                    rule.childset2 = SetNumber(0);
                     self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
                 }
             }

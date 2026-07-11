@@ -320,7 +320,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         } else if rtype == K_REMCOHORT {
             let apply = self.get_apply_to().cohort.unwrap();
             if rflags.intersects(RF_IGNORED) {
-                let childset1 = self.grammar.rule_by_number.get(rule.0).childset1;
+                let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
                 let mut cohorts = CohortSet::new();
                 self.rr_collect_subtree(st.current, &mut cohorts, apply, childset1);
                 for c in cohorts.iter_rev().copied().collect::<Vec<_>>() {
@@ -589,7 +589,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// K_SWITCHPARENT: reparent the target cohort above its current parent (and
     /// siblings) — the per-cohort dependency rotation.
     fn rr_switchparent(&mut self, rule: RuleId) {
-        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1;
+        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
         let child = self.get_apply_to().cohort.unwrap();
         let current = self.store.cohorts.get(child.0).parent.unwrap();
         let child_dp = self.store.cohorts.get(child.0).dep_parent;
@@ -634,7 +634,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             .rule_by_number
             .get(rule.0)
             .maplist
-            .map(|s| self.grammar.sets_list[s.0].number)
+            .map(|s| self.grammar.sets_list[s.0].number.get())
             .unwrap_or(0);
         let which = if rflags.intersects(RF_DELAYED) {
             0
@@ -762,7 +762,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             the_tags = self.get_tag_list_of_set(ml, false);
         }
 
-        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1;
+        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
         let mut did_insert = false;
         if childset1 != 0 {
             let mut spot_tags = self.get_tag_list_of_set_number(childset1, false);
@@ -985,7 +985,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             None => TagList::new(),
         };
 
-        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1;
+        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
         let rflags = self.grammar.rule_by_number.get(rule.0).flags;
         let mut did_insert = false;
         if childset1 != 0 {

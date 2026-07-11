@@ -94,8 +94,8 @@ impl crate::grammar_applicator::GrammarApplicator {
         }
         let (attach, cohort) = (a, b);
 
-        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1;
-        let childset2 = self.grammar.rule_by_number.get(rule.0).childset2;
+        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
+        let childset2 = self.grammar.rule_by_number.get(rule.0).childset2.get();
 
         let mut cohorts_set = CohortSet::new();
         if rtype == K_SWITCH {
@@ -433,7 +433,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         }
 
         // Insert into the window relative to `insertion`'s subtree.
-        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1;
+        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
         let mut cohorts = CohortSet::new();
         self.rr_collect_subtree(current, &mut cohorts, insertion, childset1);
         if rtype == K_ADDCOHORT_BEFORE {
@@ -825,10 +825,10 @@ impl crate::grammar_applicator::GrammarApplicator {
         // childset1.
         let mut cohort = cohort;
         let mut attach = attach;
-        let mut childset = self.grammar.rule_by_number.get(rule.0).childset2;
+        let mut childset = self.grammar.rule_by_number.get(rule.0).childset2.get();
         if rflags.intersects(RF_REVERSE) {
             std::mem::swap(&mut cohort, &mut attach);
-            childset = self.grammar.rule_by_number.get(rule.0).childset1;
+            childset = self.grammar.rule_by_number.get(rule.0).childset1.get();
         }
 
         let attach_parent = self.store.cohorts.get(attach.0).parent.unwrap();

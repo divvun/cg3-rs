@@ -12,7 +12,7 @@ use crate::inlines::{hash_value, ui32};
 use crate::sorted_vector::{Comparator, sorted_vector};
 use crate::tag::{T_MAPPING, T_SPECIAL, TagSortedVector, compare_Tag};
 use crate::tag_trie::{trie_delete, trie_markused, trie_rehash};
-use crate::types::{UString, Uint32Vector};
+use crate::types::{SetNumber, UString, Uint32Vector};
 use std::collections::HashMap;
 
 // PLACEHOLDER `Comparator<TagId>` for `compare_Tag`, needed so the
@@ -90,7 +90,7 @@ pub struct Set {
     /// `uint32_t hash = 0;`
     pub hash: u32,
     /// `uint32_t number = 0;`
-    pub number: u32,
+    pub number: SetNumber,
     /// `UString name;`
     pub name: UString,
     /// `trie_t trie;` — placeholder type; see [`trie_t`].

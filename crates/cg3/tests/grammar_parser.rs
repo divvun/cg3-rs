@@ -23,6 +23,7 @@ use cg3::rule::RF_SAFE;
 use cg3::strings::{KEYWORDS, STR_DUMMY};
 use cg3::tag::TagVectorSet;
 use cg3::textual_parser::TextualParser;
+use cg3::types::SetNumber;
 
 fn repo_root() -> PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -178,7 +179,7 @@ fn list_set_parsing_and_composite_tag_ordering() {
     // allocateDummySet: reserved dummy at list position 0, number = MAX.
     let dummy = g.sets_list_order[0];
     assert_eq!(g.sets_list[dummy.0].name, STR_DUMMY);
-    assert_eq!(g.sets_list[dummy.0].number, u32::MAX);
+    assert_eq!(g.sets_list[dummy.0].number, SetNumber(u32::MAX));
 
     // Named sets resolve by name hash through getSet.
     let comp = set_by_name(g, "Comp");
@@ -559,7 +560,8 @@ fn reindex_builds_runtime_indexes() {
     assert!(g.sets_list_order.len() > 1, "used sets numbered");
     for (n, sid) in g.sets_list_order.iter().enumerate() {
         assert_eq!(
-            g.sets_list[sid.0].number, n as u32,
+            g.sets_list[sid.0].number,
+            SetNumber(n as u32),
             "set number == list position"
         );
     }

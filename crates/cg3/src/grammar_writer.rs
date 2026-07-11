@@ -58,6 +58,7 @@ use crate::contextual_test::{
 use crate::flat_unordered_set::Uint32FlatHashSet;
 use crate::grammar::Grammar;
 use crate::inlines::{is_internal, si32};
+use crate::types::SetNumber;
 use crate::rule::{FLAGS_COUNT, RF_AFTER, RF_BEFORE, RF_WITHCHILD, Rule};
 use crate::set::ST_ORDERED;
 use crate::strings::KEYWORDS;
@@ -276,7 +277,7 @@ impl GrammarWriter {
     /// `name[1]` without a length guard (NUL-terminator semantics via [`byte_at`]);
     /// the LIST branch ends with a single "\n", the SET branch with two.
     fn print_set<W: Write>(&mut self, grammar: &Grammar, output: &mut W, id: SetId) {
-        let number = grammar.sets_list[id.0].number;
+        let number = grammar.sets_list[id.0].number.get();
         if self.used_sets.find(number) != self.used_sets.end() {
             return;
         }
@@ -312,7 +313,7 @@ impl GrammarWriter {
             let sets = grammar.sets_list[id.0].sets.clone();
             for &s in &sets {
                 // printSet(*grammar->sets_list[s]) — `s` is a set NUMBER.
-                self.print_set(grammar, output, grammar.set_id_by_number(s));
+                self.print_set(grammar, output, grammar.set_id_by_number(SetNumber(s)));
             }
             let name = grammar.sets_list[id.0].name.clone();
             // const UChar* n = curset.name.data(); n[0]/n[1] read without a guard.
@@ -325,14 +326,14 @@ impl GrammarWriter {
                 w!(output, "O");
             }
             w!(output, "SET {} = ", name);
-            w!(output, "{} ", grammar.set_by_number(sets[0]).name);
+            w!(output, "{} ", grammar.set_by_number(SetNumber(sets[0])).name);
             let set_ops = grammar.sets_list[id.0].set_ops.clone();
             for i in 0..sets.len() - 1 {
                 w!(
                     output,
                     "{} {} ",
                     STRINGBITS[set_ops[i] as usize],
-                    grammar.set_by_number(sets[i + 1]).name
+                    grammar.set_by_number(SetNumber(sets[i + 1])).name
                 );
             }
             w!(output, " ;\n\n");
@@ -622,7 +623,7 @@ impl GrammarWriter {
             if rule.flags.intersects(RF_AFTER) {
                 w!(to, "AFTER ");
             }
-            if rule.childset1 != 0 {
+            if rule.childset1.get() != 0 {
                 if rule.r#type == KEYWORDS::K_COPYCOHORT {
                     w!(to, "WITHCHILD ");
                 }
@@ -636,7 +637,7 @@ impl GrammarWriter {
             w!(to, "AFTER ");
         }
 
-        if rule.target != 0 {
+        if rule.target.get() != 0 {
             w!(to, "{} ", grammar.set_by_number(rule.target).name);
         }
 
@@ -666,7 +667,7 @@ impl GrammarWriter {
         }
 
         if let Some(dt) = rule.dep_target {
-            if rule.childset2 != 0 {
+            if rule.childset2.get() != 0 {
                 w!(
                     to,
                     "WITHCHILD {} ",
@@ -875,17 +876,17 @@ impl GrammarWriter {
             }
         }
 
-        if test.target != 0 {
+        if test.target.get() != 0 {
             w!(to, "{} ", grammar.set_by_number(test.target).name);
         }
-        if test.cbarrier != 0 {
+        if test.cbarrier.get() != 0 {
             w!(
                 to,
                 "CBARRIER {} ",
                 grammar.set_by_number(test.cbarrier).name
             );
         }
-        if test.barrier != 0 {
+        if test.barrier.get() != 0 {
             w!(to, "BARRIER {} ", grammar.set_by_number(test.barrier).name);
         }
 

@@ -11,6 +11,7 @@
 
 use crate::arena::{Arena, CtxId};
 use crate::inlines::{CG3_HASH_SEED, hash_value, super_fast_hash};
+use crate::types::SetNumber;
 use std::collections::VecDeque;
 
 // [spec:cg3:def:contextual-test.cg3.context-vector]
@@ -186,10 +187,10 @@ pub struct ContextualTest {
     pub hash: u32,
     pub seed: u32,
     pub pos: PosFlags,
-    pub target: u32,
+    pub target: SetNumber,
     pub relation: u32,
-    pub barrier: u32,
-    pub cbarrier: u32,
+    pub barrier: SetNumber,
+    pub cbarrier: SetNumber,
     pub jump_pos: i8,
     pub tmpl: Option<CtxId>,
     pub linked: Option<CtxId>,
@@ -263,9 +264,9 @@ impl ContextualTest {
         // the CURRENT hash is the value (`c`) arg and `<field>` is the seed (`h`)
         // arg (the REVERSE of `Set::rehash`).
         hash = hash_value(hash, jump_pos as u32); // int8_t sign-extends to u32
-        hash = hash_value(hash, target);
-        hash = hash_value(hash, barrier);
-        hash = hash_value(hash, cbarrier);
+        hash = hash_value(hash, target.get());
+        hash = hash_value(hash, barrier.get());
+        hash = hash_value(hash, cbarrier.get());
         hash = hash_value(hash, relation);
         hash = hash_value(hash, offset.unsigned_abs()); // abs(offset); |i32::MIN| is UB in C++
         if offset < 0 {

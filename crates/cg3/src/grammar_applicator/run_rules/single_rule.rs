@@ -281,7 +281,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             // Target-set possibility pre-check.
             if rsub_reading == 0 {
                 let ps = &self.store.cohorts.get(cohort.0).possible_sets;
-                if rtarget as usize >= ps.len() || !ps[rtarget as usize] {
+                if rtarget.get() as usize >= ps.len() || !ps[rtarget.get() as usize] {
                     continue;
                 }
             }
@@ -566,9 +566,9 @@ impl crate::grammar_applicator::GrammarApplicator {
                 self.rule_target = Some(cohort);
 
                 // First check: does the rule target match?
-                let target_matches = rtarget != 0 && {
+                let target_matches = rtarget.get() != 0 && {
                     let bypass = set_type.intersects(ST_CHILD_UNIFY | ST_SPECIAL);
-                    self.does_set_match_reading(reading, rtarget, bypass, false)
+                    self.does_set_match_reading(reading, rtarget.get(), bypass, false)
                 };
                 if target_matches {
                     let mut regex_prop = true;

@@ -9,6 +9,7 @@ use crate::interval_vector::uint32IntervalVector;
 use crate::reading::Reading;
 use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY, Set};
 use crate::tag::TagList;
+use crate::types::SetNumber;
 
 // C++ anonymous `enum { RV_NOTHING = 1, RV_SOMETHING = 2, RV_DELIMITED = 4,
 // RV_TRACERULE = 8 };` — the return-value bit flags of runRulesOnSingleWindow.
@@ -383,7 +384,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// As [`Self::get_tag_list_of_set`] but keyed by the raw set *number* (the C++
     /// `grammar->sets_list[number]` — resolved through `sets_list_order`).
     pub(crate) fn get_tag_list_of_set_number(&self, number: u32, unif_mode: bool) -> TagList {
-        let the_set = self.grammar.set_by_number(number);
+        let the_set = self.grammar.set_by_number(SetNumber(number));
         self.get_tag_list_ret(the_set, unif_mode)
     }
 
@@ -397,26 +398,30 @@ impl crate::grammar_applicator::GrammarApplicator {
         if the_set.r#type.intersects(ST_SET_UNIFY) {
             // usets = (*context_stack.back().unif_sets)[theSet.number]
             let unif_sets = self.context_stack.last().unwrap().unif_sets.unwrap();
-            let usets = self.unif_sets_store[unif_sets].get(&the_set.number);
-            let p_set = self.grammar.set_by_number(the_set.sets[0]);
+            let usets = self.unif_sets_store[unif_sets].get(&the_set.number.get());
+            let p_set = self.grammar.set_by_number(SetNumber(the_set.sets[0]));
             for &iter in &p_set.sets {
                 let present = usets.map(|s| s.count(iter) != 0).unwrap_or(false);
                 if present {
-                    self.get_tag_list(self.grammar.set_by_number(iter), the_tags, false);
+                    self.get_tag_list(self.grammar.set_by_number(SetNumber(iter)), the_tags, false);
                 }
             }
         } else if the_set.r#type.intersects(ST_TAG_UNIFY) {
             for &iter in &the_set.sets {
-                self.get_tag_list(self.grammar.set_by_number(iter), the_tags, true);
+                self.get_tag_list(self.grammar.set_by_number(SetNumber(iter)), the_tags, true);
             }
         } else if !the_set.sets.is_empty() {
             for &iter in &the_set.sets {
-                self.get_tag_list(self.grammar.set_by_number(iter), the_tags, unif_mode);
+                self.get_tag_list(
+                    self.grammar.set_by_number(SetNumber(iter)),
+                    the_tags,
+                    unif_mode,
+                );
             }
         } else if unif_mode {
             let unif_tags = self.context_stack.last().unwrap().unif_tags.unwrap();
             let val = self.unif_tags_store[unif_tags]
-                .get(&the_set.number)
+                .get(&the_set.number.get())
                 .copied();
             if let Some(node) = val {
                 crate::tag_trie::trie_get_tag_list_find(

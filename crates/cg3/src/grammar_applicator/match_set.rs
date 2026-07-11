@@ -95,7 +95,7 @@ use crate::tag::{
     T_VARIABLE, T_VARSTRING, T_WORDFORM, Tag, TagList, TagSortedVector,
 };
 use crate::tag_trie::trie_t;
-use crate::types::UString;
+use crate::types::{SetNumber, UString};
 
 use super::{dSMC_Context, regexgrps_t};
 
@@ -1075,8 +1075,8 @@ impl super::GrammarApplicator {
         let mut retval = false;
 
         let (stype, snumber, ssets_empty) = {
-            let s = self.grammar.set_by_number(set); // grammar->sets_list[set]
-            (s.r#type, s.number, s.sets.is_empty())
+            let s = self.grammar.set_by_number(SetNumber(set)); // grammar->sets_list[set]
+            (s.r#type, s.number.get(), s.sets.is_empty())
         };
         let tagunif = stype.intersects(ST_TAG_UNIFY);
 
@@ -1093,7 +1093,7 @@ impl super::GrammarApplicator {
             // laundered borrows below cannot dangle; `&mut self` re-entry only
             // touches `store`, caches, and `single_tags*`.
             let (ff, trie, trie_sp): (&TagSortedVector, &trie_t, &trie_t) = {
-                let s = self.grammar.set_by_number(set); // grammar->sets_list[set]
+                let s = self.grammar.set_by_number(SetNumber(set)); // grammar->sets_list[set]
                 unsafe {
                     (
                         &*(&s.ff_tags as *const TagSortedVector),
@@ -1120,11 +1120,11 @@ impl super::GrammarApplicator {
             if usets_empty {
                 // First evaluation: gather all matching sub-sets of sets[0].
                 let uset_sets = {
-                    let sets0 = self.grammar.set_by_number(set).sets[0];
-                    self.grammar.set_by_number(sets0).sets.clone()
+                    let sets0 = self.grammar.set_by_number(SetNumber(set)).sets[0];
+                    self.grammar.set_by_number(SetNumber(sets0)).sets.clone()
                 };
                 for tset_ref in uset_sets {
-                    let tnum = self.grammar.set_by_number(tset_ref).number;
+                    let tnum = self.grammar.set_by_number(SetNumber(tset_ref)).number.get();
                     if self.does_set_match_reading(
                         reading,
                         tnum,
@@ -1157,8 +1157,8 @@ impl super::GrammarApplicator {
             }
         } else {
             // (d) SET set: apply operators (non-OR binds tighter than OR)
-            let ssets = self.grammar.set_by_number(set).sets.clone();
-            let sset_ops = self.grammar.set_by_number(set).set_ops.clone();
+            let ssets = self.grammar.set_by_number(SetNumber(set)).sets.clone();
+            let sset_ops = self.grammar.set_by_number(SetNumber(set)).set_ops.clone();
             let size = ssets.len();
             let mut i = 0usize;
             while i < size {
@@ -1305,7 +1305,7 @@ impl super::GrammarApplicator {
                 context.matched_tests = res.is_some();
                 let child_unify = self
                     .grammar
-                    .set_by_number(set)
+                    .set_by_number(SetNumber(set))
                     .r#type
                     .intersects(ST_CHILD_UNIFY);
                 if !child_unify {
@@ -1347,8 +1347,8 @@ impl super::GrammarApplicator {
         };
 
         let (stype, snumber) = {
-            let s = self.grammar.set_by_number(set); // grammar->sets_list[set]
-            (s.r#type, s.number)
+            let s = self.grammar.set_by_number(SetNumber(set)); // grammar->sets_list[set]
+            (s.r#type, s.number.get())
         };
         let cur_flags = self
             .current_rule

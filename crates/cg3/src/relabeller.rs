@@ -63,7 +63,7 @@ use crate::tag_trie::{
     trie_copy_helper, trie_delete, trie_get_tag_list, trie_get_tags_ordered, trie_insert,
     trie_node_t, trie_t,
 };
-use crate::types::UString;
+use crate::types::{SetNumber, UString};
 
 // C++ Strings.hpp `enum : uint32_t { ... S_OR = 3, S_PLUS, S_MINUS, ... }`. Only
 // the two operators the relabeller emits are reproduced here (same precedent as
@@ -500,7 +500,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         let sets = self.grammar.sets_list[s.0].sets.clone();
         for i in sets {
             // Set* set = grammar->sets_list[i]; — i is a set NUMBER.
-            let set = self.grammar.set_id_by_number(i);
+            let set = self.grammar.set_id_by_number(SetNumber(i));
             self.reindex_set(set);
             let set_type = self.grammar.sets_list[set.0].r#type;
             let node = self.grammar.sets_list.get_mut(s.0);
@@ -542,7 +542,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         // grammar->sets_list.push_back(s); s->number = UI32(sets_list.size()-1);
         self.grammar.sets_list_order.push(s);
         let num = (self.grammar.sets_list_order.len() - 1) as u32;
-        self.grammar.sets_list.get_mut(s.0).number = num;
+        self.grammar.sets_list.get_mut(s.0).number = SetNumber(num);
         self.reindex_set(s);
     }
 
@@ -566,7 +566,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         for i in 0..nsets {
             let child_num_r = child_nums_r[i];
             // relabels->sets_list[child_num_r] — child_num_r is a set NUMBER.
-            let child_r = self.relabels.set_id_by_number(child_num_r);
+            let child_r = self.relabels.set_id_by_number(SetNumber(child_num_r));
             let child_num_g = self.copy_relabel_set_to_grammar(child_r);
             s_g_sets[i] = child_num_g;
         }
@@ -594,7 +594,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         self.grammar.sets_list.get_mut(s_g.0).ff_tags = ff;
 
         self.add_set_to_grammar(s_g);
-        self.grammar.sets_list[s_g.0].number
+        self.grammar.sets_list[s_g.0].number.get()
     }
 
     // [spec:cg3:def:relabeller.cg3.relabeller.relabel-as-set-fn]
@@ -707,18 +707,18 @@ impl<'g, 'r> Relabeller<'g, 'r> {
 
             // s_gI->sets = { s_gR_num, s_gW->number }; set_ops = { S_PLUS }.
             let s_gi = self.grammar.allocate_set();
-            let s_gw_number = self.grammar.sets_list[s_gw.0].number;
+            let s_gw_number = self.grammar.sets_list[s_gw.0].number.get();
             {
                 let node = self.grammar.sets_list.get_mut(s_gi.0);
                 node.sets = vec![s_gr_num, s_gw_number];
                 node.set_ops = vec![S_PLUS];
             }
             self.add_set_to_grammar(s_gi);
-            s_gi_num = self.grammar.sets_list[s_gi.0].number;
+            s_gi_num = self.grammar.sets_list[s_gi.0].number.get();
         }
 
         // (8) Reshape set_g into an OR: { s_gN->number, s_gI_num }, ops { S_OR }.
-        let s_gn_number = self.grammar.sets_list[s_gn.0].number;
+        let s_gn_number = self.grammar.sets_list[s_gn.0].number.get();
         {
             let node = self.grammar.sets_list.get_mut(set_g.0);
             node.sets = vec![s_gn_number, s_gi_num];

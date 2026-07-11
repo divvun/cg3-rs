@@ -43,6 +43,7 @@ use regex::Regex;
 
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::ast::{ASTHelper, ASTType, Ast};
+use crate::types::SetNumber;
 use crate::contextual_test::{
     GSR_SPECIALS, MASK_POS_SCAN, POS_64BIT, POS_ABSOLUTE, POS_ACTIVE, POS_ALL, POS_ATTACH_TO,
     POS_BAG_OF_TAGS, POS_CAREFUL, POS_DEP_CHILD, POS_DEP_DEEP, POS_DEP_GLOB, POS_DEP_PARENT,
@@ -1507,7 +1508,7 @@ impl TextualParser {
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             let s = self.parse_set_inline_wrapper(buf, pos);
             self.grammar.contexts_arena[t_cur.0].offset = 1;
-            self.grammar.contexts_arena[t_cur.0].target = self.grammar.sets_list[s.0].hash;
+            self.grammar.contexts_arena[t_cur.0].target = SetNumber(self.grammar.sets_list[s.0].hash);
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             while buf[*pos] == ',' {
                 *pos += 1;
@@ -1515,7 +1516,8 @@ impl TextualParser {
                 let lnk = self.grammar.allocate_contextual_test();
                 let s2 = self.parse_set_inline_wrapper(buf, pos);
                 self.grammar.contexts_arena[lnk.0].offset = 1;
-                self.grammar.contexts_arena[lnk.0].target = self.grammar.sets_list[s2.0].hash;
+                self.grammar.contexts_arena[lnk.0].target =
+                    SetNumber(self.grammar.sets_list[s2.0].hash);
                 self.grammar.contexts_arena[t_cur.0].linked = Some(lnk);
                 t_cur = lnk;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -1554,7 +1556,8 @@ impl TextualParser {
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             } else {
                 let s = self.parse_set_inline_wrapper(buf, pos);
-                self.grammar.contexts_arena[t_cur.0].target = self.grammar.sets_list[s.0].hash;
+                self.grammar.contexts_arena[t_cur.0].target =
+                    SetNumber(self.grammar.sets_list[s.0].hash);
             }
 
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -1562,14 +1565,16 @@ impl TextualParser {
                 *pos += slen(STR_CBARRIER);
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
                 let s = self.parse_set_inline_wrapper(buf, pos);
-                self.grammar.contexts_arena[t_cur.0].cbarrier = self.grammar.sets_list[s.0].hash;
+                self.grammar.contexts_arena[t_cur.0].cbarrier =
+                    SetNumber(self.grammar.sets_list[s.0].hash);
             }
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             if simplecasecmp(buf, *pos, STR_BARRIER) {
                 *pos += slen(STR_BARRIER);
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
                 let s = self.parse_set_inline_wrapper(buf, pos);
-                self.grammar.contexts_arena[t_cur.0].barrier = self.grammar.sets_list[s.0].hash;
+                self.grammar.contexts_arena[t_cur.0].barrier =
+                    SetNumber(self.grammar.sets_list[s.0].hash);
             }
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
 
@@ -1577,13 +1582,15 @@ impl TextualParser {
                 let c = &self.grammar.contexts_arena[t_cur.0];
                 (c.barrier, c.cbarrier, c.pos)
             };
-            if (barrier != 0 || cbarrier != 0) && (!pb.intersects(MASK_POS_SCAN | POS_SELF)) {
+            if (barrier.get() != 0 || cbarrier.get() != 0)
+                && (!pb.intersects(MASK_POS_SCAN | POS_SELF))
+            {
                 tracing::warn!(
                     "{}: Warning: Barriers only make sense for scanning or self tests.",
                     self.filebase
                 );
-                self.grammar.contexts_arena[t_cur.0].barrier = 0;
-                self.grammar.contexts_arena[t_cur.0].cbarrier = 0;
+                self.grammar.contexts_arena[t_cur.0].barrier = SetNumber(0);
+                self.grammar.contexts_arena[t_cur.0].cbarrier = SetNumber(0);
             }
         }
 

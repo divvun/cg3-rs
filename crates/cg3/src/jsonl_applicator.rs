@@ -1047,7 +1047,7 @@ impl<'a> JsonlApplicator<'a> {
                     && {
                         let sd = self.base.grammar.sets_list
                             [self.base.grammar.soft_delimiters.unwrap().0]
-                            .number;
+                            .number.get();
                         self.base.does_set_match_cohort_normal(cc, sd, None)
                     };
                 if soft_hit {
@@ -1064,7 +1064,7 @@ impl<'a> JsonlApplicator<'a> {
                         || (self.base.grammar.delimiters.is_some() && {
                             let d = self.base.grammar.sets_list
                                 [self.base.grammar.delimiters.unwrap().0]
-                                .number;
+                                .number.get();
                             self.base.does_set_match_cohort_normal(cc, d, None)
                         });
                     if hard_hit {

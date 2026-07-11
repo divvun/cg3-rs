@@ -172,7 +172,13 @@ impl super::GrammarApplicator {
 
         let (test_pos, test_target, test_offset, test_barrier, test_cbarrier) = {
             let t = &self.grammar.contexts_arena[test.0];
-            (t.pos, t.target, t.offset, t.barrier, t.cbarrier)
+            (
+                t.pos,
+                t.target.get(),
+                t.offset,
+                t.barrier.get(),
+                t.cbarrier.get(),
+            )
         };
 
         if test_pos.intersects(POS_MARK_SET) {
@@ -466,10 +472,10 @@ impl super::GrammarApplicator {
             {
                 t.pos |= POS_SCANALL;
             }
-            if test_cbarrier != 0 {
+            if test_cbarrier.get() != 0 {
                 t.cbarrier = test_cbarrier;
             }
-            if test_barrier != 0 {
+            if test_barrier.get() != 0 {
                 t.barrier = test_barrier;
             }
         }
@@ -706,7 +712,7 @@ impl super::GrammarApplicator {
                     retval = !retval;
                 }
             } else if test_pos.intersects(POS_BAG_OF_TAGS) {
-                let test_target = self.grammar.contexts_arena[test.0].target;
+                let test_target = self.grammar.contexts_arena[test.0].target.get();
                 let mut m = self.match_bag_of_tags(sw_id, test_target);
                 if !m && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT | POS_SPAN_RIGHT)) {
                     let mut left = self.store.single_windows.get(sw_id.0).previous;

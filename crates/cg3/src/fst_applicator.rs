@@ -859,7 +859,7 @@ impl FSTApplicator {
             if over_soft && self.base.grammar.soft_delimiters.is_some() && !*did_soft_lookback {
                 *did_soft_lookback = true;
                 let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
-                    .number;
+                    .number.get();
                 let cohorts = self.base.store.single_windows.get(cs.0).cohorts.clone();
                 for &c in reversed(&cohorts) {
                     if self.base.does_set_match_cohort_normal(c, sd, None) {
@@ -884,7 +884,7 @@ impl FSTApplicator {
                 >= self.base.soft_limit;
             let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
                 let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
-                    .number;
+                    .number.get();
                 self.base.does_set_match_cohort_normal(cc, sd, None)
             };
             if over_soft && sd_hit {
@@ -908,7 +908,7 @@ impl FSTApplicator {
             let delim_hit =
                 self.base.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
                     let d =
-                        self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0].number;
+                        self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0].number.get();
                     self.base.does_set_match_cohort_normal(cc, d, None)
                 };
             if over_hard || delim_hit {

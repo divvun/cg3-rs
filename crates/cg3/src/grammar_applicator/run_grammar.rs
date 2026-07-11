@@ -609,7 +609,8 @@ impl super::GrammarApplicator {
                             did_soft_lookback = true;
                             let sd = self.grammar.sets_list
                                 [self.grammar.soft_delimiters.unwrap().0]
-                                .number;
+                                .number
+                                .get();
                             let cohorts = self.store.single_windows.get(sw.0).cohorts.clone();
                             for &c in cohorts.iter().rev() {
                                 if self.does_set_match_cohort_normal(c, sd, None) {
@@ -635,7 +636,8 @@ impl super::GrammarApplicator {
                         let sd_hit = over_soft && self.grammar.soft_delimiters.is_some() && {
                             let sd = self.grammar.sets_list
                                 [self.grammar.soft_delimiters.unwrap().0]
-                                .number;
+                                .number
+                                .get();
                             self.does_set_match_cohort_normal(cc, sd, None)
                         };
                         if sd_hit {
@@ -676,7 +678,8 @@ impl super::GrammarApplicator {
                         let delim_hit =
                             self.dep_delimit == 0 && self.grammar.delimiters.is_some() && {
                                 let d = self.grammar.sets_list[self.grammar.delimiters.unwrap().0]
-                                    .number;
+                                    .number
+                                    .get();
                                 self.does_set_match_cohort_normal(cc, d, None)
                             };
                         if over_hard || delim_hit {

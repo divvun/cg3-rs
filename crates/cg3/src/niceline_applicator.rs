@@ -185,7 +185,7 @@ impl<'a> NicelineApplicator<'a> {
                             did_soft_lookback = true;
                             let sd = self.base.grammar.sets_list
                                 [self.base.grammar.soft_delimiters.unwrap().0]
-                                .number;
+                                .number.get();
                             let cohorts = self.base.store.single_windows.get(sw.0).cohorts.clone();
                             for &c in cohorts.iter().rev() {
                                 if self.base.does_set_match_cohort_normal(c, sd, None) {
@@ -212,7 +212,7 @@ impl<'a> NicelineApplicator<'a> {
                         let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
                             let sd = self.base.grammar.sets_list
                                 [self.base.grammar.soft_delimiters.unwrap().0]
-                                .number;
+                                .number.get();
                             self.base.does_set_match_cohort_normal(cc, sd, None)
                         };
                         if over_soft && sd_hit {
@@ -247,7 +247,7 @@ impl<'a> NicelineApplicator<'a> {
                             && {
                                 let d = self.base.grammar.sets_list
                                     [self.base.grammar.delimiters.unwrap().0]
-                                    .number;
+                                    .number.get();
                                 self.base.does_set_match_cohort_normal(cc, d, None)
                             };
                         if over_hard || delim_hit {

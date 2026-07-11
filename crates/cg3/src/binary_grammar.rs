@@ -83,6 +83,7 @@ use crate::set::Set;
 use crate::strings::KEYWORDS;
 use crate::tag::{C_OPS, T_CASE_INSENSITIVE, T_CONTEXT, T_LOCAL_VARIABLE, T_VARIABLE, Tag};
 use crate::tag_trie::trie_serialize;
+use crate::types::SetNumber;
 
 // C++ `BinaryGrammar.hpp` `enum : uint32_t { BINF_* }` — the top-level feature
 // bitset. Reproduced verbatim (no `[spec:cg3:def]` id: an unnamed header enum).
@@ -527,7 +528,7 @@ impl BinaryGrammar {
             let sfields = read_be::<u32, _>(input);
 
             if sfields & (1 << 0) != 0 {
-                s.number = read_be(input);
+                s.number = SetNumber(read_be(input));
             }
             if sfields & (1 << 1) != 0 {
                 s.r#type = crate::set::SetType::from_bits_retain(ui16(read_be::<u32, _>(input)));
@@ -567,7 +568,7 @@ impl BinaryGrammar {
                     s.name = String::from_utf8_lossy(&buf).into_owned();
                 }
             }
-            let number = s.number;
+            let number = s.number.get();
             self.grammar.sets_list[number] = s; // sets_list[s->number] = s
         }
         // The dense sets_list vector: the reader stores each set at its own
@@ -651,7 +652,7 @@ impl BinaryGrammar {
                 }
             }
             if rfields & (1 << 5) != 0 {
-                r.target = read_be(input);
+                r.target = SetNumber(read_be(input));
             }
             if rfields & (1 << 6) != 0 {
                 let n = read_be::<u32, _>(input);
@@ -673,10 +674,10 @@ impl BinaryGrammar {
                 r.sub_reading = v;
             }
             if rfields & (1 << 10) != 0 {
-                r.childset1 = read_be(input);
+                r.childset1 = SetNumber(read_be(input));
             }
             if rfields & (1 << 11) != 0 {
-                r.childset2 = read_be(input);
+                r.childset2 = SetNumber(read_be(input));
             }
             if rfields & (1 << 12) != 0 {
                 let n = read_be::<u32, _>(input);
@@ -791,7 +792,7 @@ impl BinaryGrammar {
             self.deferred_tmpls.insert(t, h);
         }
         if fields & (1 << 4) != 0 {
-            self.grammar.contexts_arena[t.0].target = read_be(input);
+            self.grammar.contexts_arena[t.0].target = SetNumber(read_be(input));
         }
         if fields & (1 << 5) != 0 {
             self.grammar.contexts_arena[t.0].line = read_be(input);
@@ -800,10 +801,10 @@ impl BinaryGrammar {
             self.grammar.contexts_arena[t.0].relation = read_be(input);
         }
         if fields & (1 << 7) != 0 {
-            self.grammar.contexts_arena[t.0].barrier = read_be(input);
+            self.grammar.contexts_arena[t.0].barrier = SetNumber(read_be(input));
         }
         if fields & (1 << 8) != 0 {
-            self.grammar.contexts_arena[t.0].cbarrier = read_be(input);
+            self.grammar.contexts_arena[t.0].cbarrier = SetNumber(read_be(input));
         }
         if fields & (1 << 9) != 0 {
             self.grammar.contexts_arena[t.0].offset_sub = read_be(input);
@@ -1052,7 +1053,7 @@ impl BinaryGrammar {
                 tfields |= 1 << 10;
                 write_be(&mut buffer, vs.len() as u32);
                 for sid in vs {
-                    let n = self.grammar.sets_list[sid.0].number;
+                    let n = self.grammar.sets_list[sid.0].number.get();
                     write_be(&mut buffer, n);
                 }
             }
@@ -1138,9 +1139,9 @@ impl BinaryGrammar {
             let mut buffer: Vec<u8> = Vec::new();
             let mut sfields = 0u32;
 
-            if number != 0 {
+            if number.get() != 0 {
                 sfields |= 1 << 0;
-                write_be(&mut buffer, number);
+                write_be(&mut buffer, number.get());
             }
             // ST_ORDERED == 1<<8: 16-bit type when >= it, else 8-bit (exactly one).
             if stype.bits() >= crate::set::ST_ORDERED.bits() {
@@ -1185,15 +1186,15 @@ impl BinaryGrammar {
 
         // --- delimiters / soft_delimiters / text_delimiters (set NUMBERS) ---
         if let Some(d) = self.grammar.delimiters {
-            let n = self.grammar.sets_list[d.0].number;
+            let n = self.grammar.sets_list[d.0].number.get();
             write_be(output, n);
         }
         if let Some(d) = self.grammar.soft_delimiters {
-            let n = self.grammar.sets_list[d.0].number;
+            let n = self.grammar.sets_list[d.0].number.get();
             write_be(output, n);
         }
         if let Some(d) = self.grammar.text_delimiters {
-            let n = self.grammar.sets_list[d.0].number;
+            let n = self.grammar.sets_list[d.0].number.get();
             write_be(output, n);
         }
 
@@ -1284,9 +1285,9 @@ impl BinaryGrammar {
                 write_be(&mut buffer, b.len() as i32);
                 buffer.extend_from_slice(b);
             }
-            if target != 0 {
+            if target.get() != 0 {
                 rfields |= 1 << 5;
-                write_be(&mut buffer, target);
+                write_be(&mut buffer, target.get());
             }
             if let Some(wf) = wordform {
                 rfields |= 1 << 6;
@@ -1308,21 +1309,21 @@ impl BinaryGrammar {
                 }
                 write_be(&mut buffer, v);
             }
-            if childset1 != 0 {
+            if childset1.get() != 0 {
                 rfields |= 1 << 10;
-                write_be(&mut buffer, childset1);
+                write_be(&mut buffer, childset1.get());
             }
-            if childset2 != 0 {
+            if childset2.get() != 0 {
                 rfields |= 1 << 11;
-                write_be(&mut buffer, childset2);
+                write_be(&mut buffer, childset2.get());
             }
             if let Some(m) = maplist {
                 rfields |= 1 << 12;
-                write_be(&mut buffer, self.grammar.sets_list[m.0].number);
+                write_be(&mut buffer, self.grammar.sets_list[m.0].number.get());
             }
             if let Some(sl) = sublist {
                 rfields |= 1 << 13;
-                write_be(&mut buffer, self.grammar.sets_list[sl.0].number);
+                write_be(&mut buffer, self.grammar.sets_list[sl.0].number.get());
             }
             if number != 0 {
                 rfields |= 1 << 14;
@@ -1453,9 +1454,9 @@ impl BinaryGrammar {
             fields |= 1 << 3;
             write_be(&mut buffer, self.grammar.contexts_arena[tm.0].hash);
         }
-        if target != 0 {
+        if target.get() != 0 {
             fields |= 1 << 4;
-            write_be(&mut buffer, target);
+            write_be(&mut buffer, target.get());
         }
         if line != 0 {
             fields |= 1 << 5;
@@ -1465,13 +1466,13 @@ impl BinaryGrammar {
             fields |= 1 << 6;
             write_be(&mut buffer, relation);
         }
-        if barrier != 0 {
+        if barrier.get() != 0 {
             fields |= 1 << 7;
-            write_be(&mut buffer, barrier);
+            write_be(&mut buffer, barrier.get());
         }
-        if cbarrier != 0 {
+        if cbarrier.get() != 0 {
             fields |= 1 << 8;
-            write_be(&mut buffer, cbarrier);
+            write_be(&mut buffer, cbarrier.get());
         }
         if offset_sub != 0 {
             fields |= 1 << 9;

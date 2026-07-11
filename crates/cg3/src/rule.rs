@@ -12,7 +12,7 @@
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::contextual_test::ContextList;
 use crate::strings::KEYWORDS;
-use crate::types::UString;
+use crate::types::{SetNumber, UString};
 use std::collections::{BTreeMap, HashMap};
 
 /// C++ `using rule_flags_t = std::underlying_type<RULE_FLAGS>::type` (`uint64_t`)
@@ -172,9 +172,9 @@ pub type RuleVector = Vec<RuleId>;
 pub struct Rule {
     pub name: UString,
     pub wordform: Option<TagId>,
-    pub target: u32,
-    pub childset1: u32,
-    pub childset2: u32,
+    pub target: SetNumber,
+    pub childset1: SetNumber,
+    pub childset2: SetNumber,
     pub line: u32,
     pub number: u32,
     pub varname: u32,
@@ -202,9 +202,9 @@ impl Default for Rule {
         Rule {
             name: UString::new(),
             wordform: None,
-            target: 0,
-            childset1: 0,
-            childset2: 0,
+            target: SetNumber(0),
+            childset1: SetNumber(0),
+            childset2: SetNumber(0),
             line: 0,
             number: 0,
             varname: 0,

@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cg3::arena::{Arena, CohortId, CtxId, SwId};
-use cg3::types::GlobalNumber;
+use cg3::types::{GlobalNumber, SetNumber};
 use cg3::cohort::{
     CT_ENCLOSED, CT_NUM_CURRENT, CT_RELATED, CT_REMOVED, Cohort, alloc_cohort,
     allocate_append_reading, append_reading, append_reading_to, cohort_clear, cohort_dtor, detach,
@@ -1010,19 +1010,19 @@ fn contextual_test_ctor_rehash_equals_copy() {
     let d = ContextualTest::default();
     assert_eq!(d.jump_pos, 0, "JUMP_MARK");
     assert!(d.tmpl.is_none() && d.linked.is_none() && d.ors.is_empty());
-    assert_eq!((d.offset, d.target, d.hash), (0, 0, 0));
+    assert_eq!((d.offset, d.target.get(), d.hash), (0, 0, 0));
     assert!(d.pos.is_empty());
 
     let mut arena: Arena<ContextualTest> = Arena::new();
     let mut ct = ContextualTest::default();
     ct.pos = POS_SPAN_BOTH;
-    ct.target = 77;
+    ct.target = SetNumber(77);
     ct.offset = -2;
     let a = CtxId(arena.alloc(ct.clone()));
     let h = ContextualTest::rehash(&mut arena, a);
     assert_ne!(h, 0);
     // Memoized: mutating a field after the fact does not change the cache.
-    arena[a.0].target = 1234;
+    arena[a.0].target = SetNumber(1234);
     assert_eq!(ContextualTest::rehash(&mut arena, a), h);
     // Seed folds additively on top of the same field hash.
     let mut cts = ct.clone();
@@ -1031,7 +1031,7 @@ fn contextual_test_ctor_rehash_equals_copy() {
     assert_eq!(ContextualTest::rehash(&mut arena, asd), h.wrapping_add(9));
     // linked recursion: the child is rehashed and folded in.
     let l = CtxId(arena.alloc(ContextualTest {
-        target: 5,
+        target: SetNumber(5),
         ..Default::default()
     }));
     let mut ctl = ct.clone();
@@ -1044,7 +1044,7 @@ fn contextual_test_ctor_rehash_equals_copy() {
     // equals: identical fields+hash -> true; different linked IDS but equal
     // linked HASHES still count as equal (the C++ special case).
     let l2 = CtxId(arena.alloc(ContextualTest {
-        target: 5,
+        target: SetNumber(5),
         ..Default::default()
     }));
     ContextualTest::rehash(&mut arena, l2);

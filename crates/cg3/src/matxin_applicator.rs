@@ -823,7 +823,7 @@ impl MatxinApplicator {
                 {
                     let sd = self.base.grammar.sets_list
                         [self.base.grammar.soft_delimiters.unwrap().0]
-                        .number;
+                        .number.get();
                     if self.base.does_set_match_cohort_normal(cc, sd, None) {
                         self.add_endtag_all(cc);
                         append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
@@ -840,7 +840,7 @@ impl MatxinApplicator {
                 let hard = cohorts_size >= self.base.hard_limit;
                 let delim_match = self.base.grammar.delimiters.is_some() && {
                     let d =
-                        self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0].number;
+                        self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0].number.get();
                     self.base.does_set_match_cohort_normal(cc, d, None)
                 };
                 if hard || delim_match {

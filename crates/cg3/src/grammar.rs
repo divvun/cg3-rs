@@ -37,7 +37,7 @@ use crate::arena::{Arena, CtxId, RuleId, SetId, TagId};
 use crate::flat_unordered_map::{FlatUnorderedMap, Uint32FlatHashMap};
 use crate::interval_vector::uint32IntervalVector;
 use crate::sorted_vector::{sorted_vector, uint32SortedVector};
-use crate::types::{UChar, UString, Uint32Vector, flags_t};
+use crate::types::{SetNumber, UChar, UString, Uint32Vector, flags_t};
 
 // Sibling grammar-object types (created by parallel agents). Aliased locally so
 // the arena declarations read against a stable name.
@@ -456,7 +456,7 @@ impl Grammar {
     /// s->number = UI32(sets_list.size()-1)` → push onto `sets_list_order` and
     /// assign the dense push-back position (see the reconciliation note).
     pub fn add_set_to_list(&mut self, s: SetId) {
-        if self.sets_list[s.0].number == 0 {
+        if self.sets_list[s.0].number == SetNumber(0) {
             // C++ guard `sets_list.empty() || sets_list[0] != s`.
             if self.sets_list_order.is_empty() || self.sets_list_order[0] != s {
                 let sets = self.sets_list[s.0].sets.clone();
@@ -468,7 +468,7 @@ impl Grammar {
                     }
                 }
                 self.sets_list_order.push(s);
-                self.sets_list[s.0].number = ui32(self.sets_list_order.len() - 1);
+                self.sets_list[s.0].number = SetNumber(ui32(self.sets_list_order.len() - 1));
             }
         }
     }
@@ -489,7 +489,7 @@ impl Grammar {
         let t = self.allocate_tag(STR_DUMMY);
         self.add_tag_to_set(t, set_c);
         let set_c = self.add_set(set_c);
-        self.sets_list[set_c.0].number = u32::MAX;
+        self.sets_list[set_c.0].number = SetNumber(u32::MAX);
         // sets_list.insert(sets_list.begin(), set_c)
         self.sets_list_order.insert(0, set_c);
     }
@@ -1169,7 +1169,7 @@ impl Grammar {
             let sets = self.sets_list[set.0].sets.clone();
             for iter in sets {
                 // getTagList_Any(*sets_list[iter]) — `iter` is a set NUMBER.
-                self.get_tag_list_any(self.set_id_by_number(iter), the_tags);
+                self.get_tag_list_any(self.set_id_by_number(SetNumber(iter)), the_tags);
             }
         } else {
             let trie = self.sets_list[set.0].trie.clone();
@@ -1307,14 +1307,14 @@ impl Grammar {
     /// C++ `grammar->sets_list[number]` — resolves a DENSE set number to its
     /// arena id via `sets_list_order`. Panics on an out-of-range number (the C++
     /// vector-index UB analog). Not a manifest symbol — port infrastructure.
-    pub fn set_id_by_number(&self, n: u32) -> SetId {
-        self.sets_list_order[n as usize]
+    pub fn set_id_by_number(&self, n: SetNumber) -> SetId {
+        self.sets_list_order[n.get() as usize]
     }
 
     /// C++ `*grammar->sets_list[number]` — borrow of the set with DENSE number
     /// `n`. Not a manifest symbol — port infrastructure.
-    pub fn set_by_number(&self, n: u32) -> &Set {
-        &self.sets_list[self.sets_list_order[n as usize].0]
+    pub fn set_by_number(&self, n: SetNumber) -> &Set {
+        &self.sets_list[self.sets_list_order[n.get() as usize].0]
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.index-tag-to-rule-fn]
@@ -1355,7 +1355,7 @@ impl Grammar {
         let sets = self.sets_list[s.0].sets.clone();
         for i in sets {
             // indexSetToRule(r, sets_list[i]) — `i` is a set NUMBER.
-            let child = self.set_id_by_number(i);
+            let child = self.set_id_by_number(SetNumber(i));
             self.index_set_to_rule(r, child);
         }
     }
@@ -1379,7 +1379,7 @@ impl Grammar {
         let sets = self.sets_list[s.0].sets.clone();
         for i in sets {
             // indexSets(r, sets_list[i]) — `i` is a set NUMBER.
-            let child = self.set_id_by_number(i);
+            let child = self.set_id_by_number(SetNumber(i));
             self.index_sets(r, child);
         }
     }
@@ -1398,7 +1398,7 @@ impl Grammar {
         let mut new_sets = Vec::with_capacity(sets.len());
         for i in &sets {
             let set = self.sets_by_contents[i]; // find(i)->second — no end-check.
-            new_sets.push(self.sets_list[set.0].number);
+            new_sets.push(self.sets_list[set.0].number.get());
             self.set_adjust_sets(set);
         }
         self.sets_list.get_mut(s.0).sets = new_sets;
@@ -1417,16 +1417,16 @@ impl Grammar {
             let t = &self.contexts_arena[test.0];
             (t.target, t.barrier, t.cbarrier)
         };
-        if target != 0 {
-            let set = self.sets_by_contents[&target];
+        if target.get() != 0 {
+            let set = self.sets_by_contents[&target.get()];
             self.contexts_arena[test.0].target = self.sets_list[set.0].number;
         }
-        if barrier != 0 {
-            let set = self.sets_by_contents[&barrier];
+        if barrier.get() != 0 {
+            let set = self.sets_by_contents[&barrier.get()];
             self.contexts_arena[test.0].barrier = self.sets_list[set.0].number;
         }
-        if cbarrier != 0 {
-            let set = self.sets_by_contents[&cbarrier];
+        if cbarrier.get() != 0 {
+            let set = self.sets_by_contents[&cbarrier.get()];
             self.contexts_arena[test.0].cbarrier = self.sets_list[set.0].number;
         }
         let (ors, tmpl, linked) = {
@@ -1467,16 +1467,16 @@ impl Grammar {
                 t.linked,
             )
         };
-        if target != 0 {
-            let s = self.get_set(target).unwrap();
+        if target.get() != 0 {
+            let s = self.get_set(target.get()).unwrap();
             Set::mark_used(self, s);
         }
-        if barrier != 0 {
-            let s = self.get_set(barrier).unwrap();
+        if barrier.get() != 0 {
+            let s = self.get_set(barrier.get()).unwrap();
             Set::mark_used(self, s);
         }
-        if cbarrier != 0 {
-            let s = self.get_set(cbarrier).unwrap();
+        if cbarrier.get() != 0 {
+            let s = self.get_set(cbarrier.get()).unwrap();
             Set::mark_used(self, s);
         }
         if let Some(t) = tmpl {
@@ -1502,14 +1502,14 @@ impl Grammar {
         let all_content_sets: Vec<SetId> = self.sets_by_contents.values().copied().collect();
         for sid in &all_content_sets {
             let s = self.sets_list.get_mut(sid.0);
-            if s.number == u32::MAX {
+            if s.number == SetNumber(u32::MAX) {
                 s.r#type |= ST_USED;
                 continue;
             }
             if !s.r#type.intersects(ST_STATIC) {
                 s.r#type &= !ST_USED;
             }
-            s.number = 0;
+            s.number = SetNumber(0);
         }
 
         // (2) Static sets.
@@ -1545,7 +1545,7 @@ impl Grammar {
             // grammar does not panic (C++ would UB).
             self.sets_list_order.truncate(1);
             if let Some(&d0) = self.sets_list_order.first() {
-                self.sets_list.get_mut(d0.0).number = 0;
+                self.sets_list.get_mut(d0.0).number = SetNumber(0);
             }
         }
         self.set_name_seeds.clear();
@@ -1679,15 +1679,15 @@ impl Grammar {
                 continue;
             }
             {
-                let s = self.get_set(target).unwrap();
+                let s = self.get_set(target.get()).unwrap();
                 Set::mark_used(self, s);
             }
-            if childset1 != 0 {
-                let s = self.get_set(childset1).unwrap();
+            if childset1.get() != 0 {
+                let s = self.get_set(childset1.get()).unwrap();
                 Set::mark_used(self, s);
             }
-            if childset2 != 0 {
-                let s = self.get_set(childset2).unwrap();
+            if childset2.get() != 0 {
+                let s = self.get_set(childset2.get()).unwrap();
                 Set::mark_used(self, s);
             }
             if let Some(m) = maplist {
@@ -1781,7 +1781,7 @@ impl Grammar {
             }
         }
         for &sid in &sl_ids {
-            let num = self.sets_list[sid.0].number;
+            let num = self.sets_list[sid.0].number.get();
             self.index_sets(num, sid);
         }
 
@@ -1803,18 +1803,18 @@ impl Grammar {
                 self.rules.push(*rid);
             }
 
-            if target != 0 {
+            if target.get() != 0 {
                 let set = if self.is_binary {
-                    self.sets_list_order[target as usize] // sets_list[rule->target]
+                    self.sets_list_order[target.get() as usize] // sets_list[rule->target]
                 } else {
-                    let s = self.sets_by_contents[&target];
+                    let s = self.sets_by_contents[&target.get()];
                     let num = self.sets_list[s.0].number;
                     self.rule_by_number.get_mut(rid.0).target = num;
                     s
                 };
                 self.index_set_to_rule(number, set);
                 let rtarget = self.rule_by_number[rid.0].target;
-                self.rules_by_set.entry(rtarget).or_default().insert(number);
+                self.rules_by_set.entry(rtarget.get()).or_default().insert(number);
             } else {
                 // "Warning: Rule on line ... had no target": deferred I/O.
             }
@@ -1848,13 +1848,13 @@ impl Grammar {
             if self.is_binary {
                 continue;
             }
-            if childset1 != 0 {
-                let s = self.sets_by_contents[&childset1];
+            if childset1.get() != 0 {
+                let s = self.sets_by_contents[&childset1.get()];
                 let n = self.sets_list[s.0].number;
                 self.rule_by_number.get_mut(rid.0).childset1 = n;
             }
-            if childset2 != 0 {
-                let s = self.sets_by_contents[&childset2];
+            if childset2.get() != 0 {
+                let s = self.sets_by_contents[&childset2.get()];
                 let n = self.sets_list[s.0].number;
                 self.rule_by_number.get_mut(rid.0).childset2 = n;
             }
@@ -1897,7 +1897,7 @@ impl Grammar {
                 let nhash = hash_value_ustring(&nm, 0);
                 let cnum = self.sets_list[to.0].number;
                 if !self.sets_by_name.contains(nhash) {
-                    self.sets_by_name.insert((nhash, cnum));
+                    self.sets_by_name.insert((nhash, cnum.get()));
                 } else {
                     let existing_num = {
                         let sb = self.sets_by_name.find(nhash);
@@ -1916,7 +1916,7 @@ impl Grammar {
                         while seed < 1000 {
                             if !self.sets_by_name.contains(nhash.wrapping_add(seed)) {
                                 self.set_name_seeds.insert(nm.clone(), seed);
-                                self.sets_by_name.insert((nhash.wrapping_add(seed), cnum));
+                                self.sets_by_name.insert((nhash.wrapping_add(seed), cnum.get()));
                                 break;
                             }
                             seed += 1;
@@ -1935,7 +1935,7 @@ impl Grammar {
         while did {
             did = false;
             for &set in &sl_ids {
-                let num = self.sets_list[set.0].number as usize;
+                let num = self.sets_list[set.0].number.get() as usize;
                 if sets_vstr[num] {
                     continue;
                 }
@@ -1990,31 +1990,32 @@ impl Grammar {
                         continue;
                     }
                 }
-                if target != 0 && self.set_by_number(target).r#type.intersects(MASK_ST_UNIFY) {
+                if target.get() != 0 && self.set_by_number(target).r#type.intersects(MASK_ST_UNIFY) {
                     if nk.insert(t) {
                         did = true;
                     }
                     continue;
                 }
-                if target != 0 && sets_vstr[target as usize] {
+                if target.get() != 0 && sets_vstr[target.get() as usize] {
                     if nk.insert(t) {
                         did = true;
                     }
                     continue;
                 }
-                if barrier != 0 && self.set_by_number(barrier).r#type.intersects(MASK_ST_UNIFY) {
+                if barrier.get() != 0 && self.set_by_number(barrier).r#type.intersects(MASK_ST_UNIFY)
+                {
                     if nk.insert(t) {
                         did = true;
                     }
                     continue;
                 }
-                if barrier != 0 && sets_vstr[barrier as usize] {
+                if barrier.get() != 0 && sets_vstr[barrier.get() as usize] {
                     if nk.insert(t) {
                         did = true;
                     }
                     continue;
                 }
-                if cbarrier != 0
+                if cbarrier.get() != 0
                     && self
                         .set_by_number(cbarrier)
                         .r#type
@@ -2025,7 +2026,7 @@ impl Grammar {
                     }
                     continue;
                 }
-                if cbarrier != 0 && sets_vstr[cbarrier as usize] {
+                if cbarrier.get() != 0 && sets_vstr[cbarrier.get() as usize] {
                     if nk.insert(t) {
                         did = true;
                     }
@@ -2052,12 +2053,12 @@ impl Grammar {
             }
             let mut needs = false;
             if let Some(sl) = sublist {
-                if sets_vstr[self.sets_list[sl.0].number as usize] {
+                if sets_vstr[self.sets_list[sl.0].number.get() as usize] {
                     needs = true;
                 }
             }
             if let Some(m) = maplist {
-                if sets_vstr[self.sets_list[m.0].number as usize] {
+                if sets_vstr[self.sets_list[m.0].number.get() as usize] {
                     needs = true;
                 }
             }
