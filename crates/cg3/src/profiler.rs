@@ -28,6 +28,7 @@
 
 use std::collections::BTreeMap;
 
+#[cfg(feature = "profiler")]
 use rusqlite::{Connection, OpenFlags};
 
 // C++ `enum : uint8_t { ET_RULE = 0, ET_CONTEXT = 1 };`. No spec:def id.
@@ -124,6 +125,7 @@ pub struct Profiler {
 /// [`Connection::execute_batch`] (no callback, no bindings). Exists only so callers
 /// can write `sqlite3_exec(db, q)` with two arguments; `Profiler::write` calls this
 /// for every PRAGMA/DDL/transaction statement.
+#[cfg(feature = "profiler")]
 #[allow(dead_code)]
 fn sqlite3_exec(db: &Connection, sql: &str) -> Result<(), rusqlite::Error> {
     db.execute_batch(sql)
@@ -225,6 +227,7 @@ impl Profiler {
     /// the owned `String` is bound as text (embedded NULs and length are handled
     /// by rusqlite). Any error is surfaced as [`rusqlite::Error`] rather than a
     /// thrown `std::runtime_error` — same failure points, mapped to `Result`.
+    #[cfg(feature = "profiler")]
     pub fn write(&self, fname: &str) -> Result<(), rusqlite::Error> {
         // remove(fname) — value ignored, so a missing file is fine.
         let _ = std::fs::remove_file(fname);
@@ -334,6 +337,7 @@ impl Profiler {
     /// `SELECT *` → [`rusqlite::Statement::query`] stepped via the returned
     /// [`rusqlite::Rows`]; `sqlite3_column_int64`/`_text` → `row.get`. The db
     /// handle is left to drop at scope end (C++ never closed it).
+    #[cfg(feature = "profiler")]
     pub fn read(&mut self, fname: &str) -> Result<(), rusqlite::Error> {
         let db = Connection::open_with_flags(fname, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
 

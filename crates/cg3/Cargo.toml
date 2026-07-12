@@ -9,13 +9,33 @@ license = "GPL-3.0-or-later"
 name = "cg3"
 path = "src/lib.rs"
 
+# The two profiling-report tools are the only SQLite consumers; they build only
+# with the `profiler` feature (the other six binaries auto-discover as usual).
+[[bin]]
+name = "cg-annotate"
+path = "src/bin/cg-annotate.rs"
+required-features = ["profiler"]
+
+[[bin]]
+name = "cg-merge-annotations"
+path = "src/bin/cg-merge-annotations.rs"
+required-features = ["profiler"]
+
+[features]
+default = []
+# `vislcg3 --profile` plus the cg-annotate / cg-merge-annotations report tools,
+# which persist to a SQLite database via rusqlite (bundled SQLite). Off by
+# default so the base build pulls in no C toolchain / SQLite.
+profiler = ["dep:rusqlite"]
+
 [dependencies]
 # UTF-8 + regex-crate (Unicode by default) replaces ICU's uregex; parity-checked
 # per the porting notes.
 regex = "1"
-# JSONL applicator (replaces RapidJSON) and profiler (replaces the C sqlite3 API).
+# JSONL applicator (replaces RapidJSON).
 serde_json = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+# Profiler DB (replaces the C sqlite3 API) — only pulled in by the `profiler` feature.
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 # All diagnostics/logging (the C++ ux_stderr/std::cerr messages) are tracing
 # events; the binaries install a stderr subscriber.
 tracing = "0.1"

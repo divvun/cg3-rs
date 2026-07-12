@@ -40,9 +40,11 @@
 //!   `base_mut()` accessors — the composition analogue of the C++ public
 //!   inheritance.
 
+#[cfg(feature = "profiler")]
 pub mod cg_annotate;
 pub mod cg_comp;
 pub mod cg_conv;
+#[cfg(feature = "profiler")]
 pub mod cg_merge_annotations;
 pub mod cg_mwesplit;
 pub mod cg_proc;

@@ -300,6 +300,7 @@ fn cg_mwesplit_main_splits_t_mwesplit() {
 /// grammar_ast, stored under key 0), one rule + one context entry with hit
 /// counts, example windows, and a rule->context link. Returns
 /// `(db_path, grammar_text)`.
+#[cfg(feature = "profiler")]
 fn write_profile_db(name: &str, num_match: usize, with_example: bool) -> (PathBuf, String) {
     use cg3::profiler::{ET_CONTEXT, ET_RULE, Key, Profiler};
 
@@ -365,6 +366,7 @@ fn write_profile_db(name: &str, num_match: usize, with_example: bool) -> (PathBu
 // style.css report. file_save is what materialises every one of those files;
 // xml_encode is verified through the escaped `("<w>")` grammar snippet
 // (&quot;&lt;w&gt;&quot;) appearing in the emitted HTML.
+#[cfg(feature = "profiler")]
 #[test]
 fn cg_annotate_main_writes_report() {
     let (db, _grammar) = write_profile_db("annotate.db", 3, true);
@@ -424,6 +426,7 @@ fn cg_annotate_main_writes_report() {
 // (summing rule/context match counts and rule_contexts, adopting the missing
 // example window), and writes the merged db — verified by reading it back with
 // the crate's Profiler.
+#[cfg(feature = "profiler")]
 #[test]
 fn cg_merge_annotations_main_sums_counts() {
     use cg3::profiler::{ET_CONTEXT, ET_RULE, Key, Profiler};

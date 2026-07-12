@@ -13,10 +13,12 @@
 //! under test links directly) and end-to-end through `vislcg3 --profile` +
 //! `cg-annotate`.
 
+#[cfg(feature = "profiler")]
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(feature = "profiler")]
 use cg3::profiler::{ET_CONTEXT, ET_RULE, Entry, Key, Profiler};
 
 fn repo_root() -> PathBuf {
@@ -265,6 +267,7 @@ fn relabeller_trie_copy_helper_reintern() {
 // DDL + transaction all go through the sqlite3_exec/execute_batch path; the
 // grammar_ast string is stored under key 0; subsumed contexts pruned), and
 // read (merge into existing maps, key-0 quirk NOT undone).
+#[cfg(feature = "profiler")]
 #[test]
 fn profiler_sqlite_roundtrip() {
     let mut p = Profiler::default();
@@ -386,6 +389,7 @@ fn profiler_sqlite_roundtrip() {
 /// grammar AST interned as string key 0), and `cg-annotate <db> <dir>` reads it
 /// back to emit the HTML report. Supporting coverage for the write/read facets
 /// above, through the real binaries.
+#[cfg(feature = "profiler")]
 #[test]
 fn profiler_via_vislcg3_and_cg_annotate() {
     let fixture = repo_root().join("test/T_RelabelList");

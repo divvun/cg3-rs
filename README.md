@@ -12,9 +12,10 @@ machine translation via [Apertium](https://wiki.apertium.org/wiki/Constraint_Gra
 
 This repository contains:
 
-- `crates/cg3/` — the Rust port: the library `cg3` plus eight command-line
+- `crates/cg3/` — the Rust port: the library `cg3` plus six command-line
   binaries (`vislcg3`, `cg-comp`, `cg-proc`, `cg-conv`, `cg-relabel`,
-  `cg-mwesplit`, `cg-annotate`, `cg-merge-annotations`).
+  `cg-mwesplit`), and two SQLite-backed profiling tools (`cg-annotate`,
+  `cg-merge-annotations`) behind the optional `profiler` feature.
 - `docs/spec/port/` — the behavioral specification (per-symbol `def`/`sem`
   rules) that pins the port to the C++ behavior of
   [upstream CG-3](https://github.com/GrammarSoft/cg3), which served as the
@@ -36,11 +37,16 @@ There is no crates.io release; build from a checkout of
 [`divvun/cg3-rs`](https://github.com/divvun/cg3-rs):
 
 ```sh
-cargo build                 # the library + all eight binaries
-cargo nextest run -p cg3    # the full test suite (unit + integration + the
-                            # golden/Apertium conformance corpus)
+cargo build                       # the library + the six default binaries
+cargo build --features profiler   # also builds cg-annotate / cg-merge-annotations
+cargo nextest run -p cg3          # the full test suite (unit + integration + the
+                                  # golden/Apertium conformance corpus)
 # or: cargo test -p cg3
 ```
+
+The `profiler` feature is off by default; it pulls in `rusqlite` (bundled
+SQLite, which needs a C toolchain to build) for `vislcg3 --profile` and the two
+report tools. The base build is pure Rust.
 
 The conformance corpus (the upstream `runall.pl` sub-tests + the Apertium
 `cg-proc` suite) is a native part of the test run — `tests/golden.rs` and
@@ -57,7 +63,7 @@ expected fixtures. No Perl or external harness is required.
 | `cg-conv` | Convert between stream formats (CG, Niceline, Apertium, Matxin, FST, plain, JSONL, binary). |
 | `cg-relabel` | Rewrite set/tag labels in a grammar. |
 | `cg-mwesplit` | Split multi-word-expression cohorts into one cohort per component word. |
-| `cg-annotate` / `cg-merge-annotations` | Profiling / coverage-annotation tooling. |
+| `cg-annotate` / `cg-merge-annotations` | Profiling / coverage-annotation tooling (SQLite-backed; requires `--features profiler`). |
 
 ### Example
 

@@ -221,6 +221,14 @@ pub fn main_run(args: &[String]) -> i32 {
         }
     }
 
+    // --profile persists to a SQLite database, which only the `profiler` feature
+    // links in; reject it early otherwise (recording would silently never write).
+    #[cfg(not(feature = "profiler"))]
+    if occ(&options, OPTIONS::PROFILING) {
+        tracing::error!("Error: --profile requires building cg3 with the `profiler` feature.");
+        cg3_quit(1, None, 0);
+    }
+
     // Profiler for --profile (textual grammars only).
     let mut profiler: Option<Profiler> = if occ(&options, OPTIONS::PROFILING) {
         Some(Profiler::default())
@@ -501,6 +509,7 @@ pub fn main_run(args: &[String]) -> i32 {
         // Move the grammar back out (C++ `grammar` lives in main throughout),
         // and the profiler (for the final `Profiler::write`).
         grammar = std::mem::replace(&mut applicator.base_mut().grammar, Grammar::default());
+        #[cfg(feature = "profiler")]
         if profiler.is_none() {
             profiler = applicator.base_mut().profiler.take();
         }
@@ -541,6 +550,7 @@ pub fn main_run(args: &[String]) -> i32 {
     let _ = &grammar;
 
     // --profile: write the profiling database.
+    #[cfg(feature = "profiler")]
     if let Some(p) = profiler.as_ref() {
         let _ = p.write(&options[OPTIONS::PROFILING as usize].value);
     }
