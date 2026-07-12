@@ -209,8 +209,6 @@ pub fn tag_set_subset_of_t_set(
 /// (`Reading&` → `ReadingId`). Compares the query numeric tag against a reading's
 /// numeric tag, returning `itag.hash` on a match else 0. `compval` derives from
 /// the query `tag`; the threshold `V` and operator `B` from the reading's `itag`.
-// faithful port: mirrors the C++ test_tag_numerical operator (A,B) branch matrix
-#[allow(clippy::if_same_then_else)]
 pub fn test_tag_numerical(
     store: &mut RuntimeStore,
     grammar: &Grammar,
@@ -250,78 +248,46 @@ pub fn test_tag_numerical(
     let a = tag.comparison_op;
     let b = itag.comparison_op;
     let v = itag.comparison_val;
-    if a == OP_EQUALS && b == OP_EQUALS && compval == v {
-        m = itag.hash;
-    } else if a == OP_NOTEQUALS && b == OP_EQUALS && compval != v {
-        m = itag.hash;
-    } else if a == OP_EQUALS && b == OP_NOTEQUALS && compval != v {
-        m = itag.hash;
-    } else if a == OP_NOTEQUALS && b == OP_NOTEQUALS && compval == v {
-        m = itag.hash;
-    } else if a == OP_EQUALS && b == OP_LESSTHAN && compval < v {
-        m = itag.hash;
-    } else if a == OP_EQUALS && b == OP_LESSEQUALS && compval <= v {
-        m = itag.hash;
-    } else if a == OP_EQUALS && b == OP_GREATERTHAN && compval > v {
-        m = itag.hash;
-    } else if a == OP_EQUALS && b == OP_GREATEREQUALS && compval >= v {
-        m = itag.hash;
-    } else if a == OP_NOTEQUALS && b == OP_LESSTHAN {
-        m = itag.hash;
-    } else if a == OP_NOTEQUALS && b == OP_LESSEQUALS {
-        m = itag.hash;
-    } else if a == OP_NOTEQUALS && b == OP_GREATERTHAN {
-        m = itag.hash;
-    } else if a == OP_NOTEQUALS && b == OP_GREATEREQUALS {
-        m = itag.hash;
-    } else if a == OP_LESSTHAN && b == OP_NOTEQUALS {
-        m = itag.hash;
-    } else if a == OP_LESSEQUALS && b == OP_NOTEQUALS {
-        m = itag.hash;
-    } else if a == OP_GREATERTHAN && b == OP_NOTEQUALS {
-        m = itag.hash;
-    } else if a == OP_GREATEREQUALS && b == OP_NOTEQUALS {
-        m = itag.hash;
-    } else if a == OP_LESSTHAN && b == OP_EQUALS && compval > v {
-        m = itag.hash;
-    } else if a == OP_LESSEQUALS && b == OP_EQUALS && compval >= v {
-        m = itag.hash;
-    } else if a == OP_LESSTHAN && b == OP_LESSTHAN {
-        m = itag.hash;
-    } else if a == OP_LESSEQUALS && b == OP_LESSEQUALS {
-        m = itag.hash;
-    } else if a == OP_LESSEQUALS && b == OP_LESSTHAN {
-        m = itag.hash;
-    } else if a == OP_LESSTHAN && b == OP_LESSEQUALS {
-        m = itag.hash;
-    } else if a == OP_LESSTHAN && b == OP_GREATERTHAN && compval > v {
-        m = itag.hash;
-    } else if a == OP_LESSTHAN && b == OP_GREATEREQUALS && compval > v {
-        m = itag.hash;
-    } else if a == OP_LESSEQUALS && b == OP_GREATERTHAN && compval > v {
-        m = itag.hash;
-    } else if a == OP_LESSEQUALS && b == OP_GREATEREQUALS && compval >= v {
-        m = itag.hash;
-    } else if a == OP_GREATERTHAN && b == OP_EQUALS && compval < v {
-        m = itag.hash;
-    } else if a == OP_GREATEREQUALS && b == OP_EQUALS && compval <= v {
-        m = itag.hash;
-    } else if a == OP_GREATERTHAN && b == OP_GREATERTHAN {
-        m = itag.hash;
-    } else if a == OP_GREATEREQUALS && b == OP_GREATEREQUALS {
-        m = itag.hash;
-    } else if a == OP_GREATEREQUALS && b == OP_GREATERTHAN {
-        m = itag.hash;
-    } else if a == OP_GREATERTHAN && b == OP_GREATEREQUALS {
-        m = itag.hash;
-    } else if a == OP_GREATERTHAN && b == OP_LESSTHAN && compval < v {
-        m = itag.hash;
-    } else if a == OP_GREATERTHAN && b == OP_LESSEQUALS && compval < v {
-        m = itag.hash;
-    } else if a == OP_GREATEREQUALS && b == OP_LESSTHAN && compval < v {
-        m = itag.hash;
-    } else if a == OP_GREATEREQUALS && b == OP_LESSEQUALS && compval <= v {
-        m = itag.hash;
+    // C++ if/else-if operator table: match on the (A, B) operator pair, with the
+    // value comparison as an arm guard where the C++ arm has one.
+    match (a, b) {
+        (OP_EQUALS, OP_EQUALS) if compval == v => m = itag.hash,
+        (OP_NOTEQUALS, OP_EQUALS) if compval != v => m = itag.hash,
+        (OP_EQUALS, OP_NOTEQUALS) if compval != v => m = itag.hash,
+        (OP_NOTEQUALS, OP_NOTEQUALS) if compval == v => m = itag.hash,
+        (OP_EQUALS, OP_LESSTHAN) if compval < v => m = itag.hash,
+        (OP_EQUALS, OP_LESSEQUALS) if compval <= v => m = itag.hash,
+        (OP_EQUALS, OP_GREATERTHAN) if compval > v => m = itag.hash,
+        (OP_EQUALS, OP_GREATEREQUALS) if compval >= v => m = itag.hash,
+        (OP_NOTEQUALS, OP_LESSTHAN) => m = itag.hash,
+        (OP_NOTEQUALS, OP_LESSEQUALS) => m = itag.hash,
+        (OP_NOTEQUALS, OP_GREATERTHAN) => m = itag.hash,
+        (OP_NOTEQUALS, OP_GREATEREQUALS) => m = itag.hash,
+        (OP_LESSTHAN, OP_NOTEQUALS) => m = itag.hash,
+        (OP_LESSEQUALS, OP_NOTEQUALS) => m = itag.hash,
+        (OP_GREATERTHAN, OP_NOTEQUALS) => m = itag.hash,
+        (OP_GREATEREQUALS, OP_NOTEQUALS) => m = itag.hash,
+        (OP_LESSTHAN, OP_EQUALS) if compval > v => m = itag.hash,
+        (OP_LESSEQUALS, OP_EQUALS) if compval >= v => m = itag.hash,
+        (OP_LESSTHAN, OP_LESSTHAN) => m = itag.hash,
+        (OP_LESSEQUALS, OP_LESSEQUALS) => m = itag.hash,
+        (OP_LESSEQUALS, OP_LESSTHAN) => m = itag.hash,
+        (OP_LESSTHAN, OP_LESSEQUALS) => m = itag.hash,
+        (OP_LESSTHAN, OP_GREATERTHAN) if compval > v => m = itag.hash,
+        (OP_LESSTHAN, OP_GREATEREQUALS) if compval > v => m = itag.hash,
+        (OP_LESSEQUALS, OP_GREATERTHAN) if compval > v => m = itag.hash,
+        (OP_LESSEQUALS, OP_GREATEREQUALS) if compval >= v => m = itag.hash,
+        (OP_GREATERTHAN, OP_EQUALS) if compval < v => m = itag.hash,
+        (OP_GREATEREQUALS, OP_EQUALS) if compval <= v => m = itag.hash,
+        (OP_GREATERTHAN, OP_GREATERTHAN) => m = itag.hash,
+        (OP_GREATEREQUALS, OP_GREATEREQUALS) => m = itag.hash,
+        (OP_GREATEREQUALS, OP_GREATERTHAN) => m = itag.hash,
+        (OP_GREATERTHAN, OP_GREATEREQUALS) => m = itag.hash,
+        (OP_GREATERTHAN, OP_LESSTHAN) if compval < v => m = itag.hash,
+        (OP_GREATERTHAN, OP_LESSEQUALS) if compval < v => m = itag.hash,
+        (OP_GREATEREQUALS, OP_LESSTHAN) if compval < v => m = itag.hash,
+        (OP_GREATEREQUALS, OP_LESSEQUALS) if compval <= v => m = itag.hash,
+        _ => {}
     }
     m
 }

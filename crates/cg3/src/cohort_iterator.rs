@@ -202,8 +202,6 @@ fn cs_find(store: &RuntimeStore, v: &[CohortId], t: CohortId) -> usize {
 /// measured against the ORIGINAL cohort's window (`cohort_parent`/`cohort_win`).
 /// `current->parent->number` is only read when the windows differ, matching the
 /// C++ deref pattern.
-// faithful port: mirrors the C++ `good` span-check matrix (LEFT/RIGHT arms both reject)
-#[allow(clippy::if_same_then_else)]
 fn span_good(
     store: &RuntimeStore,
     pos: crate::contextual_test::PosFlags,
@@ -214,9 +212,9 @@ fn span_good(
     let cur_parent = store.cohorts[current.0].parent;
     if cur_parent != cohort_parent {
         let cur_win = store.single_windows[cur_parent.unwrap().0].number;
-        if !pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT) && cur_win < cohort_win {
-            return false;
-        } else if !pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT) && cur_win > cohort_win {
+        if (!pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT) && cur_win < cohort_win)
+            || (!pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT) && cur_win > cohort_win)
+        {
             return false;
         }
     }
@@ -380,8 +378,6 @@ impl DepParentIter {
     // [spec:cg3:sem:cohort-iterator.cg3.dep-parent-iter.dep-parent-iter-fn]
     /// C++ `operator++`: one step up the dep tree. The cycle guard `m_seen`
     /// stores the chain of previously-CURRENT cohorts (the child, not `p`).
-    // faithful port: mirrors the C++ `operator++` span-window branch matrix (LEFT/RIGHT arms both accept)
-    #[allow(clippy::if_same_then_else)]
     pub fn advance(&mut self, store: &RuntimeStore, grammar: &Grammar, window: &Window) {
         if self.base.m_cohort.is_none() || self.base.m_test.is_none() {
             return;
@@ -405,9 +401,9 @@ impl DepParentIter {
                     } else {
                         let cur_win = store.single_windows[cur_parent.unwrap().0].number;
                         let p_win = store.single_windows[p_parent.unwrap().0].number;
-                        if p_win < cur_win && pos.intersects(POS_SPAN_LEFT) {
-                            self.base.m_cohort = Some(p_id);
-                        } else if p_win > cur_win && pos.intersects(POS_SPAN_RIGHT) {
+                        if (p_win < cur_win && pos.intersects(POS_SPAN_LEFT))
+                            || (p_win > cur_win && pos.intersects(POS_SPAN_RIGHT))
+                        {
                             self.base.m_cohort = Some(p_id);
                         } else {
                             self.base.m_cohort = None;
@@ -680,8 +676,6 @@ impl CohortSetIter {
     /// breaks WITHOUT advancing `m_cohortsetiter`, so the cursor still points AT
     /// the matched element and a subsequent `advance` re-yields it. Harmless —
     /// the type is dead code.
-    // faithful port: mirrors the C++ `operator++` span-window branch matrix (LEFT/RIGHT arms both accept)
-    #[allow(clippy::if_same_then_else)]
     pub fn advance(&mut self, store: &RuntimeStore, grammar: &Grammar) {
         self.base.m_cohort = None;
         while self.m_cohortsetiter != self.m_cohortset.len() {
@@ -695,10 +689,9 @@ impl CohortSetIter {
             } else {
                 let c_win = store.single_windows[c_parent.unwrap().0].number;
                 let orig_win = store.single_windows[orig_parent.unwrap().0].number;
-                if c_win < orig_win && pos.intersects(POS_SPAN_LEFT) {
-                    self.base.m_cohort = Some(c);
-                    break;
-                } else if c_win > orig_win && pos.intersects(POS_SPAN_RIGHT) {
+                if (c_win < orig_win && pos.intersects(POS_SPAN_LEFT))
+                    || (c_win > orig_win && pos.intersects(POS_SPAN_RIGHT))
+                {
                     self.base.m_cohort = Some(c);
                     break;
                 }

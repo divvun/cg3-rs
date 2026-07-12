@@ -174,18 +174,13 @@ impl super::GrammarApplicator {
     /// via `gWindow->cohort_map` (capped at 1000). `&mut self` only because the
     /// verbosity warning reads/writes nothing but keeps parity with the sibling
     /// signatures; the body is read-only over the arenas.
-    // faithful port: mirrors the C++ isChildOf condition dispatch (distinct
-    // predicates that happen to share the `retval = true` body).
-    #[allow(clippy::if_same_then_else)]
     pub fn is_child_of(&mut self, child: CohortId, parent: CohortId) -> bool {
         let mut retval = false;
         let parent_gn = self.store.cohorts.get(parent.0).global_number;
         let child_gn = self.store.cohorts.get(child.0).global_number;
         let child_dp = self.store.cohorts.get(child.0).dep_parent;
 
-        if parent_gn == child_gn {
-            retval = true;
-        } else if Some(parent_gn) == child_dp {
+        if parent_gn == child_gn || Some(parent_gn) == child_dp {
             retval = true;
         } else {
             let mut i = 0usize;

@@ -357,8 +357,6 @@ impl super::GrammarApplicator {
     /// const ContextualTest*, const Cohort* cohort, const Cohort* cdeep)`.
     /// QUIRK: the two origin vetoes compare the raw UNSIGNED `local_number`
     /// against `position` while the offset math above them is signed.
-    // faithful port: mirrors the C++ posOutputHelper offset-direction branch matrix
-    #[allow(clippy::if_same_then_else)]
     pub fn pos_output_helper(
         &self,
         sw: SwId,
@@ -401,9 +399,9 @@ impl super::GrammarApplicator {
         } else {
             let cs0_ln = self.store.cohorts.get(cs[0].0).local_number;
             let cs3_ln = self.store.cohorts.get(cs[3].0).local_number;
-            if test_offset > 0 && si32(cs0_ln) - si32(position) == test_offset {
-                good = true;
-            } else if test_offset < 0 && si32(cs3_ln) - si32(position) == test_offset {
+            if (test_offset > 0 && si32(cs0_ln) - si32(position) == test_offset)
+                || (test_offset < 0 && si32(cs3_ln) - si32(position) == test_offset)
+            {
                 good = true;
             }
         }
@@ -418,9 +416,7 @@ impl super::GrammarApplicator {
         if !test_pos.intersects(POS_PASS_ORIGIN) {
             let cs0_ln = self.store.cohorts.get(cs[0].0).local_number;
             let cs3_ln = self.store.cohorts.get(cs[3].0).local_number;
-            if test_offset < 0 && cs3_ln > position {
-                good = false;
-            } else if test_offset > 0 && cs0_ln < position {
+            if (test_offset < 0 && cs3_ln > position) || (test_offset > 0 && cs0_ln < position) {
                 good = false;
             }
         }
@@ -1207,8 +1203,7 @@ impl super::GrammarApplicator {
     /// each, optionally recursing (deep). C++ `Cohort* runDependencyTest(
     /// SingleWindow*, Cohort* current, const ContextualTest*, Cohort** deep,
     /// Cohort* origin, const Cohort* self)`.
-    // faithful port: mirrors the C++ runDependencyTest span-direction branch matrix
-    #[allow(clippy::if_same_then_else, clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn run_dependency_test(
         &mut self,
         // C++ reads `sWindow->parent->cohort_map` throughout, which is the
@@ -1390,10 +1385,8 @@ impl super::GrammarApplicator {
             if cur_parent != coh_parent {
                 let cur_win = self.store.single_windows.get(cur_parent.unwrap().0).number;
                 let coh_win = self.store.single_windows.get(coh_parent.unwrap().0).number;
-                if (!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) && coh_win < cur_win {
-                    good = false;
-                } else if (!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT))
-                    && coh_win > cur_win
+                if ((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) && coh_win < cur_win)
+                    || ((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) && coh_win > cur_win)
                 {
                     good = false;
                 }

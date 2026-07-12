@@ -205,9 +205,6 @@ impl crate::grammar_applicator::GrammarApplicator {
     // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
     // the ported reads were elided (see the deferred-I/O / driver notes).
     #[allow(unused_assignments, unused_variables)]
-    // faithful port: mirrors the C++ K_RESTORE RF_DELAYED/RF_IGNORED/deleted
-    // branch matrix (distinct predicates that share the `continue` body).
-    #[allow(clippy::if_same_then_else)]
     fn run_single_rule_body(
         &mut self,
         current: SwId,
@@ -272,11 +269,10 @@ impl crate::grammar_applicator::GrammarApplicator {
             // RESTORE with nothing to restore.
             if rtype0 == K_RESTORE {
                 let cc = self.store.cohorts.get(cohort.0);
-                if (rflags.intersects(RF_DELAYED)) && cc.delayed.is_empty() {
-                    continue;
-                } else if (rflags.intersects(RF_IGNORED)) && cc.ignored.is_empty() {
-                    continue;
-                } else if !rflags.intersects(RF_DELAYED | RF_IGNORED) && cc.deleted.is_empty() {
+                if ((rflags.intersects(RF_DELAYED)) && cc.delayed.is_empty())
+                    || ((rflags.intersects(RF_IGNORED)) && cc.ignored.is_empty())
+                    || (!rflags.intersects(RF_DELAYED | RF_IGNORED) && cc.deleted.is_empty())
+                {
                     continue;
                 }
             }

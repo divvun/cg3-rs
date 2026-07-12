@@ -215,8 +215,6 @@ impl crate::grammar_applicator::GrammarApplicator {
     }
 
     /// `collect_subtree(cs, head, cset)`.
-    // faithful port: mirrors the C++ collect_subtree head-vs-matching-child branch matrix
-    #[allow(clippy::if_same_then_else)]
     pub(crate) fn rr_collect_subtree(
         &mut self,
         current: SwId,
@@ -232,10 +230,8 @@ impl crate::grammar_applicator::GrammarApplicator {
                     let c = self.store.cohorts.get(iter.0);
                     (c.global_number, c.dep_parent)
                 };
-                if gn == head_gn {
-                    self.cohortset_insert(cs, *iter);
-                } else if dp == Some(head_gn)
-                    && self.does_set_match_cohort_normal(*iter, cset, None)
+                if gn == head_gn
+                    || (dp == Some(head_gn) && self.does_set_match_cohort_normal(*iter, cset, None))
                 {
                     self.cohortset_insert(cs, *iter);
                 }
