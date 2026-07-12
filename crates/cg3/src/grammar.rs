@@ -1191,15 +1191,14 @@ impl Grammar {
         if is_composite {
             let mut did = false;
             let mut sets = self.sets_list[set.0].sets.clone();
-            for idx in 0..sets.len() {
-                let i = sets[idx];
-                let ns = self.remove_numeric_tags(i);
+            for i in sets.iter_mut() {
+                let ns = self.remove_numeric_tags(*i);
                 if ns == 0 {
                     // set = getSet(i); "Error: ... branch resulted in set ... empty!"
                     cg3_quit(1, Some(file!()), self.lines);
                 }
-                if ns != i {
-                    sets[idx] = ns;
+                if ns != *i {
+                    *i = ns;
                     did = true;
                 }
             }

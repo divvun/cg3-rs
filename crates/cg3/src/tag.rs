@@ -513,12 +513,7 @@ impl Tag {
             return;
         }
 
-        if tval < NUMERIC_MIN {
-            tval = NUMERIC_MIN;
-        }
-        if tval > NUMERIC_MAX {
-            tval = NUMERIC_MAX;
-        }
+        tval = tval.clamp(NUMERIC_MIN, NUMERIC_MAX);
 
         let top0 = top[0];
         let top1 = top.get(1).copied().unwrap_or('\0');

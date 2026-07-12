@@ -494,6 +494,8 @@ impl ApertiumApplicator {
                     // Add tags from ri forward to end.
                     let mut mappings: TagList = Vec::new();
                     let mprefix = self.base.grammar.mapping_prefix;
+                    // faithful port: C++ index walk over [ri, taglist.size()), not 0..len
+                    #[allow(clippy::needless_range_loop)]
                     for k in ri..taglist.len() {
                         let iter = taglist[k];
                         let t = self.base.grammar.single_tags_list.get(iter.0);
@@ -558,8 +560,7 @@ impl ApertiumApplicator {
             "be# happy<vblex><inf>",
             "aux3<tag>+aux2<tag>+aux1<tag>+main<tag>",
         ];
-        for i in 0..6 {
-            let text = texts[i];
+        for text in texts {
             let reading = alloc_reading(&mut self.base.store, None);
             let wform = tag_by_hash(&self.base.grammar, TagHash(self.base.grammar.tag_any));
             self.process_reading_str(reading, text, wform);
@@ -720,15 +721,15 @@ impl ApertiumApplicator {
                     let _ = dep_self; // C++ sets it below (read-only path here).
                     // Determine parent cohort `pr`.
                     let mut pr = pcid;
-                    if dep_parent.is_some() {
-                        if dep_parent == Some(crate::types::GlobalNumber(0)) {
+                    if let Some(dp) = dep_parent {
+                        if dp == crate::types::GlobalNumber(0) {
                             if let Some(sw) = sw_parent
                                 && let Some(&first) = store.single_windows.get(sw.0).cohorts.first()
                                 {
                                     pr = first;
                                 }
                         } else if let Some(&cid) =
-                            self.base.gWindow.cohort_map.get(&dep_parent.unwrap())
+                            self.base.gWindow.cohort_map.get(&dp)
                         {
                             pr = cid;
                         }

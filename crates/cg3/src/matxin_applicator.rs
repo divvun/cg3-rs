@@ -364,6 +364,8 @@ impl MatxinApplicator {
                     }
                     let mut mappings: TagVector = Vec::new();
                     let mprefix = self.base.grammar.mapping_prefix;
+                    // faithful port: C++ index walk over [ri, taglist.size()), not 0..len
+                    #[allow(clippy::needless_range_loop)]
                     for k in ri..taglist.len() {
                         let iter = taglist[k];
                         let t = self.base.grammar.single_tags_list.get(iter.0);
@@ -581,13 +583,13 @@ impl MatxinApplicator {
             self.nodes.insert(global_number.get() as i32, n);
 
             let dep_parent = self.base.store.cohorts.get(cohort.0).dep_parent;
-            if dep_parent.is_none() {
-                self.deps.entry(r).or_default().push(global_number.get() as i32);
-            } else {
+            if let Some(dp) = dep_parent {
                 self.deps
-                    .entry(dep_parent.unwrap().get() as i32)
+                    .entry(dp.get() as i32)
                     .or_default()
                     .push(global_number.get() as i32);
+            } else {
+                self.deps.entry(r).or_default().push(global_number.get() as i32);
             }
 
             u_fflush(output);

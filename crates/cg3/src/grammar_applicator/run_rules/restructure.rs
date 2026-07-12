@@ -335,8 +335,8 @@ impl crate::grammar_applicator::GrammarApplicator {
                     }
                     tags[k] = self.tag_by_hash(TagHash(nt_list[2]));
                     let mut kk = 1usize;
-                    for j in 3..nt_list.len() {
-                        let tid = self.tag_by_hash(TagHash(nt_list[j]));
+                    for &nt_hash in &nt_list[3..] {
+                        let tid = self.tag_by_hash(TagHash(nt_hash));
                         if self
                             .grammar
                             .single_tags_list
@@ -823,7 +823,6 @@ impl crate::grammar_applicator::GrammarApplicator {
         // childset defaults to childset2; RF_REVERSE swaps source/target and uses
         // childset1.
         let mut cohort = cohort;
-        let mut attach = attach;
         let mut childset = self.grammar.rule_by_number.get(rule.0).childset2.get();
         if rflags.intersects(RF_REVERSE) {
             std::mem::swap(&mut cohort, &mut attach);
@@ -1049,6 +1048,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             cohort_dep[0].1 = DEP_NO_PARENT;
             cohort_dep[n - 1].0 = DEP_NO_PARENT;
             cohort_dep[n - 1].1 = ui32(n - 1);
+            // faithful port: `i` is both the index and the stored value `ui32(i)`.
+            #[allow(clippy::needless_range_loop)]
             for i in 1..n.saturating_sub(1) {
                 cohort_dep[i].1 = ui32(i);
             }
@@ -1156,8 +1157,8 @@ impl crate::grammar_applicator::GrammarApplicator {
                         }
                         tags[k] = self.tag_by_hash(TagHash(nt_list[2]));
                         let mut kk = 1usize;
-                        for j in 3..nt_list.len() {
-                            let tid = self.tag_by_hash(TagHash(nt_list[j]));
+                        for &nt_hash in &nt_list[3..] {
+                            let tid = self.tag_by_hash(TagHash(nt_hash));
                             if self
                                 .grammar
                                 .single_tags_list

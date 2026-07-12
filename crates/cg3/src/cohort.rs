@@ -369,7 +369,6 @@ pub fn cohort_clear(store: &mut RuntimeStore, window: Option<&mut Window>, this:
     free_reading_list(store, &del);
     free_reading_list(store, &dly);
     free_reading_list(store, &ign);
-    let wr = wr;
     free_reading(store, wr);
 
     let c = store.cohorts.get_mut(this.0);

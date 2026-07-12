@@ -215,6 +215,8 @@ impl crate::grammar_applicator::GrammarApplicator {
     }
 
     /// `collect_subtree(cs, head, cset)`.
+    // faithful port: mirrors the C++ collect_subtree head-vs-matching-child branch matrix
+    #[allow(clippy::if_same_then_else)]
     pub(crate) fn rr_collect_subtree(
         &mut self,
         current: SwId,

@@ -104,7 +104,7 @@ impl Default for Entry {
 /// * `grammars` — `std::map<size_t, size_t>`                    → `BTreeMap<usize, usize>`
 /// * `entries`  — `std::map<Key, Entry>`                        → `BTreeMap<Key, Entry>`
 /// * `rule_contexts` — `std::map<std::pair<uint32_t,uint32_t>, size_t>`
-///                   → `BTreeMap<(u32, u32), usize>`
+///   → `BTreeMap<(u32, u32), usize>`
 #[derive(Default)]
 pub struct Profiler {
     pub strings: BTreeMap<String, usize>,

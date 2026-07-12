@@ -391,7 +391,7 @@ impl FSTApplicator {
 
             // `is_text` is the `goto istext` flag; the C++ label body runs at the
             // bottom for every non-cohort line.
-            let mut is_text = !(!ignoreinput && cleaned[0] != '\0');
+            let mut is_text = ignoreinput || cleaned[0] == '\0';
 
             if !is_text {
                 // space = &cleaned[0]; SKIPTO_NOSPAN_RAW(space, '\t');

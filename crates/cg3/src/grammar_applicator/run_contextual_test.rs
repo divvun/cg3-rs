@@ -7,20 +7,20 @@
 //! ============================================================================
 //! SIBLING GrammarApplicator methods CALLED here but DEFINED in other partials:
 //!   - match_set: does_set_match_cohort_normal / does_set_match_cohort_careful
-//!                (`(&mut self, cohort: CohortId, set: u32,
-//!                   context: Option<&mut dSMC_Context>) -> bool`),
-//!                does_set_match_reading
-//!                (`(&mut self, reading: ReadingId, set: u32, bypass_index: bool,
-//!                   unif_mode: bool) -> bool`),
-//!                does_tag_match_regexp
-//!                (`(&mut self, test: u32, tag: &Tag, bypass_index: bool) -> u32`).
+//!    (`(&mut self, cohort: CohortId, set: u32,
+//!    context: Option<&mut dSMC_Context>) -> bool`),
+//!    does_set_match_reading
+//!    (`(&mut self, reading: ReadingId, set: u32, bypass_index: bool,
+//!    unif_mode: bool) -> bool`),
+//!    does_tag_match_regexp
+//!    (`(&mut self, test: u32, tag: &Tag, bypass_index: bool) -> u32`).
 //!   - context:   get_mark (`(&self) -> Option<CohortId>`),
-//!                get_attach_to (`(&self) -> ReadingSpec`, uses `.cohort`),
-//!                set_mark (`(&mut self, Option<CohortId>)`).
+//!    get_attach_to (`(&self) -> ReadingSpec`, uses `.cohort`),
+//!    set_mark (`(&mut self, Option<CohortId>)`).
 //!   - reflow:    generate_varstring_tag (`(&mut self, &Tag) -> TagId`).
 //!   - run_rules: get_sub_reading (`(&mut self, ReadingId, i32)
-//!                   -> Option<ReadingId>`) — used indirectly via the cohort
-//!                matchers, not called here.
+//!    -> Option<ReadingId>`) — used indirectly via the cohort
+//!    matchers, not called here.
 //!
 //! EXPOSED here (run_rules / match_set call these):
 //!   - run_contextual_test(&mut self, sw: Option<SwId>, position: u32,
@@ -52,6 +52,11 @@
 //!   `local_number` in the two origin vetoes (kept as `u32` comparisons).
 //! * runContextualTest returns `sWindow->cohorts[0]` as a truthy
 //!   success-with-no-cohort sentinel (e.g. a matched NONE test).
+
+// The module doc above is a hand-aligned cross-partial reference block (wrapped
+// method signatures under list items); it trips the markdown-list doc lints
+// without being a real rendering problem.
+#![allow(clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)]
 
 use crate::arena::{CohortId, CtxId, SwId};
 use crate::cohort::{CT_RELATED, CT_REMOVED};
@@ -250,8 +255,7 @@ impl super::GrammarApplicator {
         context.origin = None;
         context.did_test = true;
 
-        if test_barrier != 0 && cohort.is_some() {
-            let cid = cohort.unwrap();
+        if test_barrier != 0 && let Some(cid) = cohort {
             let mut bctx = dSMC_Context {
                 test: None,
                 deep: None,
@@ -269,8 +273,7 @@ impl super::GrammarApplicator {
                 *rvs &= !TRV_BREAK_DEFAULT;
             }
         }
-        if test_cbarrier != 0 && cohort.is_some() {
-            let cid = cohort.unwrap();
+        if test_cbarrier != 0 && let Some(cid) = cohort {
             let mut cbctx = dSMC_Context {
                 test: None,
                 deep: None,
@@ -354,6 +357,8 @@ impl super::GrammarApplicator {
     /// const ContextualTest*, const Cohort* cohort, const Cohort* cdeep)`.
     /// QUIRK: the two origin vetoes compare the raw UNSIGNED `local_number`
     /// against `position` while the offset math above them is signed.
+    // faithful port: mirrors the C++ posOutputHelper offset-direction branch matrix
+    #[allow(clippy::if_same_then_else)]
     pub fn pos_output_helper(
         &self,
         sw: SwId,
@@ -1202,7 +1207,8 @@ impl super::GrammarApplicator {
     /// each, optionally recursing (deep). C++ `Cohort* runDependencyTest(
     /// SingleWindow*, Cohort* current, const ContextualTest*, Cohort** deep,
     /// Cohort* origin, const Cohort* self)`.
-    #[allow(clippy::too_many_arguments)]
+    // faithful port: mirrors the C++ runDependencyTest span-direction branch matrix
+    #[allow(clippy::if_same_then_else, clippy::too_many_arguments)]
     pub fn run_dependency_test(
         &mut self,
         // C++ reads `sWindow->parent->cohort_map` throughout, which is the

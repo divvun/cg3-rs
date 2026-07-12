@@ -1701,6 +1701,9 @@ impl TextualParser {
         let mut setflag = true;
         while setflag {
             setflag = false;
+            // faithful port: `i` is a flag BIT index (`1 << i`) and a cursor into
+            // the parallel `G_FLAGS` table, not a plain collection index.
+            #[allow(clippy::needless_range_loop)]
             for i in 0..FLAGS_COUNT {
                 let op = *pos;
                 if simplecasecmp(buf, *pos, G_FLAGS[i]) {

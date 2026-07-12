@@ -47,6 +47,10 @@ fn at(token: &[UChar], k: usize) -> UChar {
 
 // [spec:cg3:def:icu-uoptions.u-parse-args-fn]
 // [spec:cg3:sem:icu-uoptions.u-parse-args-fn]
+// faithful port: the option-search loops index `options[0..optionCount]` and
+// capture the matched index `j` (bound is the passed count, not `.len()`),
+// mirroring the C++ `for (j=0; j<optionCount; ++j)` scans.
+#[allow(clippy::needless_range_loop)]
 pub fn u_parseArgs(
     argc: i32,
     argv: &mut [Vec<UChar>],

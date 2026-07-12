@@ -45,6 +45,9 @@ fn options_mwe() -> [UOption; OPTIONS::NUM_OPTIONS_MWE as usize] {
 // [spec:cg3:def:cg-mwesplit.main-fn]
 // [spec:cg3:sem:cg-mwesplit.main-fn]
 /// C++ `int main(int argc, char** argv)`.
+// faithful port: `for (i=0; i<NUM_OPTIONS_MWE; ++i)` walks the enum-sized option
+// table by index (bound is the enum constant, not `.len()`), mirroring the C++.
+#[allow(clippy::needless_range_loop)]
 pub fn main_mwesplit(args: &[String]) -> i32 {
     // UErrorCode status = U_ZERO_ERROR;
     let status: i32 = 0;

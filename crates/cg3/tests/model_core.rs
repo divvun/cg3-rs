@@ -10,6 +10,10 @@
 //! is driven through a fixture run of the `vislcg3` binary instead, because the
 //! Rust port exposes no public entry point short of a full grammar load.
 
+// Test builders set a few fields on a `T::default()` incrementally, which reads
+// clearer here than a struct literal with a long `..Default::default()` tail.
+#![allow(clippy::field_reassign_with_default)]
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

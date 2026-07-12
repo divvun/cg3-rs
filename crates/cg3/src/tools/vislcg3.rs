@@ -560,6 +560,9 @@ pub fn main_run(args: &[String]) -> i32 {
 }
 
 /// The `--help` usage banner (C++ inlined in `main`). Emits to stdout.
+// faithful port: `for (i=0; i<NUM_OPTIONS; ++i)` walks the enum-sized option
+// table by index (bound is the enum constant, not `.len()`), mirroring the C++.
+#[allow(clippy::needless_range_loop)]
 fn print_help(options: &crate::options::options_t) {
     let mut out = String::new();
     out.push_str("Usage: vislcg3 [OPTIONS]\n");

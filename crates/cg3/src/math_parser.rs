@@ -454,10 +454,10 @@ fn ux_simplecasecmp(a: &str, b: &str) -> bool {
     let a_chars: Vec<UChar> = a.chars().collect();
     let b_chars: Vec<UChar> = b.chars().collect();
     let n = b_chars.len();
-    for i in 0..n {
+    for (i, &bc) in b_chars.iter().enumerate() {
         match a_chars.get(i) {
             Some(&ac) => {
-                if ac != b_chars[i] && (ac as u32) != (b_chars[i] as u32) + 32 {
+                if ac != bc && (ac as u32) != (bc as u32) + 32 {
                     return false;
                 }
             }

@@ -42,8 +42,8 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let mut drop: ReadingList = Vec::new();
                 let mut si = 0usize;
                 let readings = self.store.cohorts.get(target.0).readings.clone();
-                for ri in 0..readings.len() {
-                    let mut rd = readings[ri];
+                for rd_orig in readings.iter().copied() {
+                    let mut rd = rd_orig;
                     if rsub_reading != GSR_ANY {
                         if let Some(sr) = self.get_sub_reading(rd, rsub_reading) {
                             rd = sr;
@@ -54,18 +54,18 @@ impl crate::grammar_applicator::GrammarApplicator {
                     }
                     // Manually trace non-matching readings.
                     let sr_opt = if rsub_reading != GSR_ANY {
-                        self.get_sub_reading(readings[ri], rsub_reading)
+                        self.get_sub_reading(rd_orig, rsub_reading)
                     } else {
                         Some(rd)
                     };
                     if let Some(sr) = sr_opt {
                         self.store.readings.get_mut(sr.0).hit_by.push(rnumber);
                     }
-                    if si < st.selected.len() && readings[ri] == st.selected[si] {
+                    if si < st.selected.len() && rd_orig == st.selected[si] {
                         si += 1;
                     } else {
-                        self.store.readings.get_mut(readings[ri].0).deleted = true;
-                        drop.push(readings[ri]);
+                        self.store.readings.get_mut(rd_orig.0).deleted = true;
+                        drop.push(rd_orig);
                     }
                 }
                 // target->readings.swap(selected)
@@ -1315,8 +1315,9 @@ impl crate::grammar_applicator::GrammarApplicator {
             let mut attach_out: Option<CohortId> = None;
             let res =
                 self.run_contextual_test(tparent, tlocal, dep_target, Some(&mut attach_out), None);
-            if res.is_some() && attach_out.is_some() {
-                let mut attach = attach_out.unwrap();
+            if res.is_some()
+                && let Some(mut attach) = attach_out
+            {
                 self.profile_rule_context(true, rule, dep_target);
                 let break_after = self.seen_barrier || (rflags.intersects(RF_NEAREST));
                 if let Some(at) = self.get_attach_to().cohort {

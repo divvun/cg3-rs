@@ -36,7 +36,7 @@
 /// so it is tried first next time. The ICU `CG3Quit(1)`-on-error branches have no
 /// analog (`is_match` is infallible), so they are dropped. Used by
 /// `run_grammar_on_text` to detect text-delimiter lines via `text_delimiters`.
-pub fn test_string_against(str: &str, rxs: &mut Vec<regex::Regex>) -> bool {
+pub fn test_string_against(str: &str, rxs: &mut [regex::Regex]) -> bool {
     let mut rv = false;
     for i in 0..rxs.len() {
         // uregex_setText + uregex_find(-1) — unanchored whole-string search.

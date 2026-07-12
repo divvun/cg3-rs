@@ -8,24 +8,24 @@
 //!   must own `pub store: RuntimeStore` (`crate::store::RuntimeStore`). The
 //!   cohort/reading matchers resolve `ReadingId`/`CohortId` via `self.store`
 //!   exactly as the task brief states (`self.store.readings[rid.0]`). Add:
-//!       pub store: crate::store::RuntimeStore,
+//!   pub store: crate::store::RuntimeStore,
 //!   (default `RuntimeStore::new()` in `GrammarApplicator::new`).
 //!
 //! * SIBLING GrammarApplicator methods CALLED here but DEFINED in other
 //!   partials (do NOT define them here — that would duplicate). Expected
 //!   signatures (arena-model adaptations of the C++ pointer forms):
 //!     - reflow:   fn generate_varstring_tag(&mut self, tag: &Tag) -> TagId
-//!                     (C++ `generateVarstringTag(const Tag*) -> const Tag*`)
+//!       (C++ `generateVarstringTag(const Tag*) -> const Tag*`)
 //!     - core/ctx: fn get_sub_reading(&mut self, r: ReadingId, offset_sub: i32)
-//!                     -> Option<ReadingId>   (C++ `get_sub_reading(Reading*, int32_t)`)
+//!       -> Option<ReadingId>   (C++ `get_sub_reading(Reading*, int32_t)`)
 //!     - core/ctx: fn get_mark(&self) -> Option<CohortId>
 //!     - core/ctx: fn get_attach_to(&self) -> &ReadingSpec   (uses `.cohort`)
 //!     - runCtx:   fn run_contextual_test(&mut self, sw: Option<SwId>,
-//!                     local: u32, test: CtxId,
-//!                     deep: Option<*mut Option<CohortId>>,
-//!                     origin: Option<CohortId>) -> Option<CohortId>
+//!       local: u32, test: CtxId,
+//!       deep: Option<*mut Option<CohortId>>,
+//!       origin: Option<CohortId>) -> Option<CohortId>
 //!     - runCtx:   fn check_unif_tags(&mut self, set_number: u32,
-//!                     node: *const core::ffi::c_void) -> bool
+//!       node: *const core::ffi::c_void) -> bool
 //!
 //! EXPOSED for the other engine agents (they call these):
 //!     does_set_match_reading, does_set_match_reading_tags,
@@ -209,6 +209,8 @@ pub fn tag_set_subset_of_t_set(
 /// (`Reading&` → `ReadingId`). Compares the query numeric tag against a reading's
 /// numeric tag, returning `itag.hash` on a match else 0. `compval` derives from
 /// the query `tag`; the threshold `V` and operator `B` from the reading's `itag`.
+// faithful port: mirrors the C++ test_tag_numerical operator (A,B) branch matrix
+#[allow(clippy::if_same_then_else)]
 pub fn test_tag_numerical(
     store: &mut RuntimeStore,
     grammar: &Grammar,
@@ -561,7 +563,7 @@ impl super::GrammarApplicator {
             m = self.does_tag_match_reading(reading, &nt_tag, unif_mode, bypass_index);
         } else if tag.r#type.intersects(T_META) {
             // (4) META regex against the cohort's parenthetical text
-            if tag.regexp.is_some() {
+            if let Some(re) = tag.regexp.as_ref() {
                 let text = {
                     let pc = self.store.readings.get(reading.0).parent;
                     match pc {
@@ -570,7 +572,6 @@ impl super::GrammarApplicator {
                     }
                 };
                 if !text.is_empty() {
-                    let re = tag.regexp.as_ref().unwrap();
                     if re.is_match(&text) {
                         m = tag.hash.get();
                     }

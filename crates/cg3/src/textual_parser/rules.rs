@@ -126,6 +126,9 @@ impl TextualParser {
         rule.sub_reading = flags.sub_reading;
 
         if !self.section_flags.flags.is_empty() {
+            // faithful port: `i` is a flag BIT index (`1 << i`) and a cursor into the
+            // parallel `FLAGS_EXCLS` table, not a plain collection index.
+            #[allow(clippy::needless_range_loop)]
             for i in 0..FLAGS_COUNT {
                 let f = crate::rule::RuleFlags::from_bits_retain(1u64 << i);
                 if self.section_flags.flags.intersects(f) && !rule.flags.intersects(FLAGS_EXCLS[i])

@@ -159,6 +159,8 @@ impl BinaryGrammar {
     /// result`. The port OWNS `res` (so `grammar` == `result` == the owned
     /// field); the `ux_err` diagnostic sink is tracing (wave 4). No allocation
     /// or I/O occurs.
+    // faithful port: named after the C++ `BinaryGrammar(...)` constructor.
+    #[allow(clippy::self_named_constructors)]
     pub fn binary_grammar(res: Grammar) -> BinaryGrammar {
         BinaryGrammar {
             grammar: res,
@@ -386,9 +388,13 @@ impl BinaryGrammar {
                 // writer. Clamp at the int32 extremes to NUMERIC_MIN/MAX.
                 let v = read_be::<i32, _>(input);
                 t.comparison_val = v as f64;
+                // faithful port: mirrors the C++ int32 extremes clamp; the
+                // <=/>= at the type bounds are tautological in typed Rust.
+                #[allow(clippy::absurd_extreme_comparisons)]
                 if v <= i32::MIN {
                     t.comparison_val = crate::inlines::NUMERIC_MIN;
                 }
+                #[allow(clippy::absurd_extreme_comparisons)]
                 if v >= i32::MAX {
                     t.comparison_val = crate::inlines::NUMERIC_MAX;
                 }

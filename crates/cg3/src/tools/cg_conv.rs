@@ -24,6 +24,9 @@ use super::{U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, to_uargv};
 // [spec:cg3:def:cg-conv.main-fn]
 // [spec:cg3:sem:cg-conv.main-fn]
 /// C++ `int main(int argc, char* argv[])`.
+// faithful port: `for (i=0; i<NUM_OPTIONS_CONV; ++i)` walks the enum-sized option
+// table by index (bound is the enum constant, not `.len()`), mirroring the C++.
+#[allow(clippy::needless_range_loop)]
 pub fn main_conv(args: &[String]) -> i32 {
     // UErrorCode status = U_ZERO_ERROR;
     // ICU init dropped (UTF-8 port).

@@ -437,8 +437,10 @@ impl<'a> BinaryApplicator<'a> {
                         .split_mappings(&mut mappings, c_cohort, c_reading, true);
                 }
 
-                if prev.is_some() && (rflags & (BFR_SUBREADING as u16) != 0) {
-                    self.base.store.readings.get_mut(prev.unwrap().0).next = Some(c_reading);
+                if let Some(prev_reading) = prev
+                    && (rflags & (BFR_SUBREADING as u16) != 0)
+                {
+                    self.base.store.readings.get_mut(prev_reading.0).next = Some(c_reading);
                 } else if rflags & (BFR_DELETED as u16) != 0 {
                     self.base
                         .store
@@ -741,7 +743,9 @@ impl BinaryFormat {
                     &mut cohort_buffer,
                     dep_parent.map_or(crate::cohort::DEP_NO_PARENT, |g| g.get()),
                 );
-            } else if let Some(&pr) = app.gWindow.cohort_map.get(&dep_parent.unwrap()) {
+            } else if let Some(dp) = dep_parent
+                && let Some(&pr) = app.gWindow.cohort_map.get(&dp)
+            {
                 let pr_local = app.store.cohorts.get(pr.0).local_number;
                 if pr_local == 0 {
                     wu32(&mut cohort_buffer, 0);

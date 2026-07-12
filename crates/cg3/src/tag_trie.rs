@@ -440,10 +440,12 @@ mod tests {
     /// than via the parser) keeps the trie tests self-contained while still using
     /// the real `Grammar` arena the trie functions read through.
     fn mk_tag(g: &mut Grammar, hash: u32, number: u32, type_: crate::tag::TagType) -> TagId {
-        let mut t = Tag::default();
-        t.hash = crate::types::TagHash(hash);
-        t.number = number;
-        t.r#type = type_;
+        let t = Tag {
+            hash: crate::types::TagHash(hash),
+            number,
+            r#type: type_,
+            ..Default::default()
+        };
         TagId(g.single_tags_list.alloc(t))
     }
 

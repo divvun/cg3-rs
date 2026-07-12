@@ -631,8 +631,8 @@ impl TextualParser {
             self.grammar.add_set(set_c);
         }
         self.make_magic_set(STR_UU_SAME_BASIC);
-        for i in 0..9 {
-            self.make_magic_set(STR_UU_C[i]);
+        for name in STR_UU_C {
+            self.make_magic_set(name);
         }
 
         // 5. Parse the grammar text.

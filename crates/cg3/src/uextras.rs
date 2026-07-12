@@ -667,6 +667,10 @@ pub fn ux_is_empty(text: &str) -> bool {
 // "case" matches outside A-Z). Reading past `a` is UB in C++; safe Rust treats
 // a missing `a[i]` as a mismatch and a missing `a[n]` as end-of-string
 // (`a[n] == 0`). `u_getCombiningClass` is unavailable and approximated as 0.
+//
+// faithful port: `for (i=0; i<n; ++i)` indexes both `a` and `b` in lockstep over
+// the caller-supplied count `n` (not `.len()`), mirroring the C++ pointer walk.
+#[allow(clippy::needless_range_loop)]
 pub fn ux_simplecasecmp(a: &[UChar], b: &[UChar], n: usize) -> bool {
     for i in 0..n {
         match a.get(i) {

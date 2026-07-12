@@ -205,6 +205,9 @@ impl crate::grammar_applicator::GrammarApplicator {
     // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
     // the ported reads were elided (see the deferred-I/O / driver notes).
     #[allow(unused_assignments, unused_variables)]
+    // faithful port: mirrors the C++ K_RESTORE RF_DELAYED/RF_IGNORED/deleted
+    // branch matrix (distinct predicates that share the `continue` body).
+    #[allow(clippy::if_same_then_else)]
     fn run_single_rule_body(
         &mut self,
         current: SwId,
@@ -738,8 +741,9 @@ impl crate::grammar_applicator::GrammarApplicator {
                             r#type: crate::profiler::ET_RULE,
                             id: rnum + 1,
                         };
-                        let p = self.profiler.as_mut().unwrap();
-                        p.entries.entry(k).or_default().num_fail += 1;
+                        if let Some(p) = self.profiler.as_mut() {
+                            p.entries.entry(k).or_default().num_fail += 1;
+                        }
                     }
                     if !self.debug_rules.empty() && self.debug_rules.contains(rline) {
                         self.rr_print_debug_rule(rule, false, false);

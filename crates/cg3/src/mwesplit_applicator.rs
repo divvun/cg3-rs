@@ -254,12 +254,7 @@ impl GrammarApplicator {
             let mut sub_opt: Option<ReadingId> = Some(r);
             while let Some(sub) = sub_opt {
                 let wf_tag = self.mwe_maybe_wf_tag(sub);
-                if wf_tag.is_none() {
-                    // prev = prev->next (prev is guaranteed non-null by eligibility).
-                    let prev_id = prev.expect("splitMwe: null prev on wf-less sub-reading");
-                    prev = self.store.readings.get(prev_id.0).next;
-                } else {
-                    let wf_tag = wf_tag.unwrap();
+                if let Some(wf_tag) = wf_tag {
                     pos = pos.wrapping_add(1);
 
                     // Ensure a cohort exists at index pos.
@@ -369,6 +364,10 @@ impl GrammarApplicator {
                         self.store.readings.get_mut(prev_id.0).next = None;
                     }
                     prev = Some(r_new);
+                } else {
+                    // prev = prev->next (prev is guaranteed non-null by eligibility).
+                    let prev_id = prev.expect("splitMwe: null prev on wf-less sub-reading");
+                    prev = self.store.readings.get(prev_id.0).next;
                 }
 
                 sub_opt = self.store.readings.get(sub.0).next;

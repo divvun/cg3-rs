@@ -634,13 +634,13 @@ impl<'a> NicelineApplicator<'a> {
                 )
             };
             let mut pr = parent_cid;
-            if p_dep_parent.is_some() {
-                if p_dep_parent == Some(crate::types::GlobalNumber(0)) {
+            if let Some(pdp) = p_dep_parent {
+                if pdp == crate::types::GlobalNumber(0) {
                     if let Some(sw) = p_sw {
                         pr = self.base.store.single_windows.get(sw.0).cohorts[0];
                     }
                 } else if let Some(&mapped) =
-                    self.base.gWindow.cohort_map.get(&p_dep_parent.unwrap())
+                    self.base.gWindow.cohort_map.get(&pdp)
                 {
                     pr = mapped;
                 }
@@ -656,11 +656,10 @@ impl<'a> NicelineApplicator<'a> {
             } else if !self.base.dep_has_spanned {
                 let pr_local = self.base.store.cohorts.get(pr.0).local_number;
                 let _ = write!(output, " #{p_local}{arrow}{pr_local}");
-            } else if p_dep_parent.is_none() {
-                let _ = write!(output, " #{p_dep_self}{arrow}{p_dep_self}");
-            } else {
-                let pdp = p_dep_parent.unwrap();
+            } else if let Some(pdp) = p_dep_parent {
                 let _ = write!(output, " #{p_dep_self}{arrow}{pdp}");
+            } else {
+                let _ = write!(output, " #{p_dep_self}{arrow}{p_dep_self}");
             }
         }
 

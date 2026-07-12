@@ -8,18 +8,18 @@
 //! EXPOSED signatures (the sibling partials — matchSet / runRules / runGrammar /
 //! core — call these):
 //!   - `add_tag_to_reading(&mut self, reading: ReadingId, tag: TagId) -> u32`
-//!         (2-arg form == C++ `addTagToReading(Reading&, Tag*)` with the default
-//!          `rehash = true`; the private `add_tag_to_reading_rehash` carries the
-//!          explicit-`rehash` C++ signature for `reflow_reading`/`split_mappings`).
+//!     (2-arg form == C++ `addTagToReading(Reading&, Tag*)` with the default
+//!     `rehash = true`; the private `add_tag_to_reading_rehash` carries the
+//!     explicit-`rehash` C++ signature for `reflow_reading`/`split_mappings`).
 //!   - `del_tag_from_reading(&mut self, reading: ReadingId, tag: TagId)`
-//!         (C++ `delTagFromReading(Reading&, Tag*)` / `(Reading&, uint32_t)`).
+//!     (C++ `delTagFromReading(Reading&, Tag*)` / `(Reading&, uint32_t)`).
 //!   - `reflow_reading(&mut self, reading: ReadingId)`.
 //!   - `generate_varstring_tag(&mut self, tag: &Tag) -> TagId`
-//!         (C++ `generateVarstringTag(const Tag*) -> const Tag*`, matching the
-//!          matchSet header's declared form).
+//!     (C++ `generateVarstringTag(const Tag*) -> const Tag*`, matching the
+//!     matchSet header's declared form).
 //!   - `reflow_dependency_window(&mut self, max: u32)`,
 //!     `reflow_relation_window(&mut self)` (C++ `max` default 0 → no arg, per the
-//!      run_grammar call site),
+//!     run_grammar call site),
 //!     `make_base_from_word(&mut self, tag: TagId) -> TagId`,
 //!     `is_child_of(&mut self, child: CohortId, parent: CohortId) -> bool`,
 //!     `attach_parent_child(...)`, `would_parent_child_loop/cross(...)`,
@@ -155,9 +155,7 @@ impl super::GrammarApplicator {
         let mut n: Vec<char> = vec!['\0'; len - 2];
         n[0] = '"';
         n[len - 3] = '"';
-        for i in 0..(len - 4) {
-            n[1 + i] = chars[2 + i];
-        }
+        n[1..((len - 4) + 1)].copy_from_slice(&chars[2..((len - 4) + 2)]);
         let s: String = n.into_iter().collect();
         // addTag(n) — the type-less overload interns the raw text (type 0).
         self.add_tag(&s, crate::tag::TagType::empty())
@@ -176,6 +174,9 @@ impl super::GrammarApplicator {
     /// via `gWindow->cohort_map` (capped at 1000). `&mut self` only because the
     /// verbosity warning reads/writes nothing but keeps parity with the sibling
     /// signatures; the body is read-only over the arenas.
+    // faithful port: mirrors the C++ isChildOf condition dispatch (distinct
+    // predicates that happen to share the `retval = true` body).
+    #[allow(clippy::if_same_then_else)]
     pub fn is_child_of(&mut self, child: CohortId, parent: CohortId) -> bool {
         let mut retval = false;
         let parent_gn = self.store.cohorts.get(parent.0).global_number;
@@ -220,6 +221,9 @@ impl super::GrammarApplicator {
     /// C++ `bool wouldParentChildLoop(const Cohort* parent, const Cohort*
     /// child)` — would attaching `child` under `parent` form a cycle. Mirror of
     /// `isChildOf` but climbing from `parent`, looking for `child`.
+    // faithful port: mirrors the C++ wouldParentChildLoop condition dispatch
+    // (distinct predicates that happen to share `retval` bodies).
+    #[allow(clippy::if_same_then_else)]
     pub fn would_parent_child_loop(&mut self, parent: CohortId, child: CohortId) -> bool {
         let mut retval = false;
         let parent_gn = self.store.cohorts.get(parent.0).global_number;

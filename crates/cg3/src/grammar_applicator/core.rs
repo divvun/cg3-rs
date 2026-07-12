@@ -378,21 +378,15 @@ impl super::GrammarApplicator {
             }
         }
 
-        let tag: TagId;
-        if r#type.intersects(T_VARSTRING) {
+        let tag: TagId = if r#type.intersects(T_VARSTRING) {
             // C++: tag = ::CG3::parseTag(txt, 0, *this, !type.intersects(T_PRESERVE_ESC));
             // (`p = 0` — no near-context at runtime.)
-            tag = crate::parser_helpers::parse_tag(
-                txt,
-                &[],
-                self,
-                !r#type.intersects(T_PRESERVE_ESC),
-            );
+            crate::parser_helpers::parse_tag(txt, &[], self, !r#type.intersects(T_PRESERVE_ESC))
         } else {
             let mut t = Tag::default();
             crate::tag::parse_tag_raw(&mut t, txt, &mut self.grammar);
-            tag = self.add_tag_ptr(t);
-        }
+            self.add_tag_ptr(t)
+        };
 
         let mut reflow = false;
         let (ttype, is_txt) = {
@@ -861,13 +855,13 @@ impl super::GrammarApplicator {
                 (c.global_number, c.local_number, c.dep_parent, c.parent)
             };
             let mut pr = parent_cid;
-            if p_dep_parent.is_some() {
-                if p_dep_parent == Some(GlobalNumber(0)) {
+            if let Some(pdp) = p_dep_parent {
+                if pdp == GlobalNumber(0) {
                     // parent->parent->cohorts[0]
                     if let Some(sw) = p_sw {
                         pr = self.store.single_windows.get(sw.0).cohorts[0];
                     }
-                } else if let Some(&mapped) = self.gWindow.cohort_map.get(&p_dep_parent.unwrap()) {
+                } else if let Some(&mapped) = self.gWindow.cohort_map.get(&pdp) {
                     pr = mapped;
                 }
             }
@@ -1246,8 +1240,8 @@ impl super::GrammarApplicator {
         }
         write_raw(&mut ss, flags);
 
-        if self.has_dep && c.dep_parent.is_some() {
-            write_raw(&mut ss, c.dep_parent.unwrap().get());
+        if self.has_dep && let Some(dp) = c.dep_parent {
+            write_raw(&mut ss, dp.get());
         }
 
         let wf = c.wordform.expect("cohort wordform");

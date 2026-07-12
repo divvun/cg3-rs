@@ -253,6 +253,8 @@ impl GrammarWriter {
     /// rule number with anchor-tag-hash values, which `print_rule` later queries
     /// via `equal_range(rule.number)`. (The non-specced destructor merely nulls
     /// `grammar`; the arena port keeps no such pointer, so it is a no-op.)
+    // faithful port: named after the C++ `GrammarWriter(...)` constructor.
+    #[allow(clippy::self_named_constructors)]
     pub fn grammar_writer(res: &Grammar) -> GrammarWriter {
         let mut anchors: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
 
@@ -556,6 +558,8 @@ impl GrammarWriter {
         w!(to, "{}", KEYWORDS_NAMES[type_kw as usize]);
 
         // !name.empty() && !(name[0]=='_' && name[1]=='R' && name[2]=='_')
+        // faithful port: mirrors the C++ boolean structure verbatim.
+        #[allow(clippy::nonminimal_bool)]
         if !rule.name.is_empty()
             && !(byte_at(&rule.name, 0) == b'_'
                 && byte_at(&rule.name, 1) == b'R'
@@ -565,6 +569,10 @@ impl GrammarWriter {
         }
         w!(to, " ");
 
+        // faithful port: `i` is a flag BIT index (`1 << i`) and a cursor into the
+        // parallel `G_FLAGS` table — not a plain collection index, so the range loop
+        // is the natural form.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..FLAGS_COUNT {
             if i == FL_BEFORE || i == FL_AFTER || i == FL_WITHCHILD {
                 continue;
@@ -597,7 +605,7 @@ impl GrammarWriter {
             w!(to, "{} ", grammar.sets_list[ml.0].name);
         }
 
-        if rule.sublist.is_some()
+        if let Some(sublist) = rule.sublist
             && (rule.r#type == KEYWORDS::K_ADDRELATIONS
                 || rule.r#type == KEYWORDS::K_SETRELATIONS
                 || rule.r#type == KEYWORDS::K_REMRELATIONS
@@ -608,7 +616,7 @@ impl GrammarWriter {
             if rule.r#type == KEYWORDS::K_COPY || rule.r#type == KEYWORDS::K_COPYCOHORT {
                 w!(to, "EXCEPT ");
             }
-            w!(to, "{} ", grammar.sets_list[rule.sublist.unwrap().0].name);
+            w!(to, "{} ", grammar.sets_list[sublist.0].name);
         }
 
         if rule.r#type == KEYWORDS::K_ADD

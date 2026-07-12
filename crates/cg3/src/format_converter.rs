@@ -69,9 +69,9 @@ fn cg3_quit() -> ! {
 ///   boundaries); `UREGEX_DOTALL` → `(?s)` (so `.` spans newlines).
 /// * `\S`/`\s` are Unicode-aware in both ICU and the `regex` crate.
 /// * `\^`/`\$` are literal `^`/`$`.
-/// The C++ converts to UTF-16 and caps the scan at [`BUF_SIZE`] (1000) UChars;
-/// this port scans the (already UTF-8) prefix directly — equivalent for the
-/// anchoring the patterns rely on. NEVER returns `CG3SF_MATXIN`.
+///   The C++ converts to UTF-16 and caps the scan at [`BUF_SIZE`] (1000) UChars;
+///   this port scans the (already UTF-8) prefix directly — equivalent for the
+///   anchoring the patterns rely on. NEVER returns `CG3SF_MATXIN`.
 pub fn detect_format(buf8: &str) -> cg3_sformat {
     use cg3_sformat::*;
 

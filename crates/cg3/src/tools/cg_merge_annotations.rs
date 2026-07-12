@@ -10,6 +10,9 @@ use crate::profiler::Profiler;
 // [spec:cg3:def:cg-merge-annotations.main-fn]
 // [spec:cg3:sem:cg-merge-annotations.main-fn]
 /// C++ `int main(int argc, char* argv[])`.
+// faithful port: `for (int i = 3; i < argc; ++i)` iterates argv[] from index 3
+// (a non-zero-based range), so the range-loop stays index-driven.
+#[allow(clippy::needless_range_loop)]
 pub fn main_merge_annotations(args: &[String]) -> i32 {
     // Profiler out; out.read(argv[2]);
     let mut out = Profiler::default();

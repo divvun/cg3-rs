@@ -88,10 +88,7 @@ pub struct ConstIterator<'a, T> {
 // assignment). Manual impls avoid a spurious `T: Clone` bound.
 impl<'a, T> Clone for ConstIterator<'a, T> {
     fn clone(&self) -> Self {
-        ConstIterator {
-            fus: self.fus,
-            i: self.i,
-        }
+        *self
     }
 }
 
@@ -440,8 +437,7 @@ impl<T: Sentinel> FlatUnorderedSet<T> {
 
         // (B) Rehash. The C++ uses a `thread_local static` scratch vector for
         // reuse; a local vector is behaviourally identical.
-        let mut vals: Vec<T> = Vec::new();
-        vals.reserve(self.size_);
+        let mut vals: Vec<T> = Vec::with_capacity(self.size_);
         for elem in &self.elements {
             if *elem != T::EMPTY && *elem != T::DEL {
                 vals.push(*elem);
