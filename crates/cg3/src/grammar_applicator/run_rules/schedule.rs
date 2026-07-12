@@ -110,7 +110,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 // C++ builds two RuleCallback closures aliasing this + the
                 // shared state; the port threads `st` directly (wave 4 — the
                 // raw-pointer trampolines are gone).
-                let rv = self.run_single_rule(current, RuleId(j), &mut *st);
+                let rv = self.run_single_rule(current, RuleId(j), &mut st);
                 if rv || st.readings_changed {
                     if !((rflags.intersects(RF_NOITERATE)) && self.section_max_count != 1) {
                         section_did_something = true;
@@ -385,7 +385,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// arena and empty the tracking vector. RECONCILIATION: matches the required
     /// `Vec<ReadingId>` shape of `subs_any` (see [`Self::subs_any_push`]).
     pub(crate) fn subs_any_clear(&mut self) {
-        let ids: Vec<ReadingId> = self.subs_any.iter().copied().collect();
+        let ids: Vec<ReadingId> = self.subs_any.to_vec();
         for rid in ids {
             let opt = Some(rid);
             crate::reading::free_reading(&mut self.store, opt);

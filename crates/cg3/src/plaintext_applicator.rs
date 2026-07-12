@@ -150,11 +150,10 @@ impl PlaintextApplicator {
 
             if !ignoreinput && !cleaned.is_empty() && !cleaned.starts_with('<') {
                 // cCohort empty-readings init (dead in practice: cCohort is null).
-                if let Some(cc) = c_cohort {
-                    if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+                if let Some(cc) = c_cohort
+                    && self.base.store.cohorts.get(cc.0).readings.is_empty() {
                         self.base.init_empty_cohort(cc);
                     }
-                }
 
                 // (a) Soft-limit lookback (the ONLY split path that can fire).
                 if let Some(sw) = c_swindow {
@@ -271,7 +270,7 @@ impl PlaintextApplicator {
                 if self.base.gWindow.next.len() > self.base.num_windows as usize {
                     self.base.gWindow.shuffle_windows_down(&mut self.base.store);
                     self.base.run_grammar_on_window(output);
-                    if self.base.numWindows % reset_after == 0 {
+                    if self.base.numWindows.is_multiple_of(reset_after) {
                         self.base.reset_indexes();
                     }
                     // verbose progress: deferred.
@@ -393,8 +392,8 @@ impl PlaintextApplicator {
                 is_text = true;
             }
 
-            if is_text {
-                if !cleaned.is_empty() && !line.is_empty() {
+            if is_text
+                && !cleaned.is_empty() && !line.is_empty() {
                     let text: String = line.clone();
                     if let Some(lc) = l_cohort {
                         self.base.store.cohorts.get_mut(lc.0).text.push_str(&text);
@@ -409,7 +408,6 @@ impl PlaintextApplicator {
                         self.base.print_plain_text_line(&text, output);
                     }
                 }
-            }
 
             self.base.numLines += 1;
             line.clear();

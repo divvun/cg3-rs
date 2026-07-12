@@ -386,8 +386,8 @@ impl DepParentIter {
         let test_id = self.base.m_test.unwrap();
         let pos = grammar.contexts_arena[test_id.0].pos;
         let dep_parent = store.cohorts[cur_id.0].dep_parent;
-        if dep_parent.is_some() {
-            if let Some(&p_id) = window.cohort_map.get(&dep_parent.unwrap()) {
+        if dep_parent.is_some()
+            && let Some(&p_id) = window.cohort_map.get(&dep_parent.unwrap()) {
                 if store.cohorts[p_id.0].r#type.intersects(CT_REMOVED) {
                     self.base.m_cohort = None;
                     return;
@@ -412,7 +412,6 @@ impl DepParentIter {
                     return;
                 }
             }
-        }
         self.base.m_cohort = None;
     }
 

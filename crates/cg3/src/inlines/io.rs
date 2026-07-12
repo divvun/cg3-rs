@@ -171,7 +171,7 @@ pub fn write_be_f64<W: Write>(stream: &mut W, value: f64) {
 // write_be_f64: reads 8-byte BE mantissa then 4-byte BE exponent (12 bytes).
 pub fn read_be_f64<R: Read>(stream: &mut R) -> f64 {
     let mant64: u64 = read_be(stream);
-    let exp = read_be::<i32, R>(stream) as i32;
+    let exp = read_be::<i32, R>(stream);
 
     let value = dbl(si64(mant64)) / dbl(i64::MAX);
 

@@ -1010,7 +1010,7 @@ impl<'x> BinaryApplicator<'x> {
                     if self.base.gWindow.next.len() > self.base.num_windows as usize {
                         self.shuffle_windows_down();
                         self.base.run_grammar_on_window_with(fmt, output);
-                        if self.base.numWindows % reset_after == 0 {
+                        if self.base.numWindows.is_multiple_of(reset_after) {
                             self.base.reset_indexes();
                         }
                     }

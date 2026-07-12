@@ -392,11 +392,10 @@ pub fn parse_tag<S: ParseTagState>(
             // by GrammarApplicator::addTag) — unanchored is_match.
             let regex_ids: Vec<TagId> = state.grammar().regex_tags.iter().copied().collect();
             for tid in regex_ids {
-                if let Some(re) = &state.grammar().single_tags_list[tid.0].regexp {
-                    if re.is_match(&tag.tag) {
+                if let Some(re) = &state.grammar().single_tags_list[tid.0].regexp
+                    && re.is_match(&tag.tag) {
                         tag.r#type |= T_TEXTUAL;
                     }
-                }
             }
             // icase_tags scan (empty during textual parse).
             let icase_ids: Vec<TagId> = state.grammar().icase_tags.iter().copied().collect();

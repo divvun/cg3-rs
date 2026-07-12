@@ -514,11 +514,10 @@ impl TextualParser {
                 destroy = true;
             }
         }
-        if let Some(re) = &self.nrules_inv {
-            if re.is_match(&rule.name) {
+        if let Some(re) = &self.nrules_inv
+            && re.is_match(&rule.name) {
                 destroy = true;
             }
-        }
 
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
@@ -553,7 +552,7 @@ impl TextualParser {
     /// body): progress print, leading `SKIPWS`, and the keyword dispatch chain.
     pub(crate) fn parse_directive(&mut self, buf: &[char], pos: &mut usize, fname: &str) {
         let p0 = *pos;
-        if self.verbosity_level > 0 && self.grammar.lines % 500 == 0 {
+        if self.verbosity_level > 0 && self.grammar.lines.is_multiple_of(500) {
             tracing::info!("Parsing line {}", self.grammar.lines);
         }
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);

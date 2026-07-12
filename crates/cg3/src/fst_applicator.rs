@@ -229,7 +229,7 @@ impl FSTApplicator {
                 readings.len() == 1 && self.base.store.readings.get(readings[0].0).noprint;
             if readings.is_empty() || only_noprint {
                 // "<wordform>\t+?\n" — the FST "no analysis" marker.
-                let _ = write!(output, "{wform_inner}\t+?\n");
+                let _ = writeln!(output, "{wform_inner}\t+?");
             } else {
                 // NOTE: printCohort does NOT sort readings (unlike the base CG
                 // applicator) — iterate the current vector order verbatim.
@@ -474,11 +474,10 @@ impl FSTApplicator {
                                 i += 1;
                             }
                         }
-                        if let Some(t) = tab {
-                            if cleaned[t + 1] == '+' && cleaned[t + 2] == '?' {
+                        if let Some(t) = tab
+                            && cleaned[t + 1] == '+' && cleaned[t + 2] == '?' {
                                 break;
                             }
-                        }
 
                         // Reading* cReading = alloc_reading(cCohort);
                         let mut c_reading = alloc_reading(&mut self.base.store, Some(cc));
@@ -660,8 +659,8 @@ impl FSTApplicator {
                                     self.base.add_tag_to_reading(c_reading, t);
                                 }
                                 // if (hash && hash[0] == 0) { ... new sub-reading ... }
-                                if let Some(hidx) = hash {
-                                    if cleaned[hidx] == '\0' {
+                                if let Some(hidx) = hash
+                                    && cleaned[hidx] == '\0' {
                                         if let Some(wt) = wtag_tag {
                                             self.base.add_tag_to_reading(c_reading, wt);
                                         }
@@ -676,7 +675,6 @@ impl FSTApplicator {
                                         c_reading = nr; // cReading = nr;
                                         space += 1; // ++space;
                                     }
-                                }
                             }
                             // base = ++space;
                             space += 1;
@@ -843,11 +841,10 @@ impl FSTApplicator {
         lines: u32,
     ) {
         // if (cCohort && cCohort->readings.empty()) initEmptyCohort(*cCohort);
-        if let Some(cc) = *c_cohort {
-            if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+        if let Some(cc) = *c_cohort
+            && self.base.store.cohorts.get(cc.0).readings.is_empty() {
                 self.base.init_empty_cohort(cc);
             }
-        }
 
         // is_conv fast path.
         if self.base.is_conv {
@@ -982,7 +979,7 @@ impl FSTApplicator {
         if self.base.gWindow.next.len() as u32 > self.base.num_windows {
             self.base.gWindow.shuffle_windows_down(&mut self.base.store);
             self.base.run_grammar_on_window(output);
-            if self.base.numWindows % reset_after == 0 {
+            if self.base.numWindows.is_multiple_of(reset_after) {
                 self.base.reset_indexes();
             }
             // verbose progress: discard sink.

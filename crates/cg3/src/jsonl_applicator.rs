@@ -447,14 +447,13 @@ impl<'a> JsonlApplicator<'a> {
         );
 
         // Dependency ("ds" / "dp").
-        if let Some(ds) = obj.get("ds") {
-            if let Some(v) = as_uint(ds) {
+        if let Some(ds) = obj.get("ds")
+            && let Some(v) = as_uint(ds) {
                 self.base.store.cohorts.get_mut(c_cohort.0).dep_self =
                     (v != 0).then_some(crate::types::GlobalNumber(v));
             }
-        }
-        if let Some(dp) = obj.get("dp") {
-            if let Some(v) = as_uint(dp) {
+        if let Some(dp) = obj.get("dp")
+            && let Some(v) = as_uint(dp) {
                 self.base.store.cohorts.get_mut(c_cohort.0).dep_parent =
                     if v == crate::cohort::DEP_NO_PARENT {
                         None
@@ -462,7 +461,6 @@ impl<'a> JsonlApplicator<'a> {
                         Some(crate::types::GlobalNumber(v))
                     };
             }
-        }
 
         // Deleted readings ("drs").
         if let Some(Value::Array(drs)) = obj.get("drs") {
@@ -503,7 +501,7 @@ impl<'a> JsonlApplicator<'a> {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
         let doc = json!({ "cmd": ustring_to_utf8(cmd) });
         let s = serde_json::to_string(&doc).unwrap();
-        let _ = write!(output, "{s}\n");
+        let _ = writeln!(output, "{s}");
     }
 
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
@@ -516,7 +514,7 @@ impl<'a> JsonlApplicator<'a> {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
         let doc = json!({ "t": ustring_to_utf8(line) });
         let s = serde_json::to_string(&doc).unwrap();
-        let _ = write!(output, "{s}\n");
+        let _ = writeln!(output, "{s}");
     }
 
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn]
@@ -682,7 +680,7 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         let s = serde_json::to_string(&Value::Object(doc)).unwrap();
-        let _ = write!(output, "{s}\n");
+        let _ = writeln!(output, "{s}");
         let _ = output.flush();
     }
 
@@ -923,7 +921,7 @@ impl<'a> JsonlApplicator<'a> {
                         while !self.base.gWindow.next.is_empty() {
                             self.base.gWindow.shuffle_windows_down(&mut self.base.store);
                             self.base.run_grammar_on_window_with(fmt, output);
-                            if self.base.numWindows % reset_after == 0 {
+                            if self.base.numWindows.is_multiple_of(reset_after) {
                                 self.base.reset_indexes();
                             }
                             // verbose progress: deferred.
@@ -1113,7 +1111,7 @@ impl<'a> JsonlApplicator<'a> {
                 if did_delim || self.base.gWindow.next.len() > self.base.num_windows as usize {
                     self.base.gWindow.shuffle_windows_down(&mut self.base.store);
                     self.base.run_grammar_on_window_with(fmt, output);
-                    if self.base.numWindows % reset_after == 0 {
+                    if self.base.numWindows.is_multiple_of(reset_after) {
                         self.base.reset_indexes();
                     }
                     // verbose progress: deferred.

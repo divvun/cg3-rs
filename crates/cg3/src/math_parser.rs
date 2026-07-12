@@ -159,8 +159,8 @@ impl<'a> MathParser<'a> {
             self.get_token()?;
             self.eval_mul_div(&mut temp)?;
             match op {
-                '-' => *result = *result - temp,
-                '+' => *result = *result + temp,
+                '-' => *result -= temp,
+                '+' => *result += temp,
                 _ => {}
             }
         }
@@ -181,8 +181,8 @@ impl<'a> MathParser<'a> {
             self.eval_exp(&mut temp)?;
             match op {
                 // Plain IEEE-754 division, no zero check: `/0` yields ±inf/NaN.
-                '*' => *result = *result * temp,
-                '/' => *result = *result / temp,
+                '*' => *result *= temp,
+                '/' => *result /= temp,
                 _ => {}
             }
         }

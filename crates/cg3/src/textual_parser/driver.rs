@@ -364,7 +364,7 @@ impl TextualParser {
         let text = String::from_utf8_lossy(&bytes);
         let mut data: Vec<char> = vec!['\0'; 4];
         data.extend(text.chars());
-        data.extend(std::iter::repeat('\0').take(40));
+        data.extend(std::iter::repeat_n('\0', 40));
         self.grammarbufs.push(data);
         let gi2 = self.grammarbufs.len() - 1;
 
@@ -397,7 +397,7 @@ impl TextualParser {
         let tagstr = self.grammar.single_tags_list[tid.0].tag.clone();
         let mut tbuf: Vec<char> = vec!['\0'];
         tbuf.extend(tagstr.chars());
-        tbuf.extend(std::iter::repeat('\0').take(4));
+        tbuf.extend(std::iter::repeat_n('\0', 4));
         let mut p = 1usize;
         loop {
             skipto_chars(&tbuf, &mut p, '{');
@@ -452,9 +452,9 @@ impl TextualParser {
             self.grammar.contexts.remove(&key);
 
             let target = self.grammar.contexts_arena[unsafec.0].target.get();
-            if !sets_cache.contains_key(&target) {
+            if let std::collections::btree_map::Entry::Vacant(e) = sets_cache.entry(target) {
                 let stripped = self.grammar.remove_numeric_tags(target);
-                sets_cache.insert(target, stripped);
+                e.insert(stripped);
             }
             self.grammar.contexts_arena[unsafec.0].pos &= !POS_NUMERIC_BRANCH;
 
@@ -739,7 +739,7 @@ impl TextualParser {
         let text = String::from_utf8_lossy(buffer);
         let mut data: Vec<char> = vec!['\0'; 4];
         data.extend(text.chars());
-        data.extend(std::iter::repeat('\0').take(40));
+        data.extend(std::iter::repeat_n('\0', 40));
         self.grammarbufs.push(data);
         let gi = self.grammarbufs.len() - 1;
         // Deep grammar-construction fatals (grammar.rs allocate_tag/add_set/... and
@@ -756,11 +756,10 @@ impl TextualParser {
 /// (documented). The C++ uses `wordexp(WRDE_NOCMD|WRDE_UNDEF)`.
 fn shell_expand(s: &str) -> String {
     let mut out = s.to_string();
-    if out == "~" || out.starts_with("~/") {
-        if let Ok(home) = std::env::var("HOME") {
+    if (out == "~" || out.starts_with("~/"))
+        && let Ok(home) = std::env::var("HOME") {
             out = out.replacen('~', &home, 1);
         }
-    }
     out
 }
 

@@ -315,7 +315,7 @@ impl<'a> NicelineApplicator<'a> {
                     if self.base.gWindow.next.len() > self.base.num_windows as usize {
                         self.base.gWindow.shuffle_windows_down(&mut self.base.store);
                         self.base.run_grammar_on_window_with(fmt, output);
-                        if self.base.numWindows % reset_after == 0 {
+                        if self.base.numWindows.is_multiple_of(reset_after) {
                             self.base.reset_indexes();
                         }
                         // verbose progress: deferred.
@@ -676,7 +676,7 @@ impl<'a> NicelineApplicator<'a> {
         if p_related {
             let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
-                for siter in targets.iter().copied() {
+                for siter in targets.iter() {
                     let tid = tag_by_hash(&self.base.grammar, TagHash(*rel_hash));
                     let _ = write!(
                         output,

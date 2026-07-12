@@ -274,12 +274,11 @@ pub fn append_cohort(
     // Backward link.
     if single_windows.get(sw_id.0).cohorts.is_empty() {
         // if (previous && !previous->cohorts.empty())
-        if let Some(prev_id) = single_windows.get(sw_id.0).previous {
-            if let Some(pb) = single_windows.get(prev_id.0).cohorts.last().copied() {
+        if let Some(prev_id) = single_windows.get(sw_id.0).previous
+            && let Some(pb) = single_windows.get(prev_id.0).cohorts.last().copied() {
                 cohorts.get_mut(pb.0).next = Some(cohort_id);
                 cohorts.get_mut(cohort_id.0).prev = Some(pb);
             }
-        }
     } else {
         // cohort->prev = cohorts.back(); cohorts.back()->next = cohort;
         let back = *single_windows.get(sw_id.0).cohorts.last().unwrap();
@@ -288,12 +287,11 @@ pub fn append_cohort(
     }
 
     // Forward link: if (next && !next->cohorts.empty())
-    if let Some(next_id) = single_windows.get(sw_id.0).next {
-        if let Some(nf) = single_windows.get(next_id.0).cohorts.first().copied() {
+    if let Some(next_id) = single_windows.get(sw_id.0).next
+        && let Some(nf) = single_windows.get(next_id.0).cohorts.first().copied() {
             cohorts.get_mut(nf.0).prev = Some(cohort_id);
             cohorts.get_mut(cohort_id.0).next = Some(nf);
         }
-    }
 
     // cohorts.push_back(cohort); all_cohorts.push_back(cohort);
     {

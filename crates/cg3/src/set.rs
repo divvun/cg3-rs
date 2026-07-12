@@ -210,20 +210,17 @@ impl Set {
             let name0 = name.chars().next().unwrap_or('\0');
             // u_sscanf(name.data(), "&&%u:%*S", &u) == 1 && u != 0
             if name0 == '&' {
-                if let Some(u) = scan_prefixed_uint(&name, '&') {
-                    if u != 0 {
+                if let Some(u) = scan_prefixed_uint(&name, '&')
+                    && u != 0 {
                         retval = hash_value(u, retval);
                     }
-                }
             }
             // else if name[0] == '$' && u_sscanf(name.data(), "$$%u:%*S", &u) == 1 && u != 0
-            else if name0 == '$' {
-                if let Some(u) = scan_prefixed_uint(&name, '$') {
-                    if u != 0 {
+            else if name0 == '$'
+                && let Some(u) = scan_prefixed_uint(&name, '$')
+                    && u != 0 {
                         retval = hash_value(u, retval);
                     }
-                }
-            }
         }
 
         if grammar.sets_list[id.0].sets.is_empty() {

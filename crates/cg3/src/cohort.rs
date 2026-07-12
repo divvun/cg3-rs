@@ -290,13 +290,12 @@ pub fn cohort_dtor(store: &mut RuntimeStore, window: Option<&mut Window>, this: 
     free_reading(store, wr);
     store.cohorts.get_mut(this.0).wread = None; // free_reading(wread) nulls the member
 
-    if store.cohorts.get(this.0).parent.is_some() {
-        if let Some(win) = window {
+    if store.cohorts.get(this.0).parent.is_some()
+        && let Some(win) = window {
             let gn = store.cohorts.get(this.0).global_number;
             win.cohort_map.remove(&gn);
             win.dep_window.remove(&gn);
         }
-    }
     detach(store, this);
 }
 
@@ -324,13 +323,12 @@ pub fn cohort_clear(store: &mut RuntimeStore, window: Option<&mut Window>, this:
         Some(sw_id) => store.single_windows.get(sw_id.0).parent.is_some(),
         None => false,
     };
-    if sw.is_some() && sw_has_parent {
-        if let Some(win) = window {
+    if sw.is_some() && sw_has_parent
+        && let Some(win) = window {
             let gn = store.cohorts.get(this.0).global_number;
             win.cohort_map.remove(&gn);
             win.dep_window.remove(&gn);
         }
-    }
     detach(store, this);
 
     {

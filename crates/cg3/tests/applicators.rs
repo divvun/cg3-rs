@@ -504,14 +504,12 @@ fn jsonl_conv_roundtrip() {
 
     // Leading text line, before any window exists → printPlainTextLine.
     assert!(
-        lines.iter().any(|l| *l == "{\"t\":\"hello world\"}"),
+        lines.contains(&"{\"t\":\"hello world\"}"),
         "standalone text line lost:\n{text}"
     );
     // Stream command echoed via printStreamCommand.
     assert!(
-        lines
-            .iter()
-            .any(|l| *l == "{\"cmd\":\"<STREAMCMD:FLUSH>\"}"),
+        lines.contains(&"{\"cmd\":\"<STREAMCMD:FLUSH>\"}"),
         "stream command lost:\n{text}"
     );
     // The cohort came back with wordform, both readings, the subreading, and

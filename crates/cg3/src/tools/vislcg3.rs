@@ -508,7 +508,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
         // Move the grammar back out (C++ `grammar` lives in main throughout),
         // and the profiler (for the final `Profiler::write`).
-        grammar = std::mem::replace(&mut applicator.base_mut().grammar, Grammar::default());
+        grammar = std::mem::take(&mut applicator.base_mut().grammar);
         #[cfg(feature = "profiler")]
         if profiler.is_none() {
             profiler = applicator.base_mut().profiler.take();

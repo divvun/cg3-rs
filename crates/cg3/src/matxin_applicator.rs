@@ -368,7 +368,7 @@ impl MatxinApplicator {
                         let iter = taglist[k];
                         let t = self.base.grammar.single_tags_list.get(iter.0);
                         let is_mapping =
-                            t.r#type.intersects(T_MAPPING) || t.tag.chars().next() == Some(mprefix);
+                            t.r#type.intersects(T_MAPPING) || t.tag.starts_with(mprefix);
                         if is_mapping {
                             mappings.push(iter);
                         } else {
@@ -412,8 +412,8 @@ impl MatxinApplicator {
         }
         if r.next.is_some() {
             tracing::error!("Error: input contains sub-readings!");
-            let _ = write!(output, "  </SENTENCE>\n");
-            let _ = write!(output, "</corpus>\n");
+            let _ = writeln!(output, "  </SENTENCE>");
+            let _ = writeln!(output, "</corpus>");
             // C++ exit(-1); wave 4: Cg3Exit unwind (bins convert to the exit).
             crate::error::cg3_exit(-1);
         }
@@ -448,7 +448,7 @@ impl MatxinApplicator {
                 .grammar
                 .single_tags_list
                 .get(tag_by_hash(&self.base.grammar, TagHash(tter)).0);
-            if tag.tag.chars().next() == Some('+') {
+            if tag.tag.starts_with('+') {
                 multi = true;
             } else if tag.r#type.intersects(T_MAPPING) {
                 multi = false;
@@ -504,7 +504,7 @@ impl MatxinApplicator {
     /// std::ostream& output, bool profiling)`. Emits one `<SENTENCE>` block.
     pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         let number = self.base.store.single_windows.get(window.0).number;
-        let _ = write!(output, "  <SENTENCE ord=\"{number}\" alloc=\"0\">\n");
+        let _ = writeln!(output, "  <SENTENCE ord=\"{number}\" alloc=\"0\">");
 
         let all_cohorts = self
             .base
@@ -573,11 +573,10 @@ impl MatxinApplicator {
 
             // Fallback root `r`.
             let mut r = self.nodes.len() as i32; // last word
-            if let Some(d0) = self.deps.get(&0) {
-                if !d0.is_empty() {
+            if let Some(d0) = self.deps.get(&0)
+                && !d0.is_empty() {
                     r = d0[0];
                 }
-            }
 
             self.nodes.insert(global_number.get() as i32, n);
 
@@ -601,7 +600,7 @@ impl MatxinApplicator {
         let deps = self.deps.clone();
         self.proc_node(&mut depth, &nodes, &deps, 0, output);
 
-        let _ = write!(output, "  </SENTENCE>\n");
+        let _ = writeln!(output, "  </SENTENCE>");
     }
 
     // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.proc-node-fn]
@@ -636,15 +635,15 @@ impl MatxinApplicator {
                 let _ = write!(output, " ");
             }
             if !v.is_empty() {
-                let _ = write!(
+                let _ = writeln!(
                     output,
-                    "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\">\n",
+                    "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\">",
                     node.self_, node.form, node.lemma, node.mi, si
                 );
             } else {
-                let _ = write!(
+                let _ = writeln!(
                     output,
-                    "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\"/>\n",
+                    "<NODE ord=\"{}\" alloc=\"0\" form=\"{}\" lem=\"{}\" mi=\"{}\" si=\"{}\"/>",
                     node.self_, node.form, node.lemma, node.mi, si
                 );
                 *depth -= 1;
@@ -664,7 +663,7 @@ impl MatxinApplicator {
             for _ in 0..(*depth * 2) {
                 let _ = write!(output, " ");
             }
-            let _ = write!(output, "</NODE>\n");
+            let _ = writeln!(output, "</NODE>");
         }
         *depth -= 1;
     }
@@ -822,11 +821,10 @@ impl MatxinApplicator {
 
             // We are at the start of a cohort.
             // Magic reading for the previous cohort.
-            if let Some(cc) = c_cohort {
-                if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+            if let Some(cc) = c_cohort
+                && self.base.store.cohorts.get(cc.0).readings.is_empty() {
                     self.base.init_empty_cohort(cc);
                 }
-            }
             // Soft-limit break.
             if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
                 let cohorts_size = self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
@@ -913,7 +911,7 @@ impl MatxinApplicator {
             if self.base.gWindow.next.len() as u32 > self.base.num_windows {
                 self.base.gWindow.shuffle_windows_down(&mut self.base.store);
                 self.base.run_grammar_on_window(output);
-                if reset_after != 0 && self.base.numWindows % reset_after == 0 {
+                if reset_after != 0 && self.base.numWindows.is_multiple_of(reset_after) {
                     self.base.reset_indexes();
                 }
             }
@@ -1060,7 +1058,7 @@ impl MatxinApplicator {
         let _ = (c_reading, c_cohort, c_swindow);
 
         // Run the grammar & print results.
-        let _ = write!(output, "<corpus>\n");
+        let _ = writeln!(output, "<corpus>");
         while !self.base.gWindow.next.is_empty() {
             self.base.gWindow.shuffle_windows_down(&mut self.base.store);
             self.base.run_grammar_on_window(output);
@@ -1077,7 +1075,7 @@ impl MatxinApplicator {
         if inchar != '\0' && inchar != '\u{FFFF}' {
             let _ = write!(output, "{inchar}");
         }
-        let _ = write!(output, "</corpus>\n");
+        let _ = writeln!(output, "</corpus>");
         u_fflush(output);
     }
 

@@ -976,8 +976,8 @@ impl Grammar {
         }
 
         // (6) Content registration.
-        if !self.sets_by_contents.contains_key(&chash) {
-            self.sets_by_contents.insert(chash, to);
+        if let std::collections::btree_map::Entry::Vacant(e) = self.sets_by_contents.entry(chash) {
+            e.insert(to);
         } else {
             let a = self.sets_by_contents[&chash];
             if a != to {
@@ -1837,16 +1837,14 @@ impl Grammar {
                 )
             };
             let mut cap = false;
-            if let Some(m) = maplist {
-                if self.sets_list[m.0].r#type.intersects(ST_CHILD_UNIFY) {
+            if let Some(m) = maplist
+                && self.sets_list[m.0].r#type.intersects(ST_CHILD_UNIFY) {
                     cap = true;
                 }
-            }
-            if let Some(sl) = sublist {
-                if self.sets_list[sl.0].r#type.intersects(ST_CHILD_UNIFY) {
+            if let Some(sl) = sublist
+                && self.sets_list[sl.0].r#type.intersects(ST_CHILD_UNIFY) {
                     cap = true;
                 }
-            }
             if cap {
                 self.rule_by_number.get_mut(rid.0).flags |= RF_CAPTURE_UNIF;
             }
@@ -1980,22 +1978,20 @@ impl Grammar {
                     let ct = &self.contexts_arena[t.0];
                     (ct.tmpl, ct.linked, ct.target, ct.barrier, ct.cbarrier)
                 };
-                if let Some(tm) = tmpl {
-                    if nk.contains(&tm) {
+                if let Some(tm) = tmpl
+                    && nk.contains(&tm) {
                         if nk.insert(t) {
                             did = true;
                         }
                         continue;
                     }
-                }
-                if let Some(l) = linked {
-                    if nk.contains(&l) {
+                if let Some(l) = linked
+                    && nk.contains(&l) {
                         if nk.insert(t) {
                             did = true;
                         }
                         continue;
                     }
-                }
                 if target.get() != 0 && self.set_by_number(target).r#type.intersects(MASK_ST_UNIFY) {
                     if nk.insert(t) {
                         did = true;
@@ -2058,21 +2054,18 @@ impl Grammar {
                 continue;
             }
             let mut needs = false;
-            if let Some(sl) = sublist {
-                if sets_vstr[self.sets_list[sl.0].number.get() as usize] {
+            if let Some(sl) = sublist
+                && sets_vstr[self.sets_list[sl.0].number.get() as usize] {
                     needs = true;
                 }
-            }
-            if let Some(m) = maplist {
-                if sets_vstr[self.sets_list[m.0].number.get() as usize] {
+            if let Some(m) = maplist
+                && sets_vstr[self.sets_list[m.0].number.get() as usize] {
                     needs = true;
                 }
-            }
-            if let Some(dt) = dep_target {
-                if nk.contains(&dt) {
+            if let Some(dt) = dep_target
+                && nk.contains(&dt) {
                     needs = true;
                 }
-            }
             for cntx in &tests {
                 if nk.contains(cntx) {
                     needs = true;

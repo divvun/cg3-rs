@@ -45,11 +45,10 @@ impl crate::grammar_applicator::GrammarApplicator {
         if let Some(sr) = at.subreading {
             self.store.readings.get_mut(sr.0).hit_by.push(rule_number);
         }
-        if rule_sub_reading == GSR_ANY {
-            if let Some(r) = at.reading {
+        if rule_sub_reading == GSR_ANY
+            && let Some(r) = at.reading {
                 self.store.readings.get_mut(r.0).hit_by.push(rule_number);
             }
-        }
     }
 
     // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.does-wordforms-match-fn]
@@ -60,8 +59,8 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// `cword`/`rword` are the cohort's and rule's wordform tags (nullable →
     /// `Option<TagId>`).
     pub fn does_wordforms_match(&mut self, cword: Option<TagId>, rword: Option<TagId>) -> bool {
-        if let Some(rw) = rword {
-            if Some(rw) != cword {
+        if let Some(rw) = rword
+            && Some(rw) != cword {
                 // `rword` (a Tag in the grammar arena) is cloned out so the
                 // `&mut self` matcher calls do not alias the grammar borrow.
                 let rword_tag = self.grammar.single_tags_list.get(rw.0).clone();
@@ -80,7 +79,6 @@ impl crate::grammar_applicator::GrammarApplicator {
                     return false;
                 }
             }
-        }
         true
     }
 

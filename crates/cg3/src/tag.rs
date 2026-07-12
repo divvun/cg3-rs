@@ -696,9 +696,9 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     // that guard reads past it).
     let cat = |k: usize| -> char { if k < length { to_chars[k] } else { '\0' } };
 
-    if length != 0 && (to_chars[0] == '"' || to_chars[0] == '<') {
-        if (to_chars[0] == '"' && cat(length - 1) == '"')
-            || (to_chars[0] == '<' && cat(length - 1) == '>')
+    if length != 0 && (to_chars[0] == '"' || to_chars[0] == '<')
+        && ((to_chars[0] == '"' && cat(length - 1) == '"')
+            || (to_chars[0] == '<' && cat(length - 1) == '>'))
         {
             this.r#type |= T_TEXTUAL;
             if to_chars[0] == '"' && cat(length - 1) == '"' {
@@ -709,7 +709,6 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
                 }
             }
         }
-    }
 
     // tag.assign(to, length)
     this.tag = to.to_string();

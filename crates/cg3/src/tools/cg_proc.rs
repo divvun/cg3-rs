@@ -485,12 +485,11 @@ pub fn main_proc(args: &[String]) -> i32 {
     if !single_rule.is_empty() {
         let n = base.grammar.rule_by_number.capacity();
         for i in 0..n {
-            if let Some(rule) = base.grammar.rule_by_number.try_get(i) {
-                if rule.name == single_rule {
+            if let Some(rule) = base.grammar.rule_by_number.try_get(i)
+                && rule.name == single_rule {
                     let number = rule.number;
                     base.valid_rules.insert_sorted(number);
                 }
-            }
         }
     }
 

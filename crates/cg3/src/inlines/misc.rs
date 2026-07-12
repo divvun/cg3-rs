@@ -19,11 +19,10 @@ use crate::types::{UString, UStringView};
 // unwind — only the `src/bin` entry points turn it into a real process exit
 // (see `crate::error::run_cli`), so library embedders keep their process.
 pub fn cg3_quit(c: i32, file: Option<&str>, line: u32) -> ! {
-    if let Some(file) = file {
-        if line != 0 {
+    if let Some(file) = file
+        && line != 0 {
             tracing::error!("CG3Quit triggered from {} line {}.", file, line);
         }
-    }
     crate::error::cg3_exit(c)
 }
 
@@ -125,8 +124,8 @@ pub fn is_cg3bsf<S: AsRef<[u8]>>(s: S) -> bool {
 // boost::dynamic_bitset -> Vec<bool> stand-in (bit i == vec[i]); no bitset type
 // nor boost/external crate exists in Wave 2. Grows `cont` (zero-fill) then ORs.
 pub fn insert_if_exists(cont: &mut Vec<bool>, other: Option<&Vec<bool>>) {
-    if let Some(other) = other {
-        if !other.is_empty() {
+    if let Some(other) = other
+        && !other.is_empty() {
             let newlen = cont.len().max(other.len());
             cont.resize(newlen, false);
             for (i, &bit) in other.iter().enumerate() {
@@ -135,7 +134,6 @@ pub fn insert_if_exists(cont: &mut Vec<bool>, other: Option<&Vec<bool>>) {
                 }
             }
         }
-    }
 }
 
 // [spec:cg3:def:inlines.cg3.g-app-set-opts-ranged-fn]
@@ -155,12 +153,11 @@ pub fn g_app_set_opts_ranged(value: &str, cont: &mut Vec<u32>, fill: bool) {
         let mut high = low;
         let delim = strchr(vb, comma, b'-');
         let nextc = strchr(vb, comma, b',');
-        if let Some(d) = delim {
-            if nextc.is_none() || nextc.unwrap() > d {
+        if let Some(d) = delim
+            && (nextc.is_none() || nextc.unwrap() > d) {
                 had_range = true;
                 high = atoi(vb, d + 1).unsigned_abs();
             }
-        }
         for v in low..=high {
             cont.push(v);
         }
@@ -454,7 +451,7 @@ pub fn erase<T: PartialEq>(cont: &mut Vec<T>, val: &T) {
 // which calls `f(0), f(1), ..., f(N-1)` in order.
 #[inline]
 pub fn make_array_helper<const N: usize, R, F: Fn(usize) -> R>(f: F) -> [R; N] {
-    std::array::from_fn(|i| f(i))
+    std::array::from_fn(f)
 }
 
 // [spec:cg3:def:inlines.cg3.make-array-fn]

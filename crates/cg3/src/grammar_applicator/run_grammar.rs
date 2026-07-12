@@ -619,11 +619,10 @@ impl super::GrammarApplicator {
                     cleaned[space + 1] = '\0';
 
                     // If a pending cCohort has no readings, init it empty.
-                    if let Some(cc) = c_cohort {
-                        if self.store.cohorts.get(cc.0).readings.is_empty() {
+                    if let Some(cc) = c_cohort
+                        && self.store.cohorts.get(cc.0).readings.is_empty() {
                             self.init_empty_cohort(cc);
                         }
-                    }
 
                     // (a) Soft-limit lookback.
                     if let Some(sw) = c_swindow {
@@ -771,7 +770,7 @@ impl super::GrammarApplicator {
                         self.shuffle_windows_down();
 
                         self.run_grammar_on_window_with(fmt, output);
-                        if self.numWindows % reset_after == 0 {
+                        if self.numWindows.is_multiple_of(reset_after) {
                             self.reset_indexes();
                         }
                         // verbose progress: deferred.
@@ -925,7 +924,7 @@ impl super::GrammarApplicator {
                             self.shuffle_windows_down();
 
                             self.run_grammar_on_window_with(fmt, output);
-                            if self.numWindows % reset_after == 0 {
+                            if self.numWindows.is_multiple_of(reset_after) {
                                 self.reset_indexes();
                             }
                         }

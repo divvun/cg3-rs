@@ -627,15 +627,15 @@ impl TextualParser {
             if root.cs.is_empty() {
                 return;
             }
-            let _ = write!(out, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-            let _ = write!(out, "<!-- l is line -->\n");
-            let _ = write!(
+            let _ = writeln!(out, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            let _ = writeln!(out, "<!-- l is line -->");
+            let _ = writeln!(
                 out,
-                "<!-- b is begin, e is end - both are absolute UTF-16 code unit offsets (not code point) in the file -->\n"
+                "<!-- b is begin, e is end - both are absolute UTF-16 code unit offsets (not code point) in the file -->"
             );
-            let _ = write!(
+            let _ = writeln!(
                 out,
-                "<!-- u is the deduplicated objects' unique identifier -->\n"
+                "<!-- u is the deduplicated objects' unique identifier -->"
             );
             crate::ast::print_ast(out, root.cs[0].b, 0, &root.cs[0]);
         }
@@ -1647,11 +1647,10 @@ impl TextualParser {
             let th = self.grammar.contexts_arena[t.0].hash;
             prof.add_context(th, self.cur_grammar_n, ast_ctx_b - 4, *pos - 4);
         }
-        if self.grammar.contexts_arena[t.0].tmpl.is_some() {
-            if let Some(td) = tmpl_data {
+        if self.grammar.contexts_arena[t.0].tmpl.is_some()
+            && let Some(td) = tmpl_data {
                 self.deferred_tmpls.insert(t, td);
             }
-        }
 
         // C++ `AST_CLOSE_ID(p, t->hash)`.
         let t_hash = self.grammar.contexts_arena[t.0].hash;
@@ -1719,7 +1718,7 @@ impl TextualParser {
                             self.grammar.lines += skiptows_chars(buf, &mut n, '\0', true, false);
                             let token: String = buf[*pos..n].iter().collect();
                             *pos = n;
-                            if token.chars().next() == Some('*') {
+                            if token.starts_with('*') {
                                 rv.sub_reading = GSR_SPECIALS::GSR_ANY as i32;
                             } else {
                                 rv.sub_reading = scan_d(&token);

@@ -498,7 +498,7 @@ impl ApertiumApplicator {
                         let iter = taglist[k];
                         let t = self.base.grammar.single_tags_list.get(iter.0);
                         let is_mapping =
-                            t.r#type.intersects(T_MAPPING) || t.tag.chars().next() == Some(mprefix);
+                            t.r#type.intersects(T_MAPPING) || t.tag.starts_with(mprefix);
                         if is_mapping {
                             mappings.push(iter);
                         } else {
@@ -570,7 +570,7 @@ impl ApertiumApplicator {
                 reading = reverse_reading(&mut self.base.store, reading);
             }
             self.print_reading_2(reading, output);
-            let _ = write!(output, "\n");
+            let _ = writeln!(output);
             let opt = Some(reading);
             free_reading(&mut self.base.store, opt);
         }
@@ -660,7 +660,7 @@ impl ApertiumApplicator {
         let mut multi = false;
         for &tter in r.tags_list.iter() {
             let tag = grammar.single_tags_list.get(tag_by_hash(grammar, TagHash(tter)).0);
-            if tag.tag.chars().next() == Some('+') {
+            if tag.tag.starts_with('+') {
                 multi = true;
             } else if tag.r#type.intersects(T_MAPPING) {
                 multi = false;
@@ -703,8 +703,8 @@ impl ApertiumApplicator {
         }
 
         // Dependency output.
-        if self.base.has_dep && r.next.is_none() {
-            if let Some(pcid) = parent {
+        if self.base.has_dep && r.next.is_none()
+            && let Some(pcid) = parent {
                 let parent_removed = store.cohorts.get(pcid.0).r#type.intersects(CT_REMOVED);
                 if !parent_removed {
                     let (local_number, dep_self, dep_parent, sw_parent, global_number) = {
@@ -722,12 +722,11 @@ impl ApertiumApplicator {
                     let mut pr = pcid;
                     if dep_parent.is_some() {
                         if dep_parent == Some(crate::types::GlobalNumber(0)) {
-                            if let Some(sw) = sw_parent {
-                                if let Some(&first) = store.single_windows.get(sw.0).cohorts.first()
+                            if let Some(sw) = sw_parent
+                                && let Some(&first) = store.single_windows.get(sw.0).cohorts.first()
                                 {
                                     pr = first;
                                 }
-                            }
                         } else if let Some(&cid) =
                             self.base.gWindow.cohort_map.get(&dep_parent.unwrap())
                         {
@@ -739,7 +738,6 @@ impl ApertiumApplicator {
                     let _ = write!(output, "<#{}\u{2192}{}>", local_number, pr_local);
                 }
             }
-        }
 
         if self.base.trace {
             for &iter_hb in r.hit_by.iter() {
@@ -767,9 +765,9 @@ impl ApertiumApplicator {
                     _ => break,
                 }
             }
-            if store.readings.get(last.0).baseform.is_some() {
-                if let Some(pcid) = store.readings.get(reading.0).parent {
-                    if let Some(wf) = store.cohorts.get(pcid.0).wordform {
+            if store.readings.get(last.0).baseform.is_some()
+                && let Some(pcid) = store.readings.get(reading.0).parent
+                    && let Some(wf) = store.cohorts.get(pcid.0).wordform {
                         let wftag: Vec<char> =
                             grammar.single_tags_list.get(wf.0).tag.chars().collect();
                         // wf_length = size - 4; walk indices [0, wf_length),
@@ -792,8 +790,6 @@ impl ApertiumApplicator {
                             casing = ApertiumCasing::Title;
                         }
                     }
-                }
-            }
         }
         self.print_reading(reading, output, casing, 0);
     }
@@ -1465,7 +1461,7 @@ impl ApertiumApplicator {
                 if did_delim && self.base.gWindow.next.len() as u32 > self.base.num_windows {
                     self.base.gWindow.shuffle_windows_down(&mut self.base.store);
                     self.base.run_grammar_on_window(output);
-                    if reset_after != 0 && self.base.numWindows % reset_after == 0 {
+                    if reset_after != 0 && self.base.numWindows.is_multiple_of(reset_after) {
                         self.base.reset_indexes();
                     }
                 }

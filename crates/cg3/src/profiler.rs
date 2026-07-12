@@ -194,10 +194,7 @@ impl Profiler {
             r#type: ET_CONTEXT,
             id: c,
         };
-        if !self.entries.contains_key(&k) {
-            self.entries.insert(
-                k,
-                Entry {
+        self.entries.entry(k).or_insert(Entry {
                     r#type: ET_CONTEXT,
                     grammar: g,
                     b,
@@ -205,9 +202,7 @@ impl Profiler {
                     num_match: 0,
                     num_fail: 0,
                     example_window: 0,
-                },
-            );
-        }
+                });
     }
 
     // [spec:cg3:def:profiler.cg3.profiler.write-fn]

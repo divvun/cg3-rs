@@ -427,17 +427,17 @@ impl GrammarApplicator {
                 Some(vh) => {
                     if vh != self.grammar.tag_any {
                         let vtid = tag_by_hash(&self.grammar, TagHash(vh));
-                        let _ = write!(
+                        let _ = writeln!(
                             output,
-                            "{STR_CMD_SETVAR}{}={}>\n",
+                            "{STR_CMD_SETVAR}{}={}>",
                             key_tag, self.grammar.single_tags_list[vtid.0].tag
                         );
                     } else {
-                        let _ = write!(output, "{STR_CMD_SETVAR}{key_tag}>\n");
+                        let _ = writeln!(output, "{STR_CMD_SETVAR}{key_tag}>");
                     }
                 }
                 None => {
-                    let _ = write!(output, "{STR_CMD_REMVAR}{key_tag}>\n");
+                    let _ = writeln!(output, "{STR_CMD_REMVAR}{key_tag}>");
                 }
             }
         }
@@ -475,7 +475,7 @@ impl GrammarApplicator {
 
         u_fputc('\n', output);
         if flush_after {
-            let _ = write!(output, "{STR_CMD_FLUSH}\n");
+            let _ = writeln!(output, "{STR_CMD_FLUSH}");
         }
         u_fflush(output);
     }

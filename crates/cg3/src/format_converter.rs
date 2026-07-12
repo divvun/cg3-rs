@@ -106,11 +106,10 @@ pub fn detect_format(buf8: &str) -> cg3_sformat {
         // (The C++ never resets `status` between calls; a compile/find failure
         // there simply yields no match — mirrored by treating a build error as
         // "no match", though these literals always compile.)
-        if let Ok(rx) = regex::Regex::new(pat) {
-            if rx.is_match(&buffer) {
+        if let Ok(rx) = regex::Regex::new(pat)
+            && rx.is_match(&buffer) {
                 return *fmt;
             }
-        }
     }
 
     // 6. No match → PLAIN.

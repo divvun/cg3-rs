@@ -732,16 +732,14 @@ impl BinaryGrammar {
             }
 
             // --nrules / --nrules-inv name filters (K_IGNORE the rule).
-            if let Some(re) = &self.nrules {
-                if !re.is_match(&r.name) {
+            if let Some(re) = &self.nrules
+                && !re.is_match(&r.name) {
                     r.r#type = KEYWORDS::K_IGNORE;
                 }
-            }
-            if let Some(re) = &self.nrules_inv {
-                if re.is_match(&r.name) {
+            if let Some(re) = &self.nrules_inv
+                && re.is_match(&r.name) {
                     r.r#type = KEYWORDS::K_IGNORE;
                 }
-            }
 
             let number = r.number;
             self.grammar.rule_by_number[number] = r; // rule_by_number[r->number] = r

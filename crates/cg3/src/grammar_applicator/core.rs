@@ -216,12 +216,11 @@ fn stoi(s: &str) -> i32 {
     let s = s.trim_start();
     let mut it = s.chars().peekable();
     let mut neg = false;
-    if let Some(&c) = it.peek() {
-        if c == '+' || c == '-' {
+    if let Some(&c) = it.peek()
+        && (c == '+' || c == '-') {
             neg = c == '-';
             it.next();
         }
-    }
     let mut v: i64 = 0;
     for c in it {
         match c.to_digit(10) {
@@ -667,11 +666,10 @@ impl super::GrammarApplicator {
         if !self.valid_rules.empty() {
             let mut vr = crate::interval_vector::uint32IntervalVector::new();
             for i in 0..self.grammar.rule_by_number.capacity() {
-                if let Some(rule) = self.grammar.rule_by_number.try_get(i) {
-                    if self.valid_rules.contains(rule.line) {
+                if let Some(rule) = self.grammar.rule_by_number.try_get(i)
+                    && self.valid_rules.contains(rule.line) {
                         vr.insert_sorted(rule.number);
                     }
-                }
             }
             self.valid_rules = vr;
         }
@@ -704,7 +702,7 @@ impl super::GrammarApplicator {
     /// [`StreamFormat`](super::stream_format::StreamFormat) strategy; this is
     /// the base-class implementation.)
     pub fn print_stream_command<W: Write>(&self, cmd: &str, output: &mut W) {
-        let _ = write!(output, "{cmd}\n");
+        let _ = writeln!(output, "{cmd}");
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-plain-text-line-fn]
@@ -741,11 +739,10 @@ impl super::GrammarApplicator {
                 if let Some(txt) = self.first_maplist_tag(r.maplist) {
                     let _ = write!(output, "({txt}");
                 }
-                if matches!(r.r#type, K_ADDRELATIONS | K_SETRELATIONS | K_REMRELATIONS) {
-                    if let Some(txt) = self.first_maplist_tag(r.sublist) {
+                if matches!(r.r#type, K_ADDRELATIONS | K_SETRELATIONS | K_REMRELATIONS)
+                    && let Some(txt) = self.first_maplist_tag(r.sublist) {
                         let _ = write!(output, ",{txt}");
                     }
-                }
                 let _ = write!(output, ")");
             }
             if !self.trace_name_only || r.name.is_empty() {
@@ -930,7 +927,7 @@ impl super::GrammarApplicator {
         if self.print_ids || p_related {
             let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
-                for siter in targets.iter().copied() {
+                for siter in targets.iter() {
                     let tid = tag_by_hash(&self.grammar, TagHash(*rel_hash));
                     let _ = write!(
                         output,
@@ -967,7 +964,7 @@ impl super::GrammarApplicator {
         // `goto removed` from local_number == 0 skips the entire main body.
         if local_number != 0 {
             if profiling && Some(cohort) == self.rule_target {
-                let _ = write!(output, "# RULE TARGET BEGIN\n");
+                let _ = writeln!(output, "# RULE TARGET BEGIN");
             }
 
             let wblank = self.store.cohorts.get(cohort.0).wblank.clone();
@@ -1063,7 +1060,7 @@ impl super::GrammarApplicator {
         }
 
         if profiling && Some(cohort) == self.rule_target {
-            let _ = write!(output, "# RULE TARGET END\n");
+            let _ = writeln!(output, "# RULE TARGET END");
         }
     }
 
@@ -1612,11 +1609,10 @@ impl super::GrammarApplicator {
             } else {
                 // ucnv_toUChars is identity for UTF-8; compare rule names.
                 for i in 0..self.grammar.rule_by_number.capacity() {
-                    if let Some(rule) = self.grammar.rule_by_number.try_get(i) {
-                        if rule.name == v {
+                    if let Some(rule) = self.grammar.rule_by_number.try_get(i)
+                        && rule.name == v {
                             self.valid_rules.insert_sorted(rule.number);
                         }
-                    }
                 }
             }
         }
@@ -1739,9 +1735,9 @@ impl super::GrammarApplicator {
 
         let mut buf: Vec<u8> = Vec::new();
         let line = self.grammar.rule_by_number[rule.0].line;
-        let _ = write!(
+        let _ = writeln!(
             &mut buf,
-            "# ===== BEGIN RULE {}{}{} =====\n",
+            "# ===== BEGIN RULE {}{}{} =====",
             line,
             if target {
                 " TARGET-MATCH"
@@ -1755,20 +1751,20 @@ impl super::GrammarApplicator {
             }
         );
 
-        let _ = write!(&mut buf, "# PREVIOUS WINDOWS\n");
+        let _ = writeln!(&mut buf, "# PREVIOUS WINDOWS");
         for s in self.gWindow.previous.clone() {
             self.print_single_window(s, &mut buf, true);
         }
-        let _ = write!(&mut buf, "# CURRENT WINDOW\n");
+        let _ = writeln!(&mut buf, "# CURRENT WINDOW");
         if let Some(cur) = self.gWindow.current {
             self.print_single_window(cur, &mut buf, true);
         }
-        let _ = write!(&mut buf, "# NEXT WINDOWS\n");
+        let _ = writeln!(&mut buf, "# NEXT WINDOWS");
         for s in self.gWindow.next.clone() {
             self.print_single_window(s, &mut buf, true);
         }
 
-        let _ = write!(&mut buf, "# ===== END RULE {line} =====\n");
+        let _ = writeln!(&mut buf, "# ===== END RULE {line} =====");
 
         // u_fprintf(ux_stderr, "%s", buf) — a raw stream dump (window data),
         // not a log event: write it straight to stderr like the C++.
@@ -1790,15 +1786,15 @@ impl super::GrammarApplicator {
         self.trace = false; // swapper<bool> _st(true, trace, ttrace=false)
 
         let mut buf: Vec<u8> = Vec::new();
-        let _ = write!(&mut buf, "# PREVIOUS WINDOWS\n");
+        let _ = writeln!(&mut buf, "# PREVIOUS WINDOWS");
         for s in self.gWindow.previous.clone() {
             self.print_single_window(s, &mut buf, true);
         }
-        let _ = write!(&mut buf, "# CURRENT WINDOW\n");
+        let _ = writeln!(&mut buf, "# CURRENT WINDOW");
         if let Some(cur) = self.gWindow.current {
             self.print_single_window(cur, &mut buf, true);
         }
-        let _ = write!(&mut buf, "# NEXT WINDOWS\n");
+        let _ = writeln!(&mut buf, "# NEXT WINDOWS");
         for s in self.gWindow.next.clone() {
             self.print_single_window(s, &mut buf, true);
         }

@@ -487,11 +487,10 @@ impl crate::grammar_applicator::GrammarApplicator {
                         if next.is_none() && prev.is_none() {
                             break;
                         }
-                        if let Some(n) = next {
-                            if self.store.cohorts.get(n.0).parent != ins_parent {
+                        if let Some(n) = next
+                            && self.store.cohorts.get(n.0).parent != ins_parent {
                                 next = None;
                             }
-                        }
                         if let Some(n) = next {
                             if !withs.map(|w| w.contains(n)).unwrap_or(false) {
                                 self.attach_parent_child(n, ccohort, false, false);
@@ -499,11 +498,10 @@ impl crate::grammar_applicator::GrammarApplicator {
                             }
                             next = self.store.cohorts.get(n.0).next;
                         }
-                        if let Some(p) = prev {
-                            if self.store.cohorts.get(p.0).parent != ins_parent {
+                        if let Some(p) = prev
+                            && self.store.cohorts.get(p.0).parent != ins_parent {
                                 prev = None;
                             }
-                        }
                         if let Some(p) = prev {
                             if !withs.map(|w| w.contains(p)).unwrap_or(false) {
                                 self.attach_parent_child(p, ccohort, false, false);

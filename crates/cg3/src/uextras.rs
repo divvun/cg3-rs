@@ -954,7 +954,7 @@ mod tests {
 
         // Non-BMP output is written as its UTF-8 encoding (no UTF-16 leg).
         let mut out2: Vec<u8> = Vec::new();
-        let _ = write!(out2, "{}", '\u{1F600}');
+        let _ = write!(out2, "\u{1F600}");
         assert_eq!(String::from_utf8(out2).unwrap(), "\u{1F600}");
 
         // u_fputc: writes one char and echoes it back; 0x7FFF is the last handled.

@@ -415,10 +415,10 @@ pub fn print_ast(out: &mut dyn Write, b: *const UChar, n: usize, node: &ASTNode)
     }
     // C++ `if (node.cs.empty()) { "/>\n"; return; }`
     if node.cs.is_empty() {
-        let _ = write!(out, "/>\n");
+        let _ = writeln!(out, "/>");
         return;
     }
-    let _ = write!(out, ">\n");
+    let _ = writeln!(out, ">");
     for it in &node.cs {
         if it.r#type == AST_Grammar {
             // Re-base offsets to the `#include`d sub-grammar's own buffer.
@@ -427,7 +427,7 @@ pub fn print_ast(out: &mut dyn Write, b: *const UChar, n: usize, node: &ASTNode)
             print_ast(out, b, n + 1, it);
         }
     }
-    let _ = write!(out, "{}</{}>\n", indent, name);
+    let _ = writeln!(out, "{}</{}>", indent, name);
 }
 
 // [spec:cg3:def:ast.ast-helper]

@@ -77,12 +77,11 @@ pub fn u_parseArgs(
                     let name: String = argv[iu][arg_off..].iter().collect();
                     let mut option: Option<usize> = None;
                     for j in 0..option_count as usize {
-                        if let Some(ln) = options[j].long_name {
-                            if name == ln {
+                        if let Some(ln) = options[j].long_name
+                            && name == ln {
                                 option = Some(j);
                                 break;
                             }
-                        }
                     }
                     let opt = match option {
                         Some(j) => j,

@@ -1206,8 +1206,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             // Wordform swap across the parent's readings (rare path).
             let parent = self.store.readings.get(sr.0).parent.unwrap();
             let parent_wf = self.store.cohorts.get(parent.0).wordform;
-            if let Some(wf) = wf {
-                if Some(wf) != parent_wf {
+            if let Some(wf) = wf
+                && Some(wf) != parent_wf {
                     let pwf = parent_wf.unwrap();
                     for list_kind in 0..3 {
                         let rs = match list_kind {
@@ -1241,7 +1241,6 @@ impl crate::grammar_applicator::GrammarApplicator {
                     self.update_valid_rules(&st.rules.clone(), &mut st.intersects, wf_hash.get(), sr);
                     st.iter_val = rnumber;
                 }
-            }
         }
         if self.store.readings.get(sr.0).hash != state_hash {
             st.readings_changed = true;

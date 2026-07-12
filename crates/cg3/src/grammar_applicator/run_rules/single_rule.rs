@@ -97,15 +97,14 @@ impl crate::grammar_applicator::GrammarApplicator {
         for (&tid, _) in trie_special.iter() {
             let t = self.grammar.single_tags_list.get(tid.0);
             let crp = t.context_ref_pos();
-            if t.r#type.intersects(crate::tag::T_CONTEXT) && (crp as usize) <= ctx_len {
-                if let Some(Some(c)) = self
+            if t.r#type.intersects(crate::tag::T_CONTEXT) && (crp as usize) <= ctx_len
+                && let Some(Some(c)) = self
                     .context_stack
                     .last()
                     .map(|f| f.context.get((crp - 1) as usize).copied().flatten())
                 {
                     ctx_cohorts.push(c);
                 }
-            }
         }
         let apply = self.get_apply_to().cohort;
         let sw = self.store.single_windows.get_mut(current.0);
@@ -481,8 +480,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 did_test = false;
                 if !set_type.intersects(ST_SPECIAL | ST_MAPPING | ST_CHILD_UNIFY)
                     && !self.readings_plain.is_empty()
-                {
-                    if let Some(&cached) = self.readings_plain.get(&r_hash_plain) {
+                    && let Some(&cached) = self.readings_plain.get(&r_hash_plain) {
                         let (mt, mtst) = {
                             let cr = self.store.readings.get(cached.0);
                             (cr.matched_target, cr.matched_tests)
@@ -516,7 +514,6 @@ impl crate::grammar_applicator::GrammarApplicator {
                         i += 1;
                         continue;
                     }
-                }
 
                 // Fresh per-reading regex/unif state (store INDICES, wave 4).
                 {
@@ -679,15 +676,14 @@ impl crate::grammar_applicator::GrammarApplicator {
                                 let mut j = 0usize;
                                 while j < i {
                                     let rj = self.store.cohorts.get(cohort.0).readings[j];
-                                    if let Some(sr) = self.get_sub_reading(rj, rsub_reading) {
-                                        if self.store.readings.get(sr.0).immutable {
+                                    if let Some(sr) = self.get_sub_reading(rj, rsub_reading)
+                                        && self.store.readings.get(sr.0).immutable {
                                             let r = self.store.readings.get_mut(sr.0);
                                             r.matched_target = true;
                                             r.matched_tests = true;
                                             num_active += 1;
                                             num_iff += 1;
                                         }
-                                    }
                                     j += 1;
                                 }
                             }

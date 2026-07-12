@@ -357,7 +357,7 @@ pub fn isesc_chars(p: &[char], pos: usize) -> bool {
     while p[pos - a] == '\\' {
         a += 1;
     }
-    a % 2 == 0
+    a.is_multiple_of(2)
 }
 
 #[inline]
