@@ -1,6 +1,6 @@
 [package]
 name = "cg3"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 description = "VISL CG-3 (Constraint Grammar) engine — Rust port"
 license = "GPL-3.0-or-later"
