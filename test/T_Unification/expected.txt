@@ -1,0 +1,35 @@
+"<worda>"
+	"worda" some tags AA @UnifSet @same-but-different-list @same-but-different-set ID:1 R:from:3 ADD:11 ADDRELATIONS(from,to):12 SELECT:SameBase ADD:34 ADD:36
+;	"wordc" some tags ID:1 R:from:3 SELECT:SameBase
+"<wordb>"
+	"wordb" some tags ID:2 R:from:3
+	"worda" some tags CC @UnifSet @same-but-different-list @same-but-different-set ID:2 R:from:3 ADD:11 ADDRELATIONS(from,to):12 ADD:34 ADD:36
+"<wordc>"
+	"wordc" some tags BB EE @UnifSet ID:3 R:to:1 R:to:2 ADD:11 SELECT:two
+;	"wordc" some tags ID:3 R:to:1 R:to:2 SELECT:two
+"<wordd>"
+	"wordd" some tags
+	"wordd" some tags BB EE @UnifSet @same-but-different-list @same-but-different-set ADD:11 ADD:34 ADD:36
+"<worde>"
+	"replaced:rde" some tags CC @UnifSet ADD:11 SELECT:one SUBSTITUTE:29
+;	"worde" some tags SELECT:one
+"<wordf>"
+	"replaced:f" some tags CC THIS @UnifSet ADD:11 SUBSTITUTE:29
+	"replaced:f" some tags THIS SUBSTITUTE:29
+;	"wordf" some tags NOTTHIS REMOVE:20
+"<wordg>"
+	"replaced:g" some tags CC THIS CC EE @multi-unif-1 @multi-unif-2 SELECT:this SUBSTITUTE:29 ADD:47 ADD:48
+;	"wordg" some tags SELECT:this
+;	"wordg" some tags ALSONOTTHIS SELECT:this
+"<wordh>"
+	"replaced:h" some tags <Hprof> EE AA CC THIS SELECT:regex ADD:23 ADD:25 SUBSTITUTE:29
+;	"wordh" some tags SELECT:regex
+"<wordi>"
+	"wordi" some tags <before> THIS <after> @vstr-safe-capture ADD:23 ADD:24 SUBSTITUTE:26 ADD:39
+	"wordi" some tags <Hfam> <before> THIS <after> @vstr-safe-capture ADD:23 ADD:24 SUBSTITUTE:26 ADD:39
+"<wordj>"
+	"wordj" aaa <aaa> ADD:43
+	"wordj" bbb <bbb> ADD:43
+	"wordj" ccc <ccc> ADD:43
+"<$.>"
+	"."

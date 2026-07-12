@@ -1,0 +1,32 @@
+DELIMITERS = "<.>" "<?>" ;
+
+REMVARIABLE (/ews/r) (VAR:news) (0 (VAR:poetry) OR (VAR:drama)) ;
+
+ADD (@poetry) (VAR:poetry) ;
+ADD (@drama) (VAR:drama) ;
+ADD (@news) (VAR:news) ;
+
+ADD (@plain) (<<< VAR:value=something) ;
+ADD (@value-icase) (<<< VAR:value=/soMEthing/i) ;
+ADD (@value-regex) (<<< VAR:value=/methi/r) ;
+ADD (@key-icase) (<<< VAR:/vALue/i=something) ;
+ADD (@key-regex) (<<< VAR:/val./r=something) ;
+ADD (@key-regex) (<<< VAR:/val./r=something) ;
+ADD (@key-value-mixed) (<<< VAR:/vALue/i=/methi/r) ;
+ADD (VSTR:@value-regex-$1) (<<< VAR:value=/m\(eth\)i/r) ;
+ADD (VSTR:@key-regex-$1) (<<< VAR:/v\(al\)u/r=something) ;
+ADD (VSTR:@mapping-prefix-$1) (<<< VAR:_MPREFIX=/^\(.+\)$/r) ;
+
+ADD (@error-value-plain) (<<< VAR:value=some) ;
+ADD (@error-value-icase) (<<< VAR:value=/soME/i) ;
+ADD (@error-value-regex) (<<< VAR:value=/^methi/r) ;
+
+ADD (@local-current) (<<< LVAR:value=something) ;
+
+ADD (@local-previous) (<<<) (*-1 (>>>) LINK -1W (LVAR:value=something)) ;
+ADD (@local-previousx) (<<<) (*-1 (>>>) LINK -1W (LVAR:value=somethingx)) ;
+
+ADD (@local-next) (<<<) (*1W (>>> LVAR:drama)) ;
+
+SETVARIABLE OUTPUT (value) (somethingx) (VAR:value=something) ;
+SETVARIABLE OUTPUT (value) (something) (<<<) (*-1 (>>>) LINK -1W (LVAR:value=somethingx)) ;

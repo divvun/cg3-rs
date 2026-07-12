@@ -1,0 +1,2 @@
+^x/x<notwanted>/x<y>$ ^word/word<notwanted>/word<notmeeither>$ ^word/matchme<wanted>$ ^word/word<notwanted>$ ^y/y<x>$ 
+

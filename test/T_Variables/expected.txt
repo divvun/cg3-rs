@@ -1,0 +1,66 @@
+<STREAMCMD:REMVAR:news>
+<STREAMCMD:SETVAR:poetry>
+<STREAMCMD:SETVAR:value=somethingx>
+"<They>"
+	"they" PERS @poetry
+"<say>"
+	"say" V @poetry
+"<the>"
+	"the" ART @poetry
+"<Lion>"
+	"lion" N @poetry
+"<and>"
+	"and" KC @poetry
+"<the>"
+	"the" ART @poetry
+"<Lizard>"
+	"lizard" N @poetry
+"<keep>"
+	"keep" V @poetry
+"<.>"
+	"." @poetry @plain @value-icase @value-regex @key-icase @key-regex @key-value-mixed @value-regex-eth @key-regex-al @mapping-prefix-@ @local-current @local-next
+
+<STREAMCMD:SETVAR:drama>
+<STREAMCMD:REMVAR:poetry>
+<STREAMCMD:SETVAR:value=something>
+"<Do>"
+	"do" V @drama
+"<you>"
+	"you" PERS @drama
+"<really>"
+	"really" ADV @drama
+"<think>"
+	"think" V @drama
+"<it>"
+	"it" PERS @drama
+"<needs>"
+	"need" V @drama
+"<a>"
+	"a" ART @drama
+"<scarf>"
+	"scarf" N @drama
+"<?>"
+	"?" @drama @value-regex @key-value-mixed @value-regex-eth @mapping-prefix-@ @local-previousx
+
+<STREAMCMD:SETVAR:value=somethingx>
+"<Do>"
+	"do" V @drama
+"<you>"
+	"you" PERS @drama
+"<really>"
+	"really" ADV @drama
+"<think>"
+	"think" V @drama
+"<it>"
+	"it" PERS @drama
+"<needs>"
+	"need" V @drama
+"<a>"
+	"a" ART @drama
+"<scarf>"
+	"scarf" N @drama
+"<?>"
+	"?" @drama @plain @value-icase @value-regex @key-icase @key-regex @key-value-mixed @value-regex-eth @key-regex-al @mapping-prefix-@ @local-current @local-previous
+
+<STREAMCMD:SETVAR:trailing-1>
+<STREAMCMD:SETVAR:trailing-2>
