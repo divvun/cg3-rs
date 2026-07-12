@@ -22,3 +22,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
 # Typed bit-flag sets (T_*/ST_*/CT_*/RF_*/POS_* families) per the sanctioned idiom list.
 bitflags = "2"
+
+[dev-dependencies]
+# The conformance harness (tests/golden.rs, tests/apertium.rs) uses regex for the
+# ported cg-untrace / cg-sort / cg-stabilize-relations stream filters.
+regex = "1"

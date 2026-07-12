@@ -19,8 +19,9 @@ This repository contains:
   rules) that pins the port to the C++ behavior of
   [upstream CG-3](https://github.com/GrammarSoft/cg3), which served as the
   porting reference.
-- `test/` — the upstream conformance corpus (`T_*` fixtures, `runall.pl`, and
-  the Apertium suite), reproduced byte-for-byte by the port.
+- `test/` — the upstream conformance corpus (`T_*` grammar/input/expected
+  fixtures + the Apertium suite), reproduced byte-for-byte by the port and
+  driven by the Rust harnesses in `crates/cg3/tests/`.
 
 ## Scope
 
@@ -29,26 +30,6 @@ Core engine + command-line tools only, and **byte-compatible with the current
 `libcg3` C API and its language bindings (SWIG / Python / WASM), and the legacy
 pre-13898 `.cg3b` reader.
 
-## Status
-
-The port is complete, built in four waves:
-
-1. **Markup** — a per-symbol behavioral spec (`def` + `sem` rules) extracted
-   from the C++, under `docs/spec/port/`.
-2. **Literal port** — every C++ symbol translated 1:1 (bug-for-bug) into Rust,
-   the quirks reproduced and flagged.
-3. **Tests** — **159 tests** pinning the spec (unit + integration + a golden
-   harness), plus the full upstream corpus: `test/runall.pl` (69 grammars ×
-   five sub-tests each) and the Apertium suite, reproduced byte-identically.
-4. **Idiomatization** — the literal port reshaped into native Rust — `Result`
-   errors, typed identity newtypes (`TagHash` / `SetNumber` / `GlobalNumber`),
-   `Option` in place of zero/`MAX` sentinels, `bitflags` sets, trait composition
-   instead of the C++ virtual applicators, native UTF-8 strings, and no global
-   mutable state — with every spec rule still covered and all tests green.
-
-All 796 symbols clear all four wave gates; the `.cg3b` grammar/stream and JSONL
-wire formats and the tag-hash ordering are byte-identical to upstream.
-
 ## Building
 
 There is no crates.io release; build from a checkout of
@@ -56,12 +37,15 @@ There is no crates.io release; build from a checkout of
 
 ```sh
 cargo build                 # the library + all eight binaries
-cargo nextest run -p cg3    # the full test suite (159 tests)
+cargo nextest run -p cg3    # the full test suite (unit + integration + the
+                            # golden/Apertium conformance corpus)
 # or: cargo test -p cg3
 ```
 
-The `test/runall.pl` / `test/Apertium` conformance harnesses additionally expect
-`build/src/<tool>` symlinks pointing at `target/debug/<tool>` (as upstream's does).
+The conformance corpus (the upstream `runall.pl` sub-tests + the Apertium
+`cg-proc` suite) is a native part of the test run — `tests/golden.rs` and
+`tests/apertium.rs` drive the real binaries over `test/` and diff against the
+expected fixtures. No Perl or external harness is required.
 
 ## Binaries
 
