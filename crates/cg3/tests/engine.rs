@@ -184,14 +184,43 @@ fn engine_text_delimit_and_debug_rules() {
     assert!(failed.is_empty(), "{}", failed.join("\n"));
 }
 
+/// Build an example binary via cargo and return its path. Idempotent — a no-op
+/// when it is already up to date, so it composes with nextest's own build (which
+/// does not build examples): running the test compiles the example on demand.
+fn build_example(name: &str) -> PathBuf {
+    // Match whatever profile the test binary itself was built under.
+    let exe = std::env::current_exe().expect("current_exe");
+    let is_release = exe.components().any(|c| c.as_os_str() == "release");
+    let mut cmd = Command::new(option_env!("CARGO").unwrap_or("cargo"));
+    cmd.args(["build", "--quiet", "--package", "cg3", "--example", name]);
+    if is_release {
+        cmd.arg("--release");
+    }
+    let status = cmd.status().expect("spawn cargo build --example");
+    assert!(status.success(), "building example {name} failed");
+    // Examples land beside the test binary: target/<profile>/examples/<name>,
+    // while the test binary is at target/<profile>/deps/<test>.
+    let mut p = exe;
+    p.pop(); // drop the test binary file name
+    if p.ends_with("deps") {
+        p.pop();
+    }
+    p.push("examples");
+    p.push(name);
+    assert!(p.is_file(), "example binary not found at {}", p.display());
+    p
+}
+
 // ===========================================================================
 // 4. EXTERNAL processes + the cohort pipe protocol. T_External's grammar has
-// `EXTERNAL ONCE ../../scripts/external.pl (*)`, which spawns the child and
-// round-trips the current window through pipeOutSingleWindow ->
-// pipeOutCohort -> pipeOutReading and back in through pipeInSingleWindow ->
-// pipeInCohort -> pipeInReading (the child rewrites readings, verified via
-// expected.txt). This dir has a custom run.pl so golden.rs skips it; the
-// protocol is identical to a plain run.
+// `EXTERNAL ONCE <program> (*)`, which spawns the child and round-trips the
+// current window through pipeOutSingleWindow -> pipeOutCohort -> pipeOutReading
+// and back in through pipeInSingleWindow -> pipeInCohort -> pipeInReading (the
+// child rewrites readings, verified via expected.txt). The child is the
+// `cg3-external-example` example binary (the Rust port of the former
+// `scripts/external.pl`); the test rewrites the grammar's EXTERNAL path to point
+// at the compiled example. golden.rs skips this dir (CUSTOM); the protocol is
+// identical to a plain run.
 // ===========================================================================
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-out-reading-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-out-cohort-fn/test]
@@ -200,9 +229,41 @@ fn engine_text_delimit_and_debug_rules() {
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn/test]
 #[test]
-#[cfg(not(windows))] // run.pl skips this fixture on Windows (perl child process)
+#[cfg(not(windows))] // the EXTERNAL child is spawned over a Unix pipe protocol
 fn engine_external_pipe_protocol() {
-    run_fixtures("external", &["T_External"]);
+    let helper = build_example("cg3-external-example");
+    let dir = repo_root().join("test/T_External");
+    assert!(dir.is_dir(), "missing fixture dir {}", dir.display());
+
+    // Point the grammar's EXTERNAL directive at the compiled example. grammar.cg3
+    // has no relative INCLUDE, so the rewritten grammar can live in a temp dir;
+    // vislcg3 still runs with cwd = the fixture dir for input.txt.
+    let grammar = std::fs::read_to_string(dir.join("grammar.cg3")).unwrap();
+    let grammar = grammar.replace("./cg3-external-example", helper.to_str().unwrap());
+    let pid = std::process::id();
+    let tmp_grammar = std::env::temp_dir().join(format!("cg3-external-{pid}.cg3"));
+    std::fs::write(&tmp_grammar, &grammar).expect("write temp grammar");
+    let out = std::env::temp_dir().join(format!("cg3-external-{pid}.txt"));
+
+    let status = Command::new(env!("CARGO_BIN_EXE_vislcg3"))
+        .current_dir(&dir)
+        .arg("-g")
+        .arg(&tmp_grammar)
+        .arg("-I")
+        .arg("input.txt")
+        .arg("-O")
+        .arg(&out)
+        .status()
+        .expect("spawn vislcg3");
+    let got = std::fs::read_to_string(&out).unwrap_or_default();
+    let _ = std::fs::remove_file(&tmp_grammar);
+    let _ = std::fs::remove_file(&out);
+    assert!(status.success(), "vislcg3 exited with {status}");
+    let want = std::fs::read_to_string(dir.join("expected.txt")).unwrap();
+    assert!(
+        diff_b_equal(&want, &got),
+        "T_External output differs from expected.txt"
+    );
 }
 
 // ===========================================================================
