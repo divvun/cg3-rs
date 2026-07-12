@@ -1,0 +1,33 @@
+CG-3 (Constraint Grammar) — authors and credits
+================================================
+
+Constraint Grammar and the VISL CG-3 reference implementation
+-------------------------------------------------------------
+
+The Constraint Grammar formalism, the CG-3 design and algorithms, and the
+original C++ implementation this repository is ported from are the work of the
+VISL CG-3 project.
+
+    Copyright 2007-2025 GrammarSoft ApS <info@grammarsoft.com>
+    https://grammarsoft.com/
+
+    Tino Didriksen        <mail@tinodidriksen.com>
+    Kevin Brubeck Unhammer <unhammer@fsfe.org>
+    Francis M. Tyers      <ftyers@prompsit.com>
+    Daniel Swanson        <awesomeevildudes@gmail.com>
+
+    Documentation: https://edu.visl.dk/cg3.html
+    Source:        https://github.com/GrammarSoft/cg3
+
+
+Rust port
+---------
+
+The idiomatic Rust re-implementation in this repository.
+
+    Copyright 2026 Brendan Molloy <brendan@necessary.nu> (Necessary Innovations AB)
+
+The Rust port is a derivative work of VISL CG-3 and is licensed under the same
+terms: the GNU General Public License, version 3 or later (see COPYING). All
+credit for the Constraint Grammar formalism, the design and algorithms, and the
+original implementation belongs to the VISL CG-3 authors listed above.
