@@ -480,7 +480,7 @@ impl super::GrammarApplicator {
     /// DIVERGENCE: the C++ takes `Grammar* res` and assigns `grammar = res`;
     /// here the grammar is owned at construction (`new(grammar)`), so this
     /// operates on `self.grammar` and takes no argument.
-    pub fn set_grammar(&mut self) {
+    pub fn set_grammar(&mut self) -> Result<(), crate::error::Cg3Error> {
         let tb = self.add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
         let te = self.add_tag(STR_ENDTAG, crate::tag::TagType::empty());
         let ts = self.add_tag(STR_DUMMY, crate::tag::TagType::empty());
@@ -530,11 +530,13 @@ impl super::GrammarApplicator {
                     Ok(re) => self.text_delimiters.push(re),
                     Err(_) => {
                         // "Error: uregex_open returned ... - cannot continue!"
-                        cg3_quit(1, Some(file!()), self.numLines);
+                        crate::error::emit_cg3quit_line(file!(), self.numLines);
+                        return Err(crate::error::Cg3Error::fatal(1, None));
                     }
                 }
             }
         }
+        Ok(())
     }
 
     // =======================================================================
@@ -545,12 +547,15 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-text-delimiter-fn]
     /// C++ `void setTextDelimiter(UString rx)` — replaces the compiled
     /// text-delimiter regex from a (possibly `/.../ri`-wrapped) pattern.
-    pub fn set_text_delimiter(&mut self, rx: crate::types::UString) {
+    pub fn set_text_delimiter(
+        &mut self,
+        rx: crate::types::UString,
+    ) -> Result<(), crate::error::Cg3Error> {
         // uregex_close(r) for each: regex::Regex drops here.
         self.text_delimiters.clear();
 
         if rx.is_empty() {
-            return;
+            return Ok(());
         }
 
         let mut chars: Vec<char> = rx.chars().collect();
@@ -576,9 +581,11 @@ impl super::GrammarApplicator {
         match RegexBuilder::new(&pat).case_insensitive(icase).build() {
             Ok(re) => self.text_delimiters.push(re),
             Err(_) => {
-                cg3_quit(1, Some(file!()), self.numLines);
+                crate::error::emit_cg3quit_line(file!(), self.numLines);
+                return Err(crate::error::Cg3Error::fatal(1, None));
             }
         }
+        Ok(())
     }
 
     // =======================================================================
@@ -1516,7 +1523,10 @@ impl super::GrammarApplicator {
     /// table is passed in (`options: &options_t`). The `UConverter*` is dropped
     /// — option values are already UTF-8 `String`s, so `ucnv_toUChars` is the
     /// identity.
-    pub fn set_options(&mut self, options: &options_t) {
+    pub fn set_options(
+        &mut self,
+        options: &options_t,
+    ) -> Result<(), crate::error::Cg3Error> {
         let occ = |o: OPTIONS| options[o as usize].does_occur;
         let val = |o: OPTIONS| options[o as usize].value.as_str();
 
@@ -1649,7 +1659,7 @@ impl super::GrammarApplicator {
             } else {
                 STR_TEXTDELIM_DEFAULT.to_string()
             };
-            self.set_text_delimiter(rx);
+            self.set_text_delimiter(rx)?;
         }
         if occ(OPTIONS::DEP_DELIMIT) {
             self.dep_delimit = if !val(OPTIONS::DEP_DELIMIT).is_empty() {
@@ -1686,6 +1696,7 @@ impl super::GrammarApplicator {
         if occ(OPTIONS::NO_BREAK) {
             self.add_spacing = false;
         }
+        Ok(())
     }
 
     /// `GAppSetOpts_ranged(value, trace_rules, fill)` bridge: the ported helper

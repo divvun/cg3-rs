@@ -85,8 +85,20 @@ impl PlaintextApplicator {
     /// collapse to single spaces (matching the C++ default `keep_tabs`).
     // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
     // the ported reads were elided (see the deferred-I/O / driver notes).
+    pub fn run_grammar_on_text<R, W>(
+        &mut self,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
+    where
+        R: Read + Seek,
+        W: Write,
+    {
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(input, output))
+    }
+
     #[allow(unused_assignments, unused_variables)]
-    pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_impl<R, W>(&mut self, input: &mut R, output: &mut W)
     where
         R: Read + Seek,
         W: Write,

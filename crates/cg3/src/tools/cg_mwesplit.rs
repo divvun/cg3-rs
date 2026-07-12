@@ -125,7 +125,9 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
     let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut input_bytes);
     let mut cursor = std::io::Cursor::new(input_bytes);
     let mut stdout = std::io::stdout();
-    applicator.run_grammar_on_text(&mut cursor, &mut stdout);
+    if let Err(e) = applicator.run_grammar_on_text(&mut cursor, &mut stdout) {
+        crate::error::cg3_exit(e.exit_code());
+    }
 
     // u_cleanup dropped. C++ main falls off the end → returns 0 (status unused
     // by the return; kept for parity with the initialised value).

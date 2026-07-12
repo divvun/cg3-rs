@@ -488,8 +488,11 @@ impl super::GrammarApplicator {
     /// See the module header for the I/O model and the deferred-diagnostic list.
     // `c_reading`/`l_reading` mirror the C++ `cReading`/`lReading` locals — kept
     // for a faithful 1:1 port though their reads are limited in this driver.
-    #[allow(unused_assignments, unused_variables)]
-    pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
+    pub fn run_grammar_on_text<R, W>(
+        &mut self,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
     where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
@@ -501,8 +504,30 @@ impl super::GrammarApplicator {
     /// [`StreamFormat`](super::stream_format::StreamFormat) strategy — the C++
     /// virtual print dispatch for a derived most-derived object
     /// (MweSplitApplicator, FormatConverter, ...).
+    ///
+    /// Wave 4: the deep engine fatals (mid-stream input errors — external-process
+    /// start/write, mapping-tag conflicts, unported-format arms) still raise a
+    /// `Cg3Exit` unwind from the hot run loop (79-caller `add_tag_to_reading`,
+    /// the externals dispatch, ...). This boundary captures them via
+    /// [`crate::error::catch_fatal`] and returns `Err(Cg3Error)` carrying the
+    /// exact exit code, so embedders get a real error at the run entry without
+    /// the unwind escaping.
+    pub fn run_grammar_on_text_with<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
+    where
+        F: super::stream_format::StreamFormat,
+        R: std::io::Read + std::io::Seek,
+        W: std::io::Write,
+    {
+        crate::error::catch_fatal(|| self.run_grammar_on_text_with_impl(fmt, input, output))
+    }
+
     #[allow(unused_assignments, unused_variables)]
-    pub fn run_grammar_on_text_with<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_with_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
         F: super::stream_format::StreamFormat,
         R: std::io::Read + std::io::Seek,

@@ -310,7 +310,19 @@ impl FSTApplicator {
     /// (`wordform<TAB>analysis[<TAB>weight]` per line; a wordform's readings on
     /// consecutive lines; blank/other line ends the cohort), builds windows, runs
     /// the grammar, prints results. No regex — manual char scanning + `strtof`.
-    pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
+    pub fn run_grammar_on_text<R, W>(
+        &mut self,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
+    where
+        R: std::io::Read + std::io::Seek,
+        W: std::io::Write,
+    {
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(input, output))
+    }
+
+    fn run_grammar_on_text_impl<R, W>(&mut self, input: &mut R, output: &mut W)
     where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,

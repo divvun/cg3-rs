@@ -90,9 +90,15 @@ pub fn main_comp(args: &[String]) -> i32 {
             cg3_quit(1, None, 0);
         }
     };
-    if parser.parse_grammar_utf8(&buffer) != 0 {
-        tracing::error!("Error: Grammar could not be parsed - exiting!");
-        cg3_quit(1, None, 0);
+    match parser.parse_grammar_utf8(&buffer) {
+        Ok(0) => {}
+        Ok(_) => {
+            tracing::error!("Error: Grammar could not be parsed - exiting!");
+            cg3_quit(1, None, 0);
+        }
+        // A deep parse/grammar fatal already printed its diagnostic; exit with
+        // its exact code (byte-identical to the C++ CG3Quit termination).
+        Err(e) => crate::error::cg3_exit(e.exit_code()),
     }
 
     // Move the built grammar out of the parser (the C++ grammar outlives the
@@ -100,7 +106,9 @@ pub fn main_comp(args: &[String]) -> i32 {
     let mut grammar = parser.grammar;
 
     // grammar.reindex();
-    grammar.reindex(false, false);
+    if let Err(e) = grammar.reindex(false, false) {
+        crate::error::cg3_exit(e.exit_code());
+    }
 
     // Info banner to stderr (container sizes; see tools/mod.rs on Arena counts).
     tracing::info!(
@@ -123,7 +131,9 @@ pub fn main_comp(args: &[String]) -> i32 {
     match File::create(&args[2]) {
         Ok(mut gout) => {
             let mut writer = BinaryGrammar::binary_grammar(grammar);
-            writer.write_binary_grammar(&mut gout);
+            if let Err(e) = writer.write_binary_grammar(&mut gout) {
+                crate::error::cg3_exit(e.exit_code());
+            }
             let _ = gout.flush();
         }
         Err(_) => {

@@ -732,7 +732,7 @@ impl TextualParser {
     /// C++ `int parse_grammar(const char* buffer, size_t length)` (UTF-8 memory
     /// buffer). Builds the `data` buffer (4 leading NULs + text + NUL padding),
     /// then runs the private `parse_grammar(data)` driver.
-    pub fn parse_grammar_utf8(&mut self, buffer: &[u8]) -> i32 {
+    pub fn parse_grammar_utf8(&mut self, buffer: &[u8]) -> Result<i32, crate::error::Cg3Error> {
         self.filename = "<utf8-memory>".to_string();
         self.filebase = "<utf8-memory>".to_string();
         self.grammar.grammar_size = buffer.len();
@@ -742,7 +742,12 @@ impl TextualParser {
         data.extend(std::iter::repeat('\0').take(40));
         self.grammarbufs.push(data);
         let gi = self.grammarbufs.len() - 1;
-        self.parse_grammar_data(gi)
+        // Deep grammar-construction fatals (grammar.rs allocate_tag/add_set/... and
+        // the parse driver's own `cg3_quit` sites) unwind as `Cg3Exit`; capture
+        // them at this parse boundary and surface as `Err(Cg3Error)` carrying the
+        // exact exit code. A per-directive `ParseError` is already recovered inside
+        // `parse_from_u_char`; only a boundary escape reaches `catch_fatal`.
+        crate::error::catch_fatal(|| self.parse_grammar_data(gi))
     }
 }
 
@@ -765,9 +770,15 @@ impl IGrammarParser for TextualParser {
     /// Reconciliation: `TextualParser` builds into its OWN `self.grammar`; the
     /// caller's `&mut Grammar` is swapped in for the duration so the result lands
     /// there (faithful to the C++ `result` being the `Grammar&` handed at ctor).
-    fn parse_grammar(&mut self, grammar: &mut Grammar, input: &[u8]) -> i32 {
+    fn parse_grammar(
+        &mut self,
+        grammar: &mut Grammar,
+        input: &[u8],
+    ) -> Result<i32, crate::error::Cg3Error> {
         std::mem::swap(&mut self.grammar, grammar);
         let rv = self.parse_grammar_utf8(input);
+        // Swap back unconditionally (even on Err) so the caller's grammar holds
+        // whatever was built, matching the C++ result-by-reference contract.
         std::mem::swap(&mut self.grammar, grammar);
         rv
     }

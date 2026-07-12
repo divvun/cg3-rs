@@ -156,9 +156,13 @@ fn inprocess_binary_roundtrip() {
     let dir = test_dir("T_Templates");
     let src = std::fs::read(dir.join("grammar.cg3")).unwrap();
     let mut parser = TextualParser::new(Grammar::default(), false);
-    assert_eq!(parser.parse_grammar_utf8(&src), 0, "textual parse failed");
+    assert_eq!(
+        parser.parse_grammar_utf8(&src).unwrap(),
+        0,
+        "textual parse failed"
+    );
     let mut grammar = parser.grammar;
-    grammar.reindex(false, false);
+    grammar.reindex(false, false).unwrap();
 
     let num_tags = grammar.num_tags;
     let num_sets = grammar.sets_list_order.len();
@@ -172,12 +176,12 @@ fn inprocess_binary_roundtrip() {
     let mut writer = BinaryGrammar::binary_grammar(grammar);
     writer.set_compatible(true); // C++ setCompatible: empty body, flag discarded
     let mut blob: Vec<u8> = Vec::new();
-    assert_eq!(writer.write_binary_grammar(&mut blob), 0);
+    assert_eq!(writer.write_binary_grammar(&mut blob).unwrap(), 0);
     assert_eq!(&blob[..4], b"CG3B", "magic bytes");
 
     let mut reader = BinaryGrammar::binary_grammar(Grammar::default());
     assert_eq!(
-        reader.parse_grammar_buffer(&blob),
+        reader.parse_grammar_buffer(&blob).unwrap(),
         0,
         "binary reread failed"
     );
@@ -251,7 +255,7 @@ fn legacy_10043_rejected() {
     let mut reader = BinaryGrammar::binary_grammar(Grammar::default());
     reader.set_verbosity(1); // enables the legacy-revision warning branch
     assert_eq!(
-        reader.parse_grammar_buffer(&blob),
+        reader.parse_grammar_buffer(&blob).unwrap(),
         1,
         "legacy 10043 grammar must be rejected by the stub"
     );

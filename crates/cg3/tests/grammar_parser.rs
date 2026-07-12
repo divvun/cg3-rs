@@ -35,7 +35,7 @@ fn repo_root() -> PathBuf {
 /// Parse a grammar source string in-process; assert a clean (0-error) parse.
 fn parse_str(src: &str) -> TextualParser {
     let mut p = TextualParser::new(Grammar::default(), false);
-    let rv = p.parse_grammar_utf8(src.as_bytes());
+    let rv = p.parse_grammar_utf8(src.as_bytes()).unwrap();
     assert_eq!(rv, 0, "grammar string failed to parse");
     p
 }
@@ -45,7 +45,7 @@ fn parse_fixture(rel: &str) -> TextualParser {
     let path = repo_root().join(rel);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {rel}: {e}"));
     let mut p = TextualParser::new(Grammar::default(), false);
-    let rv = p.parse_grammar_utf8(&bytes);
+    let rv = p.parse_grammar_utf8(&bytes).unwrap();
     assert_eq!(rv, 0, "fixture {rel} failed to parse");
     p
 }
@@ -122,7 +122,7 @@ fn constructor_trait_surface_and_compat_mode() {
     let src =
         b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nLIST BB = bb ;\nSELECT AA IF (NOT 1 BB) ;\n";
     let mut g = Grammar::default();
-    let rv = IGrammarParser::parse_grammar(&mut p, &mut g, src);
+    let rv = IGrammarParser::parse_grammar(&mut p, &mut g, src).unwrap();
     assert_eq!(rv, 0, "trait parse_grammar failed");
 
     // The result landed in the CALLER's grammar; the parser's own grammar is
@@ -501,9 +501,11 @@ fn undef_sets_and_list_append() {
 #[test]
 fn parse_error_recovery_counts_errors() {
     let mut p = TextualParser::new(Grammar::default(), false);
-    let rv = p.parse_grammar_utf8(
-        b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nSELECT NOSUCHSET ;\nSELECT AA ;\n",
-    );
+    let rv = p
+        .parse_grammar_utf8(
+            b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nSELECT NOSUCHSET ;\nSELECT AA ;\n",
+        )
+        .unwrap();
     assert_eq!(rv, 1, "exactly one recoverable parse error expected");
     // The parser recovered: the valid rule after the bad line still parsed.
     assert_eq!(p.grammar.rule_by_number.capacity(), 1);
@@ -515,7 +517,9 @@ fn parse_error_recovery_counts_errors() {
 #[test]
 fn print_ast_dumps_xml() {
     let mut p = TextualParser::new(Grammar::default(), true);
-    let rv = p.parse_grammar_utf8(b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nSELECT AA ;\n");
+    let rv = p
+        .parse_grammar_utf8(b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nSELECT AA ;\n")
+        .unwrap();
     assert_eq!(rv, 0);
     let mut out: Vec<u8> = Vec::new();
     p.print_ast(&mut out);
@@ -547,7 +551,7 @@ fn print_ast_dumps_xml() {
 #[test]
 fn reindex_builds_runtime_indexes() {
     let mut p = parse_fixture("test/T_SetParentChild/grammar.cg3");
-    p.grammar.reindex(false, false);
+    p.grammar.reindex(false, false).unwrap();
     let g = &p.grammar;
 
     // Rule indexes: set->rules and tag->rules were populated.
@@ -651,7 +655,7 @@ fn binary_grammar_roundtrip_unserializes_tries() {
     assert!(status.success(), "cg-comp failed");
 
     let mut bg = BinaryGrammar::binary_grammar(Grammar::default());
-    let rv = bg.parse_grammar_filename(bin.to_str().unwrap());
+    let rv = bg.parse_grammar_filename(bin.to_str().unwrap()).unwrap();
     let _ = std::fs::remove_file(&bin);
     assert_eq!(rv, 0, "binary grammar failed to load");
 

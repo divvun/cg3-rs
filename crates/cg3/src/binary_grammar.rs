@@ -77,7 +77,7 @@ use crate::contextual_test::POS_64BIT;
 use crate::flat_unordered_set::Uint32FlatHashSet;
 use crate::grammar::{Grammar, trie_unserialize};
 use crate::igrammar_parser::IGrammarParser;
-use crate::inlines::{cg3_quit, is_cg3b, read_be, read_be_f64, ui16, ui32, write_be, write_be_f64};
+use crate::inlines::{is_cg3b, read_be, read_be_f64, ui16, ui32, write_be, write_be_f64};
 use crate::rule::Rule;
 use crate::set::Set;
 use crate::strings::KEYWORDS;
@@ -190,7 +190,10 @@ impl BinaryGrammar {
     /// to the istream overload. The C++ null-`grammar` guard is moot here (the
     /// grammar is owned). The C++ ifstream exception mask (throw on short read) is
     /// not modelled — `read_be` swallows short reads (see `crate::inlines`).
-    pub fn parse_grammar_filename(&mut self, filename: &str) -> i32 {
+    pub fn parse_grammar_filename(
+        &mut self,
+        filename: &str,
+    ) -> Result<i32, crate::error::Cg3Error> {
         let meta = match std::fs::metadata(filename) {
             Ok(m) => m,
             Err(e) => {
@@ -199,7 +202,7 @@ impl BinaryGrammar {
                     filename,
                     e
                 );
-                cg3_quit(1, None, 0);
+                return Err(crate::error::Cg3Error::fatal(1, None));
             }
         };
         self.grammar.grammar_size = meta.len() as usize;
@@ -212,7 +215,7 @@ impl BinaryGrammar {
                     filename,
                     e
                 );
-                cg3_quit(1, None, 0);
+                return Err(crate::error::Cg3Error::fatal(1, None));
             }
         };
         let mut cur = std::io::Cursor::new(data);
@@ -222,14 +225,20 @@ impl BinaryGrammar {
     /// C++ `int parse_grammar(const char* buffer, size_t length)`: writes the
     /// bytes into a stringstream, seeks to 0, and calls the istream overload.
     /// The port wraps the slice in a `Cursor`.
-    pub fn parse_grammar_buffer(&mut self, buffer: &[u8]) -> i32 {
+    pub fn parse_grammar_buffer(
+        &mut self,
+        buffer: &[u8],
+    ) -> Result<i32, crate::error::Cg3Error> {
         let mut cur = std::io::Cursor::new(buffer);
         self.parse_grammar_reader(&mut cur)
     }
 
     /// C++ `int parse_grammar(const std::string& buffer)` → `(buffer.data(),
     /// buffer.size())`.
-    pub fn parse_grammar_string(&mut self, buffer: &str) -> i32 {
+    pub fn parse_grammar_string(
+        &mut self,
+        buffer: &str,
+    ) -> Result<i32, crate::error::Cg3Error> {
         self.parse_grammar_buffer(buffer.as_bytes())
     }
 
@@ -250,18 +259,21 @@ impl BinaryGrammar {
     /// C++ `int parse_grammar(std::istream& input)` (BinaryGrammar_read.cpp).
     /// Reads a whole `.cg3b` blob into `grammar`. See the module docs for the
     /// exhaustive wire layout.
-    pub fn parse_grammar_reader<R: Read>(&mut self, input: &mut R) -> i32 {
+    pub fn parse_grammar_reader<R: Read>(
+        &mut self,
+        input: &mut R,
+    ) -> Result<i32, crate::error::Cg3Error> {
         // Header: 4 magic bytes.
         let mut magic = [0u8; 4];
         if input.read_exact(&mut magic).is_err() {
             tracing::error!("Error: Error reading first 4 bytes from grammar!");
-            cg3_quit(1, None, 0);
+            return Err(crate::error::Cg3Error::fatal(1, None));
         }
         if !is_cg3b(magic) {
             tracing::error!(
                 "Error: Grammar does not begin with magic bytes - cannot load as binary!"
             );
-            cg3_quit(1, None, 0);
+            return Err(crate::error::Cg3Error::fatal(1, None));
         }
 
         let bin_revision = read_be::<u32, _>(input);
@@ -274,7 +286,7 @@ impl BinaryGrammar {
                 );
             }
             // input.seekg(0) — OMITTED: the 10043 path is an erroring stub.
-            return self.read_binary_grammar_10043(input);
+            return Ok(self.read_binary_grammar_10043(input));
         }
         if bin_revision < CG3_TOO_OLD {
             tracing::error!(
@@ -282,7 +294,7 @@ impl BinaryGrammar {
                 bin_revision,
                 CG3_TOO_OLD
             );
-            cg3_quit(1, None, 0);
+            return Err(crate::error::Cg3Error::fatal(1, None));
         }
         if bin_revision > CG3_FEATURE_REV {
             tracing::error!(
@@ -290,7 +302,7 @@ impl BinaryGrammar {
                 bin_revision,
                 CG3_FEATURE_REV
             );
-            cg3_quit(1, None, 0);
+            return Err(crate::error::Cg3Error::fatal(1, None));
         }
 
         self.grammar.is_binary = true;
@@ -413,7 +425,7 @@ impl BinaryGrammar {
                                 e,
                                 t.tag
                             );
-                            cg3_quit(1, None, 0);
+                            return Err(crate::error::Cg3Error::fatal(1, None));
                         }
                     }
                 }
@@ -756,7 +768,7 @@ impl BinaryGrammar {
             self.grammar.contexts_arena[t.0].ors.extend(resolved);
         }
 
-        0
+        Ok(0)
     }
 
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-contextual-test-fn]
@@ -869,7 +881,10 @@ impl BinaryGrammar {
     /// `reverseContextualTests()` on each rule (reverses `tests`/`dep_tests` in
     /// place). See the module docs for the full wire layout + byte-parity risks
     /// (esp. the set sparse-numbering divergence).
-    pub fn write_binary_grammar<W: Write>(&mut self, output: &mut W) -> i32 {
+    pub fn write_binary_grammar<W: Write>(
+        &mut self,
+        output: &mut W,
+    ) -> Result<i32, crate::error::Cg3Error> {
         // C++ guards: null output / null grammar. Both are owned here (moot); kept
         // as documentation.
 
@@ -1205,7 +1220,7 @@ impl BinaryGrammar {
         }
         let ctx_ids: Vec<CtxId> = self.grammar.contexts.values().copied().collect();
         for cid in ctx_ids {
-            self.write_contextual_test(cid, output);
+            self.write_contextual_test(cid, output)?;
         }
 
         // --- Rules ---
@@ -1376,7 +1391,7 @@ impl BinaryGrammar {
             }
         }
 
-        0
+        Ok(0)
     }
 
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.write-contextual-test-fn]
@@ -1390,10 +1405,14 @@ impl BinaryGrammar {
     /// mask + buffer; bit0 hash is REQUIRED (hash 0 → fatal). The trailing `ors`
     /// count + hashes and `linked->hash` come AFTER the fixed buffer (bit12
     /// jump_pos is inside the buffer).
-    fn write_contextual_test<W: Write>(&mut self, t: CtxId, output: &mut W) {
+    fn write_contextual_test<W: Write>(
+        &mut self,
+        t: CtxId,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error> {
         let hash = self.grammar.contexts_arena[t.0].hash;
         if self.seen_uint32.contains(hash) {
-            return;
+            return Ok(());
         }
         self.seen_uint32.insert(hash);
 
@@ -1403,13 +1422,13 @@ impl BinaryGrammar {
             (ct.tmpl, ct.ors.clone(), ct.linked)
         };
         if let Some(tm) = tmpl {
-            self.write_contextual_test(tm, output);
+            self.write_contextual_test(tm, output)?;
         }
         for o in &ors {
-            self.write_contextual_test(*o, output);
+            self.write_contextual_test(*o, output)?;
         }
         if let Some(l) = linked {
-            self.write_contextual_test(l, output);
+            self.write_contextual_test(l, output)?;
         }
 
         // Snapshot this node's scalar fields.
@@ -1437,7 +1456,7 @@ impl BinaryGrammar {
             write_be(&mut buffer, hash);
         } else {
             tracing::error!("Error: Context on line {} had hash 0!", line);
-            cg3_quit(1, None, 0);
+            return Err(crate::error::Cg3Error::fatal(1, None));
         }
         if !pos.is_empty() {
             fields |= 1 << 1;
@@ -1501,6 +1520,7 @@ impl BinaryGrammar {
         if let Some(l) = linked {
             write_be(output, self.grammar.contexts_arena[l.0].hash);
         }
+        Ok(())
     }
 }
 
@@ -1543,7 +1563,11 @@ impl IGrammarParser for BinaryGrammar {
     /// construction), so the trait's per-call `grammar` param is unused here — the
     /// port owns its result (see the `binary_grammar` ctor and the module's
     /// `IGrammarParser` note). Delegates to `parse_grammar_buffer`.
-    fn parse_grammar(&mut self, _grammar: &mut Grammar, input: &[u8]) -> i32 {
+    fn parse_grammar(
+        &mut self,
+        _grammar: &mut Grammar,
+        input: &[u8],
+    ) -> Result<i32, crate::error::Cg3Error> {
         self.parse_grammar_buffer(input)
     }
 

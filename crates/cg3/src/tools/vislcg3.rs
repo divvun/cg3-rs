@@ -276,7 +276,7 @@ pub fn main_run(args: &[String]) -> i32 {
                 }
             }
         }
-        if parser.parse_grammar_filename(&grammar_path) != 0 {
+        if !matches!(parser.parse_grammar_filename(&grammar_path), Ok(0)) {
             tracing::error!("Error: Grammar could not be parsed - exiting!");
             cg3_quit(1, None, 0);
         }
@@ -332,7 +332,7 @@ pub fn main_run(args: &[String]) -> i32 {
                 cg3_quit(1, None, 0);
             }
         };
-        if parser.parse_grammar_utf8(&buffer) != 0 {
+        if !matches!(parser.parse_grammar_utf8(&buffer), Ok(0)) {
             tracing::error!("Error: Grammar could not be parsed - exiting!");
             cg3_quit(1, None, 0);
         }
@@ -390,10 +390,12 @@ pub fn main_run(args: &[String]) -> i32 {
     if verbose {
         tracing::info!("Reindexing grammar...");
     }
-    grammar.reindex(
+    if let Err(e) = grammar.reindex(
         occ(&options, OPTIONS::SHOW_UNUSED_SETS),
         occ(&options, OPTIONS::SHOW_TAGS),
-    );
+    ) {
+        crate::error::cg3_exit(e.exit_code());
+    }
 
     if verbose {
         tracing::info!(
@@ -450,9 +452,13 @@ pub fn main_run(args: &[String]) -> i32 {
         // seed begin/end/subst tags, and move it back out after the run for the
         // --grammar-out / --grammar-bin writers below.
         applicator.base_mut().grammar = grammar;
-        applicator.base_mut().set_grammar();
+        if let Err(e) = applicator.base_mut().set_grammar() {
+            crate::error::cg3_exit(e.exit_code());
+        }
         // applicator.setOptions(conv); (UConverter dropped in the UTF-8 port).
-        applicator.base_mut().set_options(&options);
+        if let Err(e) = applicator.base_mut().set_options(&options) {
+            crate::error::cg3_exit(e.exit_code());
+        }
 
         applicator.base_mut().fmt_output = cg3_sformat::CG3SF_CG;
         if occ(&options, OPTIONS::OUT_APERTIUM) {
@@ -488,7 +494,9 @@ pub fn main_run(args: &[String]) -> i32 {
             }
         }
         let mut cursor = std::io::Cursor::new(input_bytes);
-        applicator.run_grammar_on_text(&mut cursor, &mut ux_stdout);
+        if let Err(e) = applicator.run_grammar_on_text(&mut cursor, &mut ux_stdout) {
+            crate::error::cg3_exit(e.exit_code());
+        }
 
         // Move the grammar back out (C++ `grammar` lives in main throughout),
         // and the profiler (for the final `Profiler::write`).
@@ -519,7 +527,9 @@ pub fn main_run(args: &[String]) -> i32 {
         match std::fs::File::create(&path) {
             Ok(mut gout) => {
                 let mut writer = BinaryGrammar::binary_grammar(grammar);
-                writer.write_binary_grammar(&mut gout);
+                if let Err(e) = writer.write_binary_grammar(&mut gout) {
+                    crate::error::cg3_exit(e.exit_code());
+                }
                 let _ = gout.flush();
                 grammar = writer.grammar;
             }

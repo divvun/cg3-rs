@@ -262,7 +262,9 @@ pub fn main_conv(args: &[String]) -> i32 {
 
     // applicator.runGrammarOnText(*instream, std::cout);
     let mut stdout = std::io::stdout();
-    applicator.run_grammar_on_text(&mut instream, &mut stdout);
+    if let Err(e) = applicator.run_grammar_on_text(&mut instream, &mut stdout) {
+        crate::error::cg3_exit(e.exit_code());
+    }
 
     // u_cleanup dropped. C++ main returns nothing on this path (implicit 0).
     U_ZERO_ERROR

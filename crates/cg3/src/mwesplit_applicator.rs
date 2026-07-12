@@ -90,8 +90,14 @@ impl MweSplitApplicator {
         base.grammar.delimiters = Some(dset);
         let dtag = base.grammar.allocate_tag(STR_DUMMY);
         base.grammar.add_tag_to_set(dtag, dset);
-        base.grammar.reindex(false, false);
-        base.set_grammar();
+        // Internal conv grammar (used_tags=false, no static sets): reindex /
+        // set_grammar cannot fatal here. If they ever did, re-raise as the
+        // residual `Cg3Exit` unwind so the exact exit code is preserved.
+        base.grammar
+            .reindex(false, false)
+            .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
+        base.set_grammar()
+            .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
         base.owns_grammar = true;
         base.is_conv = true;
         MweSplitApplicator { base }
@@ -108,13 +114,17 @@ impl MweSplitApplicator {
     /// `W: Write`), matching the base
     /// [`GrammarApplicator::run_grammar_on_text`](GrammarApplicator::run_grammar_on_text)
     /// signature (the `ux_stdin`/`ux_stdout` `Option<()>` fields are elided).
-    pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
+    pub fn run_grammar_on_text<R, W>(
+        &mut self,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
     where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
         self.base
-            .run_grammar_on_text_with(&mut MweSplitFormat, input, output);
+            .run_grammar_on_text_with(&mut MweSplitFormat, input, output)
     }
 }
 

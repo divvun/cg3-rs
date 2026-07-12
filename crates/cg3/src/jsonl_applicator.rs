@@ -789,8 +789,22 @@ impl<'a> JsonlApplicator<'a> {
     ///   `variables_set/rem/output` are NOT cleared on FLUSH (faithful).
     // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
     // the ported reads were elided (see the deferred-I/O / driver notes).
+    pub fn run_grammar_on_text<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
+    where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
+        R: Read + Seek,
+        W: Write,
+    {
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
+    }
+
     #[allow(unused_assignments, unused_variables)]
-    pub fn run_grammar_on_text<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         R: Read + Seek,

@@ -101,8 +101,8 @@ fn conv_base() -> cg3::grammar_applicator::GrammarApplicator {
     base.grammar.delimiters = Some(delim);
     let dummy_tag = base.grammar.allocate_tag("__CG3_DUMMY_STRINGBIT__");
     base.grammar.add_tag_to_set(dummy_tag, delim);
-    base.grammar.reindex(false, false);
-    base.set_grammar();
+    base.grammar.reindex(false, false).unwrap();
+    base.set_grammar().unwrap();
     base
 }
 
@@ -213,14 +213,16 @@ fn apertium_stream_setvar() {
 #[test]
 fn apertium_test_pr_roundtrip() {
     let mut p = cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
-    let rv = p.parse_grammar_utf8(b"DELIMITERS = \".\" ;\nSELECT (foo) ;\n");
+    let rv = p
+        .parse_grammar_utf8(b"DELIMITERS = \".\" ;\nSELECT (foo) ;\n")
+        .unwrap();
     assert_eq!(rv, 0, "minimal grammar failed to parse");
     let mut g = p.grammar;
-    g.reindex(false, false);
+    g.reindex(false, false).unwrap();
     let mut base =
         cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
     base.grammar = g;
-    base.set_grammar();
+    base.set_grammar().unwrap();
     let mut a = cg3::apertium_applicator::ApertiumApplicator::new(base);
     let mut out: Vec<u8> = Vec::new();
     a.test_pr(&mut out);
@@ -439,7 +441,7 @@ fn fst_applicator_in_process() {
     let input = "blah\tblah+N+Sg\nblah\tblah+V+Inf\t0.5\n\ndog\tdog+N+Sg\n\n";
     let mut cursor = std::io::Cursor::new(input.as_bytes().to_vec());
     let mut out: Vec<u8> = Vec::new();
-    fst.run_grammar_on_text(&mut cursor, &mut out);
+    fst.run_grammar_on_text(&mut cursor, &mut out).unwrap();
     let text = String::from_utf8(out).unwrap();
 
     // printReading re-emits the FST `base+tags` shape per reading.
@@ -759,7 +761,7 @@ fn plaintext_applicator_in_process() {
     let input = "Hello brave world.\n";
     let mut cursor = std::io::Cursor::new(input.as_bytes().to_vec());
     let mut out: Vec<u8> = Vec::new();
-    app.run_grammar_on_text(&mut cursor, &mut out);
+    app.run_grammar_on_text(&mut cursor, &mut out).unwrap();
     let text = String::from_utf8(out).unwrap();
 
     // Tokenized wordforms come back space-separated; the final '.' is peeled

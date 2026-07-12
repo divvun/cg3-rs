@@ -372,9 +372,13 @@ pub fn main_proc(args: &[String]) -> i32 {
     // Parse the grammar (binary → BinaryGrammar; text → TextualParser + warning).
     let mut grammar: Grammar = if is_cg3b(head) {
         let mut parser = BinaryGrammar::binary_grammar(Grammar::default());
-        if parser.parse_grammar_filename(grammar_path) != 0 {
-            tracing::error!("Error: Grammar could not be parsed - exiting!");
-            cg3_quit(1, None, 0);
+        match parser.parse_grammar_filename(grammar_path) {
+            Ok(0) => {}
+            Ok(_) => {
+                tracing::error!("Error: Grammar could not be parsed - exiting!");
+                cg3_quit(1, None, 0);
+            }
+            Err(e) => crate::error::cg3_exit(e.exit_code()),
         }
         parser.grammar
     } else {
@@ -389,15 +393,21 @@ pub fn main_proc(args: &[String]) -> i32 {
                 cg3_quit(1, None, 0);
             }
         };
-        if parser.parse_grammar_utf8(&buffer) != 0 {
-            tracing::error!("Error: Grammar could not be parsed - exiting!");
-            cg3_quit(1, None, 0);
+        match parser.parse_grammar_utf8(&buffer) {
+            Ok(0) => {}
+            Ok(_) => {
+                tracing::error!("Error: Grammar could not be parsed - exiting!");
+                cg3_quit(1, None, 0);
+            }
+            Err(e) => crate::error::cg3_exit(e.exit_code()),
         }
         parser.grammar
     };
 
     // grammar.reindex();
-    grammar.reindex(false, false);
+    if let Err(e) = grammar.reindex(false, false) {
+        crate::error::cg3_exit(e.exit_code());
+    }
 
     // Grammar cmdargs → parse_opts into grammar_options_{default,override}.
     if !grammar.cmdargs.is_empty() {
@@ -457,9 +467,13 @@ pub fn main_proc(args: &[String]) -> i32 {
         Applicator::Matxin(m) => &mut m.base,
         Applicator::Binary(b) => b,
     };
-    base.set_grammar();
+    if let Err(e) = base.set_grammar() {
+        crate::error::cg3_exit(e.exit_code());
+    }
     // setOptions() (C++ default conv=nullptr) reads the `options` table.
-    base.set_options(&options);
+    if let Err(e) = base.set_options(&options) {
+        crate::error::cg3_exit(e.exit_code());
+    }
     for i in 1..=sections {
         base.sections.push(i as u32);
     }
@@ -502,21 +516,18 @@ pub fn main_proc(args: &[String]) -> i32 {
     };
 
     // try { switch (cmd) { case 'd': default: runGrammarOnText(...); } }
-    match app {
-        Applicator::Apertium(mut a) => {
-            a.run_grammar_on_text(&mut cursor, &mut out);
-        }
-        Applicator::Matxin(mut m) => {
-            m.run_grammar_on_text(&mut cursor, &mut out);
-        }
-        Applicator::Base(mut b) => {
-            b.run_grammar_on_text(&mut cursor, &mut out);
-        }
+    let run_result = match app {
+        Applicator::Apertium(mut a) => a.run_grammar_on_text(&mut cursor, &mut out),
+        Applicator::Matxin(mut m) => m.run_grammar_on_text(&mut cursor, &mut out),
+        Applicator::Base(mut b) => b.run_grammar_on_text(&mut cursor, &mut out),
         Applicator::Binary(mut b) => {
             // Most-derived object is the BinaryApplicator: binary print vtable.
             let mut fmt = crate::binary_applicator::BinaryFormat::default();
-            BinaryApplicator::new(&mut b).run_grammar_on_text(&mut fmt, &mut cursor, &mut out);
+            BinaryApplicator::new(&mut b).run_grammar_on_text(&mut fmt, &mut cursor, &mut out)
         }
+    };
+    if let Err(e) = run_result {
+        crate::error::cg3_exit(e.exit_code());
     }
 
     // u_cleanup dropped. C++ main falls off the end (implicit 0).

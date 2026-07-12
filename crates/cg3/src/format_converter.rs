@@ -159,10 +159,16 @@ impl FormatConverter {
         base.grammar.delimiters = Some(delim);
         let dummy_tag = base.grammar.allocate_tag(STR_DUMMY);
         base.grammar.add_tag_to_set(dummy_tag, delim);
-        base.grammar.reindex(false, false);
+        // Internal conv grammar (used_tags=false, no static sets): reindex /
+        // set_grammar cannot fatal here. If they ever did, re-raise as the
+        // residual `Cg3Exit` unwind so the exact exit code is preserved.
+        base.grammar
+            .reindex(false, false)
+            .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
 
         // setGrammar(&conv_grammar): wire begin/end/subst tags into the grammar.
-        base.set_grammar();
+        base.set_grammar()
+            .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
 
         // The C++ `conv_grammar` member IS the live active grammar's storage;
         // here that storage is `base.grammar`. The member is kept for API parity
@@ -216,7 +222,11 @@ impl FormatConverter {
     /// `fmt_input`; the overridden `print*` methods emit `fmt_output`, so the two
     /// together convert. Sets `has_relations` when either side is binary.
     /// `CG3SF_MATXIN` (and unported formats) → `CG3Quit()`.
-    pub fn run_grammar_on_text<R, W>(&mut self, input: &mut R, output: &mut W)
+    pub fn run_grammar_on_text<R, W>(
+        &mut self,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
     where
         R: Read + Seek,
         W: Write,
@@ -236,7 +246,7 @@ impl FormatConverter {
                 // GrammarApplicator::runGrammarOnText(input, output) — the base CG
                 // stream driver, printing through the ConvFormat vtable.
                 self.base
-                    .run_grammar_on_text_with(&mut self.fmt, input, output);
+                    .run_grammar_on_text_with(&mut self.fmt, input, output)
             }
             CG3SF_NICELINE => NicelineApplicator::new(&mut self.base).run_grammar_on_text(
                 &mut self.fmt,
@@ -252,10 +262,10 @@ impl FormatConverter {
             CG3SF_BINARY => crate::binary_applicator::BinaryApplicator::new(&mut self.base)
                 .run_grammar_on_text(&mut self.fmt, input, output),
             // FST (FSTApplicator) ported but not yet wired into lib.rs → CG3Quit.
-            CG3SF_FST => cg3_quit(),
+            CG3SF_FST => Err(crate::error::Cg3Error::fatal(1, None)),
             // ApertiumApplicator / PlaintextApplicator not ported; MATXIN has no
             // case; all → CG3Quit (the C++ default arm).
-            _ => cg3_quit(),
+            _ => Err(crate::error::Cg3Error::fatal(1, None)),
         }
     }
 

@@ -941,7 +941,21 @@ impl<'x> BinaryApplicator<'x> {
     /// The C++ `while (!input.eof())` (eof becomes true only after a failed read)
     /// is reproduced by wrapping `input` in a [`std::io::BufReader`] and peeking
     /// `fill_buf()` before each packet: an empty fill means end-of-stream.
-    pub fn run_grammar_on_text<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
+    pub fn run_grammar_on_text<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
+    where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
+        R: std::io::Read,
+        W: std::io::Write,
+    {
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
+    }
+
+    fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         R: std::io::Read,

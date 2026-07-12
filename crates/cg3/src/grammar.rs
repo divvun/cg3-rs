@@ -1497,7 +1497,11 @@ impl Grammar {
     /// number-based ones. All `u_fprintf` diagnostics are deferred I/O; the
     /// `used_tags` dump still `exit(0)`s the process (flagged quirk). See the
     /// SET-NUMBER RECONCILIATION note for the `sets_list`/`number` handling.
-    pub fn reindex(&mut self, unused_sets: bool, used_tags: bool) {
+    pub fn reindex(
+        &mut self,
+        unused_sets: bool,
+        used_tags: bool,
+    ) -> Result<(), crate::error::Cg3Error> {
         // (1) Reset set state.
         let all_content_sets: Vec<SetId> = self.sets_by_contents.values().copied().collect();
         for sid in &all_content_sets {
@@ -1518,7 +1522,8 @@ impl Grammar {
             let sh = hash_value_ustring(sset, 0);
             if self.set_alias.contains(sh) {
                 // "Error: Static set ... is an alias ..."
-                cg3_quit(1, Some(file!()), self.lines);
+                crate::error::emit_cg3quit_line(file!(), self.lines);
+                return Err(crate::error::Cg3Error::fatal(1, None));
             }
             let s = match self.get_set(sh) {
                 Some(s) => s,
@@ -1910,7 +1915,8 @@ impl Grammar {
                         let a_name = self.sets_list[a_sid.0].name.clone();
                         if a_name == nm {
                             // "Error: Static set ... already defined ..."
-                            cg3_quit(1, Some(file!()), self.lines);
+                            crate::error::emit_cg3quit_line(file!(), self.lines);
+                            return Err(crate::error::Cg3Error::fatal(1, None));
                         }
                         let mut seed = 0u32;
                         while seed < 1000 {
@@ -2083,12 +2089,15 @@ impl Grammar {
         }
 
         // (21) used_tags dump → exit(0) (flagged quirk: terminates). Wave 4:
-        // raised as a Cg3Exit unwind; the binaries convert it to the exit.
+        // returned as a Cg3Error carrying exit code 0; the binaries convert it
+        // to the exit.
         if used_tags {
             // for tag in single_tags with T_USED: print toUString(true) to
             // ux_stdout — deferred I/O.
-            crate::error::cg3_exit(0);
+            return Err(crate::error::Cg3Error::fatal(0, None));
         }
+
+        Ok(())
     }
 }
 

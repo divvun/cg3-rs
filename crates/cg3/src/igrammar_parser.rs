@@ -51,12 +51,16 @@ pub trait IGrammarParser {
     // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.parse-grammar-fn]
     /// C++ pure-virtual `int parse_grammar(const char* buffer, size_t length) = 0`.
     /// Parses the grammar held in the in-memory byte buffer `input` into
-    /// `grammar`, returning an `int` status where `0` means success (a fatal
-    /// error terminates the process via `cg3_quit`). The C++ `(const char*,
-    /// size_t)` buffer+length pair collapses to Rust `input: &[u8]`; the
-    /// destination `Grammar*` (the C++ `result` member) is passed as
-    /// `&mut Grammar`.
-    fn parse_grammar(&mut self, grammar: &mut Grammar, input: &[u8]) -> i32;
+    /// `grammar`, returning `Ok(status)` where `0` means success (a fatal error
+    /// is `Err(Cg3Error)` carrying the C++ `cg3_quit` exit code — wave 4). The
+    /// C++ `(const char*, size_t)` buffer+length pair collapses to Rust
+    /// `input: &[u8]`; the destination `Grammar*` (the C++ `result` member) is
+    /// passed as `&mut Grammar`.
+    fn parse_grammar(
+        &mut self,
+        grammar: &mut Grammar,
+        input: &[u8],
+    ) -> Result<i32, crate::error::Cg3Error>;
 
     // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.set-compatible-fn]
     // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.set-compatible-fn]
