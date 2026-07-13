@@ -510,7 +510,7 @@ pub fn update_min_max(store: &mut RuntimeStore, grammar: &Grammar, this: CohortI
     let reading_ids: Vec<ReadingId> = cohorts.get(this.0).readings.clone();
     for rid in reading_ids {
         let tags_numerical = &readings.get(rid.0).tags_numerical;
-        for (_key, &tid) in tags_numerical.iter() {
+        for &tid in tags_numerical.values() {
             let tag = grammar.single_tags_list.get(tid.0);
             let ch = tag.comparison_hash;
             let cv = tag.comparison_val;

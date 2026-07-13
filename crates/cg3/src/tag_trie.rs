@@ -167,7 +167,7 @@ pub fn trie_copy(trie: &trie_t) -> trie_t {
 /// passed-in map's own top-level keys and terminal flags intact (only child
 /// `.trie` pointers are freed/nulled). Order-independent, so no grammar needed.
 pub fn trie_delete(trie: &mut trie_t) {
-    for (_k, node) in trie.iter_mut() {
+    for node in trie.values_mut() {
         if node.trie.is_some() {
             trie_delete(node.trie.as_deref_mut().unwrap());
             node.trie = None; // p.second.trie.reset()

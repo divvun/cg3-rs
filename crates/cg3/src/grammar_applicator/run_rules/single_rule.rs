@@ -94,7 +94,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             .unwrap_or(0);
         let mut ctx_cohorts: Vec<CohortId> = Vec::new();
         let trie_special = self.grammar.set_by_number(rtarget).trie_special.clone();
-        for (&tid, _) in trie_special.iter() {
+        for &tid in trie_special.keys() {
             let t = self.grammar.single_tags_list.get(tid.0);
             let crp = t.context_ref_pos();
             if t.r#type.intersects(crate::tag::T_CONTEXT) && (crp as usize) <= ctx_len
