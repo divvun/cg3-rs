@@ -130,6 +130,21 @@ children (
                 id engine-decomp.triage
                 title "Field triage: classify every GrammarApplicator field into cfg/doc/scratch/diag buckets from read/write-site evidence; deliverables = bucket map, wart inventory (fields whose bucket is blocked by gratuitous mutation), spec-remap plan, decision record"
                 priority 0
+                log (
+                    {
+                        at 2026-07-18T14:39:06.811893Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-18T14:52:47.913798Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
             }
 
             {
