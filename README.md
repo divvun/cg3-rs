@@ -74,8 +74,9 @@ RapidJSON:
 
 ## Building
 
-There is no crates.io release; build from a checkout of
-[`divvun/cg3-rs`](https://github.com/divvun/cg3-rs):
+Released on crates.io as [`cg3`](https://crates.io/crates/cg3)
+(`cargo add cg3`, or `cargo install cg3` for the binaries). To build from a
+checkout of [`divvun/cg3-rs`](https://github.com/divvun/cg3-rs):
 
 ```sh
 cargo build                       # the library + the six default binaries
