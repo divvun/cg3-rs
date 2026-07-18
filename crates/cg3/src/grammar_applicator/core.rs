@@ -480,16 +480,16 @@ impl super::GrammarApplicator {
         let tb = self.add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
         let te = self.add_tag(STR_ENDTAG, crate::tag::TagType::empty());
         let ts = self.add_tag(STR_DUMMY, crate::tag::TagType::empty());
-        self.tag_begin = Some(tb);
-        self.begintag = self.grammar.single_tags_list[tb.0].hash;
-        self.endtag = self.grammar.single_tags_list[te.0].hash;
-        self.substtag = self.grammar.single_tags_list[ts.0].hash;
+        self.cfg.tag_begin = Some(tb);
+        self.cfg.begintag = self.grammar.single_tags_list[tb.0].hash;
+        self.cfg.endtag = self.grammar.single_tags_list[te.0].hash;
+        self.cfg.substtag = self.grammar.single_tags_list[ts.0].hash;
 
         let mp: String = self.grammar.mapping_prefix.to_string();
         let k = self.add_tag("_MPREFIX", crate::tag::TagType::empty());
-        self.mprefix_key = self.grammar.single_tags_list[k.0].hash;
+        self.cfg.mprefix_key = self.grammar.single_tags_list[k.0].hash;
         let v = self.add_tag(&mp, crate::tag::TagType::empty());
-        self.mprefix_value = self.grammar.single_tags_list[v.0].hash;
+        self.cfg.mprefix_value = self.grammar.single_tags_list[v.0].hash;
 
         let n = self.grammar.sets_list.capacity() as usize;
         self.index_readingSet_yes.clear();
@@ -521,7 +521,7 @@ impl super::GrammarApplicator {
                 .collect();
             for (pat, icase) in specs {
                 match RegexBuilder::new(&pat).case_insensitive(icase).build() {
-                    Ok(re) => self.text_delimiters.push(re),
+                    Ok(re) => self.cfg.text_delimiters.push(re),
                     Err(_) => {
                         // "Error: uregex_open returned ... - cannot continue!"
                         crate::error::emit_cg3quit_line(file!(), self.numLines);
@@ -546,7 +546,7 @@ impl super::GrammarApplicator {
         rx: crate::types::UString,
     ) -> Result<(), crate::error::Cg3Error> {
         // uregex_close(r) for each: regex::Regex drops here.
-        self.text_delimiters.clear();
+        self.cfg.text_delimiters.clear();
 
         if rx.is_empty() {
             return Ok(());
@@ -573,7 +573,7 @@ impl super::GrammarApplicator {
 
         let pat: String = chars.into_iter().collect();
         match RegexBuilder::new(&pat).case_insensitive(icase).build() {
-            Ok(re) => self.text_delimiters.push(re),
+            Ok(re) => self.cfg.text_delimiters.push(re),
             Err(_) => {
                 crate::error::emit_cg3quit_line(file!(), self.numLines);
                 return Err(crate::error::Cg3Error::fatal(1, None));
@@ -591,43 +591,43 @@ impl super::GrammarApplicator {
     /// C++ `void index()` — builds the per-section rule schedule and the
     /// dependency span-print patterns; runs at most once.
     pub fn index(&mut self) {
-        if !self.add_spacing {
-            self.ws[2] = '\n';
+        if !self.cfg.add_spacing {
+            self.cfg.ws[2] = '\n';
         }
-        if self.did_index {
+        if self.cfg.did_index {
             return;
         }
 
         if self.grammar.ordered {
-            self.ordered = true;
+            self.cfg.ordered = true;
         }
-        if self.grammar.has_dep || self.dep_delimit != 0 {
-            self.parse_dep = true;
+        if self.grammar.has_dep || self.cfg.dep_delimit != 0 {
+            self.cfg.parse_dep = true;
         }
 
         if !self.grammar.before_sections.is_empty() {
             let rules: Vec<RuleId> = self.grammar.before_sections.clone();
-            let m = self.runsections.entry(-1).or_default();
+            let m = self.cfg.runsections.entry(-1).or_default();
             for r in rules {
                 m.insert(self.grammar.rule_by_number[r.0].number);
             }
         }
         if !self.grammar.after_sections.is_empty() {
             let rules: Vec<RuleId> = self.grammar.after_sections.clone();
-            let m = self.runsections.entry(-2).or_default();
+            let m = self.cfg.runsections.entry(-2).or_default();
             for r in rules {
                 m.insert(self.grammar.rule_by_number[r.0].number);
             }
         }
         if !self.grammar.null_section.is_empty() {
             let rules: Vec<RuleId> = self.grammar.null_section.clone();
-            let m = self.runsections.entry(-3).or_default();
+            let m = self.cfg.runsections.entry(-3).or_default();
             for r in rules {
                 m.insert(self.grammar.rule_by_number[r.0].number);
             }
         }
 
-        if self.sections.is_empty() {
+        if self.cfg.sections.is_empty() {
             let smax = self.grammar.sections.len() as i32;
             let rules: Vec<RuleId> = self.grammar.rules.clone();
             for i in 0..smax {
@@ -637,14 +637,14 @@ impl super::GrammarApplicator {
                         continue;
                     }
                     let num = rule.number;
-                    self.runsections.entry(i).or_default().insert(num);
+                    self.cfg.runsections.entry(i).or_default().insert(num);
                 }
             }
         } else {
-            self.numsections = ui32(self.sections.len());
+            self.cfg.numsections = ui32(self.cfg.sections.len());
             let rules: Vec<RuleId> = self.grammar.rules.clone();
-            let sections = self.sections.clone();
-            for n in 0..self.numsections {
+            let sections = self.cfg.sections.clone();
+            for n in 0..self.cfg.numsections {
                 for e in 0..=n {
                     for &r in &rules {
                         let rule = &self.grammar.rule_by_number[r.0];
@@ -652,38 +652,38 @@ impl super::GrammarApplicator {
                             continue;
                         }
                         let num = rule.number;
-                        self.runsections.entry(n as i32).or_default().insert(num);
+                        self.cfg.runsections.entry(n as i32).or_default().insert(num);
                     }
                 }
             }
         }
 
-        if !self.valid_rules.empty() {
+        if !self.cfg.valid_rules.empty() {
             let mut vr = crate::interval_vector::uint32IntervalVector::new();
             for i in 0..self.grammar.rule_by_number.capacity() {
                 if let Some(rule) = self.grammar.rule_by_number.try_get(i)
-                    && self.valid_rules.contains(rule.line)
+                    && self.cfg.valid_rules.contains(rule.line)
                 {
                     vr.insert_sorted(rule.number);
                 }
             }
-            self.valid_rules = vr;
+            self.cfg.valid_rules = vr;
         }
 
         // Dependency span print patterns (state kept for parity; print_reading
         // reproduces the format directly via dep_span_width()).
-        let w = ui8((self.hard_limit as f64).log10().floor() + 1.0);
+        let w = ui8((self.cfg.hard_limit as f64).log10().floor() + 1.0);
         let wc = char::from_digit(w as u32, 10).unwrap_or('1');
-        self.span_pattern_utf = format!(" #%u%0{wc}u\u{2192}%u%0{wc}u");
-        self.span_pattern_latin = format!(" #%u%0{wc}u->%u%0{wc}u");
+        self.cfg.span_pattern_utf = format!(" #%u%0{wc}u\u{2192}%u%0{wc}u");
+        self.cfg.span_pattern_latin = format!(" #%u%0{wc}u->%u%0{wc}u");
 
-        self.did_index = true;
+        self.cfg.did_index = true;
     }
 
     /// Dependency span zero-pad width — `floor(log10(hard_limit)) + 1`, matching
     /// the digit baked into `span_pattern_*` by [`index`].
     fn dep_span_width(&self) -> usize {
-        (ui8((self.hard_limit as f64).log10().floor() + 1.0) as usize).max(1)
+        (ui8((self.cfg.hard_limit as f64).log10().floor() + 1.0) as usize).max(1)
     }
 
     // =======================================================================
@@ -742,7 +742,7 @@ impl super::GrammarApplicator {
                 }
                 let _ = write!(output, ")");
             }
-            if !self.trace_name_only || r.name.is_empty() {
+            if !self.cfg.trace_name_only || r.name.is_empty() {
                 let _ = write!(output, ":{}", r.line);
             }
             if !r.name.is_empty() {
@@ -826,13 +826,13 @@ impl super::GrammarApplicator {
         let mut mappings: Vec<TagId> = Vec::new();
         for tter in tags_list {
             let tter = TagHash(tter);
-            if (!self.show_end_tags && tter == self.endtag) || tter == self.begintag {
+            if (!self.cfg.show_end_tags && tter == self.cfg.endtag) || tter == self.cfg.begintag {
                 continue;
             }
             if tter == baseform || tter == wordform_hash {
                 continue;
             }
-            if self.unique_tags {
+            if self.cfg.unique_tags {
                 if unique.contains(&tter.get()) {
                     continue;
                 }
@@ -840,7 +840,7 @@ impl super::GrammarApplicator {
             }
             let tid = tag_by_hash(&self.grammar, tter);
             let ttype = self.grammar.single_tags_list[tid.0].r#type;
-            if ttype.intersects(T_DEPENDENCY) && self.has_dep && !self.dep_original {
+            if ttype.intersects(T_DEPENDENCY) && self.has_dep && !self.cfg.dep_original {
                 continue;
             }
             if ttype.intersects(T_RELATION) && self.has_relations {
@@ -885,8 +885,8 @@ impl super::GrammarApplicator {
                     pr = mapped;
                 }
             }
-            let arrow = if self.unicode_tags { "\u{2192}" } else { "->" };
-            if self.dep_absolute {
+            let arrow = if self.cfg.unicode_tags { "\u{2192}" } else { "->" };
+            if self.cfg.dep_absolute {
                 let pr_global = self.store.cohorts.get(pr.0).global_number;
                 let _ = write!(output, " #{p_global}{arrow}{pr_global}");
             } else if !self.dep_has_spanned {
@@ -938,7 +938,7 @@ impl super::GrammarApplicator {
                 c.relations.clone(),
             )
         };
-        if self.print_ids || p_related {
+        if self.cfg.print_ids || p_related {
             let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
                 for siter in targets.iter() {
@@ -1007,7 +1007,7 @@ impl super::GrammarApplicator {
                 .r#type
                 .intersects(CT_REMOVED)
             {
-                if !trace || self.trace_no_removed {
+                if !trace || self.cfg.trace_no_removed {
                     removed_goto = true;
                 } else {
                     u_fputc(';', output);
@@ -1042,7 +1042,7 @@ impl super::GrammarApplicator {
 
                 if !profiling {
                     unignore_all(&mut self.store, cohort);
-                    if !self.split_mappings {
+                    if !self.cfg.split_mappings {
                         self.merge_mappings(cohort);
                     }
                 }
@@ -1056,7 +1056,7 @@ impl super::GrammarApplicator {
                     self.print_reading(r, output, 1, trace);
                 }
 
-                if trace && !self.trace_no_removed {
+                if trace && !self.cfg.trace_no_removed {
                     let mut delayed: Vec<ReadingId> =
                         self.store.cohorts.get(cohort.0).delayed.clone();
                     sort_readings(&self.store, &mut delayed);
@@ -1091,7 +1091,7 @@ impl super::GrammarApplicator {
     /// C++ `UString::find_first_not_of(ws)` membership: is `c` in the (NUL-
     /// terminated) whitespace set `ws`?
     fn is_ws(&self, c: char) -> bool {
-        for &w in &self.ws {
+        for &w in &self.cfg.ws {
             if w == '\0' {
                 break;
             }
@@ -1561,75 +1561,75 @@ impl super::GrammarApplicator {
         let val = |o: OPTIONS| options[o as usize].value.as_str();
 
         if occ(OPTIONS::ALWAYS_SPAN) {
-            self.always_span = true;
+            self.cfg.always_span = true;
         }
-        self.unicode_tags = false;
+        self.cfg.unicode_tags = false;
         if occ(OPTIONS::UNICODE_TAGS) {
-            self.unicode_tags = true;
+            self.cfg.unicode_tags = true;
         }
-        self.unique_tags = false;
+        self.cfg.unique_tags = false;
         if occ(OPTIONS::UNIQUE_TAGS) {
-            self.unique_tags = true;
+            self.cfg.unique_tags = true;
         }
-        self.apply_mappings = true;
+        self.cfg.apply_mappings = true;
         if occ(OPTIONS::NOMAPPINGS) {
-            self.apply_mappings = false;
+            self.cfg.apply_mappings = false;
         }
-        self.apply_corrections = true;
+        self.cfg.apply_corrections = true;
         if occ(OPTIONS::NOCORRECTIONS) {
-            self.apply_corrections = false;
+            self.cfg.apply_corrections = false;
         }
-        self.no_before_sections = false;
+        self.cfg.no_before_sections = false;
         if occ(OPTIONS::NOBEFORESECTIONS) {
-            self.no_before_sections = true;
+            self.cfg.no_before_sections = true;
         }
-        self.no_sections = false;
+        self.cfg.no_sections = false;
         if occ(OPTIONS::NOSECTIONS) {
-            self.no_sections = true;
+            self.cfg.no_sections = true;
         }
-        self.no_after_sections = false;
+        self.cfg.no_after_sections = false;
         if occ(OPTIONS::NOAFTERSECTIONS) {
-            self.no_after_sections = true;
+            self.cfg.no_after_sections = true;
         }
-        self.r#unsafe = false;
+        self.cfg.r#unsafe = false;
         if occ(OPTIONS::UNSAFE) {
-            self.r#unsafe = true;
+            self.cfg.r#unsafe = true;
         }
         if occ(OPTIONS::ORDERED) {
-            self.ordered = true;
+            self.cfg.ordered = true;
         }
         if occ(OPTIONS::TRACE) {
-            self.trace = true;
+            self.cfg.trace = true;
             if !val(OPTIONS::TRACE).is_empty() {
                 self.set_opts_ranged_interval(val(OPTIONS::TRACE), true, false);
             }
         }
         if occ(OPTIONS::TRACE_NAME_ONLY) {
-            self.trace = true;
-            self.trace_name_only = true;
+            self.cfg.trace = true;
+            self.cfg.trace_name_only = true;
         }
         if occ(OPTIONS::TRACE_NO_REMOVED) {
-            self.trace = true;
-            self.trace_no_removed = true;
+            self.cfg.trace = true;
+            self.cfg.trace_no_removed = true;
         }
         if occ(OPTIONS::TRACE_ENCL) {
-            self.trace = true;
-            self.trace_encl = true;
+            self.cfg.trace = true;
+            self.cfg.trace_encl = true;
         }
         if occ(OPTIONS::PIPE_DELETED) {
-            self.pipe_deleted = true;
+            self.cfg.pipe_deleted = true;
         }
         if occ(OPTIONS::DRYRUN) {
-            self.dry_run = true;
+            self.cfg.dry_run = true;
         }
         if occ(OPTIONS::SINGLERUN) {
-            self.section_max_count = 1;
+            self.cfg.section_max_count = 1;
         }
         if occ(OPTIONS::MAXRUNS) {
-            self.section_max_count = stoul(val(OPTIONS::MAXRUNS));
+            self.cfg.section_max_count = stoul(val(OPTIONS::MAXRUNS));
         }
         if occ(OPTIONS::SECTIONS) {
-            g_app_set_opts_ranged(val(OPTIONS::SECTIONS), &mut self.sections, true);
+            g_app_set_opts_ranged(val(OPTIONS::SECTIONS), &mut self.cfg.sections, true);
         }
         if occ(OPTIONS::RULES) {
             self.set_opts_ranged_interval_valid(val(OPTIONS::RULES), true);
@@ -1638,14 +1638,14 @@ impl super::GrammarApplicator {
             let v = val(OPTIONS::RULE);
             let first = v.chars().next().unwrap_or('\0');
             if first.is_ascii_digit() {
-                self.valid_rules.insert_sorted(stoi(v) as u32);
+                self.cfg.valid_rules.insert_sorted(stoi(v) as u32);
             } else {
                 // ucnv_toUChars is identity for UTF-8; compare rule names.
                 for i in 0..self.grammar.rule_by_number.capacity() {
                     if let Some(rule) = self.grammar.rule_by_number.try_get(i)
                         && rule.name == v
                     {
-                        self.valid_rules.insert_sorted(rule.number);
+                        self.cfg.valid_rules.insert_sorted(rule.number);
                     }
                 }
             }
@@ -1654,14 +1654,14 @@ impl super::GrammarApplicator {
             self.set_opts_ranged_interval_debug(val(OPTIONS::DEBUG_RULES), false);
         }
         if occ(OPTIONS::VERBOSE) {
-            self.verbosity_level = if !val(OPTIONS::VERBOSE).is_empty() {
+            self.cfg.verbosity_level = if !val(OPTIONS::VERBOSE).is_empty() {
                 stoul(val(OPTIONS::VERBOSE))
             } else {
                 1
             };
         }
         if occ(OPTIONS::DODEBUG) {
-            self.debug_level = if !val(OPTIONS::DODEBUG).is_empty() {
+            self.cfg.debug_level = if !val(OPTIONS::DODEBUG).is_empty() {
                 stoul(val(OPTIONS::DODEBUG))
             } else {
                 1
@@ -1669,19 +1669,19 @@ impl super::GrammarApplicator {
             // C++ `std::cerr << "Debug level set to " << debug_level`: deferred.
         }
         if occ(OPTIONS::PRINT_IDS) {
-            self.print_ids = true;
+            self.cfg.print_ids = true;
         }
         if occ(OPTIONS::PRINT_DEP) {
             self.has_dep = true;
         }
         if occ(OPTIONS::NUM_WINDOWS) {
-            self.num_windows = stoul(val(OPTIONS::NUM_WINDOWS));
+            self.cfg.num_windows = stoul(val(OPTIONS::NUM_WINDOWS));
         }
         if occ(OPTIONS::SOFT_LIMIT) {
-            self.soft_limit = stoul(val(OPTIONS::SOFT_LIMIT));
+            self.cfg.soft_limit = stoul(val(OPTIONS::SOFT_LIMIT));
         }
         if occ(OPTIONS::HARD_LIMIT) {
-            self.hard_limit = stoul(val(OPTIONS::HARD_LIMIT));
+            self.cfg.hard_limit = stoul(val(OPTIONS::HARD_LIMIT));
         }
         if occ(OPTIONS::TEXT_DELIMIT) {
             let rx = if !val(OPTIONS::TEXT_DELIMIT).is_empty() {
@@ -1692,39 +1692,39 @@ impl super::GrammarApplicator {
             self.set_text_delimiter(rx)?;
         }
         if occ(OPTIONS::DEP_DELIMIT) {
-            self.dep_delimit = if !val(OPTIONS::DEP_DELIMIT).is_empty() {
+            self.cfg.dep_delimit = if !val(OPTIONS::DEP_DELIMIT).is_empty() {
                 stoul(val(OPTIONS::DEP_DELIMIT))
             } else {
                 10
             };
-            self.parse_dep = true;
+            self.cfg.parse_dep = true;
         }
         if occ(OPTIONS::DEP_ABSOLUTE) {
-            self.dep_absolute = true;
+            self.cfg.dep_absolute = true;
         }
         if occ(OPTIONS::DEP_ORIGINAL) {
-            self.dep_original = true;
+            self.cfg.dep_original = true;
         }
         if occ(OPTIONS::DEP_ALLOW_LOOPS) {
-            self.dep_block_loops = false;
+            self.cfg.dep_block_loops = false;
         }
         if occ(OPTIONS::DEP_BLOCK_CROSSING) {
-            self.dep_block_crossing = true;
+            self.cfg.dep_block_crossing = true;
         }
         if occ(OPTIONS::MAGIC_READINGS) {
-            self.allow_magic_readings = false;
+            self.cfg.allow_magic_readings = false;
         }
         if occ(OPTIONS::NO_PASS_ORIGIN) {
-            self.no_pass_origin = true;
+            self.cfg.no_pass_origin = true;
         }
         if occ(OPTIONS::SPLIT_MAPPINGS) {
-            self.split_mappings = true;
+            self.cfg.split_mappings = true;
         }
         if occ(OPTIONS::SHOW_END_TAGS) {
-            self.show_end_tags = true;
+            self.cfg.show_end_tags = true;
         }
         if occ(OPTIONS::NO_BREAK) {
-            self.add_spacing = false;
+            self.cfg.add_spacing = false;
         }
         Ok(())
     }
@@ -1735,21 +1735,21 @@ impl super::GrammarApplicator {
         let mut tmp: Vec<u32> = Vec::new();
         g_app_set_opts_ranged(value, &mut tmp, fill);
         for v in tmp {
-            self.trace_rules.insert(v);
+            self.cfg.trace_rules.insert(v);
         }
     }
     fn set_opts_ranged_interval_valid(&mut self, value: &str, fill: bool) {
         let mut tmp: Vec<u32> = Vec::new();
         g_app_set_opts_ranged(value, &mut tmp, fill);
         for v in tmp {
-            self.valid_rules.insert(v);
+            self.cfg.valid_rules.insert(v);
         }
     }
     fn set_opts_ranged_interval_debug(&mut self, value: &str, fill: bool) {
         let mut tmp: Vec<u32> = Vec::new();
         g_app_set_opts_ranged(value, &mut tmp, fill);
         for v in tmp {
-            self.debug_rules.insert(v);
+            self.cfg.debug_rules.insert(v);
         }
     }
 

@@ -185,6 +185,21 @@ children (
                         title "EngineConfig: the options-derived, read-only-during-run fields (trace, dep_delimit, num_windows, apply_mappings/apply_corrections, section ranges, verbosity, ordered, unicode_tags, trace_rules/debug_rules) move to self.cfg"
                         priority 0
                         deps (engine-decomp.warts)
+                        log (
+                            {
+                                at 2026-07-18T15:19:41.613854Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Todo → Doing (nplan_start)"
+                            }
+
+                            {
+                                at 2026-07-18T15:42:42.709046Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Doing → Done (nplan_complete)"
+                            }
+                        )
                     }
 
                     {

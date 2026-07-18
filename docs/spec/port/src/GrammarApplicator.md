@@ -12,7 +12,7 @@
 >   bool in_barrier = false;
 > }
 
-> [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+1]
+> [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+2]
 > class GrammarApplicator {
 >   bool always_span = false;
 >   bool apply_mappings = true;
@@ -145,6 +145,27 @@
 > attach-diagnostics reader is unported; `ss_taglist` is an unexercised pool
 > (no method in the ported call graph touches it). Each is regenerated if a
 > future parity path needs it.
+>
+> Stage-B re-homing (v2): the options-derived, setup-written, run-read-only
+> "cfg" members are extracted, unchanged in semantics, into a new `EngineConfig`
+> value held as the first member of `GrammarApplicator` (`self.cfg`). This is a
+> pure field re-homing — no C++ analog as a type, no signature or logic change;
+> the members map 1:1 (same names, types, defaults, and per-field C++ reference
+> comments). The re-homed members are: `always_span`, `apply_mappings`,
+> `apply_corrections`, `no_before_sections`, `no_sections`, `no_after_sections`,
+> `trace`, `trace_name_only`, `trace_no_removed`, `trace_encl`,
+> `allow_magic_readings`, `no_pass_origin`, `unsafe`, `ordered`, `show_end_tags`,
+> `unicode_tags`, `unique_tags`, `dry_run`, `is_conv`, `split_mappings`,
+> `pipe_deleted`, `add_spacing`, `print_ids`, `fmt_input`, `fmt_output`,
+> `dep_delimit`, `dep_absolute`, `dep_original`, `dep_block_loops`,
+> `dep_block_crossing`, `num_windows`, `soft_limit`, `hard_limit`, `sections`,
+> `valid_rules`, `trace_rules`, `debug_rules`, `verbosity_level`, `debug_level`,
+> `section_max_count`, `parse_dep`, `span_pattern_latin`, `span_pattern_utf`,
+> `ws`, `did_index`, `numsections`, `runsections`, `begintag`, `endtag`,
+> `substtag`, `tag_begin`, `mprefix_key`, `mprefix_value`, and `text_delimiters`
+> (54 members). The run-mutable, document-lifetime, scratch, and diagnostics
+> members (e.g. `input_eof`, `variables`, `has_dep`, `numLines`, `match_single`,
+> `context_stack`) remain flat on `GrammarApplicator`.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
 > void addProfilingExample(T& item)

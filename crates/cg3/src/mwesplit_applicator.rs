@@ -99,7 +99,7 @@ impl MweSplitApplicator {
             .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
         base.set_grammar()
             .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
-        base.is_conv = true;
+        base.cfg.is_conv = true;
         MweSplitApplicator { base }
     }
 
@@ -140,7 +140,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
         output: &mut W,
         profiling: bool,
     ) {
-        let trace = app.trace;
+        let trace = app.cfg.trace;
         app.print_cohort(cohort, output, profiling, trace);
     }
 
@@ -199,7 +199,7 @@ impl GrammarApplicator {
         };
         for &tter in &rr.tags_list {
             let tter = TagHash(tter);
-            if (!self.show_end_tags && tter == self.endtag) || tter == self.begintag {
+            if (!self.cfg.show_end_tags && tter == self.cfg.endtag) || tter == self.cfg.begintag {
                 continue;
             }
             if tter == baseform || tter == wordform_hash {
@@ -471,7 +471,7 @@ impl GrammarApplicator {
             let split = self.mwe_split_mwe(cohort);
             for iter in split {
                 // Inherited GrammarApplicator::printCohort.
-                let trace = self.trace;
+                let trace = self.cfg.trace;
                 self.print_cohort(iter, output, profiling, trace);
             }
         }

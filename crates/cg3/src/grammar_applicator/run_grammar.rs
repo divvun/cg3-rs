@@ -118,10 +118,10 @@ impl super::GrammarApplicator {
         {
             let c = self.store.cohorts.get_mut(c_cohort.0);
             c.global_number = gn;
-            c.wordform = self.tag_begin;
+            c.wordform = self.cfg.tag_begin;
         }
         let c_reading = crate::reading::alloc_reading(&mut self.store, Some(c_cohort));
-        self.store.readings.get_mut(c_reading.0).baseform = Some(self.begintag);
+        self.store.readings.get_mut(c_reading.0).baseform = Some(self.cfg.begintag);
         // insert_if_exists(cReading->parent->possible_sets, grammar->sets_any);
         // cReading->parent == c_cohort.
         crate::inlines::insert_if_exists(
@@ -130,7 +130,7 @@ impl super::GrammarApplicator {
         );
         // addTagToReading(*cReading, begintag);  [uint32_t overload —
         // resolves the hash via grammar->single_tags[hash], then the Tag* form]
-        let begin_tag_id = super::core::tag_by_hash(&self.grammar, self.begintag);
+        let begin_tag_id = super::core::tag_by_hash(&self.grammar, self.cfg.begintag);
         self.add_tag_to_reading(c_reading, begin_tag_id);
         // cCohort->appendReading(cReading);
         crate::cohort::append_reading(&mut self.store, c_cohort, c_reading);
@@ -166,7 +166,7 @@ impl super::GrammarApplicator {
             .get(c_cohort.0)
             .wordform
             .expect("initEmptyCohort: cohort has no wordform");
-        if self.allow_magic_readings {
+        if self.cfg.allow_magic_readings {
             // baseform = makeBaseFromWord(cCohort.wordform)->hash
             let base = self.make_base_from_word(wordform);
             let h = self.grammar.single_tags_list.get(base.0).hash;
@@ -382,10 +382,10 @@ impl super::GrammarApplicator {
             .dep_self
             .map_or(0, |g| g.get());
         if !is_deleted
-            && self.dep_delimit != 0
+            && self.cfg.dep_delimit != 0
             && self.dep_highest_seen.get() != 0
             && (dep_self <= self.dep_highest_seen.get()
-                || dep_self.wrapping_sub(self.dep_highest_seen.get()) > self.dep_delimit)
+                || dep_self.wrapping_sub(self.dep_highest_seen.get()) > self.cfg.dep_delimit)
         {
             let gn = self.store.cohorts.get(c_cohort.0).global_number.get();
             self.reflow_dependency_window(gn);
@@ -395,7 +395,7 @@ impl super::GrammarApplicator {
                 let last_cohort = *self.store.single_windows.get(sw.0).cohorts.last().unwrap();
                 let rs = self.store.cohorts.get(last_cohort.0).readings.clone();
                 for r in rs {
-                    let tid = super::core::tag_by_hash(&self.grammar, self.endtag);
+                    let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                     self.add_tag_to_reading(r, tid);
                 }
             }
@@ -540,7 +540,7 @@ impl super::GrammarApplicator {
 
         self.index();
 
-        let reset_after: u32 = (self.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = (self.cfg.num_windows + 4) * 2 + 1;
         let mut lines: u32 = 0;
 
         let mut c_swindow: Option<crate::arena::SwId> = None;
@@ -551,7 +551,7 @@ impl super::GrammarApplicator {
         let mut l_cohort: Option<crate::arena::CohortId> = None;
         let mut l_reading: Option<crate::arena::ReadingId> = None;
 
-        self.window.window_span = self.num_windows;
+        self.window.window_span = self.cfg.num_windows;
 
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::new();
         let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::new();
@@ -563,7 +563,7 @@ impl super::GrammarApplicator {
         crate::uextras::ux_strip_bom(input);
 
         // binary_maybe_window() [inlined; the C++ lambda captures cSWindow/lSWindow]
-        if self.fmt_output == super::cg3_sformat::CG3SF_BINARY {
+        if self.cfg.fmt_output == super::cg3_sformat::CG3SF_BINARY {
             let sw = self.window.alloc_append_single_window(&mut self.store);
             self.init_empty_single_window(sw);
             c_swindow = Some(sw);
@@ -623,7 +623,7 @@ impl super::GrammarApplicator {
                     // (a) Soft-limit lookback.
                     if let Some(sw) = c_swindow {
                         let over_soft = self.store.single_windows.get(sw.0).cohorts.len()
-                            >= self.soft_limit as usize;
+                            >= self.cfg.soft_limit as usize;
                         if over_soft && self.grammar.soft_delimiters.is_some() && !did_soft_lookback
                         {
                             did_soft_lookback = true;
@@ -652,7 +652,7 @@ impl super::GrammarApplicator {
                     // (b) Soft-delimiter on the current cohort.
                     if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                         let over_soft = self.store.single_windows.get(sw.0).cohorts.len()
-                            >= self.soft_limit as usize;
+                            >= self.cfg.soft_limit as usize;
                         let sd_hit = over_soft && self.grammar.soft_delimiters.is_some() && {
                             let sd = self.grammar.sets_list
                                 [self.grammar.soft_delimiters.unwrap().0]
@@ -664,7 +664,7 @@ impl super::GrammarApplicator {
                             // verbose soft-limit warning: deferred.
                             let rs = self.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
-                                let tid = super::core::tag_by_hash(&self.grammar, self.endtag);
+                                let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                                 self.add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
@@ -694,9 +694,9 @@ impl super::GrammarApplicator {
                     if let Some(cc) = c_cohort {
                         let sw = c_swindow.unwrap();
                         let over_hard = self.store.single_windows.get(sw.0).cohorts.len()
-                            >= self.hard_limit as usize;
+                            >= self.cfg.hard_limit as usize;
                         let delim_hit =
-                            self.dep_delimit == 0 && self.grammar.delimiters.is_some() && {
+                            self.cfg.dep_delimit == 0 && self.grammar.delimiters.is_some() && {
                                 let d = self.grammar.sets_list[self.grammar.delimiters.unwrap().0]
                                     .number
                                     .get();
@@ -706,7 +706,7 @@ impl super::GrammarApplicator {
                             // (!is_conv && over_hard) "Hard limit ... forcing break": deferred.
                             let rs = self.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
-                                let tid = super::core::tag_by_hash(&self.grammar, self.endtag);
+                                let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                                 self.add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
@@ -762,7 +762,7 @@ impl super::GrammarApplicator {
                     }
 
                     // Drain a window if enough have queued up.
-                    if self.window.next.len() > (self.num_windows + 1) as usize {
+                    if self.window.next.len() > (self.cfg.num_windows + 1) as usize {
                         self.shuffle_windows_down();
 
                         self.run_grammar_on_window_with(fmt, output);
@@ -827,7 +827,7 @@ impl super::GrammarApplicator {
                     }
                 }
             } else if (cleaned[0] == ' ' && cleaned[1] == '"' && c_cohort.is_some())
-                || (self.pipe_deleted
+                || (self.cfg.pipe_deleted
                     && cleaned[0] == ';'
                     && cleaned[1] == ' '
                     && cleaned[2] == '"'
@@ -905,7 +905,7 @@ impl super::GrammarApplicator {
                             }
                             let rs = self.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
-                                let tid = super::core::tag_by_hash(&self.grammar, self.endtag);
+                                let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                                 self.add_tag_to_reading(r, tid);
                             }
                             c_reading = None;
@@ -1101,7 +1101,7 @@ impl super::GrammarApplicator {
                         let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
                         if l_swindow.is_some()
                             && l_cohort.is_some()
-                            && test_string_against(&line_str, &mut self.text_delimiters)
+                            && test_string_against(&line_str, &mut self.cfg.text_delimiters)
                         {
                             // Text-delimiter line.
                             let lsw = l_swindow.unwrap();
@@ -1113,7 +1113,7 @@ impl super::GrammarApplicator {
                             let cc = c_cohort.unwrap();
                             let rs = self.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
-                                let tid = super::core::tag_by_hash(&self.grammar, self.endtag);
+                                let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                                 self.add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
@@ -1183,7 +1183,7 @@ impl super::GrammarApplicator {
             }
             let rs = self.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
-                let tid = super::core::tag_by_hash(&self.grammar, self.endtag);
+                let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                 self.add_tag_to_reading(r, tid);
             }
             c_reading = None;
@@ -1191,9 +1191,9 @@ impl super::GrammarApplicator {
             c_swindow = None;
         }
 
-        if self.fmt_output == super::cg3_sformat::CG3SF_BINARY && !variables_output.empty() {
+        if self.cfg.fmt_output == super::cg3_sformat::CG3SF_BINARY && !variables_output.empty() {
             // binary_maybe_window() + adopt_variables() [inlined]
-            if self.fmt_output == super::cg3_sformat::CG3SF_BINARY {
+            if self.cfg.fmt_output == super::cg3_sformat::CG3SF_BINARY {
                 let sw = self.window.alloc_append_single_window(&mut self.store);
                 self.init_empty_single_window(sw);
                 l_swindow = Some(sw);

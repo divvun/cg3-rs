@@ -26,4 +26,5 @@ assertions (
     {id engine-decomp.window-api, kind @complete, author "brendan@necessary.nu", at 2026-07-18T14:35:47.633619Z}
     {id engine-decomp.triage, kind @complete, author "brendan@necessary.nu", at 2026-07-18T14:52:47.913798Z}
     {id engine-decomp.warts, kind @complete, author "brendan@necessary.nu", at 2026-07-18T15:18:39.59493Z}
+    {id engine-decomp.rehome.config, kind @complete, author "brendan@necessary.nu", at 2026-07-18T15:42:42.709046Z}
 )

@@ -475,11 +475,11 @@ pub fn main_proc(args: &[String]) -> i32 {
         crate::error::cg3_exit(e.exit_code());
     }
     for i in 1..=sections {
-        base.sections.push(i as u32);
+        base.cfg.sections.push(i as u32);
     }
-    base.trace = trace;
-    base.unicode_tags = true;
-    base.unique_tags = false;
+    base.cfg.trace = trace;
+    base.cfg.unicode_tags = true;
+    base.cfg.unique_tags = false;
 
     // -r single rule: match rule name and push its number into valid_rules.
     if !single_rule.is_empty() {
@@ -488,7 +488,7 @@ pub fn main_proc(args: &[String]) -> i32 {
             if let Some(rule) = base.grammar.rule_by_number.try_get(i)
                 && rule.name == single_rule {
                     let number = rule.number;
-                    base.valid_rules.insert_sorted(number);
+                    base.cfg.valid_rules.insert_sorted(number);
                 }
         }
     }

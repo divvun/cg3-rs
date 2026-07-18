@@ -427,9 +427,9 @@ fn binary_stream_roundtrip() {
 #[test]
 fn fst_applicator_in_process() {
     let mut base = conv_base();
-    base.is_conv = true;
-    base.trace = true;
-    base.verbosity_level = 0;
+    base.cfg.is_conv = true;
+    base.cfg.trace = true;
+    base.cfg.verbosity_level = 0;
     let mut fst = cg3::fst_applicator::FSTApplicator::new(base);
     assert_eq!(fst.wtag, "W");
     assert_eq!(fst.sub_delims, "#");
@@ -748,9 +748,9 @@ fn format_converter_print_dispatch() {
 
     let base = cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
     let mut fc = cg3::format_converter::FormatConverter::new(base);
-    fc.base_mut().is_conv = true;
-    fc.base_mut().trace = true;
-    fc.base_mut().verbosity_level = 0;
+    fc.base_mut().cfg.is_conv = true;
+    fc.base_mut().cfg.trace = true;
+    fc.base_mut().cfg.verbosity_level = 0;
 
     // Hand-build one window with one cohort ("<word>" with reading "word" X).
     let (sw, cohort) = {
@@ -777,7 +777,7 @@ fn format_converter_print_dispatch() {
     };
 
     // printCohort → NICELINE arm.
-    fc.base_mut().fmt_output = cg3_sformat::CG3SF_NICELINE;
+    fc.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_NICELINE;
     let mut out: Vec<u8> = Vec::new();
     fc.print_cohort(cohort, &mut out, false);
     let text = String::from_utf8(out).unwrap();
@@ -788,7 +788,7 @@ fn format_converter_print_dispatch() {
     assert!(text.contains(" X"), "reading tag lost: {text}");
 
     // printSingleWindow → JSONL arm (one JSON object per cohort).
-    fc.base_mut().fmt_output = cg3_sformat::CG3SF_JSONL;
+    fc.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_JSONL;
     let mut out: Vec<u8> = Vec::new();
     fc.print_single_window(sw, &mut out, false);
     let text = String::from_utf8(out).unwrap();
@@ -874,12 +874,12 @@ fn niceline_conv() {
 #[test]
 fn plaintext_applicator_in_process() {
     let mut base = conv_base();
-    base.is_conv = true;
-    base.trace = true;
-    base.verbosity_level = 0;
+    base.cfg.is_conv = true;
+    base.cfg.trace = true;
+    base.cfg.verbosity_level = 0;
     let mut app = cg3::plaintext_applicator::PlaintextApplicator::new(base);
     // Constructor behavior: magic readings allowed, add_tags defaults off.
-    assert!(app.base.allow_magic_readings);
+    assert!(app.base.cfg.allow_magic_readings);
     assert!(!app.add_tags);
 
     let input = "Hello brave world.\n";

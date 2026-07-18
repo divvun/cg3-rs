@@ -84,7 +84,7 @@ where
     B: DerefMut<Target = GrammarApplicator>,
 {
     fn with_base(mut base: B) -> Self {
-        base.allow_magic_readings = true;
+        base.cfg.allow_magic_readings = true;
         PlaintextApplicator {
             base,
             add_tags: false,
@@ -147,7 +147,7 @@ where
 
         self.base.index();
 
-        let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
         let mut lines: u32 = 0;
 
         let mut c_swindow: Option<SwId> = None;
@@ -158,7 +158,7 @@ where
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.window.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.cfg.num_windows;
 
         ux_strip_bom(input);
 
@@ -194,7 +194,7 @@ where
                 // (a) Soft-limit lookback (the ONLY split path that can fire).
                 if let Some(sw) = c_swindow {
                     let over_soft = self.base.store.single_windows.get(sw.0).cohorts.len()
-                        >= self.base.soft_limit as usize;
+                        >= self.base.cfg.soft_limit as usize;
                     if over_soft
                         && self.base.grammar.soft_delimiters.is_some()
                         && !did_soft_lookback
@@ -224,7 +224,7 @@ where
                 // (b) Soft-delimiter break (DEAD: cCohort is null here).
                 if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                     let over_soft = self.base.store.single_windows.get(sw.0).cohorts.len()
-                        >= self.base.soft_limit as usize;
+                        >= self.base.cfg.soft_limit as usize;
                     let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
                         let sd = self.base.grammar.sets_list
                             [self.base.grammar.soft_delimiters.unwrap().0]
@@ -235,7 +235,7 @@ where
                     if over_soft && sd_hit {
                         let rs = self.base.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
-                            let te = self.base.endtag;
+                            let te = self.base.cfg.endtag;
                             let tid = tag_by_hash(&self.base.grammar, te);
                             self.base.add_tag_to_reading(r, tid);
                         }
@@ -261,9 +261,9 @@ where
                 if let Some(cc) = c_cohort {
                     let sw = c_swindow.unwrap();
                     let over_hard = self.base.store.single_windows.get(sw.0).cohorts.len()
-                        >= self.base.hard_limit as usize;
+                        >= self.base.cfg.hard_limit as usize;
                     let delim_hit =
-                        self.base.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
+                        self.base.cfg.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
                             let d = self.base.grammar.sets_list
                                 [self.base.grammar.delimiters.unwrap().0]
                                 .number
@@ -273,7 +273,7 @@ where
                     if over_hard || delim_hit {
                         let rs = self.base.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
-                            let te = self.base.endtag;
+                            let te = self.base.cfg.endtag;
                             let tid = tag_by_hash(&self.base.grammar, te);
                             self.base.add_tag_to_reading(r, tid);
                         }
@@ -312,7 +312,7 @@ where
                 }
 
                 // Drain a window if enough queued (dead: next never grows here).
-                if self.base.window.next.len() > self.base.num_windows as usize {
+                if self.base.window.next.len() > self.base.cfg.num_windows as usize {
                     self.base.shuffle_windows_down();
                     self.base.run_grammar_on_window_with(fmt, output);
                     if self.base.numWindows.is_multiple_of(reset_after) {
@@ -478,7 +478,7 @@ where
             }
             let rs = self.base.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
-                let te = self.base.endtag;
+                let te = self.base.cfg.endtag;
                 let tid = tag_by_hash(&self.base.grammar, te);
                 self.base.add_tag_to_reading(r, tid);
             }

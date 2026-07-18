@@ -138,7 +138,7 @@ impl<'a> NicelineApplicator<'a> {
 
         self.base.index();
 
-        let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
         let mut lines: u32 = 0;
 
         let mut c_swindow: Option<SwId> = None;
@@ -149,7 +149,7 @@ impl<'a> NicelineApplicator<'a> {
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.window.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.cfg.num_windows;
 
         ux_strip_bom(input);
 
@@ -192,7 +192,7 @@ impl<'a> NicelineApplicator<'a> {
                     // (a) Soft-limit lookback.
                     if let Some(sw) = c_swindow {
                         let over_soft = self.base.store.single_windows.get(sw.0).cohorts.len()
-                            >= self.base.soft_limit as usize;
+                            >= self.base.cfg.soft_limit as usize;
                         if over_soft
                             && self.base.grammar.soft_delimiters.is_some()
                             && !did_soft_lookback
@@ -224,7 +224,7 @@ impl<'a> NicelineApplicator<'a> {
                     // (b) Soft-delimiter on the current cohort.
                     if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                         let over_soft = self.base.store.single_windows.get(sw.0).cohorts.len()
-                            >= self.base.soft_limit as usize;
+                            >= self.base.cfg.soft_limit as usize;
                         let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
                             let sd = self.base.grammar.sets_list
                                 [self.base.grammar.soft_delimiters.unwrap().0]
@@ -236,7 +236,7 @@ impl<'a> NicelineApplicator<'a> {
                             // verbose soft-limit warning: deferred.
                             let rs = self.base.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
-                                let te = self.base.endtag;
+                                let te = self.base.cfg.endtag;
                                 let tid = tag_by_hash(&self.base.grammar, te);
                                 self.base.add_tag_to_reading(r, tid);
                             }
@@ -258,8 +258,8 @@ impl<'a> NicelineApplicator<'a> {
                     if let Some(cc) = c_cohort {
                         let sw = c_swindow.unwrap();
                         let over_hard = self.base.store.single_windows.get(sw.0).cohorts.len()
-                            >= self.base.hard_limit as usize;
-                        let delim_hit = self.base.dep_delimit == 0
+                            >= self.base.cfg.hard_limit as usize;
+                        let delim_hit = self.base.cfg.dep_delimit == 0
                             && self.base.grammar.delimiters.is_some()
                             && {
                                 let d = self.base.grammar.sets_list
@@ -272,7 +272,7 @@ impl<'a> NicelineApplicator<'a> {
                             // (!is_conv && over_hard) "Hard limit ... forcing break": deferred.
                             let rs = self.base.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
-                                let te = self.base.endtag;
+                                let te = self.base.cfg.endtag;
                                 let tid = tag_by_hash(&self.base.grammar, te);
                                 self.base.add_tag_to_reading(r, tid);
                             }
@@ -315,7 +315,7 @@ impl<'a> NicelineApplicator<'a> {
                     }
 
                     // Drain a window if enough have queued up.
-                    if self.base.window.next.len() > self.base.num_windows as usize {
+                    if self.base.window.next.len() > self.base.cfg.num_windows as usize {
                         self.base.shuffle_windows_down();
                         self.base.run_grammar_on_window_with(fmt, output);
                         if self.base.numWindows.is_multiple_of(reset_after) {
@@ -514,7 +514,7 @@ impl<'a> NicelineApplicator<'a> {
             }
             let rs = self.base.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
-                let te = self.base.endtag;
+                let te = self.base.cfg.endtag;
                 let tid = tag_by_hash(&self.base.grammar, te);
                 self.base.add_tag_to_reading(r, tid);
             }
@@ -583,14 +583,14 @@ impl<'a> NicelineApplicator<'a> {
         let mut unique: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         for tter in tags_list {
             let tter = TagHash(tter);
-            if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag
+            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag) || tter == self.base.cfg.begintag
             {
                 continue;
             }
             if tter == baseform || tter == wordform_hash {
                 continue;
             }
-            if self.base.unique_tags {
+            if self.base.cfg.unique_tags {
                 if unique.contains(&tter.get()) {
                     continue;
                 }
@@ -598,7 +598,7 @@ impl<'a> NicelineApplicator<'a> {
             }
             let tid = tag_by_hash(&self.base.grammar, tter);
             let ttype = self.base.grammar.single_tags_list[tid.0].r#type;
-            if ttype.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.dep_original {
+            if ttype.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.cfg.dep_original {
                 continue;
             }
             if ttype.intersects(T_RELATION) && self.base.has_relations {
@@ -642,12 +642,12 @@ impl<'a> NicelineApplicator<'a> {
                     pr = mapped;
                 }
             }
-            let arrow = if self.base.unicode_tags {
+            let arrow = if self.base.cfg.unicode_tags {
                 "\u{2192}"
             } else {
                 "->"
             };
-            if self.base.dep_absolute {
+            if self.base.cfg.dep_absolute {
                 let pr_global = self.base.store.cohorts.get(pr.0).global_number;
                 let _ = write!(output, " #{p_global}{arrow}{pr_global}");
             } else if !self.base.dep_has_spanned {
@@ -684,7 +684,7 @@ impl<'a> NicelineApplicator<'a> {
         }
 
         // Trace block.
-        if self.base.trace {
+        if self.base.cfg.trace {
             let hit_by: Vec<u32> = self.base.store.readings.get(reading.0).hit_by.clone();
             for hb in hit_by {
                 u_fputc(' ', output);
@@ -738,7 +738,7 @@ impl<'a> NicelineApplicator<'a> {
 
             if !profiling {
                 unignore_all(&mut self.base.store, cohort);
-                if !self.base.split_mappings {
+                if !self.base.cfg.split_mappings {
                     self.base.merge_mappings(cohort);
                 }
             }
@@ -755,7 +755,7 @@ impl<'a> NicelineApplicator<'a> {
         // removed:
         u_fputc('\n', output);
         let text = self.base.store.cohorts.get(cohort.0).text.clone();
-        if !text.is_empty() && text.chars().any(|c| !is_ws(&self.base.ws, c)) {
+        if !text.is_empty() && text.chars().any(|c| !is_ws(&self.base.cfg.ws, c)) {
             self.base.print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);

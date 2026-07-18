@@ -647,7 +647,7 @@ impl super::GrammarApplicator {
                 let iter = DepAncestorIter::new(
                     Some(cid),
                     Some(test),
-                    self.always_span,
+                    self.cfg.always_span,
                     store,
                     grammar,
                     window,
@@ -661,7 +661,7 @@ impl super::GrammarApplicator {
                 let iter = DepParentIter::new(
                     Some(cid),
                     Some(test),
-                    self.always_span,
+                    self.cfg.always_span,
                     store,
                     grammar,
                     window,
@@ -675,7 +675,7 @@ impl super::GrammarApplicator {
                 let iter = DepDescendentIter::new(
                     Some(cid),
                     Some(test),
-                    self.always_span,
+                    self.cfg.always_span,
                     store,
                     grammar,
                     window,
@@ -762,19 +762,19 @@ impl super::GrammarApplicator {
             } else if test_offset < 0 {
                 let key = self.ci_depths[1];
                 self.ci_depths[1] += 1;
-                let iter = TopologyLeftIter::new(Some(cid), Some(test), self.always_span);
+                let iter = TopologyLeftIter::new(Some(cid), Some(test), self.cfg.always_span);
                 self.topologyLeftIters.insert(key, iter);
                 it = Some(ItSel::Left(key));
             } else if test_offset > 0 {
                 let key = self.ci_depths[2];
                 self.ci_depths[2] += 1;
-                let iter = TopologyRightIter::new(Some(cid), Some(test), self.always_span);
+                let iter = TopologyRightIter::new(Some(cid), Some(test), self.cfg.always_span);
                 self.topologyRightIters.insert(key, iter);
                 it = Some(ItSel::Right(key));
             } else {
                 let key = self.ci_depths[0];
                 self.ci_depths[0] += 1;
-                let iter = CohortIterator::new(Some(cid), Some(test), self.always_span);
+                let iter = CohortIterator::new(Some(cid), Some(test), self.cfg.always_span);
                 self.cohortIterators.insert(key, iter);
                 it = Some(ItSel::Plain(key));
             }
@@ -1072,7 +1072,7 @@ impl super::GrammarApplicator {
                         right = None;
                     }
                 } else if lpos - i == 0 {
-                    if (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) || self.always_span {
+                    if (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) || self.cfg.always_span {
                         left = self.store.single_windows.get(lw.0).previous;
                         if let Some(nl) = left {
                             lpos = i + self.store.single_windows.get(nl.0).cohorts.len() as i32;
@@ -1102,7 +1102,7 @@ impl super::GrammarApplicator {
                 } else {
                     let rlen = self.store.single_windows.get(rw.0).cohorts.len() as i32;
                     if rpos + i == rlen - 1 {
-                        if (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) || self.always_span
+                        if (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) || self.cfg.always_span
                         {
                             right = self.store.single_windows.get(rw.0).next;
                             rpos = (0 - i) - 1;
@@ -1290,7 +1290,7 @@ impl super::GrammarApplicator {
                             .to_vec();
                     }
                     _ => {
-                        if self.verbosity_level > 0 {
+                        if self.cfg.verbosity_level > 0 {
                             let (ds, dp) = {
                                 let c = self.store.cohorts.get(current.0);
                                 (c.dep_self, c.dep_parent)
@@ -1346,7 +1346,7 @@ impl super::GrammarApplicator {
             let mapped = self.window.cohort_map.get(&GlobalNumber(dter)).copied();
             let cohort = match mapped {
                 None => {
-                    if self.verbosity_level > 0 {
+                    if self.cfg.verbosity_level > 0 {
                         let ds = self
                             .store
                             .cohorts

@@ -297,7 +297,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     if self.store.readings.get(front.0).noprint {
                         continue;
                     }
-                    if (!self.r#unsafe || (rflags.intersects(RF_SAFE)))
+                    if (!self.cfg.r#unsafe || (rflags.intersects(RF_SAFE)))
                         && !rflags.intersects(RF_UNSAFE)
                     {
                         continue;
@@ -445,7 +445,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     i += 1;
                     continue;
                 }
-                if r_noprint && !self.allow_magic_readings {
+                if r_noprint && !self.cfg.allow_magic_readings {
                     i += 1;
                     continue;
                 }
@@ -608,7 +608,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                             let mut deep_ref: Option<&mut Option<CohortId>> =
                                 if with_deep { Some(&mut result) } else { None };
                             let next_test = if !tpos.intersects(POS_PASS_ORIGIN)
-                                && (self.no_pass_origin || (tpos.intersects(POS_NO_PASS_ORIGIN)))
+                                && (self.cfg.no_pass_origin || (tpos.intersects(POS_NO_PASS_ORIGIN)))
                             {
                                 self.run_contextual_test(
                                     Some(current),
@@ -704,7 +704,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                                 self.add_profiling_example(k);
                             }
                         }
-                        if !self.debug_rules.empty() && self.debug_rules.contains(rline) {
+                        if !self.cfg.debug_rules.empty() && self.cfg.debug_rules.contains(rline) {
                             self.rr_print_debug_rule(rule, true, true);
                         }
                         // Propagate regex captures from a prior reading.
@@ -724,7 +724,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         }
                     } else {
                         self.context_stack.last_mut().unwrap().regexgrp_ct = orz;
-                        if !self.debug_rules.empty() && self.debug_rules.contains(rline) {
+                        if !self.cfg.debug_rules.empty() && self.cfg.debug_rules.contains(rline) {
                             self.rr_print_debug_rule(rule, true, false);
                         }
                     }
@@ -742,7 +742,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                             p.entries.entry(k).or_default().num_fail += 1;
                         }
                     }
-                    if !self.debug_rules.empty() && self.debug_rules.contains(rline) {
+                    if !self.cfg.debug_rules.empty() && self.cfg.debug_rules.contains(rline) {
                         self.rr_print_debug_rule(rule, false, false);
                     }
                 }
@@ -810,7 +810,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     continue;
                 }
                 if r#type == K_REMOVE
-                    && (!self.r#unsafe || (rflags.intersects(RF_SAFE)))
+                    && (!self.cfg.r#unsafe || (rflags.intersects(RF_SAFE)))
                     && !rflags.intersects(RF_UNSAFE)
                 {
                     self.context_stack.pop();
@@ -924,7 +924,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let rr = self.store.readings.get_mut(r.0);
             rr.hit_by.push(rule_number);
             rr.deleted = true;
-            if self.trace {
+            if self.cfg.trace {
                 rr.noprint = false;
             }
         }

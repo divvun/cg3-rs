@@ -117,7 +117,7 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
     let mut applicator = crate::mwesplit_applicator::MweSplitApplicator::new(base);
 
     // applicator.verbosity_level = 0;
-    applicator.base.verbosity_level = 0;
+    applicator.base.cfg.verbosity_level = 0;
 
     // applicator.runGrammarOnText(std::cin, std::cout);
     //

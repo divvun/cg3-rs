@@ -427,7 +427,7 @@ impl crate::grammar_applicator::GrammarApplicator {
 
         if self.store.cohorts.get(ccohort.0).readings.is_empty() {
             self.init_empty_cohort(ccohort);
-            if self.trace {
+            if self.cfg.trace {
                 let r = self.store.cohorts.get(ccohort.0).readings[0];
                 let rn = self.grammar.rule_by_number.get(rule.0).number;
                 self.store.readings.get_mut(r.0).hit_by.push(rn);
@@ -634,7 +634,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         if last == ccohort {
             let len = self.store.single_windows.get(current.0).cohorts.len();
             let prev = self.store.single_windows.get(current.0).cohorts[len - 2];
-            let endtag_id = self.tag_by_hash(self.endtag);
+            let endtag_id = self.tag_by_hash(self.cfg.endtag);
             let prs = self.store.cohorts.get(prev.0).readings.clone();
             for r in prs {
                 self.del_tag_from_reading(r, endtag_id);
@@ -645,7 +645,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 if self.update_valid_rules(
                     &st.rules.clone(),
                     &mut st.intersects,
-                    self.endtag.get(),
+                    self.cfg.endtag.get(),
                     r,
                 ) {
                     st.iter_val = rnumber;
@@ -742,12 +742,12 @@ impl crate::grammar_applicator::GrammarApplicator {
         let back_front = self.store.cohorts.get(back.0).readings[0];
         let has_endtag = {
             let r = self.store.readings.get(back_front.0);
-            r.tags.find(self.endtag.get()) != r.tags.end()
+            r.tags.find(self.cfg.endtag.get()) != r.tags.end()
         };
         if !has_endtag {
             let len = self.store.single_windows.get(current.0).cohorts.len();
             let prev = self.store.single_windows.get(current.0).cohorts[len - 2];
-            let endtag_id = self.tag_by_hash(self.endtag);
+            let endtag_id = self.tag_by_hash(self.cfg.endtag);
             let prs = self.store.cohorts.get(prev.0).readings.clone();
             for r in prs {
                 self.del_tag_from_reading(r, endtag_id);
@@ -758,7 +758,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 if self.update_valid_rules(
                     &st.rules.clone(),
                     &mut st.intersects,
-                    self.endtag.get(),
+                    self.cfg.endtag.get(),
                     r,
                 ) {
                     st.iter_val = rnumber;
@@ -945,7 +945,7 @@ impl crate::grammar_applicator::GrammarApplicator {
 
         if self.store.cohorts.get(ccohort.0).readings.is_empty() {
             self.init_empty_cohort(ccohort);
-            if self.trace {
+            if self.cfg.trace {
                 let r = self.store.cohorts.get(ccohort.0).readings[0];
                 self.store.readings.get_mut(r.0).hit_by.push(rnumber);
                 self.store.readings.get_mut(r.0).noprint = false;

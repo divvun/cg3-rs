@@ -144,7 +144,7 @@ where
     /// `cmp_number`. Iteration over the group map is by ascending key (BTreeMap).
     pub fn merge_mappings(&mut self, cohort: CohortId) {
         use std::collections::BTreeMap;
-        let trace = self.base.trace;
+        let trace = self.base.cfg.trace;
         let store = &mut self.base.store;
 
         let readings: ReadingList = store.cohorts.get(cohort.0).readings.clone();
@@ -668,7 +668,7 @@ where
             let _ = write!(output, "{bf_str}");
         }
 
-        if self.surface_readings && !self.base.trace {
+        if self.surface_readings && !self.base.cfg.trace {
             return;
         }
 
@@ -685,7 +685,7 @@ where
             } else if tag.r#type.intersects(T_MAPPING) {
                 multi = false;
             }
-            if tag.r#type.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.dep_original {
+            if tag.r#type.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.cfg.dep_original {
                 continue;
             }
             if multi {
@@ -699,13 +699,13 @@ where
         let mut used_tags = crate::sorted_vector::uint32SortedVector::new();
         let escape = if self.surface_readings { "\\" } else { "" };
         for tter in tags_list {
-            if self.base.unique_tags {
+            if self.base.cfg.unique_tags {
                 if used_tags.find(tter) != used_tags.end() {
                     continue;
                 }
                 used_tags.insert(tter);
             }
-            if tter == self.base.endtag.get() || tter == self.base.begintag.get() {
+            if tter == self.base.cfg.endtag.get() || tter == self.base.cfg.begintag.get() {
                 continue;
             }
             let tag = grammar
@@ -761,7 +761,7 @@ where
             }
         }
 
-        if self.base.trace {
+        if self.base.cfg.trace {
             for &iter_hb in r.hit_by.iter() {
                 u_fputc('<', output);
                 self.base.print_trace(output, iter_hb);
@@ -835,7 +835,7 @@ where
 
         if !profiling {
             unignore_all(&mut self.base.store, cohort);
-            if !self.base.split_mappings {
+            if !self.base.cfg.split_mappings {
                 self.merge_mappings(cohort);
             }
         }
@@ -926,7 +926,7 @@ where
             }
         }
 
-        if self.base.trace {
+        if self.base.cfg.trace {
             self.sort_readings_field(cohort, |c| &mut c.delayed);
             let delayed = self.base.store.cohorts.get(cohort.0).delayed.clone();
             for reading in delayed {
@@ -1090,12 +1090,12 @@ where
             if no_soft {
                 tracing::warn!(
                     "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
-                    self.base.hard_limit
+                    self.base.cfg.hard_limit
                 );
             } else {
                 tracing::warn!(
                     "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
-                    self.base.soft_limit
+                    self.base.cfg.soft_limit
                 );
             }
         }
@@ -1110,15 +1110,15 @@ where
 
         self.base.index();
 
-        let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
 
-        self.base.begintag = {
+        self.base.cfg.begintag = {
             let t = self
                 .base
                 .add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
             self.base.grammar.single_tags_list.get(t.0).hash
         };
-        self.base.endtag = {
+        self.base.cfg.endtag = {
             let t = self.base.add_tag(STR_ENDTAG, crate::tag::TagType::empty());
             self.base.grammar.single_tags_list.get(t.0).hash
         };
@@ -1128,7 +1128,7 @@ where
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.window.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.cfg.num_windows;
 
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::default();
         let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::default();
@@ -1446,7 +1446,7 @@ where
                 // Delimiter handling.
                 let mut did_delim = false;
                 let cohorts_size = self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
-                if cohorts_size >= self.base.soft_limit
+                if cohorts_size >= self.base.cfg.soft_limit
                     && self.base.grammar.soft_delimiters.is_some()
                 {
                     let sd = self.base.grammar.sets_list
@@ -1456,7 +1456,7 @@ where
                     if self.base.does_set_match_cohort_normal(cc, sd, None) {
                         let readings = self.base.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
-                            let et = tag_by_hash(&self.base.grammar, self.base.endtag);
+                            let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                             self.base.add_tag_to_reading(r, et);
                         }
                         l_swindow = Some(cs);
@@ -1468,7 +1468,7 @@ where
                 if c_cohort.is_some() {
                     let cohorts_size =
                         self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
-                    let hard = cohorts_size >= self.base.hard_limit;
+                    let hard = cohorts_size >= self.base.cfg.hard_limit;
                     let delim_match = self.base.grammar.delimiters.is_some() && {
                         let d = self.base.grammar.sets_list
                             [self.base.grammar.delimiters.unwrap().0]
@@ -1477,13 +1477,13 @@ where
                         self.base.does_set_match_cohort_normal(cc, d, None)
                     };
                     if hard || delim_match {
-                        if !self.base.is_conv && cohorts_size >= self.base.hard_limit {
+                        if !self.base.cfg.is_conv && cohorts_size >= self.base.cfg.hard_limit {
                             let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                             let wftag =
                                 self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
                             tracing::warn!(
                                 "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
-                                self.base.hard_limit,
+                                self.base.cfg.hard_limit,
                                 wftag,
                                 self.base.numCohorts,
                                 self.base.numLines
@@ -1491,7 +1491,7 @@ where
                         }
                         let readings = self.base.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
-                            let et = tag_by_hash(&self.base.grammar, self.base.endtag);
+                            let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                             self.base.add_tag_to_reading(r, et);
                         }
                         l_swindow = Some(cs);
@@ -1501,7 +1501,7 @@ where
                     }
                 }
 
-                if did_delim && self.base.window.next.len() as u32 > self.base.num_windows {
+                if did_delim && self.base.window.next.len() as u32 > self.base.cfg.num_windows {
                     self.base.shuffle_windows_down();
                     self.base.run_grammar_on_window_with(fmt, output);
                     if reset_after != 0 && self.base.numWindows.is_multiple_of(reset_after) {
@@ -1548,14 +1548,14 @@ where
                     .readings
                     .get(front.0)
                     .tags
-                    .find(self.base.endtag.get())
+                    .find(self.base.cfg.endtag.get())
                     == self.base.store.readings.get(front.0).tags.end()
             }
             None => false,
         };
         if front_lacks {
             for r in readings {
-                let et = tag_by_hash(&self.base.grammar, self.base.endtag);
+                let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                 self.base.add_tag_to_reading(r, et);
             }
         }

@@ -165,7 +165,7 @@ impl FormatConverter {
         // PlaintextApplicator's C++ constructor runs as one of
         // FormatConverter's virtual bases and enables magic readings on the
         // shared GrammarApplicator even when plaintext is not selected.
-        base.allow_magic_readings = true;
+        base.cfg.allow_magic_readings = true;
 
         // The C++ `conv_grammar` member IS the live active grammar's storage;
         // here that storage is `base.grammar`. The member is kept for API parity
@@ -228,7 +228,7 @@ impl FormatConverter {
         // The sniffer wants a &str view; read_utf8 returns UTF-8 bytes. A lossy
         // decode is safe here (only used for the anchored regex sniff).
         let buf_str = String::from_utf8_lossy(&buf8).into_owned();
-        self.base_mut().fmt_input = detect_format(&buf_str);
+        self.base_mut().cfg.fmt_input = detect_format(&buf_str);
         bstreambuf::new(input, buf8)
     }
 
@@ -251,7 +251,7 @@ impl FormatConverter {
         // ux_stdin = &input; ux_stdout = &output; (Option<()> placeholders, elided).
         let (fmt_input, fmt_output) = {
             let b = self.base();
-            (b.fmt_input, b.fmt_output)
+            (b.cfg.fmt_input, b.cfg.fmt_output)
         };
         if fmt_output == cg3_sformat::CG3SF_BINARY || fmt_input == cg3_sformat::CG3SF_BINARY {
             self.base_mut().grammar.has_relations = true;
@@ -397,9 +397,9 @@ impl StreamFormat for ConvFormat {
         profiling: bool,
     ) {
         use cg3_sformat::*;
-        match app.fmt_output {
+        match app.cfg.fmt_output {
             CG3SF_CG => {
-                let trace = app.trace;
+                let trace = app.cfg.trace;
                 app.print_cohort(cohort, output, profiling, trace)
             }
             CG3SF_APERTIUM => self.apertium.print_cohort(app, cohort, output, profiling),
@@ -422,9 +422,9 @@ impl StreamFormat for ConvFormat {
         profiling: bool,
     ) {
         use cg3_sformat::*;
-        match app.fmt_output {
+        match app.cfg.fmt_output {
             CG3SF_CG => {
-                let trace = app.trace;
+                let trace = app.cfg.trace;
                 app.print_single_window(window, output, profiling, trace);
             }
             CG3SF_APERTIUM => self
@@ -455,7 +455,7 @@ impl StreamFormat for ConvFormat {
         output: &mut W,
     ) {
         use cg3_sformat::*;
-        match app.fmt_output {
+        match app.cfg.fmt_output {
             CG3SF_JSONL => JsonlApplicator::new(app).print_stream_command(cmd, output),
             // BinaryApplicator::printStreamCommand.
             CG3SF_BINARY => self.binary.bin_print_stream_command(cmd, output),
@@ -471,7 +471,7 @@ impl StreamFormat for ConvFormat {
         output: &mut W,
     ) {
         use cg3_sformat::*;
-        match app.fmt_output {
+        match app.cfg.fmt_output {
             CG3SF_JSONL => JsonlApplicator::new(app).print_plain_text_line(line, output),
             // BinaryApplicator::printPlainTextLine.
             CG3SF_BINARY => self.binary.bin_print_plain_text_line(line, output),

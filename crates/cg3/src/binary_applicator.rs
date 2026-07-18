@@ -462,7 +462,7 @@ impl<'a> BinaryApplicator<'a> {
             // HASH (C++ `addTagToReading(*iter, endtag)` uint32 overload) → the
             // TagId is resolved via `single_tags[endtag]` for the Tag* overload.
             if cn + 1 == cohort_count {
-                let endtag_id = tag_by_hash(&self.base.grammar, self.base.endtag);
+                let endtag_id = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                 let readings = self.base.store.cohorts.get(c_cohort.0).readings.clone();
                 for r in readings {
                     let has = self
@@ -471,7 +471,7 @@ impl<'a> BinaryApplicator<'a> {
                         .readings
                         .get(r.0)
                         .tags
-                        .find(self.base.endtag.get())
+                        .find(self.base.cfg.endtag.get())
                         != self.base.store.readings.get(r.0).tags.end();
                     if !has {
                         self.base.add_tag_to_reading(r, endtag_id);
@@ -851,7 +851,7 @@ impl BinaryFormat {
                         if tt.intersects(T_DEPENDENCY | T_RELATION) {
                             continue;
                         }
-                        if app.unique_tags {
+                        if app.cfg.unique_tags {
                             if unique.find(tter.get()) != unique.end() {
                                 continue;
                             }
@@ -1003,8 +1003,8 @@ impl<'x> BinaryApplicator<'x> {
         }
 
         self.base.index();
-        let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
-        self.base.window.window_span = self.base.num_windows;
+        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
+        self.base.window.window_span = self.base.cfg.num_windows;
 
         // flush(flush_after) lambda: drain the pipeline + print buffered windows.
         // Reproduced inline at each call site (Rust closures can't borrow `self`
@@ -1024,7 +1024,7 @@ impl<'x> BinaryApplicator<'x> {
             match packet.r#type {
                 BinaryPacketType::BFP_WINDOW => {
                     self.base.numWindows = self.base.numWindows.wrapping_add(1);
-                    if self.base.window.next.len() > self.base.num_windows as usize {
+                    if self.base.window.next.len() > self.base.cfg.num_windows as usize {
                         self.base.shuffle_windows_down();
                         self.base.run_grammar_on_window_with(fmt, output);
                         if self.base.numWindows.is_multiple_of(reset_after) {

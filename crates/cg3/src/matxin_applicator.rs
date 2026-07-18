@@ -151,7 +151,7 @@ impl MatxinApplicator {
     /// originals are NOT freed (orphaned in the pool).
     pub fn merge_mappings(&mut self, cohort: CohortId) {
         let store = &mut self.base.store;
-        let trace = self.base.trace;
+        let trace = self.base.cfg.trace;
 
         let readings: ReadingList = store.cohorts.get(cohort.0).readings.clone();
         let mut mlist: BTreeMap<u32, ReadingList> = BTreeMap::new();
@@ -468,13 +468,13 @@ impl MatxinApplicator {
         let mut mi: UString = String::new();
         let mut first = true;
         for tter in tags_list {
-            if self.base.unique_tags {
+            if self.base.cfg.unique_tags {
                 if used_tags.find(tter) != used_tags.end() {
                     continue;
                 }
                 used_tags.insert(tter);
             }
-            if tter == self.base.endtag.get() || tter == self.base.begintag.get() {
+            if tter == self.base.cfg.endtag.get() || tter == self.base.cfg.begintag.get() {
                 continue;
             }
             let tag = self
@@ -526,7 +526,7 @@ impl MatxinApplicator {
 
             if !profiling {
                 unignore_all(&mut self.base.store, cohort);
-                if !self.base.split_mappings {
+                if !self.base.cfg.split_mappings {
                     self.merge_mappings(cohort);
                 }
             }
@@ -730,12 +730,12 @@ impl MatxinApplicator {
             if no_soft {
                 tracing::warn!(
                     "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
-                    self.base.hard_limit
+                    self.base.cfg.hard_limit
                 );
             } else {
                 tracing::warn!(
                     "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
-                    self.base.soft_limit
+                    self.base.cfg.soft_limit
                 );
             }
         }
@@ -747,15 +747,15 @@ impl MatxinApplicator {
 
         self.base.index();
 
-        let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
 
-        self.base.begintag = {
+        self.base.cfg.begintag = {
             let t = self
                 .base
                 .add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
             self.base.grammar.single_tags_list.get(t.0).hash
         };
-        self.base.endtag = {
+        self.base.cfg.endtag = {
             let t = self.base.add_tag(STR_ENDTAG, crate::tag::TagType::empty());
             self.base.grammar.single_tags_list.get(t.0).hash
         };
@@ -765,7 +765,7 @@ impl MatxinApplicator {
         let mut c_reading: Option<ReadingId> = None;
         let mut l_swindow: Option<SwId> = None;
 
-        self.base.window.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.cfg.num_windows;
 
         ux_strip_bom(input);
 
@@ -835,7 +835,7 @@ impl MatxinApplicator {
             // Soft-limit break.
             if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
                 let cohorts_size = self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
-                if cohorts_size >= self.base.soft_limit
+                if cohorts_size >= self.base.cfg.soft_limit
                     && self.base.grammar.soft_delimiters.is_some()
                 {
                     let sd = self.base.grammar.sets_list
@@ -855,7 +855,7 @@ impl MatxinApplicator {
             // Hard-limit break.
             if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
                 let cohorts_size = self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
-                let hard = cohorts_size >= self.base.hard_limit;
+                let hard = cohorts_size >= self.base.cfg.hard_limit;
                 let delim_match = self.base.grammar.delimiters.is_some() && {
                     let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0]
                         .number
@@ -863,12 +863,12 @@ impl MatxinApplicator {
                     self.base.does_set_match_cohort_normal(cc, d, None)
                 };
                 if hard || delim_match {
-                    if !self.base.is_conv && cohorts_size >= self.base.hard_limit {
+                    if !self.base.cfg.is_conv && cohorts_size >= self.base.cfg.hard_limit {
                         let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                         let wftag = self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
                         tracing::warn!(
                             "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
-                            self.base.hard_limit,
+                            self.base.cfg.hard_limit,
                             wftag,
                             self.base.numCohorts,
                             self.base.numLines
@@ -893,14 +893,14 @@ impl MatxinApplicator {
                 let cc = alloc_cohort(&mut self.base.store, Some(cs));
                 let gn = self.base.window.next_cohort_number();
                 self.base.store.cohorts.get_mut(cc.0).global_number = gn;
-                self.base.store.cohorts.get_mut(cc.0).wordform = self.base.tag_begin;
+                self.base.store.cohorts.get_mut(cc.0).wordform = self.base.cfg.tag_begin;
                 let cr = alloc_reading(&mut self.base.store, Some(cc));
-                self.base.store.readings.get_mut(cr.0).baseform = Some(self.base.begintag);
+                self.base.store.readings.get_mut(cr.0).baseform = Some(self.base.cfg.begintag);
                 insert_if_exists(
                     &mut self.base.store.cohorts.get_mut(cc.0).possible_sets,
                     self.base.grammar.sets_any.as_ref(),
                 );
-                let bt = tag_by_hash(&self.base.grammar, self.base.begintag);
+                let bt = tag_by_hash(&self.base.grammar, self.base.cfg.begintag);
                 self.base.add_tag_to_reading(cr, bt);
                 append_reading(&mut self.base.store, cc, cr);
                 append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
@@ -916,7 +916,7 @@ impl MatxinApplicator {
             if let Some(cc) = c_cohort {
                 append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
             }
-            if self.base.window.next.len() as u32 > self.base.num_windows {
+            if self.base.window.next.len() as u32 > self.base.cfg.num_windows {
                 self.base.shuffle_windows_down();
                 self.base.run_grammar_on_window(output);
                 if reset_after != 0 && self.base.numWindows.is_multiple_of(reset_after) {
@@ -1089,7 +1089,7 @@ impl MatxinApplicator {
     fn add_endtag_all(&mut self, cohort: CohortId) {
         let readings = self.base.store.cohorts.get(cohort.0).readings.clone();
         for r in readings {
-            let et = tag_by_hash(&self.base.grammar, self.base.endtag);
+            let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
             self.base.add_tag_to_reading(r, et);
         }
     }

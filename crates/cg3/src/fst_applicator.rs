@@ -157,14 +157,14 @@ where
             crate::sorted_vector::uint32SortedVector::new();
         for tter in tags_list {
             let tter = TagHash(tter);
-            if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag
+            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag) || tter == self.base.cfg.begintag
             {
                 continue;
             }
             if baseform == Some(tter) || tter == parent_wf_hash {
                 continue;
             }
-            if self.base.unique_tags {
+            if self.base.cfg.unique_tags {
                 if unique.find(tter.get()) != unique.end() {
                     continue;
                 }
@@ -172,7 +172,7 @@ where
             }
             let tid = tag_by_hash(&self.base.grammar, tter);
             let tag = &self.base.grammar.single_tags_list[tid.0];
-            if tag.r#type.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.dep_original {
+            if tag.r#type.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.cfg.dep_original {
                 continue;
             }
             if tag.r#type.intersects(T_RELATION) && self.base.has_relations {
@@ -214,7 +214,7 @@ where
 
             if !profiling {
                 crate::cohort::unignore_all(&mut self.base.store, cohort);
-                if !self.base.split_mappings {
+                if !self.base.cfg.split_mappings {
                     self.base.merge_mappings(cohort);
                 }
             }
@@ -272,7 +272,7 @@ where
     /// whitespace set (space, tab, [newline], NUL). Mirrors the base's private
     /// `is_ws`.
     fn is_ws(&self, c: char) -> bool {
-        for &w in &self.base.ws {
+        for &w in &self.base.cfg.ws {
             if w == '\0' {
                 break;
             }
@@ -378,12 +378,12 @@ where
             if no_soft {
                 tracing::warn!(
                     "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows in unintended places.",
-                    self.base.hard_limit
+                    self.base.cfg.hard_limit
                 );
             } else {
                 tracing::warn!(
                     "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows in unintended places.",
-                    self.base.soft_limit
+                    self.base.cfg.soft_limit
                 );
             }
         }
@@ -396,7 +396,7 @@ where
 
         self.base.index();
 
-        let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
         let mut lines: u32 = 0;
 
         let mut c_swindow: Option<SwId> = None;
@@ -405,7 +405,7 @@ where
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.window.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.cfg.num_windows;
 
         ux_strip_bom(input);
 
@@ -847,7 +847,7 @@ where
             }
             let rs = self.base.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
-                let et = tag_by_hash(&self.base.grammar, self.base.endtag);
+                let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                 self.base.add_tag_to_reading(r, et);
             }
         }
@@ -900,7 +900,7 @@ where
         }
 
         // is_conv fast path.
-        if self.base.is_conv {
+        if self.base.cfg.is_conv {
             if let Some(cc) = *c_cohort {
                 self.base.store.cohorts.get_mut(cc.0).local_number = 1;
                 fmt.print_cohort(&mut self.base, cc, output, false);
@@ -921,7 +921,7 @@ where
         // Soft-limit lookback.
         if let Some(cs) = *c_swindow {
             let over_soft = self.base.store.single_windows.get(cs.0).cohorts.len() as u32
-                >= self.base.soft_limit;
+                >= self.base.cfg.soft_limit;
             if over_soft && self.base.grammar.soft_delimiters.is_some() && !*did_soft_lookback {
                 *did_soft_lookback = true;
                 let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
@@ -948,7 +948,7 @@ where
         // Soft-delimiter on the current cohort.
         if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
             let over_soft = self.base.store.single_windows.get(cs.0).cohorts.len() as u32
-                >= self.base.soft_limit;
+                >= self.base.cfg.soft_limit;
             let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
                 let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
                     .number
@@ -958,7 +958,7 @@ where
             if over_soft && sd_hit {
                 let rs = self.base.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
-                    let et = tag_by_hash(&self.base.grammar, self.base.endtag);
+                    let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                     self.base.add_tag_to_reading(r, et);
                 }
                 {
@@ -975,21 +975,21 @@ where
         // Hard break.
         if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
             let over_hard = self.base.store.single_windows.get(cs.0).cohorts.len() as u32
-                >= self.base.hard_limit;
+                >= self.base.cfg.hard_limit;
             let delim_hit =
-                self.base.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
+                self.base.cfg.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
                     let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0]
                         .number
                         .get();
                     self.base.does_set_match_cohort_normal(cc, d, None)
                 };
             if over_hard || delim_hit {
-                if !self.base.is_conv && over_hard {
+                if !self.base.cfg.is_conv && over_hard {
                     let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                     let wftag = self.base.grammar.single_tags_list.get(wf.0).tag.clone();
                     tracing::warn!(
                         "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
-                        self.base.hard_limit,
+                        self.base.cfg.hard_limit,
                         wftag,
                         self.base.numCohorts,
                         self.base.numLines
@@ -997,7 +997,7 @@ where
                 }
                 let rs = self.base.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
-                    let et = tag_by_hash(&self.base.grammar, self.base.endtag);
+                    let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                     self.base.add_tag_to_reading(r, et);
                 }
                 {
@@ -1044,7 +1044,7 @@ where
         }
 
         // Drain a window if enough have queued up.
-        if self.base.window.next.len() as u32 > self.base.num_windows {
+        if self.base.window.next.len() as u32 > self.base.cfg.num_windows {
             self.base.shuffle_windows_down();
             self.base.run_grammar_on_window_with(fmt, output);
             if self.base.numWindows.is_multiple_of(reset_after) {

@@ -100,7 +100,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let treadings = self.store.cohorts.get(target.0).readings.len();
             let cond = !st.removed.is_empty()
                 && (st.removed.len() < treadings
-                    || (self.r#unsafe && !rflags.intersects(RF_SAFE))
+                    || (self.cfg.r#unsafe && !rflags.intersects(RF_SAFE))
                     || rflags.intersects(RF_UNSAFE));
             if cond {
                 if rflags.intersects(RF_DELAYED) {
@@ -336,7 +336,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let apply_front = self.store.cohorts.get(apply.0).readings[0];
             let has_endtag = {
                 let r = self.store.readings.get(apply_front.0);
-                r.tags.find(self.endtag.get()) != r.tags.end()
+                r.tags.find(self.cfg.endtag.get()) != r.tags.end()
             };
             if has_endtag {
                 let back = *self
@@ -347,13 +347,13 @@ impl crate::grammar_applicator::GrammarApplicator {
                     .last()
                     .unwrap();
                 let rs = self.store.cohorts.get(back.0).readings.clone();
-                let endtag = self.tag_by_hash(self.endtag);
+                let endtag = self.tag_by_hash(self.cfg.endtag);
                 for r in rs {
                     self.add_tag_to_reading(r, endtag);
                     if self.update_valid_rules(
                         &st.rules.clone(),
                         &mut st.intersects,
-                        self.endtag.get(),
+                        self.cfg.endtag.get(),
                         r,
                     ) {
                         st.iter_val = rnumber;
@@ -1077,7 +1077,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             .iter()
             .map(|t| self.grammar.single_tags_list.get(t.0).hash.get())
             .collect();
-        let substtag = self.substtag.get();
+        let substtag = self.cfg.substtag.get();
 
         let mut tpos: usize = usize::MAX;
         let mut plain = true;

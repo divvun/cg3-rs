@@ -82,7 +82,7 @@ impl StreamFormat for CgFormat {
         output: &mut W,
         profiling: bool,
     ) {
-        let trace = app.trace;
+        let trace = app.cfg.trace;
         app.print_cohort(cohort, output, profiling, trace);
     }
 
@@ -93,7 +93,7 @@ impl StreamFormat for CgFormat {
         output: &mut W,
         profiling: bool,
     ) {
-        let trace = app.trace;
+        let trace = app.cfg.trace;
         app.print_single_window(window, output, profiling, trace);
     }
 

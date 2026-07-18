@@ -229,8 +229,14 @@ impl crate::pool::Poolable for uint32SortedVector {
 }
 
 // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator]
-/// C++ `class GrammarApplicator` — the constraint-grammar application engine.
-pub struct GrammarApplicator {
+/// The options-derived, setup-written, run-read-only configuration extracted
+/// from the C++ `GrammarApplicator` members. This is a Stage-B re-homing: it has
+/// no C++ analog as a type (the C++ class is a single flat god object); the
+/// members map 1:1 onto the cfg-bucket fields of `GrammarApplicator`, keeping
+/// their names, types, and per-field C++ reference comments. They are populated
+/// during setup (`new` / `set_grammar` / `set_options` / `index` / CLI wiring /
+/// the format-applicator constructors) and read-only during the run.
+pub struct EngineConfig {
     pub always_span: bool,
     pub apply_mappings: bool,
     pub apply_corrections: bool,
@@ -250,8 +256,6 @@ pub struct GrammarApplicator {
     pub unicode_tags: bool,
     pub unique_tags: bool,
     pub dry_run: bool,
-    pub input_eof: bool,
-    pub seen_barrier: bool,
     pub is_conv: bool,
     pub split_mappings: bool,
     pub pipe_deleted: bool,
@@ -261,7 +265,6 @@ pub struct GrammarApplicator {
     pub fmt_input: cg3_sformat,
     pub fmt_output: cg3_sformat,
 
-    pub dep_has_spanned: bool,
     pub dep_delimit: u32,
     pub dep_absolute: bool,
     pub dep_original: bool,
@@ -275,13 +278,126 @@ pub struct GrammarApplicator {
     pub valid_rules: uint32IntervalVector,
     pub trace_rules: uint32IntervalVector,
     pub debug_rules: uint32IntervalVector,
-    pub variables: Uint32FlatHashMap,
     pub verbosity_level: u32,
     pub debug_level: u32,
     pub section_max_count: u32,
 
-    pub has_dep: bool,
     pub parse_dep: bool,
+
+    pub span_pattern_latin: UString,
+    pub span_pattern_utf: UString,
+    /// C++ `UChar ws[4]{ ' ', '\t', 0, 0 }` — the whitespace set.
+    pub ws: [UChar; 4],
+
+    pub did_index: bool,
+
+    pub numsections: u32,
+    pub runsections: RSType,
+
+    pub begintag: TagHash,
+    pub endtag: TagHash,
+    pub substtag: TagHash,
+    pub tag_begin: Option<TagId>,
+    pub mprefix_key: TagHash,
+    pub mprefix_value: TagHash,
+
+    /// C++ `std::vector<URegularExpression*> text_delimiters` — owned compiled
+    /// regexes (ICU `URegularExpression*` → `regex::Regex`).
+    pub text_delimiters: Vec<regex::Regex>,
+}
+
+impl EngineConfig {
+    /// Every field at its C++ default-member-initialiser value (the initialisers
+    /// moved verbatim out of the former `GrammarApplicator::new`).
+    pub fn new() -> Self {
+        EngineConfig {
+            always_span: false,
+            apply_mappings: true,
+            apply_corrections: true,
+            no_before_sections: false,
+            no_sections: false,
+            no_after_sections: false,
+            trace: false,
+            trace_name_only: false,
+            trace_no_removed: false,
+            trace_encl: false,
+            allow_magic_readings: true,
+            no_pass_origin: false,
+            r#unsafe: false,
+            ordered: false,
+            show_end_tags: false,
+            unicode_tags: false,
+            unique_tags: false,
+            dry_run: false,
+            is_conv: false,
+            split_mappings: false,
+            pipe_deleted: false,
+            add_spacing: true,
+            print_ids: false,
+
+            fmt_input: cg3_sformat::CG3SF_CG,
+            fmt_output: cg3_sformat::CG3SF_CG,
+
+            dep_delimit: 0,
+            dep_absolute: false,
+            dep_original: false,
+            dep_block_loops: true,
+            dep_block_crossing: false,
+
+            num_windows: 2,
+            soft_limit: 300,
+            hard_limit: 500,
+            sections: Default::default(),
+            valid_rules: Default::default(),
+            trace_rules: Default::default(),
+            debug_rules: Default::default(),
+            verbosity_level: 0,
+            debug_level: 0,
+            section_max_count: 0,
+
+            parse_dep: false,
+
+            span_pattern_latin: Default::default(),
+            span_pattern_utf: Default::default(),
+            ws: [' ', '\t', '\0', '\0'],
+
+            did_index: false,
+
+            numsections: 0,
+            runsections: Default::default(),
+
+            begintag: TagHash(0),
+            endtag: TagHash(0),
+            substtag: TagHash(0),
+            tag_begin: None,
+            mprefix_key: TagHash(0),
+            mprefix_value: TagHash(0),
+
+            text_delimiters: Default::default(),
+        }
+    }
+}
+
+impl Default for EngineConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// C++ `class GrammarApplicator` — the constraint-grammar application engine.
+pub struct GrammarApplicator {
+    /// The options-derived, setup-written configuration (Stage-B re-homing of the
+    /// cfg-bucket members; see [`EngineConfig`]).
+    pub cfg: EngineConfig,
+
+    pub input_eof: bool,
+    pub seen_barrier: bool,
+
+    pub dep_has_spanned: bool,
+
+    pub variables: Uint32FlatHashMap,
+
+    pub has_dep: bool,
     pub dep_highest_seen: GlobalNumber,
     /// C++ `std::unique_ptr<Window> gWindow` — the owned document window.
     pub window: crate::window::Window,
@@ -304,22 +420,14 @@ pub struct GrammarApplicator {
     /// before the run and takes it back out afterwards to write the database.
     pub profiler: Option<crate::profiler::Profiler>,
 
-    pub span_pattern_latin: UString,
-    pub span_pattern_utf: UString,
-    /// C++ `UChar ws[4]{ ' ', '\t', 0, 0 }` — the whitespace set.
-    pub ws: [UChar; 4],
-
     pub numLines: u32,
     pub numWindows: u32,
     pub numCohorts: u32,
     pub numReadings: u32,
 
-    pub did_index: bool,
     /// C++ `sorted_vector<std::pair<uint32_t, uint32_t>> dep_deep_seen`.
     pub dep_deep_seen: sorted_vector<(u32, u32)>,
 
-    pub numsections: u32,
-    pub runsections: RSType,
     pub externals: externals_t,
 
     pub ci_depths: Uint32Vector,
@@ -333,17 +441,11 @@ pub struct GrammarApplicator {
     pub match_single: u32,
     pub match_comp: u32,
     pub match_sub: u32,
-    pub begintag: TagHash,
-    pub endtag: TagHash,
-    pub substtag: TagHash,
-    pub tag_begin: Option<TagId>,
     pub par_left_tag: TagHash,
     pub par_right_tag: TagHash,
     pub par_left_pos: u32,
     pub par_right_pos: u32,
     pub did_final_enclosure: bool,
-    pub mprefix_key: TagHash,
-    pub mprefix_value: TagHash,
 
     pub tmpl_cntx: tmpl_context_t,
 
@@ -370,9 +472,6 @@ pub struct GrammarApplicator {
     pub rocits: Vec<usize>,
 
     pub readings_plain: readings_plain_t,
-    /// C++ `std::vector<URegularExpression*> text_delimiters` — owned compiled
-    /// regexes (ICU `URegularExpression*` → `regex::Regex`).
-    pub text_delimiters: Vec<regex::Regex>,
 
     /// C++ `bc::flat_map<uint32_t, unif_tags_t*> unif_tags_rs` — values are
     /// indices into `unif_tags_store`.
@@ -419,56 +518,16 @@ impl GrammarApplicator {
     /// the begin/end/subst tags); that semantic lands in the impl pass.
     pub fn new(grammar: crate::grammar::Grammar) -> Self {
         GrammarApplicator {
-            always_span: false,
-            apply_mappings: true,
-            apply_corrections: true,
-            no_before_sections: false,
-            no_sections: false,
-            no_after_sections: false,
-            trace: false,
-            trace_name_only: false,
-            trace_no_removed: false,
-            trace_encl: false,
-            allow_magic_readings: true,
-            no_pass_origin: false,
-            r#unsafe: false,
-            ordered: false,
-            show_end_tags: false,
-            unicode_tags: false,
-            unique_tags: false,
-            dry_run: false,
+            cfg: EngineConfig::new(),
+
             input_eof: false,
             seen_barrier: false,
-            is_conv: false,
-            split_mappings: false,
-            pipe_deleted: false,
-            add_spacing: true,
-            print_ids: false,
-
-            fmt_input: cg3_sformat::CG3SF_CG,
-            fmt_output: cg3_sformat::CG3SF_CG,
 
             dep_has_spanned: false,
-            dep_delimit: 0,
-            dep_absolute: false,
-            dep_original: false,
-            dep_block_loops: true,
-            dep_block_crossing: false,
 
-            num_windows: 2,
-            soft_limit: 300,
-            hard_limit: 500,
-            sections: Default::default(),
-            valid_rules: Default::default(),
-            trace_rules: Default::default(),
-            debug_rules: Default::default(),
             variables: Default::default(),
-            verbosity_level: 0,
-            debug_level: 0,
-            section_max_count: 0,
 
             has_dep: false,
-            parse_dep: false,
             dep_highest_seen: GlobalNumber(0),
             window: crate::window::Window::default(),
             has_relations: false,
@@ -477,20 +536,13 @@ impl GrammarApplicator {
             store: crate::store::RuntimeStore::new(),
             profiler: None,
 
-            span_pattern_latin: Default::default(),
-            span_pattern_utf: Default::default(),
-            ws: [' ', '\t', '\0', '\0'],
-
             numLines: 0,
             numWindows: 0,
             numCohorts: 0,
             numReadings: 0,
 
-            did_index: false,
             dep_deep_seen: Default::default(),
 
-            numsections: 0,
-            runsections: Default::default(),
             externals: Default::default(),
 
             ci_depths: vec![0u32; 6],
@@ -504,17 +556,11 @@ impl GrammarApplicator {
             match_single: 0,
             match_comp: 0,
             match_sub: 0,
-            begintag: TagHash(0),
-            endtag: TagHash(0),
-            substtag: TagHash(0),
-            tag_begin: None,
             par_left_tag: TagHash(0),
             par_right_tag: TagHash(0),
             par_left_pos: 0,
             par_right_pos: 0,
             did_final_enclosure: false,
-            mprefix_key: TagHash(0),
-            mprefix_value: TagHash(0),
 
             tmpl_cntx: Default::default(),
 
@@ -530,7 +576,6 @@ impl GrammarApplicator {
             rocits: Default::default(),
 
             readings_plain: Default::default(),
-            text_delimiters: Default::default(),
 
             unif_tags_rs: Default::default(),
             unif_tags_store: Default::default(),

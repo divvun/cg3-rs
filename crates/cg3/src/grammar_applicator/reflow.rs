@@ -203,7 +203,7 @@ impl super::GrammarApplicator {
                 }
                 i += 1;
             }
-            if i == 1000 && self.verbosity_level > 0 {
+            if i == 1000 && self.cfg.verbosity_level > 0 {
                 // "Warning: While testing whether %u is a child of %u the counter
                 // exceeded 1000 ..." — I/O deferred (ux_stderr placeholder).
             }
@@ -255,7 +255,7 @@ impl super::GrammarApplicator {
                 }
                 i += 1;
             }
-            if i == 1000 && self.verbosity_level > 0 {
+            if i == 1000 && self.cfg.verbosity_level > 0 {
                 // Counter-exceeded warning — I/O deferred.
             }
         }
@@ -315,12 +315,12 @@ impl super::GrammarApplicator {
             self.store.cohorts.get_mut(child.0).dep_self = Some(cgn);
         }
 
-        if !allowloop && self.dep_block_loops && self.would_parent_child_loop(parent, child) {
+        if !allowloop && self.cfg.dep_block_loops && self.would_parent_child_loop(parent, child) {
             // Loop warning — I/O deferred.
             return false;
         }
 
-        if !allowcrossing && self.dep_block_crossing && self.would_parent_child_cross(parent, child)
+        if !allowcrossing && self.cfg.dep_block_crossing && self.would_parent_child_cross(parent, child)
         {
             // Crossing warning — I/O deferred.
             return false;
@@ -383,7 +383,7 @@ impl super::GrammarApplicator {
     /// `dep_self`/`dep_parent` ids into global cohort numbers and wires
     /// parent/child links over `gWindow->dep_window`.
     pub fn reflow_dependency_window(&mut self, mut max: u32) {
-        if self.dep_delimit != 0 && max == 0 && !self.input_eof && !self.window.next.is_empty() {
+        if self.cfg.dep_delimit != 0 && max == 0 && !self.input_eof && !self.window.next.is_empty() {
             let back = *self.window.next.last().unwrap();
             if self.store.single_windows.get(back.0).cohorts.len() > 1 {
                 let c1 = self.store.single_windows.get(back.0).cohorts[1];
@@ -506,7 +506,7 @@ impl super::GrammarApplicator {
                     let dpv = dp.unwrap().get();
                     let dp_present = self.window.dep_map.find(dpv) != self.window.dep_map.end();
                     if !ty.intersects(CT_DEP_DONE) && !dp_present {
-                        if self.verbosity_level > 0 {
+                        if self.cfg.verbosity_level > 0 {
                             let _ = ln; // "Warning: Parent %u of dep %u ..." — I/O deferred.
                         }
                         self.store.cohorts.get_mut(cohort.0).dep_parent = None;
@@ -939,7 +939,7 @@ impl super::GrammarApplicator {
         }
 
         // ToDo: Remove for real ordered mode
-        if self.ordered {
+        if self.cfg.ordered {
             let tag_text = self.grammar.single_tags_list[tag.0].tag.clone();
             let r = self.store.readings.get_mut(reading.0);
             if !r.tags_string.is_empty() {
@@ -984,7 +984,7 @@ impl super::GrammarApplicator {
         if self.store.readings.get(reading.0).baseform.is_none() && (ttype.intersects(T_BASEFORM)) {
             self.store.readings.get_mut(reading.0).baseform = Some(thash);
         }
-        if self.parse_dep
+        if self.cfg.parse_dep
             && (ttype.intersects(T_DEPENDENCY))
             && (!self
                 .store
@@ -1353,14 +1353,14 @@ impl super::GrammarApplicator {
         for &r in readings.iter() {
             let (mut hp, mut hplain) = {
                 let rr = self.store.readings.get(r.0);
-                if self.ordered {
+                if self.cfg.ordered {
                     (rr.tags_string_hash, rr.tags_string_hash)
                 } else {
                     (rr.hash_plain, rr.hash_plain)
                 }
             };
             let mut nm = 0u32;
-            if self.trace {
+            if self.cfg.trace {
                 for &hb in &self.store.readings.get(r.0).hit_by.clone() {
                     hp = hash_value(hb, hp);
                 }
@@ -1370,7 +1370,7 @@ impl super::GrammarApplicator {
             }
             let mut sub = self.store.readings.get(r.0).next;
             while let Some(s) = sub {
-                if self.ordered {
+                if self.cfg.ordered {
                     let sh = self.store.readings.get(s.0).tags_string_hash;
                     hp = hash_value(sh, hp);
                     hplain = hash_value(sh, hplain);
@@ -1379,7 +1379,7 @@ impl super::GrammarApplicator {
                     hp = hash_value(sh, hp);
                     hplain = hash_value(sh, hplain);
                 }
-                if self.trace {
+                if self.cfg.trace {
                     for &hb in &self.store.readings.get(s.0).hit_by.clone() {
                         hp = hash_value(hb, hp);
                     }
@@ -1455,7 +1455,7 @@ impl super::GrammarApplicator {
         let mut rs = self.store.cohorts.get(cohort.0).readings.clone();
         self.merge_readings(&mut rs);
         self.store.cohorts.get_mut(cohort.0).readings = rs;
-        if self.trace {
+        if self.cfg.trace {
             let mut del = self.store.cohorts.get(cohort.0).deleted.clone();
             self.merge_readings(&mut del);
             self.store.cohorts.get_mut(cohort.0).deleted = del;
@@ -1531,15 +1531,15 @@ impl super::GrammarApplicator {
             let gn = self.window.next_cohort_number();
             let c = self.store.cohorts.get_mut(ccohort.0);
             c.global_number = gn;
-            c.wordform = self.tag_begin;
+            c.wordform = self.cfg.tag_begin;
         }
         let creading = crate::reading::alloc_reading(&mut self.store, Some(ccohort));
-        self.store.readings.get_mut(creading.0).baseform = Some(self.begintag);
+        self.store.readings.get_mut(creading.0).baseform = Some(self.cfg.begintag);
         insert_if_exists(
             &mut self.store.cohorts.get_mut(ccohort.0).possible_sets,
             self.grammar.sets_any.as_ref(),
         );
-        let begintag_tid = self.grammar.single_tags.find(self.begintag.get()).get().1;
+        let begintag_tid = self.grammar.single_tags.find(self.cfg.begintag.get()).get().1;
         self.add_tag_to_reading(creading, begintag_tid);
         crate::cohort::append_reading(&mut self.store, ccohort, creading);
         crate::single_window::append_cohort(&mut self.window, &mut self.store, nwin, ccohort);
@@ -1600,7 +1600,7 @@ impl super::GrammarApplicator {
             .cohorts
             .last()
             .unwrap();
-        let endtag_tid = self.grammar.single_tags.find(self.endtag.get()).get().1;
+        let endtag_tid = self.grammar.single_tags.find(self.cfg.endtag.get()).get().1;
         let rs = self.store.cohorts.get(cohort.0).readings.clone();
         for reading in rs {
             self.add_tag_to_reading(reading, endtag_tid);

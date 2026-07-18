@@ -144,7 +144,7 @@ impl<'a> JsonlApplicator<'a> {
         let mut unique = uint32SortedVector::new();
         for tter in tags_list {
             let tter = TagHash(tter);
-            if (!self.base.show_end_tags && tter == self.base.endtag) || tter == self.base.begintag
+            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag) || tter == self.base.cfg.begintag
             {
                 continue;
             }
@@ -152,7 +152,7 @@ impl<'a> JsonlApplicator<'a> {
                 continue;
             }
 
-            if self.base.unique_tags {
+            if self.base.cfg.unique_tags {
                 if unique.find(tter.get()) != unique.end() {
                     continue;
                 }
@@ -165,7 +165,7 @@ impl<'a> JsonlApplicator<'a> {
                 (t.r#type, t.tag.clone())
             };
 
-            if ttype.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.dep_original {
+            if ttype.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.cfg.dep_original {
                 continue;
             }
             if ttype.intersects(T_RELATION) && self.base.has_relations {
@@ -595,7 +595,7 @@ impl<'a> JsonlApplicator<'a> {
                     if wf_hash == Some(TagHash(tag_hash)) {
                         continue;
                     }
-                    if self.base.unique_tags {
+                    if self.base.cfg.unique_tags {
                         if unique_sts.find(tag_hash) != unique_sts.end() {
                             continue;
                         }
@@ -815,7 +815,7 @@ impl<'a> JsonlApplicator<'a> {
 
         self.base.index();
 
-        let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
 
         let mut ignoreinput = false;
         let mut c_swindow: Option<SwId> = None;
@@ -828,7 +828,7 @@ impl<'a> JsonlApplicator<'a> {
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.window.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.cfg.num_windows;
 
         // LOCAL variable-tracking state.
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::default();
@@ -1065,7 +1065,7 @@ impl<'a> JsonlApplicator<'a> {
 
                 let mut did_delim = false;
                 let cohorts_len = self.base.store.single_windows.get(sw.0).cohorts.len();
-                let soft_hit = cohorts_len >= self.base.soft_limit as usize
+                let soft_hit = cohorts_len >= self.base.cfg.soft_limit as usize
                     && self.base.grammar.soft_delimiters.is_some()
                     && {
                         let sd = self.base.grammar.sets_list
@@ -1084,7 +1084,7 @@ impl<'a> JsonlApplicator<'a> {
                     c_cohort = None;
                     did_delim = true;
                 } else {
-                    let hard_hit = cohorts_len >= self.base.hard_limit as usize
+                    let hard_hit = cohorts_len >= self.base.cfg.hard_limit as usize
                         || (self.base.grammar.delimiters.is_some() && {
                             let d = self.base.grammar.sets_list
                                 [self.base.grammar.delimiters.unwrap().0]
@@ -1093,10 +1093,10 @@ impl<'a> JsonlApplicator<'a> {
                             self.base.does_set_match_cohort_normal(cc, d, None)
                         });
                     if hard_hit {
-                        if cohorts_len >= self.base.hard_limit as usize {
+                        if cohorts_len >= self.base.cfg.hard_limit as usize {
                             tracing::warn!(
                                 "Warning: Hard limit of {} cohorts reached at line {} - forcing break.",
-                                self.base.hard_limit,
+                                self.base.cfg.hard_limit,
                                 self.base.numLines
                             );
                         }
@@ -1110,7 +1110,7 @@ impl<'a> JsonlApplicator<'a> {
                     }
                 }
 
-                if did_delim || self.base.window.next.len() > self.base.num_windows as usize {
+                if did_delim || self.base.window.next.len() > self.base.cfg.num_windows as usize {
                     self.base.shuffle_windows_down();
                     self.base.run_grammar_on_window_with(fmt, output);
                     if self.base.numWindows.is_multiple_of(reset_after) {
@@ -1201,7 +1201,7 @@ impl<'a> JsonlApplicator<'a> {
     /// `endtag` hash to its `TagId` (via `grammar->single_tags[hash]`), then add.
     /// Not a manifest symbol — a helper deduplicating the repeated end-tagging.
     fn add_endtag(&mut self, reading: ReadingId) {
-        let endtag_id = tag_by_hash(&self.base.grammar, self.base.endtag);
+        let endtag_id = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
         self.base.add_tag_to_reading(reading, endtag_id);
     }
 }

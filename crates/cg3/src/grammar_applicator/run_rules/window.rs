@@ -129,7 +129,7 @@ impl crate::grammar_applicator::GrammarApplicator {
 
     pub fn update_rule_to_cohorts(&mut self, c: CohortId, rsit: u32) -> bool {
         // --rule(s) cmdline filter.
-        if !self.valid_rules.empty() && !self.valid_rules.contains(rsit) {
+        if !self.cfg.valid_rules.empty() && !self.cfg.valid_rules.contains(rsit) {
             return false;
         }
         let current = self.store.cohorts.get(c.0).parent.unwrap();
@@ -590,34 +590,34 @@ impl crate::grammar_applicator::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-single-window-fn]
     /// C++ `uint32_t runGrammarOnSingleWindow(SingleWindow& current)`.
     pub fn run_grammar_on_single_window(&mut self, current: SwId) -> u32 {
-        if !self.grammar.before_sections.is_empty() && !self.no_before_sections {
-            let rules = self.runsections.get(&-1).cloned().unwrap_or_default();
+        if !self.grammar.before_sections.is_empty() && !self.cfg.no_before_sections {
+            let rules = self.cfg.runsections.get(&-1).cloned().unwrap_or_default();
             let rv = self.run_rules_on_single_window(current, &rules);
             if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
                 return rv;
             }
         }
 
-        if !self.grammar.rules.is_empty() && !self.no_sections {
+        if !self.grammar.rules.is_empty() && !self.cfg.no_sections {
             let mut counter: std::collections::BTreeMap<i32, u32> =
                 std::collections::BTreeMap::new();
             // Iterate runsections (ordered by section key). Callbacks can change
             // window state but not the runsections map; a plain key cursor mirrors
             // the C++ `iter`/`++iter`.
-            let keys: Vec<i32> = self.runsections.keys().copied().collect();
+            let keys: Vec<i32> = self.cfg.runsections.keys().copied().collect();
             let mut idx = 0usize;
             let mut pass = 0usize;
             while idx < keys.len() {
                 let key = keys[idx];
                 if key < 0
-                    || (self.section_max_count != 0
-                        && *counter.get(&key).unwrap_or(&0) >= self.section_max_count)
+                    || (self.cfg.section_max_count != 0
+                        && *counter.get(&key).unwrap_or(&0) >= self.cfg.section_max_count)
                 {
                     idx += 1;
                     pass = 0;
                     continue;
                 }
-                let rules = self.runsections.get(&key).cloned().unwrap();
+                let rules = self.cfg.runsections.get(&key).cloned().unwrap();
                 let rv = self.run_rules_on_single_window(current, &rules);
                 *counter.entry(key).or_insert(0) += 1;
                 if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
@@ -636,8 +636,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             }
         }
 
-        if !self.grammar.after_sections.is_empty() && !self.no_after_sections {
-            let rules = self.runsections.get(&-2).cloned().unwrap_or_default();
+        if !self.grammar.after_sections.is_empty() && !self.cfg.no_after_sections {
+            let rules = self.cfg.runsections.get(&-2).cloned().unwrap_or_default();
             let rv = self.run_rules_on_single_window(current, &rules);
             if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
                 return rv;
@@ -881,7 +881,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         W: std::io::Write,
     {
         while !self.window.previous.is_empty()
-            && self.window.previous.len() as u32 > self.num_windows
+            && self.window.previous.len() as u32 > self.cfg.num_windows
         {
             let tmp = self.window.previous[0];
             // C++ `printSingleWindow(tmp, *ux_stdout)` — print to the live
@@ -911,7 +911,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             return std::ops::ControlFlow::Break(());
         }
 
-        if self.trace_encl {
+        if self.cfg.trace_encl {
             let hitpass = u32::MAX - *pass;
             let cohorts = self.store.single_windows.get(current.0).cohorts.clone();
             for c in cohorts {
@@ -1035,7 +1035,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         for k in vrem {
             self.variables.erase(k);
         }
-        let (mk, mv) = (self.mprefix_key, self.mprefix_value);
+        let (mk, mv) = (self.cfg.mprefix_key, self.cfg.mprefix_value);
         *self.variables.index_or_insert(mk.get()) = mv.get();
 
         if self.has_dep {

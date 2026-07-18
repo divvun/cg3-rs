@@ -69,7 +69,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let j = cur;
                 st.iter_val = j;
 
-                if !self.valid_rules.empty() && !self.valid_rules.contains(j) {
+                if !self.cfg.valid_rules.empty() && !self.cfg.valid_rules.contains(j) {
                     break 'repeat;
                 }
                 self.current_rule = Some(RuleId(j));
@@ -85,11 +85,11 @@ impl crate::grammar_applicator::GrammarApplicator {
                 if rtype == K_IGNORE {
                     break 'repeat;
                 }
-                if !self.apply_mappings && (rtype == K_MAP || rtype == K_ADD || rtype == K_REPLACE)
+                if !self.cfg.apply_mappings && (rtype == K_MAP || rtype == K_ADD || rtype == K_REPLACE)
                 {
                     break 'repeat;
                 }
-                if !self.apply_corrections && (rtype == K_SUBSTITUTE || rtype == K_APPEND) {
+                if !self.cfg.apply_corrections && (rtype == K_SUBSTITUTE || rtype == K_APPEND) {
                     break 'repeat;
                 }
                 if has_enclosures {
@@ -112,7 +112,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 // raw-pointer trampolines are gone).
                 let rv = self.run_single_rule(current, RuleId(j), &mut st);
                 if rv || st.readings_changed {
-                    if !((rflags.intersects(RF_NOITERATE)) && self.section_max_count != 1) {
+                    if !((rflags.intersects(RF_NOITERATE)) && self.cfg.section_max_count != 1) {
                         section_did_something = true;
                     }
                     rule_did_something = true;
@@ -135,7 +135,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 if rule_did_something {
                     st.iter_val = j; // iter_rules = intersects.find(rule->number)
                     let line = self.grammar.rule_by_number.get(j).line;
-                    if self.trace_rules.contains(line) {
+                    if self.cfg.trace_rules.contains(line) {
                         retval |= RV_TRACERULE;
                     }
                 }

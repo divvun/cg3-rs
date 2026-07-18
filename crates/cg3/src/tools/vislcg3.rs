@@ -437,21 +437,21 @@ pub fn main_run(args: &[String]) -> i32 {
         use crate::grammar_applicator::{GrammarApplicator, cg3_sformat};
         let base = GrammarApplicator::new(Grammar::default());
         let mut applicator = crate::format_converter::FormatConverter::new(base);
-        applicator.base_mut().fmt_input = cg3_sformat::CG3SF_CG;
+        applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_CG;
         if occ(&options, OPTIONS::IN_CG) {
-            applicator.base_mut().fmt_input = cg3_sformat::CG3SF_CG;
+            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_CG;
         } else if occ(&options, OPTIONS::IN_NICELINE) {
-            applicator.base_mut().fmt_input = cg3_sformat::CG3SF_NICELINE;
+            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_NICELINE;
         } else if occ(&options, OPTIONS::IN_APERTIUM) {
-            applicator.base_mut().fmt_input = cg3_sformat::CG3SF_APERTIUM;
+            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_APERTIUM;
         } else if occ(&options, OPTIONS::IN_FST) {
-            applicator.base_mut().fmt_input = cg3_sformat::CG3SF_FST;
+            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_FST;
         } else if occ(&options, OPTIONS::IN_PLAIN) {
-            applicator.base_mut().fmt_input = cg3_sformat::CG3SF_PLAIN;
+            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_PLAIN;
         } else if occ(&options, OPTIONS::IN_JSONL) {
-            applicator.base_mut().fmt_input = cg3_sformat::CG3SF_JSONL;
+            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_JSONL;
         } else if occ(&options, OPTIONS::IN_BINARY) {
-            applicator.base_mut().fmt_input = cg3_sformat::CG3SF_BINARY;
+            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_BINARY;
         }
 
         // applicator.setGrammar(&grammar); — the ported base OWNS its grammar,
@@ -468,20 +468,20 @@ pub fn main_run(args: &[String]) -> i32 {
             crate::error::cg3_exit(e.exit_code());
         }
 
-        applicator.base_mut().fmt_output = cg3_sformat::CG3SF_CG;
+        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_CG;
         if occ(&options, OPTIONS::OUT_APERTIUM) {
-            applicator.base_mut().fmt_output = cg3_sformat::CG3SF_APERTIUM;
-            applicator.base_mut().unicode_tags = true;
+            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_APERTIUM;
+            applicator.base_mut().cfg.unicode_tags = true;
         } else if occ(&options, OPTIONS::OUT_FST) {
-            applicator.base_mut().fmt_output = cg3_sformat::CG3SF_FST;
+            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_FST;
         } else if occ(&options, OPTIONS::OUT_NICELINE) {
-            applicator.base_mut().fmt_output = cg3_sformat::CG3SF_NICELINE;
+            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_NICELINE;
         } else if occ(&options, OPTIONS::OUT_PLAIN) {
-            applicator.base_mut().fmt_output = cg3_sformat::CG3SF_PLAIN;
+            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_PLAIN;
         } else if occ(&options, OPTIONS::OUT_JSONL) {
-            applicator.base_mut().fmt_output = cg3_sformat::CG3SF_JSONL;
+            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_JSONL;
         } else if occ(&options, OPTIONS::OUT_BINARY) {
-            applicator.base_mut().fmt_output = cg3_sformat::CG3SF_BINARY;
+            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_BINARY;
         }
 
         // C++: `applicator.profiler = profiler.get();` — move the profiler into

@@ -189,9 +189,9 @@ pub fn main_conv(args: &[String]) -> i32 {
         let _wrapped = applicator.detect_format(&mut instream);
         drop(_wrapped);
         instream.set_position(pos);
-        fmt = applicator.base().fmt_input;
+        fmt = applicator.base().cfg.fmt_input;
     }
-    applicator.base_mut().fmt_input = fmt;
+    applicator.base_mut().cfg.fmt_input = fmt;
 
     // Grammar& settings — live grammar is base.grammar (see the ORDERED NOTE).
     if occ(&options_conv, OPTIONS::SUB_LTR) {
@@ -223,49 +223,49 @@ pub fn main_conv(args: &[String]) -> i32 {
     }
 
     // fmt_output selection. NOTE the reproduced OUT_MATXIN bug: no arm for it.
-    applicator.base_mut().fmt_output = cg3_sformat::CG3SF_CG;
+    applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_CG;
     if occ(&options_conv, OPTIONS::OUT_APERTIUM) {
-        applicator.base_mut().fmt_output = cg3_sformat::CG3SF_APERTIUM;
-        applicator.base_mut().unicode_tags = true;
+        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_APERTIUM;
+        applicator.base_mut().cfg.unicode_tags = true;
     } else if occ(&options_conv, OPTIONS::OUT_FST) {
-        applicator.base_mut().fmt_output = cg3_sformat::CG3SF_FST;
+        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_FST;
     } else if occ(&options_conv, OPTIONS::OUT_NICELINE) {
-        applicator.base_mut().fmt_output = cg3_sformat::CG3SF_NICELINE;
+        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_NICELINE;
     } else if occ(&options_conv, OPTIONS::OUT_PLAIN) {
-        applicator.base_mut().fmt_output = cg3_sformat::CG3SF_PLAIN;
+        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_PLAIN;
     } else if occ(&options_conv, OPTIONS::OUT_JSONL) {
-        applicator.base_mut().fmt_output = cg3_sformat::CG3SF_JSONL;
+        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_JSONL;
     } else if occ(&options_conv, OPTIONS::OUT_BINARY) {
-        applicator.base_mut().fmt_output = cg3_sformat::CG3SF_BINARY;
+        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_BINARY;
     }
     // BUG (reproduced): `-M` / OUT_MATXIN has no case here, so fmt_output stays CG.
 
     if occ(&options_conv, OPTIONS::UNICODE_TAGS) {
-        applicator.base_mut().unicode_tags = true;
+        applicator.base_mut().cfg.unicode_tags = true;
     }
     if occ(&options_conv, OPTIONS::PIPE_DELETED) {
-        applicator.base_mut().pipe_deleted = true;
+        applicator.base_mut().cfg.pipe_deleted = true;
     }
     if occ(&options_conv, OPTIONS::NO_BREAK) {
-        applicator.base_mut().add_spacing = false;
+        applicator.base_mut().cfg.add_spacing = false;
     }
     if occ(&options_conv, OPTIONS::PARSE_DEP) {
-        applicator.base_mut().parse_dep = true;
+        applicator.base_mut().cfg.parse_dep = true;
         applicator.base_mut().has_dep = true;
     }
     if occ(&options_conv, OPTIONS::DEP_DELIMIT) {
         // std::stoul(value) — throws (→ terminates) on non-numeric; unwrap.
         let v = options_conv[OPTIONS::DEP_DELIMIT as usize].value.clone();
-        applicator.base_mut().dep_delimit = if !v.is_empty() {
+        applicator.base_mut().cfg.dep_delimit = if !v.is_empty() {
             v.parse().unwrap()
         } else {
             10
         };
-        applicator.base_mut().parse_dep = true;
+        applicator.base_mut().cfg.parse_dep = true;
     }
-    applicator.base_mut().is_conv = true;
-    applicator.base_mut().trace = true;
-    applicator.base_mut().verbosity_level = 0;
+    applicator.base_mut().cfg.is_conv = true;
+    applicator.base_mut().cfg.trace = true;
+    applicator.base_mut().cfg.verbosity_level = 0;
 
     // applicator.runGrammarOnText(*instream, std::cout);
     let mut stdout = std::io::stdout();
