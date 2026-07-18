@@ -361,8 +361,7 @@ impl<'a> JsonlApplicator<'a> {
     /// it into the returned value.
     fn parse_json_cohort(&mut self, obj: &Map<String, Value>, c_swindow: SwId) -> CohortId {
         let c_cohort = crate::cohort::alloc_cohort(&mut self.base.store, Some(c_swindow));
-        let gn = self.base.gWindow.cohort_counter;
-        self.base.gWindow.cohort_counter = self.base.gWindow.cohort_counter.wrapping_add(1);
+        let gn = self.base.window.next_cohort_number();
         self.base.store.cohorts.get_mut(c_cohort.0).global_number = gn;
         self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
 
@@ -448,19 +447,21 @@ impl<'a> JsonlApplicator<'a> {
 
         // Dependency ("ds" / "dp").
         if let Some(ds) = obj.get("ds")
-            && let Some(v) = as_uint(ds) {
-                self.base.store.cohorts.get_mut(c_cohort.0).dep_self =
-                    (v != 0).then_some(crate::types::GlobalNumber(v));
-            }
+            && let Some(v) = as_uint(ds)
+        {
+            self.base.store.cohorts.get_mut(c_cohort.0).dep_self =
+                (v != 0).then_some(crate::types::GlobalNumber(v));
+        }
         if let Some(dp) = obj.get("dp")
-            && let Some(v) = as_uint(dp) {
-                self.base.store.cohorts.get_mut(c_cohort.0).dep_parent =
-                    if v == crate::cohort::DEP_NO_PARENT {
-                        None
-                    } else {
-                        Some(crate::types::GlobalNumber(v))
-                    };
-            }
+            && let Some(v) = as_uint(dp)
+        {
+            self.base.store.cohorts.get_mut(c_cohort.0).dep_parent =
+                if v == crate::cohort::DEP_NO_PARENT {
+                    None
+                } else {
+                    Some(crate::types::GlobalNumber(v))
+                };
+        }
 
         // Deleted readings ("drs").
         if let Some(Value::Array(drs)) = obj.get("drs") {
@@ -827,7 +828,7 @@ impl<'a> JsonlApplicator<'a> {
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.gWindow.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.num_windows;
 
         // LOCAL variable-tracking state.
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::default();
@@ -894,7 +895,7 @@ impl<'a> JsonlApplicator<'a> {
                 if !cmd_ustr.is_empty() {
                     if cmd_ustr == STR_CMD_FLUSH {
                         // verbose Info line: deferred.
-                        let back_swindow = self.base.gWindow.back();
+                        let back_swindow = self.base.window.back();
                         if let Some(bsw) = back_swindow {
                             self.base.store.single_windows.get_mut(bsw.0).flush_after = true;
                         }
@@ -918,24 +919,23 @@ impl<'a> JsonlApplicator<'a> {
                         l_swindow = None;
 
                         // Drain buffered windows.
-                        while !self.base.gWindow.next.is_empty() {
-                            self.base.gWindow.shuffle_windows_down(&mut self.base.store);
+                        while self.base.rotate_next().is_some() {
                             self.base.run_grammar_on_window_with(fmt, output);
                             if self.base.numWindows.is_multiple_of(reset_after) {
                                 self.base.reset_indexes();
                             }
                             // verbose progress: deferred.
                         }
-                        self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-                        while !self.base.gWindow.previous.is_empty() {
-                            let tmp = self.base.gWindow.previous[0];
+                        self.base.shuffle_windows_down();
+                        while !self.base.window.previous.is_empty() {
+                            let tmp = self.base.window.previous[0];
                             fmt.print_single_window(self.base, tmp, output, false);
                             crate::single_window::free_swindow(
-                                &mut self.base.gWindow,
+                                &mut self.base.window,
                                 &mut self.base.store,
                                 Some(tmp),
                             );
-                            self.base.gWindow.previous.remove(0);
+                            self.base.window.previous.remove(0);
                         }
 
                         if back_swindow.is_none() {
@@ -1026,7 +1026,7 @@ impl<'a> JsonlApplicator<'a> {
                 if c_swindow.is_none() {
                     let sw = self
                         .base
-                        .gWindow
+                        .window
                         .alloc_append_single_window(&mut self.base.store);
                     self.base.init_empty_single_window(sw);
 
@@ -1056,7 +1056,7 @@ impl<'a> JsonlApplicator<'a> {
                 // "Failed to create cohort" branch is unreachable.
 
                 crate::single_window::append_cohort(
-                    &mut self.base.gWindow,
+                    &mut self.base.window,
                     &mut self.base.store,
                     sw,
                     cc,
@@ -1070,7 +1070,8 @@ impl<'a> JsonlApplicator<'a> {
                     && {
                         let sd = self.base.grammar.sets_list
                             [self.base.grammar.soft_delimiters.unwrap().0]
-                            .number.get();
+                            .number
+                            .get();
                         self.base.does_set_match_cohort_normal(cc, sd, None)
                     };
                 if soft_hit {
@@ -1087,7 +1088,8 @@ impl<'a> JsonlApplicator<'a> {
                         || (self.base.grammar.delimiters.is_some() && {
                             let d = self.base.grammar.sets_list
                                 [self.base.grammar.delimiters.unwrap().0]
-                                .number.get();
+                                .number
+                                .get();
                             self.base.does_set_match_cohort_normal(cc, d, None)
                         });
                     if hard_hit {
@@ -1108,8 +1110,8 @@ impl<'a> JsonlApplicator<'a> {
                     }
                 }
 
-                if did_delim || self.base.gWindow.next.len() > self.base.num_windows as usize {
-                    self.base.gWindow.shuffle_windows_down(&mut self.base.store);
+                if did_delim || self.base.window.next.len() > self.base.num_windows as usize {
+                    self.base.shuffle_windows_down();
                     self.base.run_grammar_on_window_with(fmt, output);
                     if self.base.numWindows.is_multiple_of(reset_after) {
                         self.base.reset_indexes();
@@ -1132,24 +1134,23 @@ impl<'a> JsonlApplicator<'a> {
                 }
             }
 
-            while !self.base.gWindow.next.is_empty() {
-                self.base.gWindow.shuffle_windows_down(&mut self.base.store);
+            while self.base.rotate_next().is_some() {
                 self.base.run_grammar_on_window_with(fmt, output);
             }
-            if self.base.gWindow.current.is_some() {
+            if self.base.window.current.is_some() {
                 self.base.run_grammar_on_window_with(fmt, output);
             }
 
-            self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-            while !self.base.gWindow.previous.is_empty() {
-                let tmp = self.base.gWindow.previous[0];
+            self.base.shuffle_windows_down();
+            while !self.base.window.previous.is_empty() {
+                let tmp = self.base.window.previous[0];
                 fmt.print_single_window(self.base, tmp, output, false);
                 crate::single_window::free_swindow(
-                    &mut self.base.gWindow,
+                    &mut self.base.window,
                     &mut self.base.store,
                     Some(tmp),
                 );
-                self.base.gWindow.previous.remove(0);
+                self.base.window.previous.remove(0);
             }
 
             let _ = output.flush();

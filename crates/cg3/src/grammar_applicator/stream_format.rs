@@ -1,7 +1,8 @@
 //! The stream-format print vtable (wave 4, `w4-stream-format-trait`).
 //!
-//! C++ dispatches the driver's `printSingleWindow` / `printStreamCommand` /
-//! `printPlainTextLine` calls through the virtual-inheritance vtable: the
+//! C++ dispatches the driver's `printCohort` / `printSingleWindow` /
+//! `printStreamCommand` / `printPlainTextLine` calls through the
+//! virtual-inheritance vtable: the
 //! most-derived applicator (MweSplitApplicator, FormatConverter, …) overrides
 //! the print slots while the shared `GrammarApplicator` base runs the drivers.
 //! The wave-2 literal port modelled those vtable slots as flags on the base
@@ -24,15 +25,24 @@
 
 use std::io::Write;
 
-use crate::arena::SwId;
+use crate::arena::{CohortId, SwId};
 
 use super::GrammarApplicator;
 
-/// The C++ print vtable: the three print slots the engine drivers dispatch
+/// The C++ print vtable: the four print slots the engine drivers dispatch
 /// through. `app` is the shared engine base (the C++ `GrammarApplicator`
 /// subobject); strategy state (e.g. the binary header latch) lives on the
 /// strategy value itself.
 pub trait StreamFormat {
+    /// Virtual `printCohort(Cohort*, std::ostream&, bool)`.
+    fn print_cohort<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    );
+
     /// Virtual `printSingleWindow(SingleWindow*, std::ostream&, bool)`.
     fn print_single_window<W: Write>(
         &mut self,
@@ -65,6 +75,16 @@ pub trait StreamFormat {
 pub struct CgFormat;
 
 impl StreamFormat for CgFormat {
+    fn print_cohort<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        app.print_cohort(cohort, output, profiling);
+    }
+
     fn print_single_window<W: Write>(
         &mut self,
         app: &mut GrammarApplicator,

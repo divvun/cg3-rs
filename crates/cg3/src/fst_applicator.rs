@@ -3,17 +3,16 @@
 //!
 //! ## Composition (task design)
 //! C++ `class FSTApplicator : public virtual GrammarApplicator` becomes
-//! [`FSTApplicator`] holding a [`GrammarApplicator`](crate::grammar_applicator::GrammarApplicator)
-//! `base` by value plus the four FST-only members. Every engine/core call goes
-//! through `self.base.<method>` (or the core free fns threaded
-//! `&mut self.base.store` / `&mut self.base.gWindow` / `&self.base.grammar`).
-//! No `src/*` module other than this file is edited.
+//! [`FSTApplicator`] owning or borrowing a
+//! [`GrammarApplicator`](crate::grammar_applicator::GrammarApplicator) plus the
+//! four FST-only members. Every engine/core call goes through
+//! `self.base.<method>` (or the core free fns threaded through its arenas).
 //!
-//! ## Live vs. gated
+//! ## Parser and serializers
 //! The three serialisers ([`FSTApplicator::print_reading`],
 //! [`print_cohort`](FSTApplicator::print_cohort),
 //! [`print_single_window`](FSTApplicator::print_single_window)) build only on
-//! ported base helpers + the runtime store, so they COMPILE LIVE.
+//! ported base helpers + the runtime store.
 //!
 //! [`run_grammar_on_text`](FSTApplicator::run_grammar_on_text) is now a genuine
 //! port: the `input`/`output` streams are threaded as method params (mirroring
@@ -26,6 +25,7 @@
 //! diagnostics are emitted to a discard sink (`ux_stderr` placeholder).
 
 use std::io::Write;
+use std::ops::DerefMut;
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::append_reading;
@@ -60,18 +60,18 @@ use crate::reading::reverse as reverse_reading;
 
 // [spec:cg3:def:fst-applicator.cg3.fst-applicator]
 /// C++ `class FSTApplicator : public virtual GrammarApplicator`. Composition
-/// port: the base engine is held by value; the four FST-only members take their
-/// C++ in-class defaults.
-pub struct FSTApplicator {
+/// port: the base engine is owned by default and borrowed by `FormatConverter`;
+/// the four FST-only members take their C++ in-class defaults.
+pub struct FSTApplicator<B = Box<GrammarApplicator>> {
     /// The `GrammarApplicator` base (C++ `public virtual` inheritance).
-    pub base: GrammarApplicator,
+    pub base: B,
     pub did_warn_statictags: bool,
     pub wfactor: f64,
     pub wtag: UString,
     pub sub_delims: UString,
 }
 
-impl FSTApplicator {
+impl FSTApplicator<Box<GrammarApplicator>> {
     // [spec:cg3:def:fst-applicator.cg3.fst-applicator.fst-applicator-fn]
     // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.fst-applicator-fn]
     /// C++ `FSTApplicator::FSTApplicator(std::ostream& ux_err)`. Delegates to the
@@ -79,6 +79,22 @@ impl FSTApplicator {
     /// take their in-class defaults (`did_warn_statictags = false`,
     /// `wfactor = 1.0`, `wtag = "W"`, `sub_delims = "#"`). No other side effects.
     pub fn new(base: GrammarApplicator) -> Self {
+        Self::with_base(Box::new(base))
+    }
+}
+
+impl<'a> FSTApplicator<&'a mut GrammarApplicator> {
+    /// Borrow the shared virtual-base analogue used by [`FormatConverter`](crate::format_converter::FormatConverter).
+    pub fn borrowing(base: &'a mut GrammarApplicator) -> Self {
+        Self::with_base(base)
+    }
+}
+
+impl<B> FSTApplicator<B>
+where
+    B: DerefMut<Target = GrammarApplicator>,
+{
+    fn with_base(base: B) -> Self {
         FSTApplicator {
             base,
             did_warn_statictags: false,
@@ -302,7 +318,10 @@ impl FSTApplicator {
     }
 }
 
-impl FSTApplicator {
+impl<B> FSTApplicator<B>
+where
+    B: DerefMut<Target = GrammarApplicator>,
+{
     // [spec:cg3:def:fst-applicator.cg3.fst-applicator.run-grammar-on-text-fn]
     // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.run-grammar-on-text-fn]
     /// C++ `void FSTApplicator::runGrammarOnText(std::istream& input,
@@ -319,11 +338,32 @@ impl FSTApplicator {
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(input, output))
+        let mut fmt = FstFormat::from_app(self);
+        let result =
+            crate::error::catch_fatal(|| self.run_grammar_on_text_impl(&mut fmt, input, output));
+        self.did_warn_statictags = fmt.did_warn_statictags;
+        result
     }
 
-    fn run_grammar_on_text_impl<R, W>(&mut self, input: &mut R, output: &mut W)
+    /// Run the FST parser while routing output through a most-derived stream
+    /// format, matching C++ virtual dispatch in `FormatConverter`.
+    pub fn run_grammar_on_text_with<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
     where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
+        R: std::io::Read + std::io::Seek,
+        W: std::io::Write,
+    {
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
+    }
+
+    fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
+    where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
@@ -365,7 +405,7 @@ impl FSTApplicator {
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.gWindow.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.num_windows;
 
         ux_strip_bom(input);
 
@@ -420,10 +460,10 @@ impl FSTApplicator {
 
                     if c_cohort.is_none() {
                         if c_swindow.is_none() {
-                            let sw = self
-                                .base
-                                .gWindow
-                                .alloc_append_single_window(&mut self.base.store);
+                            let sw = {
+                                let base = &mut *self.base;
+                                base.window.alloc_append_single_window(&mut base.store)
+                            };
                             self.base.init_empty_single_window(sw);
                             c_swindow = Some(sw);
                             l_swindow = Some(sw);
@@ -431,9 +471,7 @@ impl FSTApplicator {
                             did_soft_lookback = false;
                         }
                         let cc = alloc_cohort(&mut self.base.store, c_swindow);
-                        let gn = self.base.gWindow.cohort_counter;
-                        self.base.gWindow.cohort_counter =
-                            self.base.gWindow.cohort_counter.wrapping_add(1);
+                        let gn = self.base.window.next_cohort_number();
                         let wf = self.base.add_tag(&tag, crate::tag::TagType::empty());
                         {
                             let c = self.base.store.cohorts.get_mut(cc.0);
@@ -475,16 +513,21 @@ impl FSTApplicator {
                             }
                         }
                         if let Some(t) = tab
-                            && cleaned[t + 1] == '+' && cleaned[t + 2] == '?' {
-                                break;
-                            }
+                            && cleaned[t + 1] == '+'
+                            && cleaned[t + 2] == '?'
+                        {
+                            break;
+                        }
 
                         // Reading* cReading = alloc_reading(cCohort);
                         let mut c_reading = alloc_reading(&mut self.base.store, Some(cc));
-                        insert_if_exists(
-                            &mut self.base.store.cohorts.get_mut(cc.0).possible_sets,
-                            self.base.grammar.sets_any.as_ref(),
-                        );
+                        {
+                            let base = &mut *self.base;
+                            insert_if_exists(
+                                &mut base.store.cohorts.get_mut(cc.0).possible_sets,
+                                base.grammar.sets_any.as_ref(),
+                            );
+                        }
                         let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
                         self.base.add_tag_to_reading(c_reading, wf);
 
@@ -660,21 +703,20 @@ impl FSTApplicator {
                                 }
                                 // if (hash && hash[0] == 0) { ... new sub-reading ... }
                                 if let Some(hidx) = hash
-                                    && cleaned[hidx] == '\0' {
-                                        if let Some(wt) = wtag_tag {
-                                            self.base.add_tag_to_reading(c_reading, wt);
-                                        }
-                                        let parent =
-                                            self.base.store.readings.get(c_reading.0).parent;
-                                        let nr = crate::reading::Reading::allocate_reading(
-                                            &mut self.base.store,
-                                            parent,
-                                        );
-                                        self.base.store.readings.get_mut(nr.0).next =
-                                            Some(c_reading);
-                                        c_reading = nr; // cReading = nr;
-                                        space += 1; // ++space;
+                                    && cleaned[hidx] == '\0'
+                                {
+                                    if let Some(wt) = wtag_tag {
+                                        self.base.add_tag_to_reading(c_reading, wt);
                                     }
+                                    let parent = self.base.store.readings.get(c_reading.0).parent;
+                                    let nr = crate::reading::Reading::allocate_reading(
+                                        &mut self.base.store,
+                                        parent,
+                                    );
+                                    self.base.store.readings.get_mut(nr.0).next = Some(c_reading);
+                                    c_reading = nr; // cReading = nr;
+                                    space += 1; // ++space;
+                                }
                             }
                             // base = ++space;
                             space += 1;
@@ -770,6 +812,7 @@ impl FSTApplicator {
 
             if is_text {
                 self.istext(
+                    fmt,
                     &line,
                     &cleaned,
                     output,
@@ -795,7 +838,10 @@ impl FSTApplicator {
 
         // Trailing pending cohort at EOF.
         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
-            append_cohort(&mut self.base.gWindow, &mut self.base.store, sw, cc);
+            {
+                let base = &mut *self.base;
+                append_cohort(&mut base.window, &mut base.store, sw, cc);
+            }
             if self.base.store.cohorts.get(cc.0).readings.is_empty() {
                 self.base.init_empty_cohort(cc);
             }
@@ -807,17 +853,19 @@ impl FSTApplicator {
         }
 
         // Drain buffered windows.
-        while !self.base.gWindow.next.is_empty() {
-            self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-            self.base.run_grammar_on_window(output);
+        while self.base.rotate_next().is_some() {
+            self.base.run_grammar_on_window_with(fmt, output);
         }
-        self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-        while !self.base.gWindow.previous.is_empty() {
-            let tmp = self.base.gWindow.previous[0];
-            self.print_single_window(tmp, output, false);
+        self.base.shuffle_windows_down();
+        while !self.base.window.previous.is_empty() {
+            let tmp = self.base.window.previous[0];
+            fmt.print_single_window(&mut self.base, tmp, output, false);
             let t = Some(tmp);
-            free_swindow(&mut self.base.gWindow, &mut self.base.store, t);
-            self.base.gWindow.previous.remove(0);
+            {
+                let base = &mut *self.base;
+                free_swindow(&mut base.window, &mut base.store, t);
+            }
+            self.base.window.previous.remove(0);
         }
         let _ = output.flush();
     }
@@ -827,8 +875,9 @@ impl FSTApplicator {
     /// the soft/hard delimiter window breaks, allocates windows, drains the
     /// pipeline, and attaches trailing text.
     #[allow(clippy::too_many_arguments)]
-    fn istext<W: Write>(
+    fn istext<F, W>(
         &mut self,
+        fmt: &mut F,
         line: &[char],
         cleaned: &[char],
         output: &mut W,
@@ -839,25 +888,32 @@ impl FSTApplicator {
         did_soft_lookback: &mut bool,
         reset_after: u32,
         lines: u32,
-    ) {
+    ) where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
+        W: Write,
+    {
         // if (cCohort && cCohort->readings.empty()) initEmptyCohort(*cCohort);
         if let Some(cc) = *c_cohort
-            && self.base.store.cohorts.get(cc.0).readings.is_empty() {
-                self.base.init_empty_cohort(cc);
-            }
+            && self.base.store.cohorts.get(cc.0).readings.is_empty()
+        {
+            self.base.init_empty_cohort(cc);
+        }
 
         // is_conv fast path.
         if self.base.is_conv {
             if let Some(cc) = *c_cohort {
                 self.base.store.cohorts.get_mut(cc.0).local_number = 1;
-                self.print_cohort(cc, output, false);
+                fmt.print_cohort(&mut self.base, cc, output, false);
                 let opt = Some(cc);
-                free_cohort(&mut self.base.store, Some(&mut self.base.gWindow), opt);
+                {
+                    let base = &mut *self.base;
+                    free_cohort(&mut base.store, Some(&mut base.window), opt);
+                }
                 *c_cohort = None;
             }
             if cleaned[0] != '\0' && line[0] != '\0' {
                 let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
-                self.base.print_plain_text_line(&line_str, output);
+                fmt.print_plain_text_line(&mut self.base, &line_str, output);
             }
             return;
         }
@@ -869,7 +925,8 @@ impl FSTApplicator {
             if over_soft && self.base.grammar.soft_delimiters.is_some() && !*did_soft_lookback {
                 *did_soft_lookback = true;
                 let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
-                    .number.get();
+                    .number
+                    .get();
                 let cohorts = self.base.store.single_windows.get(cs.0).cohorts.clone();
                 for &c in reversed(&cohorts) {
                     if self.base.does_set_match_cohort_normal(c, sd, None) {
@@ -894,7 +951,8 @@ impl FSTApplicator {
                 >= self.base.soft_limit;
             let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
                 let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
-                    .number.get();
+                    .number
+                    .get();
                 self.base.does_set_match_cohort_normal(cc, sd, None)
             };
             if over_soft && sd_hit {
@@ -903,7 +961,10 @@ impl FSTApplicator {
                     let et = tag_by_hash(&self.base.grammar, self.base.endtag);
                     self.base.add_tag_to_reading(r, et);
                 }
-                append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+                {
+                    let base = &mut *self.base;
+                    append_cohort(&mut base.window, &mut base.store, cs, cc);
+                }
                 *l_swindow = Some(cs);
                 *l_cohort = Some(cc);
                 *c_swindow = None;
@@ -917,8 +978,9 @@ impl FSTApplicator {
                 >= self.base.hard_limit;
             let delim_hit =
                 self.base.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
-                    let d =
-                        self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0].number.get();
+                    let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0]
+                        .number
+                        .get();
                     self.base.does_set_match_cohort_normal(cc, d, None)
                 };
             if over_hard || delim_hit {
@@ -938,7 +1000,10 @@ impl FSTApplicator {
                     let et = tag_by_hash(&self.base.grammar, self.base.endtag);
                     self.base.add_tag_to_reading(r, et);
                 }
-                append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+                {
+                    let base = &mut *self.base;
+                    append_cohort(&mut base.window, &mut base.store, cs, cc);
+                }
                 *l_swindow = Some(cs);
                 *l_cohort = Some(cc);
                 *c_swindow = None;
@@ -948,10 +1013,10 @@ impl FSTApplicator {
 
         // No current window: allocate + init a fresh one.
         if c_swindow.is_none() {
-            let sw = self
-                .base
-                .gWindow
-                .alloc_append_single_window(&mut self.base.store);
+            let sw = {
+                let base = &mut *self.base;
+                base.window.alloc_append_single_window(&mut base.store)
+            };
             self.base.init_empty_single_window(sw);
             *l_swindow = Some(sw);
             // lCohort = cSWindow->cohorts[0];
@@ -971,14 +1036,17 @@ impl FSTApplicator {
 
         // Pending cCohort: append it.
         if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
-            append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+            {
+                let base = &mut *self.base;
+                append_cohort(&mut base.window, &mut base.store, cs, cc);
+            }
             *l_cohort = Some(cc);
         }
 
         // Drain a window if enough have queued up.
-        if self.base.gWindow.next.len() as u32 > self.base.num_windows {
-            self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-            self.base.run_grammar_on_window(output);
+        if self.base.window.next.len() as u32 > self.base.num_windows {
+            self.base.shuffle_windows_down();
+            self.base.run_grammar_on_window_with(fmt, output);
             if self.base.numWindows.is_multiple_of(reset_after) {
                 self.base.reset_indexes();
             }
@@ -1006,9 +1074,98 @@ impl FSTApplicator {
                     .text
                     .push_str(&line_str);
             } else {
-                self.base.print_plain_text_line(&line_str, output);
+                fmt.print_plain_text_line(&mut self.base, &line_str, output);
             }
         }
+    }
+}
+
+/// FST print-vtable state shared by `FormatConverter` input and output paths.
+#[derive(Clone)]
+pub struct FstFormat {
+    pub did_warn_statictags: bool,
+    pub wfactor: f64,
+    pub wtag: UString,
+    pub sub_delims: UString,
+}
+
+impl Default for FstFormat {
+    fn default() -> Self {
+        Self {
+            did_warn_statictags: false,
+            wfactor: 1.0,
+            wtag: "W".to_string(),
+            sub_delims: "#".to_string(),
+        }
+    }
+}
+
+impl FstFormat {
+    fn from_app<B>(app: &FSTApplicator<B>) -> Self
+    where
+        B: DerefMut<Target = GrammarApplicator>,
+    {
+        Self {
+            did_warn_statictags: app.did_warn_statictags,
+            wfactor: app.wfactor,
+            wtag: app.wtag.clone(),
+            sub_delims: app.sub_delims.clone(),
+        }
+    }
+
+    fn with_app<T>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        f: impl FnOnce(&mut FSTApplicator<&mut GrammarApplicator>) -> T,
+    ) -> T {
+        let mut fst = FSTApplicator::borrowing(app);
+        fst.did_warn_statictags = self.did_warn_statictags;
+        fst.wfactor = self.wfactor;
+        fst.wtag.clone_from(&self.wtag);
+        fst.sub_delims.clone_from(&self.sub_delims);
+        let result = f(&mut fst);
+        self.did_warn_statictags = fst.did_warn_statictags;
+        result
+    }
+}
+
+impl crate::grammar_applicator::stream_format::StreamFormat for FstFormat {
+    fn print_cohort<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        self.with_app(app, |a| a.print_cohort(cohort, output, profiling));
+    }
+
+    fn print_single_window<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        self.with_app(app, |a| a.print_single_window(window, output, profiling));
+    }
+
+    fn print_stream_command<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        cmd: &str,
+        output: &mut W,
+    ) {
+        app.print_stream_command(cmd, output);
+    }
+
+    fn print_plain_text_line<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        line: &str,
+        output: &mut W,
+    ) {
+        app.print_plain_text_line(line, output);
     }
 }
 

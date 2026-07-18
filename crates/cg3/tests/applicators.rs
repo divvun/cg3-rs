@@ -5,9 +5,9 @@
 //! Drives are real end-to-end runs of the ported binaries (`cg-proc`,
 //! `cg-conv`, `cg-comp`, `cg-mwesplit`) over the `test/` fixture corpus (the
 //! same protocol as the fixtures' `run.pl` scripts), plus in-process library
-//! calls for the surfaces the current engine does not expose through any
-//! binary (FST/Plaintext input arms and Matxin output CG3Quit inside
-//! `FormatConverter`, and `ApertiumApplicator::testPR` which is a
+//! calls for lower-level serializer/parser details and for Matxin output
+//! (which follows the upstream converter's missing switch arm), plus
+//! `ApertiumApplicator::testPR` which is a
 //! commented-out debug block in the C++ `cg-proc.cpp`).
 
 use std::io::Write as _;
@@ -414,10 +414,8 @@ fn binary_stream_roundtrip() {
 }
 
 // ===========================================================================
-// FSTApplicator — in the current engine, FormatConverter's FST input/output
-// arms route to CG3Quit (cg-conv exits), so no binary reaches the ported
-// FSTApplicator; the honest drive is in-process, mirroring exactly what
-// cg-conv would do once wired: conv grammar + is_conv + trace, then
+// FSTApplicator — supplement the converter/CLI coverage below with a direct
+// wrapper run: conv grammar + is_conv + trace, then
 // runGrammarOnText over `wordform<TAB>analysis[<TAB>weight]` lines. The
 // is_conv fast path prints each finished cohort (printCohort → printReading)
 // and the EOF drain prints the remaining window (printSingleWindow).
@@ -599,14 +597,144 @@ fn format_converter_autodetect() {
         auto_s.contains("\t\"word\" notwanted @1"),
         "reading line: {auto_s:?}"
     );
+
+    // The remaining auto-detectable text formats use their real parser arms.
+    for (name, explicit_flag, input) in [
+        ("apertium", "--in-apertium", &b"^word/word<n><sg>$\n"[..]),
+        ("fst", "--in-fst", &b"word\tword+N+Sg\n"[..]),
+        ("plain", "--in-plain", &b"Hello, world!\n"[..]),
+    ] {
+        let auto = run_with_stdin(env!("CARGO_BIN_EXE_cg-conv"), &[], &root, input);
+        let explicit = run_with_stdin(
+            env!("CARGO_BIN_EXE_cg-conv"),
+            &[explicit_flag],
+            &root,
+            input,
+        );
+        assert_eq!(auto, explicit, "auto-detect ({name}) diverged");
+        assert!(!auto.is_empty(), "{name} conversion produced no output");
+    }
 }
 
-// FormatConverter's four print dispatchers — in the current port these
-// vtable-slot overrides are not reached from the tools (the base printers
-// model the C++ virtual dispatch for BINARY themselves, and the wrapper
-// drivers print their own formats), so the honest drive is in-process: build
-// the converter exactly like cg-conv does, hand-build one window + cohort +
-// reading in the shared base, and invoke each dispatcher for a live
+// Every format arm present in the C++ FormatConverter is wired in both
+// directions. A single CG cohort is emitted through each specialized output
+// strategy, and each specialized parser is also converted back to CG.
+#[test]
+fn format_converter_wires_apertium_fst_and_plaintext() {
+    let root = repo_root();
+    let cg = b"\"<word>\"\n\t\"word\" N Sg\n";
+
+    let apertium = run_with_stdin(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &["--in-cg", "--out-apertium"],
+        &root,
+        cg,
+    );
+    let apertium = String::from_utf8(apertium).unwrap();
+    assert!(
+        apertium.contains("^word/word<N><Sg>$"),
+        "CG -> Apertium dispatch wrong: {apertium:?}"
+    );
+
+    let fst = run_with_stdin(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &["--in-cg", "--out-fst"],
+        &root,
+        cg,
+    );
+    let fst = String::from_utf8(fst).unwrap();
+    assert!(
+        fst.contains("word\tword+N+Sg"),
+        "CG -> FST dispatch wrong: {fst:?}"
+    );
+
+    let plain = run_with_stdin(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &["--in-cg", "--out-plain"],
+        &root,
+        cg,
+    );
+    let plain = String::from_utf8(plain).unwrap();
+    assert_eq!(plain.trim(), "word", "CG -> plaintext dispatch wrong");
+
+    for (name, args, input, reading) in [
+        (
+            "Apertium",
+            &["--in-apertium"][..],
+            &b"^word/word<n><sg>$\n"[..],
+            "\t\"word\" n sg",
+        ),
+        (
+            "FST",
+            &["--in-fst"][..],
+            &b"word\tword+N+Sg\n"[..],
+            "\t\"word\" N Sg",
+        ),
+        (
+            "plaintext --add-tags",
+            &["--add-tags"][..],
+            &b"Hello\n"[..],
+            "<cg-conv>",
+        ),
+    ] {
+        let out = run_with_stdin(env!("CARGO_BIN_EXE_cg-conv"), args, &root, input);
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.contains("\"<"),
+            "{name} -> CG produced no cohort: {out:?}"
+        );
+        assert!(out.contains(reading), "{name} -> CG lost reading: {out:?}");
+    }
+
+    let weighted = run_with_stdin(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &["--in-fst", "--wtag", "Weight", "--wfactor", "2"],
+        &root,
+        b"word\tword+N\t2.5\n",
+    );
+    let weighted = String::from_utf8(weighted).unwrap();
+    assert!(
+        weighted.contains("<Weight:5.000000>"),
+        "FST options were not applied: {weighted:?}"
+    );
+
+    let subreadings = run_with_stdin(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &["--in-fst", "--sub-delim", "/"],
+        &root,
+        b"word\touter/inner+N\n",
+    );
+    let subreadings = String::from_utf8(subreadings).unwrap();
+    assert!(
+        subreadings.contains("\"outer\"") && subreadings.contains("\"inner\""),
+        "FST sub-delimiter was not applied: {subreadings:?}"
+    );
+
+    // vislcg3 uses the same converter around a real grammar, so exercise an
+    // Apertium-input/FST-output run through the engine as well.
+    let visl = run_with_stdin(
+        env!("CARGO_BIN_EXE_vislcg3"),
+        &[
+            "-g",
+            "test/T_Select/grammar.cg3",
+            "--in-apertium",
+            "--out-fst",
+        ],
+        &root,
+        b"^word/word<notwanted>/word<wanted>$\n",
+    );
+    let visl = String::from_utf8(visl).unwrap();
+    assert!(
+        visl.contains("word\tword+wanted"),
+        "vislcg3 did not use the wired formats: {visl:?}"
+    );
+    assert!(!visl.contains("+notwanted"), "SELECT did not run: {visl:?}");
+}
+
+// FormatConverter's four print dispatchers — supplement the end-to-end tool
+// coverage with direct calls: build the converter exactly like cg-conv does,
+// hand-build one window + cohort + reading in the shared base, and invoke each
+// dispatcher for a live
 // fmt_output arm (NICELINE for printCohort, JSONL for printSingleWindow /
 // printStreamCommand / printPlainTextLine), asserting the format-specific
 // encodings come out.
@@ -627,7 +755,7 @@ fn format_converter_print_dispatch() {
     // Hand-build one window with one cohort ("<word>" with reading "word" X).
     let (sw, cohort) = {
         let b = fc.base_mut();
-        let sw = b.gWindow.alloc_append_single_window(&mut b.store);
+        let sw = b.window.alloc_append_single_window(&mut b.store);
         b.init_empty_single_window(sw);
         let c = cg3::cohort::alloc_cohort(&mut b.store, Some(sw));
         let wf = b.add_tag("\"<word>\"", cg3::tag::TagType::empty());
@@ -643,7 +771,7 @@ fn format_converter_print_dispatch() {
         let t = b.add_tag("X", cg3::tag::TagType::empty());
         b.add_tag_to_reading(r, t);
         cg3::cohort::append_reading(&mut b.store, c, r);
-        cg3::single_window::append_cohort(&mut b.gWindow, &mut b.store, sw, c);
+        cg3::single_window::append_cohort(&mut b.window, &mut b.store, sw, c);
         b.store.cohorts.get_mut(c.0).local_number = 1;
         (sw, c)
     };
@@ -734,10 +862,8 @@ fn niceline_conv() {
 }
 
 // ===========================================================================
-// PlaintextApplicator — in the current engine, FormatConverter's PLAIN input
-// arm routes to CG3Quit (cg-conv exits), so no binary reaches the ported
-// PlaintextApplicator; the honest drive is in-process, mirroring what cg-conv
-// would do once wired: conv grammar + is_conv, then runGrammarOnText over raw
+// PlaintextApplicator — supplement the converter/CLI coverage with a direct
+// wrapper run: conv grammar + is_conv, then runGrammarOnText over raw
 // plaintext. The driver tokenizes lines into cohorts (peeling ASCII
 // punctuation) and the print side re-emits space-separated wordforms
 // (printSingleWindow → printCohort).

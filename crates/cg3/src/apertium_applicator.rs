@@ -2,9 +2,9 @@
 //! applicator (`^wordform/reading.../reading$` cohorts with superblanks).
 //!
 //! COMPOSITION-OVER-INHERITANCE. C++ `class ApertiumApplicator : public virtual
-//! GrammarApplicator`. In Rust the base engine is held by value in `base`, and
-//! every engine/core call goes through `self.base.<method>` /
-//! `self.base.store` / `self.base.grammar` / `self.base.gWindow`. Apertium-
+//! GrammarApplicator`. In Rust the wrapper either owns or borrows the base
+//! engine, and every engine/core call goes through `self.base.<method>` /
+//! `self.base.store` / `self.base.grammar` / `self.base.window`. Apertium-
 //! specific member flags live alongside.
 //!
 //! ARENA MODEL. C++ `Cohort*`/`Reading*`/`SingleWindow*`/`Tag*` become the arena
@@ -28,6 +28,7 @@
 //!   and only when `c_swindow` is null.
 
 use std::io::Write;
+use std::ops::DerefMut;
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::{CT_AP_UNKNOWN, CT_REMOVED, alloc_cohort, append_reading, unignore_all};
@@ -66,9 +67,9 @@ pub enum ApertiumCasing {
 
 // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator]
 /// C++ `class ApertiumApplicator : public virtual GrammarApplicator`.
-pub struct ApertiumApplicator {
+pub struct ApertiumApplicator<B = Box<GrammarApplicator>> {
     /// The base engine (C++ inheritance → composition).
-    pub base: GrammarApplicator,
+    pub base: B,
     pub wordform_case: bool,
     pub print_word_forms: bool,
     pub print_only_first: bool,
@@ -102,13 +103,29 @@ fn substr_from(s: &str, start: usize) -> String {
     s.chars().skip(start).collect()
 }
 
-impl ApertiumApplicator {
+impl ApertiumApplicator<Box<GrammarApplicator>> {
     // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.apertium-applicator-fn]
     // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.apertium-applicator-fn]
     /// C++ `ApertiumApplicator::ApertiumApplicator(std::ostream& ux_err)` — forwards
     /// `ux_err` to the base `GrammarApplicator(ux_err)` ctor (body empty); all
     /// Apertium flags keep their in-class defaults.
     pub fn new(base: GrammarApplicator) -> Self {
+        Self::with_base(Box::new(base))
+    }
+}
+
+impl<'a> ApertiumApplicator<&'a mut GrammarApplicator> {
+    /// Borrow the shared virtual-base analogue used by [`FormatConverter`](crate::format_converter::FormatConverter).
+    pub fn borrowing(base: &'a mut GrammarApplicator) -> Self {
+        Self::with_base(base)
+    }
+}
+
+impl<B> ApertiumApplicator<B>
+where
+    B: DerefMut<Target = GrammarApplicator>,
+{
+    fn with_base(base: B) -> Self {
         ApertiumApplicator {
             base,
             wordform_case: false,
@@ -127,8 +144,8 @@ impl ApertiumApplicator {
     /// `cmp_number`. Iteration over the group map is by ascending key (BTreeMap).
     pub fn merge_mappings(&mut self, cohort: CohortId) {
         use std::collections::BTreeMap;
-        let store = &mut self.base.store;
         let trace = self.base.trace;
+        let store = &mut self.base.store;
 
         let readings: ReadingList = store.cohorts.get(cohort.0).readings.clone();
         let mut mlist: BTreeMap<u32, ReadingList> = BTreeMap::new();
@@ -660,7 +677,9 @@ impl ApertiumApplicator {
         let mut multitags_list: Vec<u32> = Vec::new();
         let mut multi = false;
         for &tter in r.tags_list.iter() {
-            let tag = grammar.single_tags_list.get(tag_by_hash(grammar, TagHash(tter)).0);
+            let tag = grammar
+                .single_tags_list
+                .get(tag_by_hash(grammar, TagHash(tter)).0);
             if tag.tag.starts_with('+') {
                 multi = true;
             } else if tag.r#type.intersects(T_MAPPING) {
@@ -689,7 +708,9 @@ impl ApertiumApplicator {
             if tter == self.base.endtag.get() || tter == self.base.begintag.get() {
                 continue;
             }
-            let tag = grammar.single_tags_list.get(tag_by_hash(grammar, TagHash(tter)).0);
+            let tag = grammar
+                .single_tags_list
+                .get(tag_by_hash(grammar, TagHash(tter)).0);
             if !tag.r#type.intersects(T_BASEFORM) && !tag.r#type.intersects(T_WORDFORM) {
                 let first = tag.tag.chars().next();
                 if first == Some('+') {
@@ -704,41 +725,41 @@ impl ApertiumApplicator {
         }
 
         // Dependency output.
-        if self.base.has_dep && r.next.is_none()
-            && let Some(pcid) = parent {
-                let parent_removed = store.cohorts.get(pcid.0).r#type.intersects(CT_REMOVED);
-                if !parent_removed {
-                    let (local_number, dep_self, dep_parent, sw_parent, global_number) = {
-                        let pc = store.cohorts.get(pcid.0);
-                        (
-                            pc.local_number,
-                            pc.dep_self,
-                            pc.dep_parent,
-                            pc.parent,
-                            pc.global_number,
-                        )
-                    };
-                    let _ = dep_self; // C++ sets it below (read-only path here).
-                    // Determine parent cohort `pr`.
-                    let mut pr = pcid;
-                    if let Some(dp) = dep_parent {
-                        if dp == crate::types::GlobalNumber(0) {
-                            if let Some(sw) = sw_parent
-                                && let Some(&first) = store.single_windows.get(sw.0).cohorts.first()
-                                {
-                                    pr = first;
-                                }
-                        } else if let Some(&cid) =
-                            self.base.gWindow.cohort_map.get(&dp)
+        if self.base.has_dep
+            && r.next.is_none()
+            && let Some(pcid) = parent
+        {
+            let parent_removed = store.cohorts.get(pcid.0).r#type.intersects(CT_REMOVED);
+            if !parent_removed {
+                let (local_number, dep_self, dep_parent, sw_parent, global_number) = {
+                    let pc = store.cohorts.get(pcid.0);
+                    (
+                        pc.local_number,
+                        pc.dep_self,
+                        pc.dep_parent,
+                        pc.parent,
+                        pc.global_number,
+                    )
+                };
+                let _ = dep_self; // C++ sets it below (read-only path here).
+                // Determine parent cohort `pr`.
+                let mut pr = pcid;
+                if let Some(dp) = dep_parent {
+                    if dp == crate::types::GlobalNumber(0) {
+                        if let Some(sw) = sw_parent
+                            && let Some(&first) = store.single_windows.get(sw.0).cohorts.first()
                         {
-                            pr = cid;
+                            pr = first;
                         }
+                    } else if let Some(&cid) = self.base.window.cohort_map.get(&dp) {
+                        pr = cid;
                     }
-                    let pr_local = store.cohorts.get(pr.0).local_number;
-                    let _ = global_number;
-                    let _ = write!(output, "<#{}\u{2192}{}>", local_number, pr_local);
                 }
+                let pr_local = store.cohorts.get(pr.0).local_number;
+                let _ = global_number;
+                let _ = write!(output, "<#{}\u{2192}{}>", local_number, pr_local);
             }
+        }
 
         if self.base.trace {
             for &iter_hb in r.hit_by.iter() {
@@ -768,29 +789,29 @@ impl ApertiumApplicator {
             }
             if store.readings.get(last.0).baseform.is_some()
                 && let Some(pcid) = store.readings.get(reading.0).parent
-                    && let Some(wf) = store.cohorts.get(pcid.0).wordform {
-                        let wftag: Vec<char> =
-                            grammar.single_tags_list.get(wf.0).tag.chars().collect();
-                        // wf_length = size - 4; walk indices [0, wf_length),
-                        // reading char at index i+2 (skip the leading `"<`).
-                        let wf_length = wftag.len().saturating_sub(4);
-                        let mut uppercaseseen = 0i32;
-                        let mut alphabeticsseen = 0i32;
-                        for i in 0..wf_length {
-                            let c = wftag[i + 2];
-                            if c.is_alphabetic() {
-                                alphabeticsseen += 1;
-                                if c.is_uppercase() {
-                                    uppercaseseen += 1;
-                                }
-                            }
-                        }
-                        if uppercaseseen == alphabeticsseen && uppercaseseen >= 2 {
-                            casing = ApertiumCasing::Upper;
-                        } else if wftag.len() > 2 && wftag[2].is_uppercase() && uppercaseseen == 1 {
-                            casing = ApertiumCasing::Title;
+                && let Some(wf) = store.cohorts.get(pcid.0).wordform
+            {
+                let wftag: Vec<char> = grammar.single_tags_list.get(wf.0).tag.chars().collect();
+                // wf_length = size - 4; walk indices [0, wf_length),
+                // reading char at index i+2 (skip the leading `"<`).
+                let wf_length = wftag.len().saturating_sub(4);
+                let mut uppercaseseen = 0i32;
+                let mut alphabeticsseen = 0i32;
+                for i in 0..wf_length {
+                    let c = wftag[i + 2];
+                    if c.is_alphabetic() {
+                        alphabeticsseen += 1;
+                        if c.is_uppercase() {
+                            uppercaseseen += 1;
                         }
                     }
+                }
+                if uppercaseseen == alphabeticsseen && uppercaseseen >= 2 {
+                    casing = ApertiumCasing::Upper;
+                } else if wftag.len() > 2 && wftag[2].is_uppercase() && uppercaseseen == 1 {
+                    casing = ApertiumCasing::Title;
+                }
+            }
         }
         self.print_reading(reading, output, casing, 0);
     }
@@ -1033,12 +1054,30 @@ impl ApertiumApplicator {
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(input, output))
+        let mut fmt = ApertiumFormat::from_app(self);
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(&mut fmt, input, output))
+    }
+
+    /// Run the Apertium parser while routing output through a most-derived
+    /// stream format, matching C++ virtual dispatch in `FormatConverter`.
+    pub fn run_grammar_on_text_with<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
+    where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
+        R: std::io::Read + std::io::Seek,
+        W: std::io::Write,
+    {
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
     }
 
     #[allow(unused_assignments, unused_variables)]
-    fn run_grammar_on_text_impl<R, W>(&mut self, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
@@ -1089,7 +1128,7 @@ impl ApertiumApplicator {
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.gWindow.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.num_windows;
 
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::default();
         let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::default();
@@ -1122,6 +1161,7 @@ impl ApertiumApplicator {
 
             if c == '\0' {
                 self.flush(
+                    fmt,
                     true,
                     &mut in_blank,
                     &mut in_wblank,
@@ -1234,10 +1274,10 @@ impl ApertiumApplicator {
                 // Create a window if none.
                 if c_swindow.is_none() {
                     self.ensure_endtag(l_swindow);
-                    let sw = self
-                        .base
-                        .gWindow
-                        .alloc_append_single_window(&mut self.base.store);
+                    let sw = {
+                        let base = &mut *self.base;
+                        base.window.alloc_append_single_window(&mut base.store)
+                    };
                     self.base.init_empty_single_window(sw);
                     // Move the variable collections into the window (C++
                     // `cSWindow->variables_set = variables_set; ...clear()`).
@@ -1265,8 +1305,7 @@ impl ApertiumApplicator {
                 let cc = alloc_cohort(&mut self.base.store, Some(cs));
                 l_cohort = Some(cc);
                 c_cohort = Some(cc);
-                let gn = self.base.gWindow.cohort_counter;
-                self.base.gWindow.cohort_counter = self.base.gWindow.cohort_counter.wrapping_add(1);
+                let gn = self.base.window.next_cohort_number();
                 self.base.store.cohorts.get_mut(cc.0).global_number = gn;
                 self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
                 self.base.store.cohorts.get_mut(cc.0).text = blank.clone();
@@ -1380,11 +1419,14 @@ impl ApertiumApplicator {
                 if self.base.store.cohorts.get(cc.0).readings.is_empty() {
                     self.base.init_empty_cohort(cc);
                 }
-                insert_if_exists(
-                    &mut self.base.store.cohorts.get_mut(cc.0).possible_sets,
-                    self.base.grammar.sets_any.as_ref(),
-                );
-                append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+                {
+                    let base = &mut *self.base;
+                    insert_if_exists(
+                        &mut base.store.cohorts.get_mut(cc.0).possible_sets,
+                        base.grammar.sets_any.as_ref(),
+                    );
+                    append_cohort(&mut base.window, &mut base.store, cs, cc);
+                }
                 // if (cCohort->wordform->tag[2] == '@')
                 {
                     let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
@@ -1459,9 +1501,9 @@ impl ApertiumApplicator {
                     }
                 }
 
-                if did_delim && self.base.gWindow.next.len() as u32 > self.base.num_windows {
-                    self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-                    self.base.run_grammar_on_window(output);
+                if did_delim && self.base.window.next.len() as u32 > self.base.num_windows {
+                    self.base.shuffle_windows_down();
+                    self.base.run_grammar_on_window_with(fmt, output);
                     if reset_after != 0 && self.base.numWindows.is_multiple_of(reset_after) {
                         self.base.reset_indexes();
                     }
@@ -1471,6 +1513,7 @@ impl ApertiumApplicator {
         }
 
         self.flush(
+            fmt,
             false,
             &mut in_blank,
             &mut in_wblank,
@@ -1521,8 +1564,9 @@ impl ApertiumApplicator {
     /// C++ `flush(bool n)` lambda from `runGrammarOnText`. Drains all pending
     /// windows, prints them, and resets the driver state.
     #[allow(clippy::too_many_arguments)]
-    fn flush<W: Write>(
+    fn flush<F, W>(
         &mut self,
+        fmt: &mut F,
         n: bool,
         in_blank: &mut bool,
         in_wblank: &mut bool,
@@ -1538,10 +1582,13 @@ impl ApertiumApplicator {
         variables_output: &mut crate::sorted_vector::uint32SortedVector,
         c: char,
         output: &mut W,
-    ) {
+    ) where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
+        W: Write,
+    {
         self.ensure_endtag(*l_swindow);
 
-        let back_swindow = if n { self.base.gWindow.back() } else { None };
+        let back_swindow = if n { self.base.window.back() } else { None };
         if let Some(bs) = back_swindow {
             self.base.store.single_windows.get_mut(bs.0).flush_after = true;
         }
@@ -1569,27 +1616,29 @@ impl ApertiumApplicator {
                         .push_str(blank);
                 }
             } else {
-                self.base.print_plain_text_line(blank, output);
+                fmt.print_plain_text_line(&mut self.base, blank, output);
             }
             blank.clear();
         }
 
         // Run the grammar & print results.
-        while !self.base.gWindow.next.is_empty() {
-            self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-            self.base.run_grammar_on_window(output);
+        while self.base.rotate_next().is_some() {
+            self.base.run_grammar_on_window_with(fmt, output);
         }
-        self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-        while !self.base.gWindow.previous.is_empty() {
-            let tmp = self.base.gWindow.previous[0];
-            self.print_single_window(tmp, output, false);
+        self.base.shuffle_windows_down();
+        while !self.base.window.previous.is_empty() {
+            let tmp = self.base.window.previous[0];
+            fmt.print_single_window(&mut self.base, tmp, output, false);
             let opt = Some(tmp);
-            crate::single_window::free_swindow(&mut self.base.gWindow, &mut self.base.store, opt);
-            self.base.gWindow.previous.remove(0);
+            {
+                let base = &mut *self.base;
+                crate::single_window::free_swindow(&mut base.window, &mut base.store, opt);
+            }
+            self.base.window.previous.remove(0);
         }
 
         if c != '\0' && c != '\u{FFFF}' {
-            self.base.print_plain_text_line(&c.to_string(), output);
+            fmt.print_plain_text_line(&mut self.base, &c.to_string(), output);
         }
 
         if n && back_swindow.is_none() {
@@ -1609,6 +1658,98 @@ impl ApertiumApplicator {
         variables_set.clear(0);
         variables_output.clear();
         self.base.variables.clear(0);
+    }
+}
+
+/// Apertium's print-vtable state. This lets an Apertium input driver borrow the
+/// shared engine while a different most-derived format handles output.
+#[derive(Clone)]
+pub struct ApertiumFormat {
+    pub wordform_case: bool,
+    pub print_word_forms: bool,
+    pub print_only_first: bool,
+    pub delimit_lexical_units: bool,
+    pub surface_readings: bool,
+}
+
+impl Default for ApertiumFormat {
+    fn default() -> Self {
+        Self {
+            wordform_case: false,
+            print_word_forms: true,
+            print_only_first: false,
+            delimit_lexical_units: true,
+            surface_readings: false,
+        }
+    }
+}
+
+impl ApertiumFormat {
+    fn from_app<B>(app: &ApertiumApplicator<B>) -> Self
+    where
+        B: DerefMut<Target = GrammarApplicator>,
+    {
+        Self {
+            wordform_case: app.wordform_case,
+            print_word_forms: app.print_word_forms,
+            print_only_first: app.print_only_first,
+            delimit_lexical_units: app.delimit_lexical_units,
+            surface_readings: app.surface_readings,
+        }
+    }
+
+    fn with_app<T>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        f: impl FnOnce(&mut ApertiumApplicator<&mut GrammarApplicator>) -> T,
+    ) -> T {
+        let mut apertium = ApertiumApplicator::borrowing(app);
+        apertium.wordform_case = self.wordform_case;
+        apertium.print_word_forms = self.print_word_forms;
+        apertium.print_only_first = self.print_only_first;
+        apertium.delimit_lexical_units = self.delimit_lexical_units;
+        apertium.surface_readings = self.surface_readings;
+        f(&mut apertium)
+    }
+}
+
+impl crate::grammar_applicator::stream_format::StreamFormat for ApertiumFormat {
+    fn print_cohort<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        self.with_app(app, |a| a.print_cohort(cohort, output, profiling));
+    }
+
+    fn print_single_window<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        self.with_app(app, |a| a.print_single_window(window, output, profiling));
+    }
+
+    fn print_stream_command<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        cmd: &str,
+        output: &mut W,
+    ) {
+        app.print_stream_command(cmd, output);
+    }
+
+    fn print_plain_text_line<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        line: &str,
+        output: &mut W,
+    ) {
+        app.print_plain_text_line(line, output);
     }
 }
 

@@ -594,7 +594,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let child = self.get_apply_to().cohort.unwrap();
         let current = self.store.cohorts.get(child.0).parent.unwrap();
         let child_dp = self.store.cohorts.get(child.0).dep_parent;
-        let parent = *self.gWindow.cohort_map.get(&child_dp.unwrap()).unwrap();
+        let parent = *self.window.cohort_map.get(&child_dp.unwrap()).unwrap();
         let parent_gn = self.store.cohorts.get(parent.0).global_number;
         let grandparent_number = self.store.cohorts.get(parent.0).dep_parent;
         let mut siblings: Vec<CohortId> = Vec::new();
@@ -611,7 +611,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         for &s in &siblings {
             self.store.cohorts.get_mut(s.0).dep_parent = None;
         }
-        if let Some(&gp) = grandparent_number.and_then(|g| self.gWindow.cohort_map.get(&g)) {
+        if let Some(&gp) = grandparent_number.and_then(|g| self.window.cohort_map.get(&g)) {
             self.attach_parent_child(gp, child, false, false);
         }
         self.attach_parent_child(child, parent, false, false);
@@ -925,8 +925,12 @@ impl crate::grammar_applicator::GrammarApplicator {
                 } else {
                     hash = self.add_tag_to_reading(creading, tter);
                 }
-                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, hash.get(), creading)
-                {
+                if self.update_valid_rules(
+                    &st.rules.clone(),
+                    &mut st.intersects,
+                    hash.get(),
+                    creading,
+                ) {
                     st.iter_val = rnumber;
                 }
             }
@@ -1207,40 +1211,41 @@ impl crate::grammar_applicator::GrammarApplicator {
             let parent = self.store.readings.get(sr.0).parent.unwrap();
             let parent_wf = self.store.cohorts.get(parent.0).wordform;
             if let Some(wf) = wf
-                && Some(wf) != parent_wf {
-                    let pwf = parent_wf.unwrap();
-                    for list_kind in 0..3 {
-                        let rs = match list_kind {
-                            0 => self.store.cohorts.get(parent.0).readings.clone(),
-                            1 => self.store.cohorts.get(parent.0).deleted.clone(),
-                            _ => self.store.cohorts.get(parent.0).delayed.clone(),
-                        };
-                        for r in rs {
-                            self.del_tag_from_reading(r, pwf);
-                            self.add_tag_to_reading(r, wf);
-                        }
+                && Some(wf) != parent_wf
+            {
+                let pwf = parent_wf.unwrap();
+                for list_kind in 0..3 {
+                    let rs = match list_kind {
+                        0 => self.store.cohorts.get(parent.0).readings.clone(),
+                        1 => self.store.cohorts.get(parent.0).deleted.clone(),
+                        _ => self.store.cohorts.get(parent.0).delayed.clone(),
+                    };
+                    for r in rs {
+                        self.del_tag_from_reading(r, pwf);
+                        self.add_tag_to_reading(r, wf);
                     }
-                    self.store.cohorts.get_mut(parent.0).wordform = Some(wf);
-                    let wf_rules = self.grammar.wf_rules.clone();
-                    let current = st.current;
-                    for r in wf_rules {
-                        let rw = self.grammar.rule_by_number.get(r.0).wordform;
-                        let rn = self.grammar.rule_by_number.get(r.0).number;
-                        let cs = crate::grammar_applicator::CsRef::Window {
-                            sw: current,
-                            rule: rn,
-                        };
-                        if self.does_wordforms_match(Some(wf), rw) {
-                            self.cohortset_insert_at(cs, cohort);
-                            st.intersects.insert(rn);
-                        } else {
-                            self.cohortset_erase_at(cs, cohort);
-                        }
-                    }
-                    let wf_hash = self.grammar.single_tags_list.get(wf.0).hash;
-                    self.update_valid_rules(&st.rules.clone(), &mut st.intersects, wf_hash.get(), sr);
-                    st.iter_val = rnumber;
                 }
+                self.store.cohorts.get_mut(parent.0).wordform = Some(wf);
+                let wf_rules = self.grammar.wf_rules.clone();
+                let current = st.current;
+                for r in wf_rules {
+                    let rw = self.grammar.rule_by_number.get(r.0).wordform;
+                    let rn = self.grammar.rule_by_number.get(r.0).number;
+                    let cs = crate::grammar_applicator::CsRef::Window {
+                        sw: current,
+                        rule: rn,
+                    };
+                    if self.does_wordforms_match(Some(wf), rw) {
+                        self.cohortset_insert_at(cs, cohort);
+                        st.intersects.insert(rn);
+                    } else {
+                        self.cohortset_erase_at(cs, cohort);
+                    }
+                }
+                let wf_hash = self.grammar.single_tags_list.get(wf.0).hash;
+                self.update_valid_rules(&st.rules.clone(), &mut st.intersects, wf_hash.get(), sr);
+                st.iter_val = rnumber;
+            }
         }
         if self.store.readings.get(sr.0).hash != state_hash {
             st.readings_changed = true;

@@ -18,7 +18,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cg3::arena::{Arena, CohortId, CtxId, SwId};
-use cg3::types::{GlobalNumber, SetNumber};
 use cg3::cohort::{
     CT_ENCLOSED, CT_NUM_CURRENT, CT_RELATED, CT_REMOVED, Cohort, alloc_cohort,
     allocate_append_reading, append_reading, append_reading_to, cohort_clear, cohort_dtor, detach,
@@ -50,6 +49,7 @@ use cg3::tag::{
     T_RELATION, T_SPECIAL, T_TEXTUAL, T_USED, T_WORDFORM, Tag, TagVector, compare_tag,
     compare_tag_vector, equal_tag, fill_tagvector, parse_tag_raw,
 };
+use cg3::types::{GlobalNumber, SetNumber};
 use cg3::window::Window;
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ use cg3::window::Window;
 // ---------------------------------------------------------------------------
 fn setup_window(n: u32) -> (RuntimeStore, Window, SwId, Vec<CohortId>) {
     let mut store = RuntimeStore::new();
-    let mut w = Window::new(Some(0));
+    let mut w = Window::default();
     let sw = w.alloc_append_single_window(&mut store);
     let mut ids = Vec::new();
     for g in 1..=n {
@@ -341,7 +341,7 @@ fn cohort_iterator_base() {
 #[test]
 fn topology_iterators() {
     let mut store = RuntimeStore::new();
-    let mut w = Window::new(Some(0));
+    let mut w = Window::default();
     let sw1 = w.alloc_append_single_window(&mut store);
     let sw2 = w.alloc_append_single_window(&mut store); // linked sw1 <-> sw2
     let mut mk = |sw: SwId, gn: u32| {
@@ -1142,7 +1142,7 @@ fn contextual_test_mark_used_via_fixture() {
 #[test]
 fn single_window_alloc_append_clear_destroy() {
     let mut store = RuntimeStore::new();
-    let mut w = Window::new(Some(0));
+    let mut w = Window::default();
 
     // alloc_swindow: parent handle passed through, everything else blank.
     let sw = alloc_swindow(&mut store, Some(3));
@@ -1172,7 +1172,11 @@ fn single_window_alloc_append_clear_destroy() {
     );
     assert_eq!(store.cohorts.get(cb.0).prev, Some(ca));
     assert_eq!(w.cohort_map.get(&GlobalNumber(5)), Some(&ca));
-    assert_eq!(w.cohort_map.get(&GlobalNumber(0)), Some(&ca), "local 0 aliased at key 0");
+    assert_eq!(
+        w.cohort_map.get(&GlobalNumber(0)),
+        Some(&ca),
+        "local 0 aliased at key 0"
+    );
     assert_eq!(w.dep_window.get(&GlobalNumber(10)), Some(&cb));
     let ca2 = mk(&mut store, s1, 6);
     append_cohort(&mut w, &mut store, s1, ca2);
@@ -1259,7 +1263,7 @@ fn single_window_alloc_append_clear_destroy() {
 #[test]
 fn window_alloc_shuffle_rebuild_destroy() {
     let mut store = RuntimeStore::new();
-    let mut w = Window::new(Some(0));
+    let mut w = Window::default();
     assert_eq!(w.back(), None, "empty document");
 
     // allocSingleWindow: numbered but NOT inserted into any stream.

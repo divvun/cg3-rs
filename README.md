@@ -1,6 +1,6 @@
 # cg3 (Rust port)
 
-An idiomatic Rust re-implementation of [**VISL CG-3**](https://edu.visl.dk/cg3.html),
+A behavior-oriented Rust port of [**VISL CG-3**](https://edu.visl.dk/cg3.html),
 the reference [Constraint Grammar](https://en.wikipedia.org/wiki/Constraint_Grammar)
 engine. Constraint Grammar is a rule-based formalism for disambiguating and
 annotating morphologically-analysed text: given the alternative readings of each
@@ -21,15 +21,56 @@ This repository contains:
   [upstream CG-3](https://github.com/GrammarSoft/cg3), which served as the
   porting reference.
 - `test/` — the upstream conformance corpus (`T_*` grammar/input/expected
-  fixtures + the Apertium suite), reproduced byte-for-byte by the port and
-  driven by the Rust harnesses in `crates/cg3/tests/`.
+  fixtures + the Apertium suite), driven by the Rust harnesses in
+  `crates/cg3/tests/`.
+
+## Relationship to the C++ codebase
+
+The upstream C++ tree—checked out alongside this repository as
+`../cg3-old-port` in this workspace—is the behavioral reference. This is a
+direct port of its grammar model, parser, rule engine, stream applicators, and
+CLI behavior. It is fully compatible with CG-3 grammar source and the `.cg3b`
+binary ABI. The Rust crate API is distinct from the native `libcg3` C API.
+
+| Area | This Rust port | C++ reference |
+|------|----------------|---------------|
+| Architecture | Composition around one owned `GrammarApplicator`; a `StreamFormat` strategy models virtual print dispatch. | Deep class hierarchy with virtual multiple inheritance; `FormatConverter` inherits all format applicators over one virtual base. |
+| Runtime model | Typed arena IDs, ownership and borrowing, typed flag sets, and `Result` at recoverable API boundaries. | Owning/raw pointers, inheritance, integer bit masks, exceptions, and `CG3Quit` process exits. |
+| Text and containers | UTF-8 `String`, Rust `regex`, `serde_json`, and Rust collections or ported flat/sorted containers. | ICU UTF-16 strings and regex, RapidJSON, Boost containers, and STL containers. |
+| Build and dependencies | Cargo; the default engine and six CLI tools are pure Rust. SQLite is optional behind `profiler`. | CMake; links ICU/Boost and builds the native `libcg3` surface, with optional SQLite and bindings. |
+| Public integrations | Rust crate API and command-line tools, with source and `.cg3b` ABI compatibility. It does not currently ship the native `libcg3` C API, SWIG/Python package, or Emscripten/WASM build. | `libcg3` C API, SWIG Python bindings, and an Emscripten/WASM target in addition to the tools. |
+| Binary grammars | Fully byte-compatible with the current `.cg3b` ABI (revision 13898) and reads the main format from revisions 10373–13898; the separate ancient reader is intentionally absent. | Also carries the separate legacy reader for grammars as old as revision 10043. |
+
+The goal is behavioral compatibility, not a redesign of CG-3 semantics. Some
+C++ implementation details are intentionally reproduced when observable,
+including selected CLI quirks; memory ownership, dispatch, and error plumbing
+use Rust-native mechanisms where that does not change behavior.
 
 ## Scope
 
-Core engine + command-line tools only, and **byte-compatible with the current
-`.cg3b` binary grammar format (rev 13898)**. Out of scope by design: the
-`libcg3` C API and its language bindings (SWIG / Python / WASM), and the legacy
-pre-13898 `.cg3b` reader.
+Core engine + command-line tools only, **fully compatible with CG-3 grammar
+source and byte-compatible with the current `.cg3b` binary ABI (rev 13898)**.
+Out of scope by design: the native `libcg3` C API and its language bindings
+(SWIG / Python / WASM), and the C++ legacy `.cg3b` reader used for revisions
+10043–10297.
+
+`FormatConverter`, used by both `cg-conv` and `vislcg3`, supports every input
+and output arm present in the C++ converter: CG, Apertium, Niceline, plaintext,
+FST, JSONL, and binary. Matxin is available through `cg-proc`, but neither the
+C++ nor Rust `FormatConverter` has a Matxin switch arm. Consequently the
+upstream `cg-conv --out-matxin` quirk is preserved: that option leaves the
+default CG output selected.
+
+Known edge differences are concentrated around replacements for ICU and
+RapidJSON:
+
+- plaintext tokenization currently recognizes ASCII punctuation rather than
+  ICU's full Unicode punctuation categories;
+- a few non-ASCII case-folding and combining-mark decisions use Rust standard
+  Unicode operations instead of ICU and can differ on unusual inputs;
+- JSONL is structurally equivalent, but object key order can differ, and Rust
+  strings preserve embedded NUL characters that RapidJSON's C-string calls
+  truncate.
 
 ## Building
 
@@ -49,9 +90,11 @@ SQLite, which needs a C toolchain to build) for `vislcg3 --profile` and the two
 report tools. The base build is pure Rust.
 
 The conformance corpus (the upstream `runall.pl` sub-tests + the Apertium
-`cg-proc` suite) is a native part of the test run — `tests/golden.rs` and
-`tests/apertium.rs` drive the real binaries over `test/` and diff against the
-expected fixtures. No Perl or external harness is required.
+`cg-proc` suite) is a native part of the test run — `tests/golden.rs` and the
+other integration tests drive the real binaries over `test/` and compare with
+the expected fixtures. Comparisons ignore blank-only line differences and, where
+necessary, stabilize order-dependent mappings/relations. No Perl or external
+harness is required.
 
 ## Binaries
 
@@ -59,8 +102,8 @@ expected fixtures. No Perl or external harness is required.
 |--------|---------|
 | `vislcg3` | The engine: apply a textual or compiled grammar to a stream of cohorts — disambiguation, mapping, dependency/relation analysis. |
 | `cg-comp` | Compile a textual grammar to the binary `.cg3b` form. |
-| `cg-proc` | Apertium-style processor (reads/writes the FST stream format). |
-| `cg-conv` | Convert between stream formats (CG, Niceline, Apertium, Matxin, FST, plain, JSONL, binary). |
+| `cg-proc` | Apertium/Matxin-oriented grammar processor. |
+| `cg-conv` | Convert between CG, Niceline, Apertium, FST, plaintext, JSONL, and binary streams. |
 | `cg-relabel` | Rewrite set/tag labels in a grammar. |
 | `cg-mwesplit` | Split multi-word-expression cohorts into one cohort per component word. |
 | `cg-annotate` / `cg-merge-annotations` | Profiling / coverage-annotation tooling (SQLite-backed; requires `--features profiler`). |
@@ -111,9 +154,10 @@ See `cargo doc -p cg3 --open` for the full surface.
 
 ## Specification
 
-Every ported symbol carries `// [spec:cg3:def:…]` / `// [spec:cg3:sem:…]`
-annotations tying the code to a rule under `docs/spec/port/`, and every rule is
-verified by a test carrying the matching `…/test` facet.
+Ported symbols carry `// [spec:cg3:def:…]` / `// [spec:cg3:sem:…]`
+annotations tying the code to rules under `docs/spec/port/`. Implementation and
+test coverage are checked with the repository's `nplan` metadata; some covered
+rules do not yet have a dedicated matching `…/test` facet.
 
 ## License
 

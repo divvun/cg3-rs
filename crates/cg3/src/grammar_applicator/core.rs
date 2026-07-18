@@ -41,7 +41,6 @@ use crate::inlines::{
 use crate::options::{OPTIONS, options_t};
 use crate::process::Process;
 use crate::reading::Reading;
-use crate::types::{GlobalNumber, TagHash};
 use crate::store::RuntimeStore;
 use crate::strings::KEYWORDS;
 use crate::tag::{
@@ -49,6 +48,7 @@ use crate::tag::{
     T_VARSTRING, Tag,
 };
 use crate::tag_trie::trie_get_tag_list_append;
+use crate::types::{GlobalNumber, TagHash};
 use crate::uextras::{u_fflush, u_fputc, ux_strCaseCompare};
 
 use super::tmpl_context_t;
@@ -217,10 +217,11 @@ fn stoi(s: &str) -> i32 {
     let mut it = s.chars().peekable();
     let mut neg = false;
     if let Some(&c) = it.peek()
-        && (c == '+' || c == '-') {
-            neg = c == '-';
-            it.next();
-        }
+        && (c == '+' || c == '-')
+    {
+        neg = c == '-';
+        it.next();
+    }
     let mut v: i64 = 0;
     for c in it {
         match c.to_digit(10) {
@@ -348,7 +349,9 @@ impl super::GrammarApplicator {
         let new_hash = tag.rehash();
         let idx = self.grammar.single_tags_list.alloc(tag);
         self.grammar.single_tags_list[idx].number = idx;
-        self.grammar.single_tags.insert((new_hash.get(), TagId(idx)));
+        self.grammar
+            .single_tags
+            .insert((new_hash.get(), TagId(idx)));
         TagId(idx)
     }
 
@@ -661,9 +664,10 @@ impl super::GrammarApplicator {
             let mut vr = crate::interval_vector::uint32IntervalVector::new();
             for i in 0..self.grammar.rule_by_number.capacity() {
                 if let Some(rule) = self.grammar.rule_by_number.try_get(i)
-                    && self.valid_rules.contains(rule.line) {
-                        vr.insert_sorted(rule.number);
-                    }
+                    && self.valid_rules.contains(rule.line)
+                {
+                    vr.insert_sorted(rule.number);
+                }
             }
             self.valid_rules = vr;
         }
@@ -734,9 +738,10 @@ impl super::GrammarApplicator {
                     let _ = write!(output, "({txt}");
                 }
                 if matches!(r.r#type, K_ADDRELATIONS | K_SETRELATIONS | K_REMRELATIONS)
-                    && let Some(txt) = self.first_maplist_tag(r.sublist) {
-                        let _ = write!(output, ",{txt}");
-                    }
+                    && let Some(txt) = self.first_maplist_tag(r.sublist)
+                {
+                    let _ = write!(output, ",{txt}");
+                }
                 let _ = write!(output, ")");
             }
             if !self.trace_name_only || r.name.is_empty() {
@@ -775,7 +780,12 @@ impl super::GrammarApplicator {
     pub fn print_reading<W: Write>(&mut self, reading: ReadingId, output: &mut W, sub: usize) {
         let (noprint, deleted, baseform, parent_cid) = {
             let r = self.store.readings.get(reading.0);
-            (r.noprint, r.deleted, r.baseform.unwrap_or(TagHash(0)), r.parent)
+            (
+                r.noprint,
+                r.deleted,
+                r.baseform.unwrap_or(TagHash(0)),
+                r.parent,
+            )
         };
         if noprint {
             return;
@@ -861,7 +871,7 @@ impl super::GrammarApplicator {
                     if let Some(sw) = p_sw {
                         pr = self.store.single_windows.get(sw.0).cohorts[0];
                     }
-                } else if let Some(&mapped) = self.gWindow.cohort_map.get(&pdp) {
+                } else if let Some(&mapped) = self.window.cohort_map.get(&pdp) {
                     pr = mapped;
                 }
             }
@@ -1240,7 +1250,9 @@ impl super::GrammarApplicator {
         }
         write_raw(&mut ss, flags);
 
-        if self.has_dep && let Some(dp) = c.dep_parent {
+        if self.has_dep
+            && let Some(dp) = c.dep_parent
+        {
             write_raw(&mut ss, dp.get());
         }
 
@@ -1514,10 +1526,7 @@ impl super::GrammarApplicator {
     /// table is passed in (`options: &options_t`). The `UConverter*` is dropped
     /// — option values are already UTF-8 `String`s, so `ucnv_toUChars` is the
     /// identity.
-    pub fn set_options(
-        &mut self,
-        options: &options_t,
-    ) -> Result<(), crate::error::Cg3Error> {
+    pub fn set_options(&mut self, options: &options_t) -> Result<(), crate::error::Cg3Error> {
         let occ = |o: OPTIONS| options[o as usize].does_occur;
         let val = |o: OPTIONS| options[o as usize].value.as_str();
 
@@ -1604,9 +1613,10 @@ impl super::GrammarApplicator {
                 // ucnv_toUChars is identity for UTF-8; compare rule names.
                 for i in 0..self.grammar.rule_by_number.capacity() {
                     if let Some(rule) = self.grammar.rule_by_number.try_get(i)
-                        && rule.name == v {
-                            self.valid_rules.insert_sorted(rule.number);
-                        }
+                        && rule.name == v
+                    {
+                        self.valid_rules.insert_sorted(rule.number);
+                    }
                 }
             }
         }
@@ -1746,15 +1756,17 @@ impl super::GrammarApplicator {
         );
 
         let _ = writeln!(&mut buf, "# PREVIOUS WINDOWS");
-        for s in self.gWindow.previous.clone() {
+        for i in 0..self.window.previous.len() {
+            let s = self.window.previous[i];
             self.print_single_window(s, &mut buf, true);
         }
         let _ = writeln!(&mut buf, "# CURRENT WINDOW");
-        if let Some(cur) = self.gWindow.current {
+        if let Some(cur) = self.window.current {
             self.print_single_window(cur, &mut buf, true);
         }
         let _ = writeln!(&mut buf, "# NEXT WINDOWS");
-        for s in self.gWindow.next.clone() {
+        for i in 0..self.window.next.len() {
+            let s = self.window.next[i];
             self.print_single_window(s, &mut buf, true);
         }
 
@@ -1781,15 +1793,17 @@ impl super::GrammarApplicator {
 
         let mut buf: Vec<u8> = Vec::new();
         let _ = writeln!(&mut buf, "# PREVIOUS WINDOWS");
-        for s in self.gWindow.previous.clone() {
+        for i in 0..self.window.previous.len() {
+            let s = self.window.previous[i];
             self.print_single_window(s, &mut buf, true);
         }
         let _ = writeln!(&mut buf, "# CURRENT WINDOW");
-        if let Some(cur) = self.gWindow.current {
+        if let Some(cur) = self.window.current {
             self.print_single_window(cur, &mut buf, true);
         }
         let _ = writeln!(&mut buf, "# NEXT WINDOWS");
-        for s in self.gWindow.next.clone() {
+        for i in 0..self.window.next.len() {
+            let s = self.window.next[i];
             self.print_single_window(s, &mut buf, true);
         }
         self.trace = saved_trace;

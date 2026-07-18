@@ -42,9 +42,9 @@ use std::io::Write;
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
-use crate::types::TagHash;
 use crate::inlines::{isnl, ui32};
 use crate::tag::T_WORDFORM;
+use crate::types::TagHash;
 use crate::uextras::{u_fflush, u_fputc};
 
 /// C++ `Strings.hpp` constants (UTF-16 → UTF-8 &str).
@@ -133,6 +133,16 @@ impl MweSplitApplicator {
 pub struct MweSplitFormat;
 
 impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
+    fn print_cohort<W: std::io::Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        cohort: crate::arena::CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        app.print_cohort(cohort, output, profiling);
+    }
+
     fn print_single_window<W: std::io::Write>(
         &mut self,
         app: &mut GrammarApplicator,
@@ -260,11 +270,10 @@ impl GrammarApplicator {
                     // Ensure a cohort exists at index pos.
                     while cos.len() < pos + 1 {
                         let c = crate::cohort::alloc_cohort(&mut self.store, Some(parent));
-                        let gn = self.gWindow.cohort_counter;
-                        self.gWindow.cohort_counter = self.gWindow.cohort_counter.wrapping_add(1);
+                        let gn = self.window.next_cohort_number();
                         self.store.cohorts.get_mut(c.0).global_number = gn;
                         crate::single_window::append_cohort(
-                            &mut self.gWindow,
+                            &mut self.window,
                             &mut self.store,
                             parent,
                             c,

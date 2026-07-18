@@ -7,7 +7,7 @@
 //! [`BinaryApplicator`] holding a [`GrammarApplicator`](crate::grammar_applicator::GrammarApplicator)
 //! `base` by value plus `header_done` and the reusable `text` member. Every
 //! engine/core call goes through `self.base.<method>` (or the core free fns
-//! threaded `&mut self.base.store` / `&mut self.base.gWindow` /
+//! threaded `&mut self.base.store` / `&mut self.base.window` /
 //! `&self.base.grammar`). No `src/*` module other than this file is edited.
 //!
 //! ## Wire format
@@ -224,7 +224,7 @@ impl<'a> BinaryApplicator<'a> {
 
         let c_swindow = self
             .base
-            .gWindow
+            .window
             .alloc_append_single_window(&mut self.base.store);
         self.base.init_empty_single_window(c_swindow);
 
@@ -285,10 +285,14 @@ impl<'a> BinaryApplicator<'a> {
             pos += 1;
             let key = read_u16!() as usize;
             let value = read_u16!() as usize;
-            let hash1 = self.base.grammar.single_tags_list[window_tags[key].0].hash.get();
+            let hash1 = self.base.grammar.single_tags_list[window_tags[key].0]
+                .hash
+                .get();
             let sw = self.base.store.single_windows.get_mut(c_swindow.0);
             if mode == BFV_SETVAR {
-                let vh = self.base.grammar.single_tags_list[window_tags[value].0].hash.get();
+                let vh = self.base.grammar.single_tags_list[window_tags[value].0]
+                    .hash
+                    .get();
                 sw.variables_set.insert((hash1, vh));
                 sw.variables_rem.erase(hash1);
                 sw.variables_output.insert(hash1);
@@ -320,8 +324,7 @@ impl<'a> BinaryApplicator<'a> {
         let cohort_count = read_u16!();
         for cn in 0..cohort_count {
             let c_cohort = crate::cohort::alloc_cohort(&mut self.base.store, Some(c_swindow));
-            let gn = self.base.gWindow.cohort_counter;
-            self.base.gWindow.cohort_counter = self.base.gWindow.cohort_counter.wrapping_add(1);
+            let gn = self.base.window.next_cohort_number();
             self.base.store.cohorts.get_mut(c_cohort.0).global_number = gn;
             self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
 
@@ -367,7 +370,7 @@ impl<'a> BinaryApplicator<'a> {
                 c.dep_self = dep_self_opt;
                 c.dep_parent = dep_parent;
             }
-            self.base.gWindow.relation_map.insert((dep_self, gn.get()));
+            self.base.window.relation_map.insert((dep_self, gn.get()));
             if dep_parent.is_some() {
                 self.base.has_dep = true;
             }
@@ -389,7 +392,7 @@ impl<'a> BinaryApplicator<'a> {
             }
             if rel_count != 0 {
                 self.base.has_relations = true;
-                self.base.gWindow.relation_map.insert((dep_self, gn.get()));
+                self.base.window.relation_map.insert((dep_self, gn.get()));
                 self.base.store.cohorts.get_mut(c_cohort.0).r#type |= CT_RELATED;
             }
 
@@ -481,7 +484,7 @@ impl<'a> BinaryApplicator<'a> {
                 self.base.grammar.sets_any.as_ref(),
             );
             crate::single_window::append_cohort(
-                &mut self.base.gWindow,
+                &mut self.base.window,
                 &mut self.base.store,
                 c_swindow,
                 c_cohort,
@@ -744,7 +747,7 @@ impl BinaryFormat {
                     dep_parent.map_or(crate::cohort::DEP_NO_PARENT, |g| g.get()),
                 );
             } else if let Some(dp) = dep_parent
-                && let Some(&pr) = app.gWindow.cohort_map.get(&dp)
+                && let Some(&pr) = app.window.cohort_map.get(&dp)
             {
                 let pr_local = app.store.cohorts.get(pr.0).local_number;
                 if pr_local == 0 {
@@ -905,6 +908,16 @@ impl BinaryFormat {
 }
 
 impl crate::grammar_applicator::stream_format::StreamFormat for BinaryFormat {
+    fn print_cohort<W: Write>(
+        &mut self,
+        _app: &mut GrammarApplicator,
+        _cohort: CohortId,
+        _output: &mut W,
+        _profiling: bool,
+    ) {
+        // Binary streams are emitted as whole-window packets.
+    }
+
     fn print_single_window<W: Write>(
         &mut self,
         app: &mut GrammarApplicator,
@@ -991,7 +1004,7 @@ impl<'x> BinaryApplicator<'x> {
 
         self.base.index();
         let reset_after: u32 = (self.base.num_windows + 4) * 2 + 1;
-        self.base.gWindow.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.num_windows;
 
         // flush(flush_after) lambda: drain the pipeline + print buffered windows.
         // Reproduced inline at each call site (Rust closures can't borrow `self`
@@ -1011,8 +1024,8 @@ impl<'x> BinaryApplicator<'x> {
             match packet.r#type {
                 BinaryPacketType::BFP_WINDOW => {
                     self.base.numWindows = self.base.numWindows.wrapping_add(1);
-                    if self.base.gWindow.next.len() > self.base.num_windows as usize {
-                        self.shuffle_windows_down();
+                    if self.base.window.next.len() > self.base.num_windows as usize {
+                        self.base.shuffle_windows_down();
                         self.base.run_grammar_on_window_with(fmt, output);
                         if self.base.numWindows.is_multiple_of(reset_after) {
                             self.base.reset_indexes();
@@ -1054,49 +1067,22 @@ impl<'x> BinaryApplicator<'x> {
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: std::io::Write,
     {
-        let back = self.base.gWindow.back();
+        let back = self.base.window.back();
         if let Some(bsw) = back {
             self.base.store.single_windows.get_mut(bsw.0).flush_after = flush_after;
         }
-        while !self.base.gWindow.next.is_empty() {
-            self.shuffle_windows_down();
+        while self.base.rotate_next().is_some() {
             self.base.run_grammar_on_window_with(fmt, output);
         }
-        self.shuffle_windows_down();
-        while !self.base.gWindow.previous.is_empty() {
-            let tmp = self.base.gWindow.previous[0];
+        self.base.shuffle_windows_down();
+        while !self.base.window.previous.is_empty() {
+            let tmp = self.base.window.previous[0];
             // C++ virtual printSingleWindow — the most-derived format decides.
             fmt.print_single_window(self.base, tmp, output, false);
             let t = Some(tmp);
-            crate::single_window::free_swindow(&mut self.base.gWindow, &mut self.base.store, t);
-            self.base.gWindow.previous.remove(0);
+            crate::single_window::free_swindow(&mut self.base.window, &mut self.base.store, t);
+            self.base.window.previous.remove(0);
         }
         back
-    }
-
-    /// C++ `Window::shuffleWindowsDown()` as invoked from the binary driver.
-    /// The C++ method does `current->variables_set = parent->variables;` through
-    /// the Window's applicator back-pointer before retiring `current`; the Rust
-    /// `Window` has no such back-pointer (placeholder), so the driver performs
-    /// that snapshot here before delegating (mirroring the CG driver's private
-    /// wrapper in `grammar_applicator/run_grammar.rs`). Only the live slots of
-    /// the flat map are copied (`EMPTY`/`DEL` sentinels skipped).
-    fn shuffle_windows_down(&mut self) {
-        if let Some(current) = self.base.gWindow.current {
-            let vars: Vec<(u32, u32)> = self
-                .base
-                .variables
-                .get()
-                .iter()
-                .copied()
-                .filter(|&(k, _)| k != u32::MAX && k != u32::MAX - 1)
-                .collect();
-            let sww = self.base.store.single_windows.get_mut(current.0);
-            sww.variables_set.clear(0);
-            for (k, v) in vars {
-                sww.variables_set.insert((k, v));
-            }
-        }
-        self.base.gWindow.shuffle_windows_down(&mut self.base.store);
     }
 }

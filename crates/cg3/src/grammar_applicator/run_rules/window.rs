@@ -46,9 +46,10 @@ impl crate::grammar_applicator::GrammarApplicator {
             self.store.readings.get_mut(sr.0).hit_by.push(rule_number);
         }
         if rule_sub_reading == GSR_ANY
-            && let Some(r) = at.reading {
-                self.store.readings.get_mut(r.0).hit_by.push(rule_number);
-            }
+            && let Some(r) = at.reading
+        {
+            self.store.readings.get_mut(r.0).hit_by.push(rule_number);
+        }
     }
 
     // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.does-wordforms-match-fn]
@@ -60,25 +61,26 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// `Option<TagId>`).
     pub fn does_wordforms_match(&mut self, cword: Option<TagId>, rword: Option<TagId>) -> bool {
         if let Some(rw) = rword
-            && Some(rw) != cword {
-                // `rword` (a Tag in the grammar arena) is cloned out so the
-                // `&mut self` matcher calls do not alias the grammar borrow.
-                let rword_tag = self.grammar.single_tags_list.get(rw.0).clone();
-                let chash = cword
-                    .map(|c| self.grammar.single_tags_list.get(c.0).hash)
-                    .map_or(0, |h| h.get());
-                if rword_tag.r#type.intersects(crate::tag::T_REGEXP) {
-                    if self.does_tag_match_regexp(chash, &rword_tag, false) == 0 {
-                        return false;
-                    }
-                } else if rword_tag.r#type.intersects(crate::tag::T_CASE_INSENSITIVE) {
-                    if self.does_tag_match_icase(chash, &rword_tag, false) == 0 {
-                        return false;
-                    }
-                } else {
+            && Some(rw) != cword
+        {
+            // `rword` (a Tag in the grammar arena) is cloned out so the
+            // `&mut self` matcher calls do not alias the grammar borrow.
+            let rword_tag = self.grammar.single_tags_list.get(rw.0).clone();
+            let chash = cword
+                .map(|c| self.grammar.single_tags_list.get(c.0).hash)
+                .map_or(0, |h| h.get());
+            if rword_tag.r#type.intersects(crate::tag::T_REGEXP) {
+                if self.does_tag_match_regexp(chash, &rword_tag, false) == 0 {
                     return false;
                 }
+            } else if rword_tag.r#type.intersects(crate::tag::T_CASE_INSENSITIVE) {
+                if self.does_tag_match_icase(chash, &rword_tag, false) == 0 {
+                    return false;
+                }
+            } else {
+                return false;
             }
+        }
         true
     }
 
@@ -878,29 +880,29 @@ impl crate::grammar_applicator::GrammarApplicator {
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: std::io::Write,
     {
-        while !self.gWindow.previous.is_empty()
-            && self.gWindow.previous.len() as u32 > self.num_windows
+        while !self.window.previous.is_empty()
+            && self.window.previous.len() as u32 > self.num_windows
         {
-            let tmp = self.gWindow.previous[0];
+            let tmp = self.window.previous[0];
             // C++ `printSingleWindow(tmp, *ux_stdout)` — print to the live
             // output writer threaded in by the driver, in the most-derived
             // applicator's format.
             fmt.print_single_window(self, tmp, output, false);
             let opt = Some(tmp);
-            crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, opt);
-            self.gWindow.previous.remove(0);
+            crate::single_window::free_swindow(&mut self.window, &mut self.store, opt);
+            self.window.previous.remove(0);
         }
 
         self.rule_hits.clear();
         self.index_ruleCohort_no.clear(0);
-        let current = self.gWindow.current.unwrap();
+        let current = self.window.current.unwrap();
         self.index_single_window(current);
         self.store
             .single_windows
             .get_mut(current.0)
             .hit_external
             .clear();
-        let gw = &mut self.gWindow;
+        let gw = &mut self.window;
         gw.rebuild_cohort_links(&mut self.store);
 
         *pass += 1;
@@ -961,7 +963,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                             .insert(pos, cohort);
                         self.store.cohorts.get_mut(cohort.0).r#type &= !CT_IGNORED;
                         let gn = self.store.cohorts.get(cohort.0).global_number;
-                        self.gWindow.cohort_map.insert(gn, cohort);
+                        self.window.cohort_map.insert(gn, cohort);
                         should_reflow = true;
                         break;
                     }
@@ -1003,7 +1005,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: std::io::Write,
     {
-        let current = self.gWindow.current.unwrap();
+        let current = self.window.current.unwrap();
         self.did_final_enclosure = false;
 
         // Apply the window's variable deltas onto the global `variables` map.
@@ -1039,20 +1041,20 @@ impl crate::grammar_applicator::GrammarApplicator {
         if self.has_dep {
             self.reflow_dependency_window(0);
             if !self.input_eof
-                && !self.gWindow.next.is_empty()
+                && !self.window.next.is_empty()
                 && self
                     .store
                     .single_windows
-                    .get(self.gWindow.next.last().unwrap().0)
+                    .get(self.window.next.last().unwrap().0)
                     .cohorts
                     .len()
                     > 1
             {
-                let nb = *self.gWindow.next.last().unwrap();
+                let nb = *self.window.next.last().unwrap();
                 let cohorts = self.store.single_windows.get(nb.0).cohorts.clone();
                 for cohort in cohorts {
                     let gn = self.store.cohorts.get(cohort.0).global_number;
-                    self.gWindow.dep_window.insert(gn, cohort);
+                    self.window.dep_window.insert(gn, cohort);
                 }
             }
         }

@@ -54,7 +54,7 @@ impl crate::grammar_applicator::GrammarApplicator {
 
         // current.parent->cohort_map[0] = current.cohorts.front()
         let front = self.store.single_windows.get(current.0).cohorts[0];
-        self.gWindow
+        self.window
             .cohort_map
             .insert(crate::types::GlobalNumber(0), front);
 
@@ -210,7 +210,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let cid = self.store.single_windows.get(which.0).cohorts[i];
             self.store.cohorts.get_mut(cid.0).local_number = ui32(i);
         }
-        let gw = &self.gWindow;
+        let gw = &self.window;
         gw.rebuild_cohort_links(&mut self.store);
     }
 
@@ -360,7 +360,8 @@ impl crate::grammar_applicator::GrammarApplicator {
                 at += 1;
             }
             let rule = st.rule.0;
-            if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, thash.get(), reading) {
+            if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, thash.get(), reading)
+            {
                 st.iter_val = self.grammar.rule_by_number.get(rule).number;
             }
         }

@@ -1,1 +1,26 @@
 schema_version 7
+
+last_sync_at 2026-07-18T14:01:16.596631Z
+
+derived_priorities (
+    {id w4-arena-generations, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-bitflags, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-container-iterators, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-deglobalize-ast, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-deglobalize-prng-errno, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-file-split-fmt, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-io-sinks-profiler, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-library-errors, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-outparams-goto, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-printf-removal-tracing, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-rule-context-indices, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-sentinels-newtypes, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-stream-format-trait, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-tag-union-enum, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-unsafe-elimination, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+    {id w4-utf8-native-strings, priority 0, derived_at 2026-07-18T14:01:16.596631Z}
+)
+
+assertions (
+    {id w4-stream-format-trait, kind @complete, author "brendan@necessary.nu", at 2026-07-18T14:01:26.817884Z}
+)

@@ -58,6 +58,22 @@ children (
             {
                 id w4-stream-format-trait
                 title "StreamFormat trait replaces the C++-vtable stand-ins: mwe_split_at_print/print_dispatch/bin_header_done flags, fmt_output switches in base printers, and the base:GrammarApplicator composition move-dances"
+                sealed true
+                log (
+                    {
+                        at 2026-07-18T13:36:39.153406Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-18T14:01:26.817884Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
 
             {
@@ -88,6 +104,99 @@ children (
             {
                 id w4-file-split-fmt
                 title "Close the bypassed quality gates: split run_rules.rs (4.2k LOC/82 fns) + other oversize files, rustfmt the crate, burn down the ~20 inherited warnings (RRState privacy etc.), consolidate flagged duplicate groups"
+            }
+        )
+    }
+
+    {
+        id engine-decomp
+        title "Decompose the GrammarApplicator god object: EngineConfig/Document/RuleScratch/Diagnostics subsystems + Engine<'_> split-borrow view; state decomposed while the C++ function inventory stays 1:1 (upstream diff-porting preserved)"
+        children (
+            {
+                id engine-decomp.window-api
+                title "Window de-blob: dead parent back-pointer removed, next_cohort_number() replaces 15 hand-rolled post-increments, ONE shuffle entry point + rotate_next() (fixes ~20 applicator sites silently skipping the C++ parent->variables snapshot; binary_applicator duplicate deleted), gWindow field renamed window, borrow-dodge clones killed"
+                priority 0
+            }
+
+            {
+                id engine-decomp.triage
+                title "Field triage: classify every GrammarApplicator field into cfg/doc/scratch/diag buckets from read/write-site evidence; deliverables = bucket map, wart inventory (fields whose bucket is blocked by gratuitous mutation), spec-remap plan, decision record"
+                priority 0
+            }
+
+            {
+                id engine-decomp.warts
+                title "Wart removal — some logic shouldn't be saved: drop faithfully-ported mutation hacks with no observable purpose (the trace swapper<bool> toggling self.trace during example prints, mutable-through-const patterns, write-only fields); bump/errata the sem rules that pinned them; conformance corpus is the oracle"
+                priority 0
+                deps (engine-decomp.triage)
+            }
+
+            {
+                id engine-decomp.rehome
+                title "Stage B — re-home fields into subsystem structs as nested fields (self.trace → self.cfg.trace); methods stay &mut self, behavior-identical, sed-shaped, one conformance-gated commit per bucket"
+                children (
+                    {
+                        id engine-decomp.rehome.config
+                        title "EngineConfig: the options-derived, read-only-during-run fields (trace, dep_delimit, num_windows, apply_mappings/apply_corrections, section ranges, verbosity, ordered, unicode_tags, trace_rules/debug_rules) move to self.cfg"
+                        priority 0
+                        deps (engine-decomp.warts)
+                    }
+
+                    {
+                        id engine-decomp.rehome.document
+                        title "Document: store (arenas) + WindowStream (previous/current/next + rotation) + CohortRegistry (cohort_counter/cohort_map) + DepBookkeeping (dep_map/dep_window/relation_map) + variables + run counters (numLines/numWindows/numCohorts/numReadings, renamed) move to self.doc — the Window type dissolves into these three sub-structs here"
+                        priority 0
+                        deps (engine-decomp.rehome.config engine-decomp.window-api)
+                    }
+
+                    {
+                        id engine-decomp.rehome.scratch
+                        title "RuleScratch + Diagnostics: context_stack, regexgrps_c/z, unification state, current_rule/rule_target/merge_with/in_nested, cohortsets/rocits, rule_hits + index_ruleCohort_no/index_readingSet_* caches, the six cohort-iterator pools → self.scratch; profiler + trace emission → self.diag. GrammarApplicator = 5 named fields after this lands"
+                        priority 0
+                        deps (engine-decomp.rehome.document)
+                    }
+                )
+            }
+
+            {
+                id engine-decomp.peel
+                title "Stage C — peel method clusters off &mut self onto the Engine<'_> split-borrow view (or narrower per-cluster views), leaves-first along the call graph so a converted callee never blocks an unconverted caller"
+                children (
+                    {
+                        id engine-decomp.peel.matchset
+                        title "Call-graph leaves: match_set (does_set_match_*, does_tag_match_*, tag matching helpers) take (cfg, doc, scratch, grammar) views instead of &mut self"
+                        priority 1
+                        deps (engine-decomp.rehome.scratch)
+                    }
+
+                    {
+                        id engine-decomp.peel.context
+                        title "run_contextual_test + reflow + context helpers onto the view (the dep/relation logic lands on Document's DepBookkeeping API here)"
+                        priority 1
+                        deps (engine-decomp.peel.matchset)
+                    }
+
+                    {
+                        id engine-decomp.peel.rules
+                        title "run_rules cluster (dispatch/schedule/single_rule/window/restructure) onto the view; RRState folds into or rides beside RuleScratch"
+                        priority 1
+                        deps (engine-decomp.peel.context)
+                    }
+
+                    {
+                        id engine-decomp.peel.drivers
+                        title "Top of the graph: run_grammar drivers (run_grammar_on_text/window pump), the StreamFormat trait signatures, and the 8 stream applicators onto the view; the Box<GrammarApplicator> reborrow dances disappear with &mut self"
+                        priority 1
+                        deps (engine-decomp.peel.rules)
+                    }
+                )
+            }
+
+            {
+                id engine-decomp.spec-audit
+                title "Spec reconciliation: per-bucket def-rule redefinitions landed with version bumps, sem anchors verified intact on their (unmoved) functions, wart errata recorded, nplan audit clean with zero orphan refs; conformance + clippy green on both feature configs"
+                priority 1
+                deps (engine-decomp.peel.drivers)
             }
         )
     }

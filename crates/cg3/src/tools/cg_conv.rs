@@ -4,10 +4,8 @@
 //! [`crate::format_converter::FormatConverter`] (via its public shared-base
 //! accessors — the composition analogue of the C++ public inheritance), and
 //! runs it over stdin→stdout. stdin is buffered into a seekable Cursor because
-//! the ported drivers need `R: Read + Seek`. Two FST/plaintext-only field
-//! assignments are elided with MISMATCH NOTEs at their sites (the fields live
-//! on wrappers FormatConverter cannot reach, and those format arms CG3Quit in
-//! the current engine, so the values could never be observed).
+//! the ported drivers need `R: Read + Seek`. FST/plaintext-only options are
+//! stored on the converter's persistent format strategies.
 //!
 //! ## Reproduced bug: `-M` / `--out-matxin` (OUT_MATXIN) unhandled
 //! The C++ output-format switch has NO `case OUT_MATXIN`, so passing `-M` sets
@@ -161,11 +159,7 @@ pub fn main_conv(args: &[String]) -> i32 {
     // if (ADD_TAGS) { options_conv[IN_PLAIN].doesOccur = true; ...add_tags = true; }
     if occ(&options_conv, OPTIONS::ADD_TAGS) {
         options_conv[OPTIONS::IN_PLAIN as usize].does_occur = true;
-        // dynamic_cast<PlaintextApplicator&>(applicator).add_tags = true;
-        // MISMATCH (NOTE): `add_tags` lives on the composition wrapper
-        // `PlaintextApplicator`, which FormatConverter cannot reach — its PLAIN
-        // input arm routes to CG3Quit() in the current engine, so the flag could
-        // never be observed; the assignment is elided.
+        applicator.set_plaintext_add_tags(true);
     }
 
     if occ(&options_conv, OPTIONS::IN_CG) {
@@ -212,11 +206,21 @@ pub fn main_conv(args: &[String]) -> i32 {
             .next()
             .unwrap();
     }
-    // MISMATCH (NOTE): `sub_delims` / `wtag` / `wfactor` live on the composition
-    // wrapper `FSTApplicator`, which FormatConverter cannot reach — its FST
-    // input/output arms route to CG3Quit() in the current engine, so the values
-    // could never be observed; the three assignments (SUB_DELIMITER value + '+',
-    // FST_WTAG value, FST_WFACTOR stod) are elided.
+    if occ(&options_conv, OPTIONS::SUB_DELIMITER) {
+        let mut sub_delims = options_conv[OPTIONS::SUB_DELIMITER as usize].value.clone();
+        sub_delims.push('+');
+        applicator.set_fst_sub_delims(sub_delims);
+    }
+    if occ(&options_conv, OPTIONS::FST_WTAG) {
+        applicator.set_fst_wtag(options_conv[OPTIONS::FST_WTAG as usize].value.clone());
+    }
+    if occ(&options_conv, OPTIONS::FST_WFACTOR) {
+        let wfactor = options_conv[OPTIONS::FST_WFACTOR as usize]
+            .value
+            .parse::<f64>()
+            .unwrap();
+        applicator.set_fst_wfactor(wfactor);
+    }
 
     // fmt_output selection. NOTE the reproduced OUT_MATXIN bug: no arm for it.
     applicator.base_mut().fmt_output = cg3_sformat::CG3SF_CG;

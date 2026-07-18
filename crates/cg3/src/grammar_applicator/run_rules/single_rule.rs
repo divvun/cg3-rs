@@ -97,14 +97,15 @@ impl crate::grammar_applicator::GrammarApplicator {
         for &tid in trie_special.keys() {
             let t = self.grammar.single_tags_list.get(tid.0);
             let crp = t.context_ref_pos();
-            if t.r#type.intersects(crate::tag::T_CONTEXT) && (crp as usize) <= ctx_len
+            if t.r#type.intersects(crate::tag::T_CONTEXT)
+                && (crp as usize) <= ctx_len
                 && let Some(Some(c)) = self
                     .context_stack
                     .last()
                     .map(|f| f.context.get((crp - 1) as usize).copied().flatten())
-                {
-                    ctx_cohorts.push(c);
-                }
+            {
+                ctx_cohorts.push(c);
+            }
         }
         let apply = self.get_apply_to().cohort;
         let sw = self.store.single_windows.get_mut(current.0);
@@ -479,40 +480,41 @@ impl crate::grammar_applicator::GrammarApplicator {
                 did_test = false;
                 if !set_type.intersects(ST_SPECIAL | ST_MAPPING | ST_CHILD_UNIFY)
                     && !self.readings_plain.is_empty()
-                    && let Some(&cached) = self.readings_plain.get(&r_hash_plain) {
-                        let (mt, mtst) = {
-                            let cr = self.store.readings.get(cached.0);
-                            (cr.matched_target, cr.matched_tests)
-                        };
-                        {
-                            let r = self.store.readings.get_mut(reading.0);
-                            r.matched_target = mt;
-                            r.matched_tests = mtst;
-                        }
-                        if mtst {
-                            num_active += 1;
-                        }
-                        let cnum = self.store.readings.get(cached.0).number;
-                        if let Some(&rgc) = self.regexgrps_c.get(&cnum) {
-                            self.regexgrps_c.insert(r_number, rgc);
-                            let z = *self.regexgrps_z.get(&cnum).unwrap();
-                            self.regexgrps_z.insert(r_number, z);
-                            let f = self.context_stack.last_mut().unwrap();
-                            f.regexgrp_ct = z;
-                            f.regexgrps = Some(rgc);
-                        }
-                        let ut = self.unif_tags_rs.get(&r_hash_plain).copied();
-                        let us = self.unif_sets_rs.get(&r_hash_plain).copied();
-                        {
-                            let f = self.context_stack.last_mut().unwrap();
-                            f.unif_tags = ut;
-                            f.unif_sets = us;
-                        }
-                        test_good = mtst;
-                        reading_contexts.push(self.context_stack.last().unwrap().clone());
-                        i += 1;
-                        continue;
+                    && let Some(&cached) = self.readings_plain.get(&r_hash_plain)
+                {
+                    let (mt, mtst) = {
+                        let cr = self.store.readings.get(cached.0);
+                        (cr.matched_target, cr.matched_tests)
+                    };
+                    {
+                        let r = self.store.readings.get_mut(reading.0);
+                        r.matched_target = mt;
+                        r.matched_tests = mtst;
                     }
+                    if mtst {
+                        num_active += 1;
+                    }
+                    let cnum = self.store.readings.get(cached.0).number;
+                    if let Some(&rgc) = self.regexgrps_c.get(&cnum) {
+                        self.regexgrps_c.insert(r_number, rgc);
+                        let z = *self.regexgrps_z.get(&cnum).unwrap();
+                        self.regexgrps_z.insert(r_number, z);
+                        let f = self.context_stack.last_mut().unwrap();
+                        f.regexgrp_ct = z;
+                        f.regexgrps = Some(rgc);
+                    }
+                    let ut = self.unif_tags_rs.get(&r_hash_plain).copied();
+                    let us = self.unif_sets_rs.get(&r_hash_plain).copied();
+                    {
+                        let f = self.context_stack.last_mut().unwrap();
+                        f.unif_tags = ut;
+                        f.unif_sets = us;
+                    }
+                    test_good = mtst;
+                    reading_contexts.push(self.context_stack.last().unwrap().clone());
+                    i += 1;
+                    continue;
+                }
 
                 // Fresh per-reading regex/unif state (store INDICES, wave 4).
                 {
@@ -676,13 +678,14 @@ impl crate::grammar_applicator::GrammarApplicator {
                                 while j < i {
                                     let rj = self.store.cohorts.get(cohort.0).readings[j];
                                     if let Some(sr) = self.get_sub_reading(rj, rsub_reading)
-                                        && self.store.readings.get(sr.0).immutable {
-                                            let r = self.store.readings.get_mut(sr.0);
-                                            r.matched_target = true;
-                                            r.matched_tests = true;
-                                            num_active += 1;
-                                            num_iff += 1;
-                                        }
+                                        && self.store.readings.get(sr.0).immutable
+                                    {
+                                        let r = self.store.readings.get_mut(sr.0);
+                                        r.matched_target = true;
+                                        r.matched_tests = true;
+                                        num_active += 1;
+                                        num_iff += 1;
+                                    }
                                     j += 1;
                                 }
                             }
@@ -880,7 +883,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         }
         crate::cohort::detach(&mut self.store, cohort);
         let gn = self.store.cohorts.get(cohort.0).global_number;
-        self.gWindow.cohort_map.remove(&gn);
+        self.window.cohort_map.remove(&gn);
         let ln = self.store.cohorts.get(cohort.0).local_number as usize;
         self.store
             .single_windows
@@ -940,8 +943,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             let dp = self.store.cohorts.get(cohort.0).dep_parent;
             let parent_key = dp.unwrap_or(GlobalNumber(0));
             let (pc, cc) = (
-                self.gWindow.cohort_map.get(&parent_key).copied(),
-                self.gWindow.cohort_map.get(&GlobalNumber(ch)).copied(),
+                self.window.cohort_map.get(&parent_key).copied(),
+                self.window.cohort_map.get(&GlobalNumber(ch)).copied(),
             );
             if let (Some(pc), Some(cc)) = (pc, cc) {
                 self.attach_parent_child(pc, cc, true, true);
@@ -956,9 +959,9 @@ impl crate::grammar_applicator::GrammarApplicator {
             .get(cohort.0)
             .dep_self
             .map_or(0, |g| g.get());
-        let keys: Vec<GlobalNumber> = self.gWindow.cohort_map.keys().copied().collect();
+        let keys: Vec<GlobalNumber> = self.window.cohort_map.keys().copied().collect();
         for k in keys {
-            let cid = *self.gWindow.cohort_map.get(&k).unwrap();
+            let cid = *self.window.cohort_map.get(&k).unwrap();
             self.store
                 .cohorts
                 .get_mut(cid.0)
@@ -966,7 +969,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 .erase(dep_self);
         }
         let gn = self.store.cohorts.get(cohort.0).global_number;
-        self.gWindow.cohort_map.remove(&gn);
+        self.window.cohort_map.remove(&gn);
         let ln = self.store.cohorts.get(cohort.0).local_number as usize;
         self.store
             .single_windows
@@ -977,7 +980,7 @@ impl crate::grammar_applicator::GrammarApplicator {
 
         // Window emptied (only >>> left) and not the active window → drop it.
         if self.store.single_windows.get(current.0).cohorts.len() == 1
-            && Some(current) != self.gWindow.current
+            && Some(current) != self.window.current
         {
             let empty_cohort = self.store.single_windows.get(current.0).cohorts[0];
             self.rr_erase_from_all_cohortsets(current, empty_cohort);
@@ -988,15 +991,15 @@ impl crate::grammar_applicator::GrammarApplicator {
                 .get(empty_cohort.0)
                 .dep_self
                 .map_or(0, |g| g.get());
-            let keys: Vec<GlobalNumber> = self.gWindow.cohort_map.keys().copied().collect();
+            let keys: Vec<GlobalNumber> = self.window.cohort_map.keys().copied().collect();
             for k in keys {
-                let cid = *self.gWindow.cohort_map.get(&k).unwrap();
+                let cid = *self.window.cohort_map.get(&k).unwrap();
                 self.store.cohorts.get_mut(cid.0).dep_children.erase(ds);
             }
             let egn = self.store.cohorts.get(empty_cohort.0).global_number;
-            self.gWindow.cohort_map.remove(&egn);
+            self.window.cohort_map.remove(&egn);
             let opt = Some(empty_cohort);
-            crate::cohort::free_cohort(&mut self.store, Some(&mut self.gWindow), opt);
+            crate::cohort::free_cohort(&mut self.store, Some(&mut self.window), opt);
             // if (current.previous) { previous->text += current.text + text_post;
             //   previous->all_cohorts += current.all_cohorts[1..]; }
             // else if (current.next) { next->text = text_post + next->text;
@@ -1054,20 +1057,20 @@ impl crate::grammar_applicator::GrammarApplicator {
                 .all_cohorts
                 .clear();
             // Remove `current` from gWindow.previous / next.
-            if let Some(pos) = self.gWindow.previous.iter().position(|&s| s == current) {
+            if let Some(pos) = self.window.previous.iter().position(|&s| s == current) {
                 let opt = Some(current);
-                crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, opt);
-                self.gWindow.previous.remove(pos);
+                crate::single_window::free_swindow(&mut self.window, &mut self.store, opt);
+                self.window.previous.remove(pos);
             }
-            if let Some(pos) = self.gWindow.next.iter().position(|&s| s == current) {
+            if let Some(pos) = self.window.next.iter().position(|&s| s == current) {
                 let opt = Some(current);
-                crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, opt);
-                self.gWindow.next.remove(pos);
+                crate::single_window::free_swindow(&mut self.window, &mut self.store, opt);
+                self.window.next.remove(pos);
             }
-            let gw = &mut self.gWindow;
+            let gw = &mut self.window;
             gw.rebuild_single_window_links(&mut self.store);
         }
-        let gw = &mut self.gWindow;
+        let gw = &mut self.window;
         gw.rebuild_cohort_links(&mut self.store);
     }
 

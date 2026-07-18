@@ -3,17 +3,17 @@
 //! the pending `next`) plus its `SingleWindowCont` container typedef.
 //!
 //! Arena model: every `SingleWindow*` becomes a [`SwId`] and every `Cohort*`
-//! becomes a [`CohortId`]. The one back-reference that has no arena id — the
-//! owning `GrammarApplicator*` (the engine/store, wired in a later pass) — is
-//! kept as a raw `Option<u32>` handle placeholder; see `Window::parent`.
+//! becomes a [`CohortId`]. The C++ `GrammarApplicator* parent` back-reference is
+//! not ported: the engine owns the window (`GrammarApplicator::window`) and
+//! threads the store into the methods that need it.
 
 use std::collections::BTreeMap;
 
 use crate::arena::{CohortId, SwId};
 use crate::flat_unordered_map::Uint32FlatHashMap;
-use crate::types::GlobalNumber;
 use crate::single_window::{alloc_swindow, free_swindow};
 use crate::store::RuntimeStore;
+use crate::types::GlobalNumber;
 
 // [spec:cg3:def:window.cg3.single-window-cont]
 /// C++ `typedef std::vector<SingleWindow*> SingleWindowCont`. Each
@@ -25,11 +25,8 @@ pub type SingleWindowCont = Vec<SwId>;
 /// document plus the cohort/dependency/relation bookkeeping maps.
 #[derive(Default)]
 pub struct Window {
-    /// C++ `GrammarApplicator* parent` — back-reference to the owning engine.
-    /// The `GrammarApplicator`/runtime store is not an arena type and has no id
-    /// yet (wired in a later engine pass), so it is represented as a raw handle
-    /// placeholder here.
-    pub parent: Option<u32>,
+    // C++ `GrammarApplicator* parent` is not ported (dead back-pointer: the
+    // engine owns the window and passes itself/the store where needed).
     pub cohort_counter: GlobalNumber,
     pub window_counter: u32,
     pub window_span: u32,
@@ -66,18 +63,19 @@ pub struct Window {
 //   `next.insert(next.begin(), …)` → `next.insert(0, …)`;
 //   `next.erase(next.begin())` → `next.remove(0)`.
 // * `parent->variables` (in `shuffleWindowsDown`) is a `GrammarApplicator`
-//   member — a placeholder, not threaded (see task brief).
+//   member — the variable snapshot is not threaded (see task brief).
 
 impl Window {
-    /// C++ `Window::Window(GrammarApplicator* p) : parent(p)`. The
-    /// `GrammarApplicator` is not an arena type (no id); `parent` is the raw
-    /// handle placeholder. Unannotated in the C++ (only the destructor carries
-    /// the `window-fn` markers).
-    pub fn new(parent: Option<u32>) -> Self {
-        Window {
-            parent,
-            ..Window::default()
-        }
+    // C++ `Window::Window(GrammarApplicator* p) : parent(p)` — the back-pointer
+    // is not ported, so construction is just `Window::default()`.
+
+    /// C++ `gWindow->cohort_counter++` — the post-increment idiom every stream
+    /// applicator uses to number a fresh cohort: returns the current number and
+    /// advances the counter (unsigned wrap, as in C++).
+    pub fn next_cohort_number(&mut self) -> GlobalNumber {
+        let n = self.cohort_counter;
+        self.cohort_counter = self.cohort_counter.wrapping_add(1);
+        n
     }
 
     // [spec:cg3:def:window.cg3.window.window-fn]
@@ -89,13 +87,17 @@ impl Window {
     /// `current` is passed by reference and nulled. STORE + `&mut self` free
     /// fn — Rust `Drop` cannot take the store, so this is invoked explicitly.
     pub fn destroy(&mut self, store: &mut RuntimeStore) {
-        for iter in self.previous.clone() {
+        // Index loops: `free_swindow` needs `&mut self` (it prunes the maps) but
+        // never touches the `previous`/`next` lists themselves.
+        for i in 0..self.previous.len() {
+            let iter = self.previous[i];
             free_swindow(self, store, Some(iter));
         }
         let current = self.current;
         free_swindow(self, store, current);
         self.current = None; // C++ passes `current` by reference: nulled.
-        for iter in self.next.clone() {
+        for i in 0..self.next.len() {
+            let iter = self.next[i];
             free_swindow(self, store, Some(iter));
         }
     }
@@ -179,6 +181,12 @@ impl Window {
     /// placeholder — not threaded), clear `current->variables_rem`, push
     /// `current` onto `previous`, and null `current`; then pop the front of
     /// `next` into `current` if any.
+    ///
+    /// NOTE: engine code must go through
+    /// `GrammarApplicator::shuffle_windows_down` / `rotate_next`, which perform
+    /// the C++ `current->variables_set = parent->variables` snapshot first —
+    /// `Window` has no back-pointer to the applicator, so calling this raw
+    /// method directly skips that snapshot.
     pub fn shuffle_windows_down(&mut self, store: &mut RuntimeStore) {
         if let Some(current) = self.current {
             // current->variables_set = parent->variables; — GrammarApplicator

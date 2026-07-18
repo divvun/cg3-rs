@@ -5,9 +5,9 @@
 //!
 //! ## Composition, not inheritance
 //! C++ `class PlaintextApplicator : public virtual GrammarApplicator`. The Rust
-//! applicator OWNS a [`GrammarApplicator`] via `base` and forwards to it
+//! applicator owns or borrows a [`GrammarApplicator`] via `base` and forwards to it
 //! (`self.base.run_grammar_on_window`, `self.base.store`, `self.base.grammar`,
-//! `self.base.gWindow`). `printCohort`/`printSingleWindow`/`runGrammarOnText`
+//! `self.base.window`). `printCohort`/`printSingleWindow`/`runGrammarOnText`
 //! are reimplemented here.
 //!
 //! ## Reproduced quirk (DEAD-code / single-window)
@@ -31,6 +31,7 @@
 //!   `add_tag` is `add_tag(&str, type)`.
 
 use std::io::{Read, Seek, Write};
+use std::ops::DerefMut;
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::CT_REMOVED;
@@ -52,21 +53,37 @@ fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
 
 // [spec:cg3:def:plaintext-applicator.cg3.plaintext-applicator]
 /// C++ `class PlaintextApplicator : public virtual GrammarApplicator`.
-pub struct PlaintextApplicator {
+pub struct PlaintextApplicator<B = Box<GrammarApplicator>> {
     /// The composed engine base (C++ `public virtual GrammarApplicator`).
-    pub base: GrammarApplicator,
+    pub base: B,
     /// C++ `bool add_tags = false` — when set, magic readings get a `<cg-conv>`
     /// tag + case tags and are printed; by default readings are `noprint`.
     pub add_tags: bool,
 }
 
-impl PlaintextApplicator {
+impl PlaintextApplicator<Box<GrammarApplicator>> {
     // [spec:cg3:def:plaintext-applicator.cg3.plaintext-applicator.plaintext-applicator-fn]
     // [spec:cg3:sem:plaintext-applicator.cg3.plaintext-applicator.plaintext-applicator-fn]
     /// C++ `PlaintextApplicator::PlaintextApplicator(std::ostream& ux_err)` —
     /// forwards `ux_err` to the base and sets `allow_magic_readings = true`.
     /// `add_tags` keeps its `false` default.
-    pub fn new(mut base: GrammarApplicator) -> Self {
+    pub fn new(base: GrammarApplicator) -> Self {
+        Self::with_base(Box::new(base))
+    }
+}
+
+impl<'a> PlaintextApplicator<&'a mut GrammarApplicator> {
+    /// Borrow the shared virtual-base analogue used by [`FormatConverter`](crate::format_converter::FormatConverter).
+    pub fn borrowing(base: &'a mut GrammarApplicator) -> Self {
+        Self::with_base(base)
+    }
+}
+
+impl<B> PlaintextApplicator<B>
+where
+    B: DerefMut<Target = GrammarApplicator>,
+{
+    fn with_base(mut base: B) -> Self {
         base.allow_magic_readings = true;
         PlaintextApplicator {
             base,
@@ -94,12 +111,30 @@ impl PlaintextApplicator {
         R: Read + Seek,
         W: Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(input, output))
+        let mut fmt = PlaintextFormat;
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(&mut fmt, input, output))
+    }
+
+    /// Run the plaintext parser while routing output through a most-derived
+    /// stream format, matching C++ virtual dispatch in `FormatConverter`.
+    pub fn run_grammar_on_text_with<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
+    where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
+        R: Read + Seek,
+        W: Write,
+    {
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
     }
 
     #[allow(unused_assignments, unused_variables)]
-    fn run_grammar_on_text_impl<R, W>(&mut self, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
         R: Read + Seek,
         W: Write,
     {
@@ -123,7 +158,7 @@ impl PlaintextApplicator {
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.gWindow.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.num_windows;
 
         ux_strip_bom(input);
 
@@ -151,9 +186,10 @@ impl PlaintextApplicator {
             if !ignoreinput && !cleaned.is_empty() && !cleaned.starts_with('<') {
                 // cCohort empty-readings init (dead in practice: cCohort is null).
                 if let Some(cc) = c_cohort
-                    && self.base.store.cohorts.get(cc.0).readings.is_empty() {
-                        self.base.init_empty_cohort(cc);
-                    }
+                    && self.base.store.cohorts.get(cc.0).readings.is_empty()
+                {
+                    self.base.init_empty_cohort(cc);
+                }
 
                 // (a) Soft-limit lookback (the ONLY split path that can fire).
                 if let Some(sw) = c_swindow {
@@ -166,7 +202,8 @@ impl PlaintextApplicator {
                         did_soft_lookback = true;
                         let sd = self.base.grammar.sets_list
                             [self.base.grammar.soft_delimiters.unwrap().0]
-                            .number.get();
+                            .number
+                            .get();
                         let cohorts = self.base.store.single_windows.get(sw.0).cohorts.clone();
                         for &c in cohorts.iter().rev() {
                             if self.base.does_set_match_cohort_normal(c, sd, None) {
@@ -191,7 +228,8 @@ impl PlaintextApplicator {
                     let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
                         let sd = self.base.grammar.sets_list
                             [self.base.grammar.soft_delimiters.unwrap().0]
-                            .number.get();
+                            .number
+                            .get();
                         self.base.does_set_match_cohort_normal(cc, sd, None)
                     };
                     if over_soft && sd_hit {
@@ -201,12 +239,15 @@ impl PlaintextApplicator {
                             let tid = tag_by_hash(&self.base.grammar, te);
                             self.base.add_tag_to_reading(r, tid);
                         }
-                        crate::single_window::append_cohort(
-                            &mut self.base.gWindow,
-                            &mut self.base.store,
-                            sw,
-                            cc,
-                        );
+                        {
+                            let base = &mut *self.base;
+                            crate::single_window::append_cohort(
+                                &mut base.window,
+                                &mut base.store,
+                                sw,
+                                cc,
+                            );
+                        }
                         l_swindow = Some(sw);
                         l_cohort = Some(cc);
                         c_swindow = None;
@@ -225,7 +266,8 @@ impl PlaintextApplicator {
                         self.base.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
                             let d = self.base.grammar.sets_list
                                 [self.base.grammar.delimiters.unwrap().0]
-                                .number.get();
+                                .number
+                                .get();
                             self.base.does_set_match_cohort_normal(cc, d, None)
                         };
                     if over_hard || delim_hit {
@@ -235,12 +277,15 @@ impl PlaintextApplicator {
                             let tid = tag_by_hash(&self.base.grammar, te);
                             self.base.add_tag_to_reading(r, tid);
                         }
-                        crate::single_window::append_cohort(
-                            &mut self.base.gWindow,
-                            &mut self.base.store,
-                            sw,
-                            cc,
-                        );
+                        {
+                            let base = &mut *self.base;
+                            crate::single_window::append_cohort(
+                                &mut base.window,
+                                &mut base.store,
+                                sw,
+                                cc,
+                            );
+                        }
                         l_swindow = Some(sw);
                         l_cohort = Some(cc);
                         c_swindow = None;
@@ -252,10 +297,10 @@ impl PlaintextApplicator {
 
                 // New window (fires only once, on the first token line).
                 if c_swindow.is_none() {
-                    let sw = self
-                        .base
-                        .gWindow
-                        .alloc_append_single_window(&mut self.base.store);
+                    let sw = {
+                        let base = &mut *self.base;
+                        base.window.alloc_append_single_window(&mut base.store)
+                    };
                     self.base.init_empty_single_window(sw);
                     l_swindow = Some(sw);
                     // lCohort = cSWindow->cohorts[0] (the boundary cohort).
@@ -267,9 +312,9 @@ impl PlaintextApplicator {
                 }
 
                 // Drain a window if enough queued (dead: next never grows here).
-                if self.base.gWindow.next.len() > self.base.num_windows as usize {
-                    self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-                    self.base.run_grammar_on_window(output);
+                if self.base.window.next.len() > self.base.num_windows as usize {
+                    self.base.shuffle_windows_down();
+                    self.base.run_grammar_on_window_with(fmt, output);
                     if self.base.numWindows.is_multiple_of(reset_after) {
                         self.base.reset_indexes();
                     }
@@ -325,9 +370,7 @@ impl PlaintextApplicator {
 
                     let sw = c_swindow.unwrap();
                     let cc = crate::cohort::alloc_cohort(&mut self.base.store, Some(sw));
-                    let gn = self.base.gWindow.cohort_counter;
-                    self.base.gWindow.cohort_counter =
-                        self.base.gWindow.cohort_counter.wrapping_add(1);
+                    let gn = self.base.window.next_cohort_number();
                     let token_str: String = token.iter().collect();
                     let wf_text = format!("\"<{token_str}>\"");
                     let wf = self.base.add_tag(&wf_text, crate::tag::TagType::empty());
@@ -380,34 +423,36 @@ impl PlaintextApplicator {
                             self.base.add_tag_to_reading(cr, t);
                         }
                     }
-                    crate::single_window::append_cohort(
-                        &mut self.base.gWindow,
-                        &mut self.base.store,
-                        sw,
-                        cc,
-                    );
+                    {
+                        let base = &mut *self.base;
+                        crate::single_window::append_cohort(
+                            &mut base.window,
+                            &mut base.store,
+                            sw,
+                            cc,
+                        );
+                    }
                     c_cohort = None;
                 }
             } else {
                 is_text = true;
             }
 
-            if is_text
-                && !cleaned.is_empty() && !line.is_empty() {
-                    let text: String = line.clone();
-                    if let Some(lc) = l_cohort {
-                        self.base.store.cohorts.get_mut(lc.0).text.push_str(&text);
-                    } else if let Some(ls) = l_swindow {
-                        self.base
-                            .store
-                            .single_windows
-                            .get_mut(ls.0)
-                            .text
-                            .push_str(&text);
-                    } else {
-                        self.base.print_plain_text_line(&text, output);
-                    }
+            if is_text && !cleaned.is_empty() && !line.is_empty() {
+                let text: String = line.clone();
+                if let Some(lc) = l_cohort {
+                    self.base.store.cohorts.get_mut(lc.0).text.push_str(&text);
+                } else if let Some(ls) = l_swindow {
+                    self.base
+                        .store
+                        .single_windows
+                        .get_mut(ls.0)
+                        .text
+                        .push_str(&text);
+                } else {
+                    fmt.print_plain_text_line(&mut self.base, &text, output);
                 }
+            }
 
             self.base.numLines += 1;
             line.clear();
@@ -424,12 +469,10 @@ impl PlaintextApplicator {
 
         // Finalization (in practice cCohort is null → this is unreached).
         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
-            crate::single_window::append_cohort(
-                &mut self.base.gWindow,
-                &mut self.base.store,
-                sw,
-                cc,
-            );
+            {
+                let base = &mut *self.base;
+                crate::single_window::append_cohort(&mut base.window, &mut base.store, sw, cc);
+            }
             if self.base.store.cohorts.get(cc.0).readings.is_empty() {
                 self.base.init_empty_cohort(cc);
             }
@@ -447,18 +490,20 @@ impl PlaintextApplicator {
             }
         }
 
-        while !self.base.gWindow.next.is_empty() {
-            self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-            self.base.run_grammar_on_window(output);
+        while self.base.rotate_next().is_some() {
+            self.base.run_grammar_on_window_with(fmt, output);
         }
 
-        self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-        while !self.base.gWindow.previous.is_empty() {
-            let tmp = self.base.gWindow.previous[0];
-            self.print_single_window(tmp, output, false);
+        self.base.shuffle_windows_down();
+        while !self.base.window.previous.is_empty() {
+            let tmp = self.base.window.previous[0];
+            fmt.print_single_window(&mut self.base, tmp, output, false);
             let t = Some(tmp);
-            crate::single_window::free_swindow(&mut self.base.gWindow, &mut self.base.store, t);
-            self.base.gWindow.previous.remove(0);
+            {
+                let base = &mut *self.base;
+                crate::single_window::free_swindow(&mut base.window, &mut base.store, t);
+            }
+            self.base.window.previous.remove(0);
         }
 
         u_fflush(output);
@@ -506,6 +551,51 @@ impl PlaintextApplicator {
         }
         u_fputc('\n', output);
         u_fflush(output);
+    }
+}
+
+/// Plaintext's print-vtable strategy. The input-only `add_tags` option remains
+/// on the parser wrapper.
+#[derive(Default)]
+pub struct PlaintextFormat;
+
+impl crate::grammar_applicator::stream_format::StreamFormat for PlaintextFormat {
+    fn print_cohort<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        PlaintextApplicator::borrowing(app).print_cohort(cohort, output, profiling);
+    }
+
+    fn print_single_window<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        PlaintextApplicator::borrowing(app).print_single_window(window, output, profiling);
+    }
+
+    fn print_stream_command<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        cmd: &str,
+        output: &mut W,
+    ) {
+        app.print_stream_command(cmd, output);
+    }
+
+    fn print_plain_text_line<W: Write>(
+        &mut self,
+        app: &mut GrammarApplicator,
+        line: &str,
+        output: &mut W,
+    ) {
+        app.print_plain_text_line(line, output);
     }
 }
 

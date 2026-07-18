@@ -346,9 +346,10 @@ impl super::GrammarApplicator {
             };
             // uregex_setText + uregex_find(-1) == unanchored `is_match`.
             if let Some(re) = &tag.regexp
-                && re.is_match(&itag_text) {
-                    m = itag_hash;
-                }
+                && re.is_match(&itag_text)
+            {
+                m = itag_hash;
+            }
             if m != 0 {
                 let capture = gc > 0
                     && !self.context_stack.is_empty()
@@ -427,9 +428,10 @@ impl super::GrammarApplicator {
             m = tsh;
         } else {
             if let Some(re) = &tag.regexp
-                && re.is_match(&ts) {
-                    m = tsh;
-                }
+                && re.is_match(&ts)
+            {
+                m = tsh;
+            }
             if m != 0 {
                 let capture = gc > 0
                     && !self.context_stack.is_empty()
@@ -576,7 +578,12 @@ impl super::GrammarApplicator {
         } else if tag.r#type.intersects(T_REGEXP_ANY) {
             // (7) <.*>/".*" any-forms
             if tag.r#type.intersects(T_BASEFORM) {
-                let bf = self.store.readings.get(reading.0).baseform.unwrap_or(TagHash(0));
+                let bf = self
+                    .store
+                    .readings
+                    .get(reading.0)
+                    .baseform
+                    .unwrap_or(TagHash(0));
                 m = bf.get();
                 if unif_mode {
                     if self.unif_last_baseform != TagHash(0) {
@@ -658,7 +665,7 @@ impl super::GrammarApplicator {
             let cid = self.store.readings.get(reading.0).parent.unwrap();
             let sw_opt = self.store.cohorts.get(cid.0).parent;
             let use_global =
-                sw_opt == self.gWindow.current || (!tag.r#type.intersects(T_LOCAL_VARIABLE));
+                sw_opt == self.window.current || (!tag.r#type.intersects(T_LOCAL_VARIABLE));
             let var_entries: Vec<(u32, u32)> = if use_global {
                 collect_fum(&self.variables)
             } else {
@@ -870,7 +877,8 @@ impl super::GrammarApplicator {
                     }
                 } else if (tag.r#type.intersects(T_NUMERICAL)) && (itype.intersects(T_NUMERICAL)) {
                     let itag = self.grammar.single_tags_list[itag_id.0].clone();
-                    m = test_tag_numerical(&mut self.store, &self.grammar, reading, &tag, &itag).get();
+                    m = test_tag_numerical(&mut self.store, &self.grammar, reading, &tag, &itag)
+                        .get();
                 } else if tag.hash == ihash {
                     m = ihash.get();
                 }
@@ -896,7 +904,9 @@ impl super::GrammarApplicator {
         trie: &trie_t,
         unif_mode: bool,
     ) -> bool {
-        let mut entries: Vec<(TagId, u32)> = trie.keys().map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
+        let mut entries: Vec<(TagId, u32)> = trie
+            .keys()
+            .map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
             .collect();
         entries.sort_by_key(|e| e.1);
         for (tid, _h) in entries {
@@ -917,9 +927,10 @@ impl super::GrammarApplicator {
                     return true;
                 }
                 if let Some(child) = node.trie.as_deref()
-                    && self.does_set_match_reading_trie(reading, set_number, child, unif_mode) {
-                        return true;
-                    }
+                    && self.does_set_match_reading_trie(reading, set_number, child, unif_mode)
+                {
+                    return true;
+                }
             }
         }
         false
@@ -964,7 +975,9 @@ impl super::GrammarApplicator {
             .as_slice()
             .to_vec();
         if !trie.is_empty() && !plain.is_empty() {
-            let mut entries: Vec<(TagId, u32)> = trie.keys().map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
+            let mut entries: Vec<(TagId, u32)> = trie
+                .keys()
+                .map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
                 .collect();
             entries.sort_by_key(|e| e.1);
 
@@ -1345,9 +1358,10 @@ impl super::GrammarApplicator {
         // NOT negation, applied per-reading.
         if retval
             && let Some(ctx) = context.as_deref()
-                && ctx.options.intersects(POS_NOT) {
-                    retval = !retval;
-                }
+            && ctx.options.intersects(POS_NOT)
+        {
+            retval = !retval;
+        }
 
         // Linked test + attach-to.
         if retval {
@@ -1459,13 +1473,14 @@ impl super::GrammarApplicator {
             for reading_head in list {
                 let mut reading = reading_head;
                 if let Some(ctx) = context.as_deref()
-                    && let Some(test) = ctx.test {
-                        let offs = self.grammar.contexts_arena[test.0].offset_sub;
-                        match self.get_sub_reading(reading, offs) {
-                            Some(r) => reading = r,
-                            None => continue,
-                        }
+                    && let Some(test) = ctx.test
+                {
+                    let offs = self.grammar.contexts_arena[test.0].offset_sub;
+                    match self.get_sub_reading(reading, offs) {
+                        Some(r) => reading = r,
+                        None => continue,
                     }
+                }
                 let active = self.store.readings.get(reading.0).active;
                 if let Some(ctx) = context.as_deref() {
                     if !active && ctx.options.intersects(POS_ACTIVE) {
@@ -1514,22 +1529,24 @@ impl super::GrammarApplicator {
 
         // possible_sets pruning.
         if let Some(ctx) = context.as_deref()
-            && !ctx.matched_target && !ctx.options.intersects(POS_ACTIVE | POS_INACTIVE) {
-                let in_sets_any = match &self.grammar.sets_any {
-                    Some(sa) => (set as usize) < sa.len() && sa[set as usize],
-                    None => false,
-                };
-                if !in_sets_any {
-                    let was_sub = ctx
-                        .test
-                        .map(|t| self.grammar.contexts_arena[t.0].offset_sub != 0)
-                        .unwrap_or(false);
-                    let ps_len = self.store.cohorts.get(cohort.0).possible_sets.len();
-                    if !was_sub && (set as usize) < ps_len {
-                        self.store.cohorts.get_mut(cohort.0).possible_sets[set as usize] = false;
-                    }
+            && !ctx.matched_target
+            && !ctx.options.intersects(POS_ACTIVE | POS_INACTIVE)
+        {
+            let in_sets_any = match &self.grammar.sets_any {
+                Some(sa) => (set as usize) < sa.len() && sa[set as usize],
+                None => false,
+            };
+            if !in_sets_any {
+                let was_sub = ctx
+                    .test
+                    .map(|t| self.grammar.contexts_arena[t.0].offset_sub != 0)
+                    .unwrap_or(false);
+                let ps_len = self.store.cohorts.get(cohort.0).possible_sets.len();
+                if !was_sub && (set as usize) < ps_len {
+                    self.store.cohorts.get_mut(cohort.0).possible_sets[set as usize] = false;
                 }
             }
+        }
 
         retval
     }
@@ -1567,13 +1584,14 @@ impl super::GrammarApplicator {
             for reading0 in list {
                 let mut reading = reading0;
                 if let Some(ctx) = context.as_deref()
-                    && let Some(test) = ctx.test {
-                        let offs = self.grammar.contexts_arena[test.0].offset_sub;
-                        match self.get_sub_reading(reading, offs) {
-                            Some(r) => reading = r,
-                            None => continue,
-                        }
+                    && let Some(test) = ctx.test
+                {
+                    let offs = self.grammar.contexts_arena[test.0].offset_sub;
+                    match self.get_sub_reading(reading, offs) {
+                        Some(r) => reading = r,
+                        None => continue,
                     }
+                }
                 let active = self.store.readings.get(reading.0).active;
                 if let Some(ctx) = context.as_deref() {
                     if !active && ctx.options.intersects(POS_ACTIVE) {

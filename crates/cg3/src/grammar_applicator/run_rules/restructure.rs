@@ -285,8 +285,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let current = st.current;
         let ccohort = crate::cohort::alloc_cohort(&mut self.store, Some(current));
         {
-            let gn = self.gWindow.cohort_counter;
-            self.gWindow.cohort_counter = self.gWindow.cohort_counter.wrapping_add(1);
+            let gn = self.window.next_cohort_number();
             self.store.cohorts.get_mut(ccohort.0).global_number = gn;
         }
         let the_tags = self.rr_maplist_tags(rule);
@@ -392,8 +391,12 @@ impl crate::grammar_applicator::GrammarApplicator {
                 } else {
                     hash = self.add_tag_to_reading(creading, tter);
                 }
-                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, hash.get(), creading)
-                {
+                if self.update_valid_rules(
+                    &st.rules.clone(),
+                    &mut st.intersects,
+                    hash.get(),
+                    creading,
+                ) {
                     st.iter_val = rnumber;
                 }
             }
@@ -404,8 +407,8 @@ impl crate::grammar_applicator::GrammarApplicator {
         }
 
         let cgn = self.store.cohorts.get(ccohort.0).global_number;
-        self.gWindow.cohort_map.insert(cgn, ccohort);
-        self.gWindow.dep_window.insert(cgn, ccohort);
+        self.window.cohort_map.insert(cgn, ccohort);
+        self.window.dep_window.insert(cgn, ccohort);
 
         let rtype = self.grammar.rule_by_number.get(rule.0).r#type;
         if self.grammar.addcohort_attach
@@ -455,7 +458,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             self.rr_insert_into_all_cohorts_after(current, cohorts.back(), ccohort);
         }
         self.rr_renumber(current);
-        let gw = &mut self.gWindow;
+        let gw = &mut self.window;
         gw.rebuild_cohort_links(&mut self.store);
         (ccohort, spaces_in_added_wf)
     }
@@ -472,7 +475,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     ) {
         let target = self.context_stack.last().unwrap().target.cohort.unwrap();
         let dp = self.store.cohorts.get(target.0).dep_parent;
-        let has_parent = dp.is_some() && self.gWindow.cohort_map.contains_key(&dp.unwrap());
+        let has_parent = dp.is_some() && self.window.cohort_map.contains_key(&dp.unwrap());
         if !has_parent {
             if self.has_dep {
                 let in_withs = withs.map(|w| w.contains(insertion)).unwrap_or(false);
@@ -488,9 +491,10 @@ impl crate::grammar_applicator::GrammarApplicator {
                             break;
                         }
                         if let Some(n) = next
-                            && self.store.cohorts.get(n.0).parent != ins_parent {
-                                next = None;
-                            }
+                            && self.store.cohorts.get(n.0).parent != ins_parent
+                        {
+                            next = None;
+                        }
                         if let Some(n) = next {
                             if !withs.map(|w| w.contains(n)).unwrap_or(false) {
                                 self.attach_parent_child(n, ccohort, false, false);
@@ -499,9 +503,10 @@ impl crate::grammar_applicator::GrammarApplicator {
                             next = self.store.cohorts.get(n.0).next;
                         }
                         if let Some(p) = prev
-                            && self.store.cohorts.get(p.0).parent != ins_parent {
-                                prev = None;
-                            }
+                            && self.store.cohorts.get(p.0).parent != ins_parent
+                        {
+                            prev = None;
+                        }
                         if let Some(p) = prev {
                             if !withs.map(|w| w.contains(p)).unwrap_or(false) {
                                 self.attach_parent_child(p, ccohort, false, false);
@@ -513,7 +518,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 }
             }
         } else {
-            let parent = *self.gWindow.cohort_map.get(&dp.unwrap()).unwrap();
+            let parent = *self.window.cohort_map.get(&dp.unwrap()).unwrap();
             self.attach_parent_child(parent, ccohort, false, false);
         }
 
@@ -638,7 +643,12 @@ impl crate::grammar_applicator::GrammarApplicator {
             let brs = self.store.cohorts.get(ccohort.0).readings.clone();
             for r in brs {
                 self.add_tag_to_reading(r, endtag_id);
-                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, self.endtag.get(), r) {
+                if self.update_valid_rules(
+                    &st.rules.clone(),
+                    &mut st.intersects,
+                    self.endtag.get(),
+                    r,
+                ) {
                     st.iter_val = rnumber;
                 }
             }
@@ -746,7 +756,12 @@ impl crate::grammar_applicator::GrammarApplicator {
             let brs = self.store.cohorts.get(back.0).readings.clone();
             for r in brs {
                 self.add_tag_to_reading(r, endtag_id);
-                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, self.endtag.get(), r) {
+                if self.update_valid_rules(
+                    &st.rules.clone(),
+                    &mut st.intersects,
+                    self.endtag.get(),
+                    r,
+                ) {
                     st.iter_val = rnumber;
                 }
             }
@@ -832,8 +847,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let attach_parent = self.store.cohorts.get(attach.0).parent.unwrap();
         let ccohort = crate::cohort::alloc_cohort(&mut self.store, Some(attach_parent));
         {
-            let gn = self.gWindow.cohort_counter;
-            self.gWindow.cohort_counter = self.gWindow.cohort_counter.wrapping_add(1);
+            let gn = self.window.next_cohort_number();
             let wf = self.store.cohorts.get(cohort.0).wordform;
             let cc = self.store.cohorts.get_mut(ccohort.0);
             cc.global_number = gn;
@@ -960,15 +974,20 @@ impl crate::grammar_applicator::GrammarApplicator {
             for hash0 in wtags {
                 let tter = self.tag_by_hash(TagHash(hash0));
                 let hash = self.add_tag_to_reading(cwread, tter);
-                if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, hash.get(), cwread) {
+                if self.update_valid_rules(
+                    &st.rules.clone(),
+                    &mut st.intersects,
+                    hash.get(),
+                    cwread,
+                ) {
                     st.iter_val = rnumber;
                 }
             }
         }
 
         let cgn = self.store.cohorts.get(ccohort.0).global_number;
-        self.gWindow.cohort_map.insert(cgn, ccohort);
-        self.gWindow.dep_window.insert(cgn, ccohort);
+        self.window.cohort_map.insert(cgn, ccohort);
+        self.window.dep_window.insert(cgn, ccohort);
 
         let mut edges = CohortSet::new();
         self.rr_collect_subtree(attach_parent, &mut edges, attach, childset);
@@ -1025,8 +1044,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let ttype = self.grammar.single_tags_list.get(tter.0).r#type;
             if ttype.intersects(T_WORDFORM) {
                 let cid = crate::cohort::alloc_cohort(&mut self.store, Some(current));
-                let gn = self.gWindow.cohort_counter;
-                self.gWindow.cohort_counter = self.gWindow.cohort_counter.wrapping_add(1);
+                let gn = self.window.next_cohort_number();
                 self.store.cohorts.get_mut(cid.0).global_number = gn;
                 self.store.cohorts.get_mut(cid.0).wordform = Some(tter);
                 cohort_ids.push(cid);
@@ -1206,8 +1224,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             }
 
             let cgn = self.store.cohorts.get(ccohort.0).global_number;
-            self.gWindow.dep_window.insert(cgn, ccohort);
-            self.gWindow.cohort_map.insert(cgn, ccohort);
+            self.window.dep_window.insert(cgn, ccohort);
+            self.window.cohort_map.insert(cgn, ccohort);
 
             let apply_ln = self.store.cohorts.get(apply.0).local_number as usize;
             self.store
@@ -1247,7 +1265,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         }
                         dc.back()
                     };
-                    if let Some(&target) = self.gWindow.cohort_map.get(&GlobalNumber(ch)) {
+                    if let Some(&target) = self.window.cohort_map.get(&GlobalNumber(ch)) {
                         self.attach_parent_child(ccohort, target, true, true);
                     }
                     self.store.cohorts.get_mut(apply.0).dep_children.erase(ch);
@@ -1256,12 +1274,12 @@ impl crate::grammar_applicator::GrammarApplicator {
 
             if cohort_dep[idx].1 == DEP_NO_PARENT {
                 let dp = self.store.cohorts.get(apply.0).dep_parent;
-                if let Some(&parent) = dp.and_then(|v| self.gWindow.cohort_map.get(&v)) {
+                if let Some(&parent) = dp.and_then(|v| self.window.cohort_map.get(&v)) {
                     self.attach_parent_child(parent, ccohort, true, true);
                 }
             } else {
                 let key = front_gn.wrapping_add(cohort_dep[idx].1).wrapping_sub(1);
-                if let Some(&parent) = self.gWindow.cohort_map.get(&GlobalNumber(key)) {
+                if let Some(&parent) = self.window.cohort_map.get(&GlobalNumber(key)) {
                     self.attach_parent_child(parent, ccohort, true, true);
                 }
             }
@@ -1333,9 +1351,9 @@ impl crate::grammar_applicator::GrammarApplicator {
             .get(apply.0)
             .dep_self
             .map_or(0, |g| g.get());
-        let keys: Vec<GlobalNumber> = self.gWindow.cohort_map.keys().copied().collect();
+        let keys: Vec<GlobalNumber> = self.window.cohort_map.keys().copied().collect();
         for k in keys {
-            let cid = *self.gWindow.cohort_map.get(&k).unwrap();
+            let cid = *self.window.cohort_map.get(&k).unwrap();
             self.store
                 .cohorts
                 .get_mut(cid.0)
@@ -1343,7 +1361,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 .erase(apply_self);
         }
         let apply_gn = self.store.cohorts.get(apply.0).global_number;
-        self.gWindow.cohort_map.remove(&apply_gn);
+        self.window.cohort_map.remove(&apply_gn);
         let apply_ln = self.store.cohorts.get(apply.0).local_number as usize;
         self.store
             .single_windows
@@ -1389,11 +1407,11 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// `swss[3]` triple iterated by the SPLITCOHORT relation rewrite.
     fn rr_all_single_windows(&self) -> Vec<SwId> {
         let mut out: Vec<SwId> = Vec::new();
-        out.extend(self.gWindow.previous.iter().copied());
-        if let Some(cur) = self.gWindow.current {
+        out.extend(self.window.previous.iter().copied());
+        if let Some(cur) = self.window.current {
             out.push(cur);
         }
-        out.extend(self.gWindow.next.iter().copied());
+        out.extend(self.window.next.iter().copied());
         out
     }
 }

@@ -114,8 +114,7 @@ impl super::GrammarApplicator {
     pub fn init_empty_single_window(&mut self, c_swindow: crate::arena::SwId) {
         let c_cohort = crate::cohort::alloc_cohort(&mut self.store, Some(c_swindow));
         // cCohort->global_number = gWindow->cohort_counter++;
-        let gn = self.gWindow.cohort_counter;
-        self.gWindow.cohort_counter = self.gWindow.cohort_counter.wrapping_add(1);
+        let gn = self.window.next_cohort_number();
         {
             let c = self.store.cohorts.get_mut(c_cohort.0);
             c.global_number = gn;
@@ -136,12 +135,7 @@ impl super::GrammarApplicator {
         // cCohort->appendReading(cReading);
         crate::cohort::append_reading(&mut self.store, c_cohort, c_reading);
         // cSWindow->appendCohort(cCohort);
-        crate::single_window::append_cohort(
-            &mut self.gWindow,
-            &mut self.store,
-            c_swindow,
-            c_cohort,
-        );
+        crate::single_window::append_cohort(&mut self.window, &mut self.store, c_swindow, c_cohort);
         // C++ SingleWindow::appendCohort: if (cohort->dep_self)
         // parent->parent->dep_highest_seen = cohort->dep_self;
         {
@@ -406,7 +400,7 @@ impl super::GrammarApplicator {
                 }
             }
 
-            let nsw = self.gWindow.alloc_append_single_window(&mut self.store);
+            let nsw = self.window.alloc_append_single_window(&mut self.store);
             self.init_empty_single_window(nsw);
             *c_swindow = Some(nsw);
 
@@ -506,7 +500,7 @@ impl super::GrammarApplicator {
     /// (MweSplitApplicator, FormatConverter, ...).
     ///
     /// Wave 4: the deep engine fatals (mid-stream input errors — external-process
-    /// start/write, mapping-tag conflicts, unported-format arms) still raise a
+    /// start/write, mapping-tag conflicts, invalid-format arms) still raise a
     /// `Cg3Exit` unwind from the hot run loop (79-caller `add_tag_to_reading`,
     /// the externals dispatch, ...). This boundary captures them via
     /// [`crate::error::catch_fatal`] and returns `Err(Cg3Error)` carrying the
@@ -557,7 +551,7 @@ impl super::GrammarApplicator {
         let mut l_cohort: Option<crate::arena::CohortId> = None;
         let mut l_reading: Option<crate::arena::ReadingId> = None;
 
-        self.gWindow.window_span = self.num_windows;
+        self.window.window_span = self.num_windows;
 
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::new();
         let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::new();
@@ -570,7 +564,7 @@ impl super::GrammarApplicator {
 
         // binary_maybe_window() [inlined; the C++ lambda captures cSWindow/lSWindow]
         if self.fmt_output == super::cg3_sformat::CG3SF_BINARY {
-            let sw = self.gWindow.alloc_append_single_window(&mut self.store);
+            let sw = self.window.alloc_append_single_window(&mut self.store);
             self.init_empty_single_window(sw);
             c_swindow = Some(sw);
             l_swindow = Some(sw);
@@ -580,7 +574,8 @@ impl super::GrammarApplicator {
         // no more progress (the `packoff == 0` check at the bottom).
         'mainloop: loop {
             lines += 1;
-            let mut packoff = crate::uextras::get_line_clean_chars(&mut line, &mut cleaned, input, false);
+            let mut packoff =
+                crate::uextras::get_line_clean_chars(&mut line, &mut cleaned, input, false);
 
             // C++ `while (!input.eof())`: eofbit is set when a read attempt hits
             // end-of-stream. `u_fgets` distinguishes a blank line (packoff == 0
@@ -620,9 +615,10 @@ impl super::GrammarApplicator {
 
                     // If a pending cCohort has no readings, init it empty.
                     if let Some(cc) = c_cohort
-                        && self.store.cohorts.get(cc.0).readings.is_empty() {
-                            self.init_empty_cohort(cc);
-                        }
+                        && self.store.cohorts.get(cc.0).readings.is_empty()
+                    {
+                        self.init_empty_cohort(cc);
+                    }
 
                     // (a) Soft-limit lookback.
                     if let Some(sw) = c_swindow {
@@ -673,7 +669,7 @@ impl super::GrammarApplicator {
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             crate::single_window::append_cohort(
-                                &mut self.gWindow,
+                                &mut self.window,
                                 &mut self.store,
                                 sw,
                                 cc,
@@ -715,7 +711,7 @@ impl super::GrammarApplicator {
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             crate::single_window::append_cohort(
-                                &mut self.gWindow,
+                                &mut self.window,
                                 &mut self.store,
                                 sw,
                                 cc,
@@ -738,7 +734,7 @@ impl super::GrammarApplicator {
 
                     // No current window: allocate + init a fresh one.
                     if c_swindow.is_none() {
-                        let sw = self.gWindow.alloc_append_single_window(&mut self.store);
+                        let sw = self.window.alloc_append_single_window(&mut self.store);
                         self.init_empty_single_window(sw);
                         l_swindow = Some(sw);
                         c_swindow = Some(sw);
@@ -751,7 +747,7 @@ impl super::GrammarApplicator {
                     if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                         self.split_all_mappings(&mut all_mappings, cc, true);
                         crate::single_window::append_cohort(
-                            &mut self.gWindow,
+                            &mut self.window,
                             &mut self.store,
                             sw,
                             cc,
@@ -766,7 +762,7 @@ impl super::GrammarApplicator {
                     }
 
                     // Drain a window if enough have queued up.
-                    if self.gWindow.next.len() > (self.num_windows + 1) as usize {
+                    if self.window.next.len() > (self.num_windows + 1) as usize {
                         self.shuffle_windows_down();
 
                         self.run_grammar_on_window_with(fmt, output);
@@ -789,8 +785,7 @@ impl super::GrammarApplicator {
 
                     // Allocate the new cCohort.
                     let cc = crate::cohort::alloc_cohort(&mut self.store, Some(sw));
-                    let gn = self.gWindow.cohort_counter;
-                    self.gWindow.cohort_counter = self.gWindow.cohort_counter.wrapping_add(1);
+                    let gn = self.window.next_cohort_number();
                     // wordform = addTag(&cleaned[0]) (up to the NUL at space+1).
                     let wf_text: String = cleaned.iter().take_while(|&&c| c != '\0').collect();
                     let wf = self.add_tag(&wf_text, crate::tag::TagType::empty());
@@ -886,14 +881,14 @@ impl super::GrammarApplicator {
                     if cleaned_str == crate::strings::STR_CMD_FLUSH {
                         // "FLUSH encountered … Flushing…": deferred.
                         is_cmd = true;
-                        let back_swindow = self.gWindow.back();
+                        let back_swindow = self.window.back();
                         if let Some(bsw) = back_swindow {
                             self.store.single_windows.get_mut(bsw.0).flush_after = true;
                         }
                         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             crate::single_window::append_cohort(
-                                &mut self.gWindow,
+                                &mut self.window,
                                 &mut self.store,
                                 sw,
                                 cc,
@@ -920,24 +915,22 @@ impl super::GrammarApplicator {
                             c_swindow = None;
                             l_swindow = None;
                         }
-                        while !self.gWindow.next.is_empty() {
-                            self.shuffle_windows_down();
-
+                        while self.rotate_next().is_some() {
                             self.run_grammar_on_window_with(fmt, output);
                             if self.numWindows.is_multiple_of(reset_after) {
                                 self.reset_indexes();
                             }
                         }
                         self.shuffle_windows_down();
-                        while !self.gWindow.previous.is_empty() {
-                            let tmp = self.gWindow.previous[0];
+                        while !self.window.previous.is_empty() {
+                            let tmp = self.window.previous[0];
                             fmt.print_single_window(self, tmp, output, false);
                             crate::single_window::free_swindow(
-                                &mut self.gWindow,
+                                &mut self.window,
                                 &mut self.store,
                                 Some(tmp),
                             );
-                            self.gWindow.previous.remove(0);
+                            self.window.previous.remove(0);
                         }
                         if back_swindow.is_none() {
                             fmt.print_stream_command(self, crate::strings::STR_CMD_FLUSH, output);
@@ -1126,7 +1119,7 @@ impl super::GrammarApplicator {
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             let sw = c_swindow.unwrap();
                             crate::single_window::append_cohort(
-                                &mut self.gWindow,
+                                &mut self.window,
                                 &mut self.store,
                                 sw,
                                 cc,
@@ -1177,7 +1170,7 @@ impl super::GrammarApplicator {
         // Pending cCohort + cSWindow at EOF.
         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
             self.split_all_mappings(&mut all_mappings, cc, true);
-            crate::single_window::append_cohort(&mut self.gWindow, &mut self.store, sw, cc);
+            crate::single_window::append_cohort(&mut self.window, &mut self.store, sw, cc);
             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
             // parent->parent->dep_highest_seen = cohort->dep_self;
             {
@@ -1201,7 +1194,7 @@ impl super::GrammarApplicator {
         if self.fmt_output == super::cg3_sformat::CG3SF_BINARY && !variables_output.empty() {
             // binary_maybe_window() + adopt_variables() [inlined]
             if self.fmt_output == super::cg3_sformat::CG3SF_BINARY {
-                let sw = self.gWindow.alloc_append_single_window(&mut self.store);
+                let sw = self.window.alloc_append_single_window(&mut self.store);
                 self.init_empty_single_window(sw);
                 l_swindow = Some(sw);
                 c_swindow = Some(sw);
@@ -1217,19 +1210,17 @@ impl super::GrammarApplicator {
         }
 
         // Drain the remaining windows.
-        while !self.gWindow.next.is_empty() {
-            self.shuffle_windows_down();
-
+        while self.rotate_next().is_some() {
             self.run_grammar_on_window_with(fmt, output);
             // verbose progress: deferred.
         }
         self.shuffle_windows_down();
-        while !self.gWindow.previous.is_empty() {
-            let tmp = self.gWindow.previous[0];
+        while !self.window.previous.is_empty() {
+            let tmp = self.window.previous[0];
             fmt.print_single_window(self, tmp, output, false);
             let t = Some(tmp);
-            crate::single_window::free_swindow(&mut self.gWindow, &mut self.store, t);
-            self.gWindow.previous.remove(0);
+            crate::single_window::free_swindow(&mut self.window, &mut self.store, t);
+            self.window.previous.remove(0);
         }
 
         crate::uextras::u_fflush(output);
@@ -1246,7 +1237,8 @@ impl super::GrammarApplicator {
                 let val = found.get().1;
                 if val != self.grammar.tag_any {
                     let value = {
-                        let tid = super::core::tag_by_hash(&self.grammar, crate::types::TagHash(val));
+                        let tid =
+                            super::core::tag_by_hash(&self.grammar, crate::types::TagHash(val));
                         self.grammar.single_tags_list.get(tid.0).tag.clone()
                     };
                     cmd_buf.push_str(crate::strings::STR_CMD_SETVAR);
@@ -1283,11 +1275,13 @@ impl super::GrammarApplicator {
     /// C++ `Window::shuffleWindowsDown()` as invoked from `runGrammarOnText`.
     /// The C++ method does `current->variables_set = parent->variables;` through
     /// the Window's applicator back-pointer before retiring `current`; the Rust
-    /// `Window` has no such back-pointer (placeholder), so the driver performs
-    /// that snapshot here before delegating to `gWindow.shuffle_windows_down`
-    /// (which still clears `variables_rem` and shuffles the lists).
-    fn shuffle_windows_down(&mut self) {
-        if let Some(current) = self.gWindow.current {
+    /// `Window` has no such back-pointer, so the engine performs that snapshot
+    /// here before delegating to `window.shuffle_windows_down` (which still
+    /// clears `variables_rem` and shuffles the lists). The ONE shuffle entry
+    /// point for the engine and every stream applicator — never call the raw
+    /// `Window` method directly.
+    pub(crate) fn shuffle_windows_down(&mut self) {
+        if let Some(current) = self.window.current {
             let vars = live_map_pairs(&mut self.variables);
             let sww = self.store.single_windows.get_mut(current.0);
             sww.variables_set.clear(0);
@@ -1295,7 +1289,21 @@ impl super::GrammarApplicator {
                 sww.variables_set.insert((k, v));
             }
         }
-        self.gWindow.shuffle_windows_down(&mut self.store);
+        self.window.shuffle_windows_down(&mut self.store);
+    }
+
+    /// The C++ drain idiom `while (!gWindow->next.empty()) {
+    /// gWindow->shuffleWindowsDown(); … }` as one step: advance only if a
+    /// pending window exists (via [`shuffle_windows_down`], so the variable
+    /// snapshot is taken), returning the new `current` — `None` ends the drain.
+    ///
+    /// [`shuffle_windows_down`]: GrammarApplicator::shuffle_windows_down
+    pub(crate) fn rotate_next(&mut self) -> Option<crate::arena::SwId> {
+        if self.window.next.is_empty() {
+            return None;
+        }
+        self.shuffle_windows_down();
+        self.window.current
     }
 
     /// C++ `adopt_variables` lambda from `runGrammarOnText`: move the pending

@@ -5,7 +5,7 @@
 //! COMPOSITION-OVER-INHERITANCE. C++ `class MatxinApplicator : public virtual
 //! GrammarApplicator`. In Rust the base engine is held by value in `base`; all
 //! engine/core calls go through `self.base.<method>` / `self.base.store` /
-//! `self.base.grammar` / `self.base.gWindow`.
+//! `self.base.grammar` / `self.base.window`.
 //!
 //! ARENA MODEL. Pointers become arena ids resolved through `self.base.store`
 //! (`Cohort*`→`CohortId`, `Reading*`→`ReadingId`, `SingleWindow*`→`SwId`) and
@@ -576,9 +576,10 @@ impl MatxinApplicator {
             // Fallback root `r`.
             let mut r = self.nodes.len() as i32; // last word
             if let Some(d0) = self.deps.get(&0)
-                && !d0.is_empty() {
-                    r = d0[0];
-                }
+                && !d0.is_empty()
+            {
+                r = d0[0];
+            }
 
             self.nodes.insert(global_number.get() as i32, n);
 
@@ -589,7 +590,10 @@ impl MatxinApplicator {
                     .or_default()
                     .push(global_number.get() as i32);
             } else {
-                self.deps.entry(r).or_default().push(global_number.get() as i32);
+                self.deps
+                    .entry(r)
+                    .or_default()
+                    .push(global_number.get() as i32);
             }
 
             u_fflush(output);
@@ -761,7 +765,7 @@ impl MatxinApplicator {
         let mut c_reading: Option<ReadingId> = None;
         let mut l_swindow: Option<SwId> = None;
 
-        self.base.gWindow.window_span = self.base.num_windows;
+        self.base.window.window_span = self.base.num_windows;
 
         ux_strip_bom(input);
 
@@ -824,9 +828,10 @@ impl MatxinApplicator {
             // We are at the start of a cohort.
             // Magic reading for the previous cohort.
             if let Some(cc) = c_cohort
-                && self.base.store.cohorts.get(cc.0).readings.is_empty() {
-                    self.base.init_empty_cohort(cc);
-                }
+                && self.base.store.cohorts.get(cc.0).readings.is_empty()
+            {
+                self.base.init_empty_cohort(cc);
+            }
             // Soft-limit break.
             if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
                 let cohorts_size = self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
@@ -835,10 +840,11 @@ impl MatxinApplicator {
                 {
                     let sd = self.base.grammar.sets_list
                         [self.base.grammar.soft_delimiters.unwrap().0]
-                        .number.get();
+                        .number
+                        .get();
                     if self.base.does_set_match_cohort_normal(cc, sd, None) {
                         self.add_endtag_all(cc);
-                        append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+                        append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
                         l_swindow = Some(cs);
                         c_swindow = None;
                         c_cohort = None;
@@ -851,8 +857,9 @@ impl MatxinApplicator {
                 let cohorts_size = self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
                 let hard = cohorts_size >= self.base.hard_limit;
                 let delim_match = self.base.grammar.delimiters.is_some() && {
-                    let d =
-                        self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0].number.get();
+                    let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0]
+                        .number
+                        .get();
                     self.base.does_set_match_cohort_normal(cc, d, None)
                 };
                 if hard || delim_match {
@@ -868,7 +875,7 @@ impl MatxinApplicator {
                         );
                     }
                     self.add_endtag_all(cc);
-                    append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+                    append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
                     l_swindow = Some(cs);
                     c_swindow = None;
                     c_cohort = None;
@@ -879,13 +886,12 @@ impl MatxinApplicator {
             if c_swindow.is_none() {
                 let cs = self
                     .base
-                    .gWindow
+                    .window
                     .alloc_append_single_window(&mut self.base.store);
                 c_swindow = Some(cs);
                 // 0th BOS cohort.
                 let cc = alloc_cohort(&mut self.base.store, Some(cs));
-                let gn = self.base.gWindow.cohort_counter;
-                self.base.gWindow.cohort_counter = self.base.gWindow.cohort_counter.wrapping_add(1);
+                let gn = self.base.window.next_cohort_number();
                 self.base.store.cohorts.get_mut(cc.0).global_number = gn;
                 self.base.store.cohorts.get_mut(cc.0).wordform = self.base.tag_begin;
                 let cr = alloc_reading(&mut self.base.store, Some(cc));
@@ -897,7 +903,7 @@ impl MatxinApplicator {
                 let bt = tag_by_hash(&self.base.grammar, self.base.begintag);
                 self.base.add_tag_to_reading(cr, bt);
                 append_reading(&mut self.base.store, cc, cr);
-                append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+                append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
                 l_swindow = Some(cs);
                 self.base.store.single_windows.get_mut(cs.0).text = firstblank.clone();
                 firstblank.clear();
@@ -908,10 +914,10 @@ impl MatxinApplicator {
 
             // Append the PREVIOUS cohort.
             if let Some(cc) = c_cohort {
-                append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+                append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
             }
-            if self.base.gWindow.next.len() as u32 > self.base.num_windows {
-                self.base.gWindow.shuffle_windows_down(&mut self.base.store);
+            if self.base.window.next.len() as u32 > self.base.num_windows {
+                self.base.shuffle_windows_down();
                 self.base.run_grammar_on_window(output);
                 if reset_after != 0 && self.base.numWindows.is_multiple_of(reset_after) {
                     self.base.reset_indexes();
@@ -921,8 +927,7 @@ impl MatxinApplicator {
             // Allocate the new cohort.
             let cc = alloc_cohort(&mut self.base.store, Some(cs));
             c_cohort = Some(cc);
-            let gn = self.base.gWindow.cohort_counter;
-            self.base.gWindow.cohort_counter = self.base.gWindow.cohort_counter.wrapping_add(1);
+            let gn = self.base.window.next_cohort_number();
             self.base.store.cohorts.get_mut(cc.0).global_number = gn;
 
             // Read the wordform.
@@ -1048,7 +1053,7 @@ impl MatxinApplicator {
         }
 
         if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
-            append_cohort(&mut self.base.gWindow, &mut self.base.store, cs, cc);
+            append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
             if self.base.store.cohorts.get(cc.0).readings.is_empty() {
                 self.base.init_empty_cohort(cc);
             }
@@ -1061,17 +1066,16 @@ impl MatxinApplicator {
 
         // Run the grammar & print results.
         let _ = writeln!(output, "<corpus>");
-        while !self.base.gWindow.next.is_empty() {
-            self.base.gWindow.shuffle_windows_down(&mut self.base.store);
+        while self.base.rotate_next().is_some() {
             self.base.run_grammar_on_window(output);
         }
-        self.base.gWindow.shuffle_windows_down(&mut self.base.store);
-        while !self.base.gWindow.previous.is_empty() {
-            let tmp = self.base.gWindow.previous[0];
+        self.base.shuffle_windows_down();
+        while !self.base.window.previous.is_empty() {
+            let tmp = self.base.window.previous[0];
             self.print_single_window(tmp, output, false);
             let opt = Some(tmp);
-            crate::single_window::free_swindow(&mut self.base.gWindow, &mut self.base.store, opt);
-            self.base.gWindow.previous.remove(0);
+            crate::single_window::free_swindow(&mut self.base.window, &mut self.base.store, opt);
+            self.base.window.previous.remove(0);
         }
 
         if inchar != '\0' && inchar != '\u{FFFF}' {

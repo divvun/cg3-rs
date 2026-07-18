@@ -285,7 +285,7 @@ pub struct GrammarApplicator {
     pub parse_dep: bool,
     pub dep_highest_seen: GlobalNumber,
     /// C++ `std::unique_ptr<Window> gWindow` — the owned document window.
-    pub gWindow: crate::window::Window,
+    pub window: crate::window::Window,
     pub has_relations: bool,
 
     /// C++ `const Grammar* grammar` — the applicator OWNS the loaded grammar.
@@ -479,7 +479,7 @@ impl GrammarApplicator {
             has_dep: false,
             parse_dep: false,
             dep_highest_seen: GlobalNumber(0),
-            gWindow: crate::window::Window::new(None),
+            window: crate::window::Window::default(),
             has_relations: false,
 
             grammar,

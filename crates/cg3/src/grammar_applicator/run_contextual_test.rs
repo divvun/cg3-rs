@@ -35,7 +35,7 @@
 //!   `Option<SwId>` LOCAL (`sw`): reassignments hop windows exactly as the C++
 //!   does, and never escape. `size_t position` → `u32` (a cohort `local_number`).
 //! * `sWindow->parent->cohort_map` (the owning `Window`'s map) → the applicator's
-//!   inline `self.gWindow.cohort_map` — the port holds one `Window` per engine.
+//!   inline `self.window.cohort_map` — the port holds one `Window` per engine.
 //! * The C++ `CohortIterator*` base-pointer virtual dispatch (`++(*it)`, `**it`)
 //!   is modelled by [`ItSel`]: the six iterator pools have distinct concrete
 //!   `advance`/`current` signatures (some take store/grammar/window), so the
@@ -189,18 +189,17 @@ impl super::GrammarApplicator {
         if test_pos.intersects(POS_MARK_SET) {
             self.set_mark(Some(cid));
         }
-        if test_pos.intersects(POS_ATTACH_TO)
-            && self.get_attach_to().cohort != Some(cid) {
-                // Clear readings for rules that care about readings.
-                let lists = self.rst_gather_lists(cid, test_pos);
-                for list in lists.into_iter().flatten() {
-                    for reading in list {
-                        let r = self.store.readings.get_mut(reading.0);
-                        r.matched_target = false;
-                        r.matched_tests = false;
-                    }
+        if test_pos.intersects(POS_ATTACH_TO) && self.get_attach_to().cohort != Some(cid) {
+            // Clear readings for rules that care about readings.
+            let lists = self.rst_gather_lists(cid, test_pos);
+            for list in lists.into_iter().flatten() {
+                for reading in list {
+                    let r = self.store.readings.get_mut(reading.0);
+                    r.matched_target = false;
+                    r.matched_tests = false;
                 }
             }
+        }
         if test_pos.intersects(POS_WITH) {
             self.merge_with = Some(cid);
         }
@@ -255,7 +254,9 @@ impl super::GrammarApplicator {
         context.origin = None;
         context.did_test = true;
 
-        if test_barrier != 0 && let Some(cid) = cohort {
+        if test_barrier != 0
+            && let Some(cid) = cohort
+        {
             let mut bctx = dSMC_Context {
                 test: None,
                 deep: None,
@@ -273,7 +274,9 @@ impl super::GrammarApplicator {
                 *rvs &= !TRV_BREAK_DEFAULT;
             }
         }
-        if test_cbarrier != 0 && let Some(cid) = cohort {
+        if test_cbarrier != 0
+            && let Some(cid) = cohort
+        {
             let mut cbctx = dSMC_Context {
                 test: None,
                 deep: None,
@@ -490,14 +493,15 @@ impl super::GrammarApplicator {
             t.cbarrier = orgcbar;
             t.barrier = orgbar;
             if let (Some(c), Some(cd)) = (cohort, *cdeep)
-                && test_offset != 0 {
-                    let sw_id = sw.expect(
-                        "runContextualTest_tmpl: posOutputHelper needs a window but sWindow is null",
-                    );
-                    if !self.pos_output_helper(sw_id, position, test, c, cd) {
-                        cohort = None;
-                    }
+                && test_offset != 0
+            {
+                let sw_id = sw.expect(
+                    "runContextualTest_tmpl: posOutputHelper needs a window but sWindow is null",
+                );
+                if !self.pos_output_helper(sw_id, position, test, c, cd) {
+                    cohort = None;
                 }
+            }
         }
 
         if test_linked.is_some() {
@@ -627,9 +631,10 @@ impl super::GrammarApplicator {
             if self.tmpl_cntx.in_template {
                 self.extend_tmpl_bounds(cid);
                 if let Some(d) = deep.as_deref()
-                    && let Some(dc) = *d {
-                        self.extend_tmpl_bounds(dc);
-                    }
+                    && let Some(dc) = *d
+                {
+                    self.extend_tmpl_bounds(dc);
+                }
             }
 
             self.ensure_ci_depths();
@@ -775,16 +780,8 @@ impl super::GrammarApplicator {
             }
 
             if let Some(sel) = it {
-                let (c, rv) = self.run_iter(
-                    sel,
-                    org_swin,
-                    position,
-                    cid,
-                    test,
-                    deep,
-                    origin,
-                    retval,
-                );
+                let (c, rv) =
+                    self.run_iter(sel, org_swin, position, cid, test, deep, origin, retval);
                 cohort = c;
                 retval = rv;
             }
@@ -868,7 +865,7 @@ impl super::GrammarApplicator {
         &crate::grammar::Grammar,
         &crate::window::Window,
     ) {
-        (&self.store, &self.grammar, &self.gWindow)
+        (&self.store, &self.grammar, &self.window)
     }
 
     /// The C++ generic-iterator arm (`if (it) { ... }`): resets nothing here (the
@@ -1003,7 +1000,7 @@ impl super::GrammarApplicator {
             }
             ItSel::DepParent(k) => {
                 if let Some(mut i) = self.depParentIters.remove(&k) {
-                    i.advance(&self.store, &self.grammar, &self.gWindow);
+                    i.advance(&self.store, &self.grammar, &self.window);
                     self.depParentIters.insert(k, i);
                 }
             }
@@ -1207,7 +1204,7 @@ impl super::GrammarApplicator {
     pub fn run_dependency_test(
         &mut self,
         // C++ reads `sWindow->parent->cohort_map` throughout, which is the
-        // applicator's single inline `self.gWindow` in the port; the `sWindow`
+        // applicator's single inline `self.window` in the port; the `sWindow`
         // argument is therefore unused here (kept to mirror the C++ signature).
         _sw: SwId,
         current: CohortId,
@@ -1234,7 +1231,10 @@ impl super::GrammarApplicator {
         };
 
         if test_pos.intersects(POS_DEP_DEEP) {
-            let key = (test_hash, self.store.cohorts.get(current.0).global_number.get());
+            let key = (
+                test_hash,
+                self.store.cohorts.get(current.0).global_number.get(),
+            );
             if self.dep_deep_seen.contains(key) {
                 return None;
             }
@@ -1277,7 +1277,7 @@ impl super::GrammarApplicator {
             } else {
                 let dep_parent = self.store.cohorts.get(current.0).dep_parent;
                 let mapped = dep_parent
-                    .and_then(|dp| self.gWindow.cohort_map.get(&dp))
+                    .and_then(|dp| self.window.cohort_map.get(&dp))
                     .copied();
                 match mapped {
                     Some(pc) if !self.store.cohorts.get(pc.0).dep_children.empty() => {
@@ -1310,7 +1310,7 @@ impl super::GrammarApplicator {
         if test_pos.intersects(MASK_POS_LORR) {
             // Rebuild `deps` by scanning the whole cohort_map (slower container).
             let mut tmp_deps = uint32SortedVector::new();
-            let map: Vec<CohortId> = self.gWindow.cohort_map.values().copied().collect();
+            let map: Vec<CohortId> = self.window.cohort_map.values().copied().collect();
             for citer in map {
                 let gnum = self.store.cohorts.get(citer.0).global_number.get();
                 if deps.contains(&gnum) {
@@ -1343,11 +1343,16 @@ impl super::GrammarApplicator {
             if dter == cur_gnum && (!test_pos.intersects(POS_SELF)) {
                 continue;
             }
-            let mapped = self.gWindow.cohort_map.get(&GlobalNumber(dter)).copied();
+            let mapped = self.window.cohort_map.get(&GlobalNumber(dter)).copied();
             let cohort = match mapped {
                 None => {
                     if self.verbosity_level > 0 {
-                        let ds = self.store.cohorts.get(current.0).dep_self.map_or(0, |g| g.get());
+                        let ds = self
+                            .store
+                            .cohorts
+                            .get(current.0)
+                            .dep_self
+                            .map_or(0, |g| g.get());
                         if test_pos.intersects(POS_DEP_CHILD) {
                             tracing::warn!(
                                 "Warning: Child dependency {} -> {} does not exist - ignoring.",
@@ -1474,7 +1479,7 @@ impl super::GrammarApplicator {
     pub fn run_relation_test(
         &mut self,
         // C++ takes `sWindow` but only reads `sWindow->parent->cohort_map`, which
-        // is the applicator's single inline `self.gWindow` in the port — so the
+        // is the applicator's single inline `self.window` in the port — so the
         // window parameter is unused here (kept to mirror the C++ signature).
         _sw: SwId,
         current: CohortId,
@@ -1526,7 +1531,7 @@ impl super::GrammarApplicator {
         if rtag_hash.get() == self.grammar.tag_any {
             for (_name, targets) in &relations {
                 for &citer in targets {
-                    if let Some(&c) = self.gWindow.cohort_map.get(&GlobalNumber(citer)) {
+                    if let Some(&c) = self.window.cohort_map.get(&GlobalNumber(citer)) {
                         cs_insert(&self.store, &mut rels, c);
                     }
                 }
@@ -1542,10 +1547,10 @@ impl super::GrammarApplicator {
             let rtag = self.grammar.single_tags_list[rtag_id.0].clone();
             for (name, targets) in &relations {
                 for &citer in targets {
-                    if self.gWindow.cohort_map.contains_key(&GlobalNumber(citer))
+                    if self.window.cohort_map.contains_key(&GlobalNumber(citer))
                         && self.does_tag_match_regexp(*name, &rtag, caps != 0) != 0
                     {
-                        let c = *self.gWindow.cohort_map.get(&GlobalNumber(citer)).unwrap();
+                        let c = *self.window.cohort_map.get(&GlobalNumber(citer)).unwrap();
                         cs_insert(&self.store, &mut rels, c);
                         let cur = self.context_stack.last().unwrap().regexgrp_ct;
                         let capped = (regexgrpz as i32 + caps).clamp(0, u8::MAX as i32) as u8;
@@ -1556,7 +1561,7 @@ impl super::GrammarApplicator {
         } else {
             if let Some((_name, targets)) = relations.iter().find(|(k, _)| *k == rtag_hash.get()) {
                 for &citer in targets {
-                    if let Some(&c) = self.gWindow.cohort_map.get(&GlobalNumber(citer)) {
+                    if let Some(&c) = self.window.cohort_map.get(&GlobalNumber(citer)) {
                         cs_insert(&self.store, &mut rels, c);
                     }
                 }
