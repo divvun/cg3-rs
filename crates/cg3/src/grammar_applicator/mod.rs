@@ -250,7 +250,6 @@ pub struct GrammarApplicator {
     pub unicode_tags: bool,
     pub unique_tags: bool,
     pub dry_run: bool,
-    pub owns_grammar: bool,
     pub input_eof: bool,
     pub seen_barrier: bool,
     pub is_conv: bool,
@@ -305,9 +304,6 @@ pub struct GrammarApplicator {
     /// before the run and takes it back out afterwards to write the database.
     pub profiler: Option<crate::profiler::Profiler>,
 
-    /// C++ `UChar* filebase` — nullable input-file basename buffer.
-    pub filebase: Option<UString>,
-
     pub span_pattern_latin: UString,
     pub span_pattern_utf: UString,
     /// C++ `UChar ws[4]{ ' ', '\t', 0, 0 }` — the whitespace set.
@@ -341,8 +337,6 @@ pub struct GrammarApplicator {
     pub endtag: TagHash,
     pub substtag: TagHash,
     pub tag_begin: Option<TagId>,
-    pub tag_end: Option<TagId>,
-    pub tag_subst: Option<TagId>,
     pub par_left_tag: TagHash,
     pub par_right_tag: TagHash,
     pub par_left_pos: u32,
@@ -361,7 +355,6 @@ pub struct GrammarApplicator {
     pub regexgrps_c: BTreeMap<u32, usize>,
     pub same_basic: u32,
     pub rule_target: Option<CohortId>,
-    pub context_target: Option<CohortId>,
     pub merge_with: Option<CohortId>,
     pub current_rule: Option<RuleId>,
     pub context_stack: Vec<Rule_Context>,
@@ -395,7 +388,6 @@ pub struct GrammarApplicator {
     /// C++ `bc::flat_map<uint32_t, uint32_t> rule_hits`.
     pub rule_hits: BTreeMap<u32, u32>,
 
-    pub ss_taglist: ScopedStack<TagList>,
     pub ss_utags: ScopedStack<unif_tags_t>,
     pub ss_usets: ScopedStack<unif_sets_t>,
     pub ss_u32sv: ScopedStack<uint32SortedVector>,
@@ -445,7 +437,6 @@ impl GrammarApplicator {
             unicode_tags: false,
             unique_tags: false,
             dry_run: false,
-            owns_grammar: false,
             input_eof: false,
             seen_barrier: false,
             is_conv: false,
@@ -486,8 +477,6 @@ impl GrammarApplicator {
             store: crate::store::RuntimeStore::new(),
             profiler: None,
 
-            filebase: None,
-
             span_pattern_latin: Default::default(),
             span_pattern_utf: Default::default(),
             ws: [' ', '\t', '\0', '\0'],
@@ -519,8 +508,6 @@ impl GrammarApplicator {
             endtag: TagHash(0),
             substtag: TagHash(0),
             tag_begin: None,
-            tag_end: None,
-            tag_subst: None,
             par_left_tag: TagHash(0),
             par_right_tag: TagHash(0),
             par_left_pos: 0,
@@ -536,7 +523,6 @@ impl GrammarApplicator {
             regexgrps_c: Default::default(),
             same_basic: 0,
             rule_target: None,
-            context_target: None,
             merge_with: None,
             current_rule: None,
             context_stack: Default::default(),
@@ -555,7 +541,6 @@ impl GrammarApplicator {
             unif_last_textual: TagHash(0),
             rule_hits: Default::default(),
 
-            ss_taglist: ScopedStack::new(),
             ss_utags: ScopedStack::new(),
             ss_usets: ScopedStack::new(),
             ss_u32sv: ScopedStack::new(),

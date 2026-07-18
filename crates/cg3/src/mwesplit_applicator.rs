@@ -77,7 +77,8 @@ impl MweSplitApplicator {
     /// C++ `MweSplitApplicator::MweSplitApplicator(std::ostream& ux_err)`. Builds
     /// and installs a minimal dummy grammar (a delimiters set holding the
     /// never-matching `STR_DUMMY` sentinel tag), then `setGrammar`, sets
-    /// `owns_grammar = true` and `is_conv = true`.
+    /// `is_conv = true`. (The C++ `owns_grammar = true` is dropped — Rust owns
+    /// the grammar by value, so the flag has no observable effect.)
     ///
     /// DIVERGENCE: the base owns its `Grammar` by value. The C++ `new Grammar` is
     /// built directly INTO `base.grammar` (assumed freshly constructed/empty),
@@ -98,7 +99,6 @@ impl MweSplitApplicator {
             .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
         base.set_grammar()
             .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
-        base.owns_grammar = true;
         base.is_conv = true;
         MweSplitApplicator { base }
     }
@@ -140,7 +140,8 @@ impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
         output: &mut W,
         profiling: bool,
     ) {
-        app.print_cohort(cohort, output, profiling);
+        let trace = app.trace;
+        app.print_cohort(cohort, output, profiling, trace);
     }
 
     fn print_single_window<W: std::io::Write>(
@@ -470,7 +471,8 @@ impl GrammarApplicator {
             let split = self.mwe_split_mwe(cohort);
             for iter in split {
                 // Inherited GrammarApplicator::printCohort.
-                self.print_cohort(iter, output, profiling);
+                let trace = self.trace;
+                self.print_cohort(iter, output, profiling, trace);
             }
         }
 

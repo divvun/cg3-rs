@@ -12,7 +12,7 @@
 >   bool in_barrier = false;
 > }
 
-> [spec:cg3:def:grammar-applicator.cg3.grammar-applicator]
+> [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+1]
 > class GrammarApplicator {
 >   bool always_span = false;
 >   bool apply_mappings = true;
@@ -32,7 +32,6 @@
 >   bool unicode_tags = false;
 >   bool unique_tags = false;
 >   bool dry_run = false;
->   bool owns_grammar = false;
 >   bool input_eof = false;
 >   bool seen_barrier = false;
 >   bool is_conv = false;
@@ -69,7 +68,6 @@
 >   std::istream* ux_stdin = nullptr;
 >   std::ostream* ux_stdout = nullptr;
 >   std::ostream* ux_stderr = nullptr;
->   UChar* filebase = nullptr;
 >   UString span_pattern_latin;
 >   UString span_pattern_utf;
 >   UChar ws[4]{ ' ', '\t', 0, 0 };
@@ -91,7 +89,7 @@
 >   std::map<uint32_t, DepAncestorIter> depAncestorIters;
 >   uint32_t match_single = 0, match_comp = 0, match_sub = 0;
 >   uint32_t begintag = 0, endtag = 0, substtag = 0;
->   Tag *tag_begin = nullptr, *tag_end = nullptr, *tag_subst = nullptr;
+>   Tag *tag_begin = nullptr;
 >   uint32_t par_left_tag = 0, par_right_tag = 0;
 >   uint32_t par_left_pos = 0, par_right_pos = 0;
 >   bool did_final_enclosure = false;
@@ -102,7 +100,6 @@
 >   bc::flat_map<uint32_t, regexgrps_t*> regexgrps_c;
 >   uint32_t same_basic = 0;
 >   Cohort* rule_target = nullptr;
->   Cohort* context_target = nullptr;
 >   Cohort* merge_with = nullptr;
 >   Rule* current_rule = nullptr;
 >   std::vector<Rule_Context> context_stack;
@@ -118,7 +115,6 @@
 >   uint32_t unif_last_baseform = 0;
 >   uint32_t unif_last_textual = 0;
 >   bc::flat_map<uint32_t, uint32_t> rule_hits;
->   scoped_stack<TagList> ss_taglist;
 >   scoped_stack<unif_tags_t> ss_utags;
 >   scoped_stack<unif_sets_t> ss_usets;
 >   scoped_stack<uint32SortedVector> ss_u32sv;
@@ -137,18 +133,34 @@
 >   enum ST_RETVALS { TRV_BREAK = (1 << 0), TRV_BARRIER = (1 << 1), TRV_BREAK_DEFAULT = (1 << 2), };
 >   std::deque<Reading> subs_any;
 > }
+>
+> Deliberate de-warting (v1): the `owns_grammar`, `filebase`, `tag_end`,
+> `tag_subst`, `context_target`, and `ss_taglist` members are dropped from the
+> port. `owns_grammar` is vacuous under Rust value ownership (the grammar is
+> owned by value and dropped in the destructor); `filebase` is never read (the
+> `filebase()` accessor is a constant `""`); `tag_end`/`tag_subst` are redundant
+> `TagId` caches (the run path routes through the `endtag`/`substtag` hash
+> forms, and `tag_begin` is retained because it *is* read); `context_target` is
+> write-only in the C++ original too (five writers, zero readers) — its would-be
+> attach-diagnostics reader is unported; `ss_taglist` is an unexercised pool
+> (no method in the ported call graph touches it). Each is regenerated if a
+> future parity path needs it.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
 > void addProfilingExample(T& item)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn+1]
 > Template helper (only invoked when a profiler exists). Renders a text
 > snapshot of the entire in-flight window set and records its string-pool
 > offset on `item`. Steps: take a reference to `profiler->buf` (a
-> std::stringstream). Construct a scoped `swapper<bool>(true, trace, ttrace)`
-> with a local `ttrace=false`; this swaps `trace` with the false local,
-> temporarily forcing `trace=false` for the duration and restoring the
-> original `trace` when the function returns. Reset buf (`buf.str("")`,
+> std::stringstream). The rendering must run with `trace` force-disabled: the
+> C++ constructs a scoped `swapper<bool>(true, trace, ttrace=false)` that swaps
+> the shared `trace` member with a false local for the duration and restores it
+> on return. The port removes that mutation — `trace` is immutable config — by
+> threading the effective trace flag `false` as an explicit argument down the
+> `printSingleWindow` → `printCohort` → `printReading` chain; the shared `trace`
+> field is never written. Behavior (the emitted bytes) is identical; only the
+> mechanism changed. Reset buf (`buf.str("")`,
 > `buf.clear()`). Write the literal line `# PREVIOUS WINDOWS\n`, then for
 > every SingleWindow `s` in `gWindow->previous` call
 > `printSingleWindow(s, buf, true)` (profiling=true). Write
@@ -670,12 +682,15 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.grammar-applicator-fn]
 > GrammarApplicator::~GrammarApplicator()
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.grammar-applicator-fn]
-> Destructor `~GrammarApplicator()`. If `owns_grammar` is true, `delete grammar`.
-> Set `grammar = nullptr` and `ux_stderr = nullptr`. Then for every
-> `URegularExpression*` in `text_delimiters`, call `uregex_close(rx)` to release
-> the ICU regex objects. (Note: the vector itself is not cleared, but the object
-> is being destroyed.) No return.
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.grammar-applicator-fn+1]
+> Destructor `~GrammarApplicator()`. In C++, if `owns_grammar` is true,
+> `delete grammar`, then set `grammar = nullptr` and `ux_stderr = nullptr`. Then
+> for every `URegularExpression*` in `text_delimiters`, call `uregex_close(rx)`
+> to release the ICU regex objects. (Note: the vector itself is not cleared, but
+> the object is being destroyed.) No return. In the port the `owns_grammar`
+> branch is vacuous — the de-warting drops that member — because the grammar is
+> owned by value and dropped with the applicator; the regex objects likewise
+> release on drop, so the port destructor body is empty.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.index-fn]
 > void GrammarApplicator::index()
@@ -918,12 +933,17 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn]
 > void printDebugRule(const Rule& rule, bool target = true, bool cntx = true)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn+1]
 > Dumps a full profiling-style snapshot of all windows to `ux_stderr`, bracketed
 > by BEGIN/END markers, used when a rule's line is in `debug_rules`. Uses a
-> thread_local static stringstream `buf`. Constructs a scoped
-> `swapper<bool>(true, trace, ttrace)` with `ttrace=false`, which temporarily
-> forces `trace=false` for the duration (restored on return). Resets buf. Writes
+> thread_local static stringstream `buf`. The snapshot must render with `trace`
+> force-disabled: the C++ constructs a scoped `swapper<bool>(true, trace,
+> ttrace=false)` that temporarily forces `trace=false` for the duration and
+> restores it on return. The port removes that mutation — `trace` is immutable
+> config — by threading the effective trace flag `false` as an explicit argument
+> down the `printSingleWindow` → `printCohort` → `printReading` chain; the shared
+> `trace` field is never written. Behavior (the emitted bytes) is identical; only
+> the mechanism changed. Resets buf. Writes
 > `# ===== BEGIN RULE <rule.line> <" TARGET-MATCH" if target else " TARGET-FAIL">`
 > `<" CONTEXT-MATCH" if cntx else " CONTEXT-FAIL"> =====\n`. Then writes
 > `# PREVIOUS WINDOWS\n` and calls `printSingleWindow(s, buf, true)` for each `s`
@@ -1453,11 +1473,15 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.set-grammar-fn]
 > void GrammarApplicator::setGrammar(Grammar* res)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-grammar-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-grammar-fn+1]
 > Attaches a Grammar and derives cached tags/indexes. Sets `grammar = res`.
 > Interns the special tags: `tag_begin = addTag(STR_BEGINTAG)`,
 > `tag_end = addTag(STR_ENDTAG)`, `tag_subst = addTag(STR_DUMMY)`, and stores
-> their hashes into `begintag`, `endtag`, `substtag`. Builds the mapping-prefix
+> their hashes into `begintag`, `endtag`, `substtag`. (Port de-warting: the
+> `tag_end`/`tag_subst` `TagId` caches are dropped — only `tag_begin` is
+> retained, since the run path routes the end/subst tags through the `endtag`/
+> `substtag` hash forms — so the port interns all three tags but stores only the
+> `tag_begin` id alongside the three hashes.) Builds the mapping-prefix
 > tags: `mprefix_key = addTag(u"_MPREFIX")->hash` and
 > `mprefix_value = addTag(UString{grammar->mapping_prefix})->hash`. Clears and
 > resizes `index_readingSet_yes` and `index_readingSet_no` to

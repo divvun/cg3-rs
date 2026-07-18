@@ -481,8 +481,6 @@ impl super::GrammarApplicator {
         let te = self.add_tag(STR_ENDTAG, crate::tag::TagType::empty());
         let ts = self.add_tag(STR_DUMMY, crate::tag::TagType::empty());
         self.tag_begin = Some(tb);
-        self.tag_end = Some(te);
-        self.tag_subst = Some(ts);
         self.begintag = self.grammar.single_tags_list[tb.0].hash;
         self.endtag = self.grammar.single_tags_list[te.0].hash;
         self.substtag = self.grammar.single_tags_list[ts.0].hash;
@@ -777,7 +775,19 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-reading-fn]
     /// C++ `void printReading(const Reading* reading, std::ostream& output,
     /// size_t sub = 1)`. Resolves `Reading*`/`Cohort*` through `store`.
-    pub fn print_reading<W: Write>(&mut self, reading: ReadingId, output: &mut W, sub: usize) {
+    ///
+    /// `trace` is the effective trace flag threaded down the print chain
+    /// (normally `self.trace`; the profiling printers pass `false`). The C++
+    /// read `this->trace` directly and its two profiling callers force-disabled
+    /// it via a `swapper<bool>`; threading the value keeps `self.trace` (config)
+    /// immutable.
+    pub fn print_reading<W: Write>(
+        &mut self,
+        reading: ReadingId,
+        output: &mut W,
+        sub: usize,
+        trace: bool,
+    ) {
         let (noprint, deleted, baseform, parent_cid) = {
             let r = self.store.readings.get(reading.0);
             (
@@ -791,7 +801,7 @@ impl super::GrammarApplicator {
             return;
         }
         if deleted {
-            if !self.trace {
+            if !trace {
                 return;
             }
             u_fputc(';', output);
@@ -942,7 +952,7 @@ impl super::GrammarApplicator {
             }
         }
 
-        if self.trace {
+        if trace {
             let hit_by: Vec<u32> = self.store.readings.get(reading.0).hit_by.clone();
             for hb in hit_by {
                 u_fputc(' ', output);
@@ -955,7 +965,7 @@ impl super::GrammarApplicator {
         let next = self.store.readings.get(reading.0).next;
         if let Some(next_id) = next {
             self.store.readings.get_mut(next_id.0).deleted = deleted;
-            self.print_reading(next_id, output, sub + 1);
+            self.print_reading(next_id, output, sub + 1, trace);
         }
     }
 
@@ -963,7 +973,17 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-cohort-fn]
     /// C++ `virtual void printCohort(Cohort* cohort, std::ostream& output,
     /// bool profiling = false)`.
-    pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
+    ///
+    /// `trace` is the effective trace flag threaded down from the caller
+    /// (normally `self.trace`; the profiling printers pass `false`), replacing
+    /// the C++ `swapper<bool>` mutation of the shared `trace` member.
+    pub fn print_cohort<W: Write>(
+        &mut self,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+        trace: bool,
+    ) {
         let local_number = self.store.cohorts.get(cohort.0).local_number;
         // `goto removed` from local_number == 0 skips the entire main body.
         if local_number != 0 {
@@ -987,7 +1007,7 @@ impl super::GrammarApplicator {
                 .r#type
                 .intersects(CT_REMOVED)
             {
-                if !self.trace || self.trace_no_removed {
+                if !trace || self.trace_no_removed {
                     removed_goto = true;
                 } else {
                     u_fputc(';', output);
@@ -1033,22 +1053,22 @@ impl super::GrammarApplicator {
                 sort_readings(&self.store, &mut readings);
                 self.store.cohorts.get_mut(cohort.0).readings = readings.clone();
                 for r in readings {
-                    self.print_reading(r, output, 1);
+                    self.print_reading(r, output, 1, trace);
                 }
 
-                if self.trace && !self.trace_no_removed {
+                if trace && !self.trace_no_removed {
                     let mut delayed: Vec<ReadingId> =
                         self.store.cohorts.get(cohort.0).delayed.clone();
                     sort_readings(&self.store, &mut delayed);
                     self.store.cohorts.get_mut(cohort.0).delayed = delayed.clone();
                     for r in delayed {
-                        self.print_reading(r, output, 1);
+                        self.print_reading(r, output, 1, trace);
                     }
                     let mut del: Vec<ReadingId> = self.store.cohorts.get(cohort.0).deleted.clone();
                     sort_readings(&self.store, &mut del);
                     self.store.cohorts.get_mut(cohort.0).deleted = del.clone();
                     for r in del {
-                        self.print_reading(r, output, 1);
+                        self.print_reading(r, output, 1, trace);
                     }
                 }
             }
@@ -1086,7 +1106,17 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-single-window-fn]
     /// C++ `virtual void printSingleWindow(SingleWindow* window,
     /// std::ostream& output, bool profiling = false)`.
-    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
+    ///
+    /// `trace` is the effective trace flag threaded down to `print_cohort` /
+    /// `print_reading` (normally `self.trace`; the profiling printers pass
+    /// `false`), replacing the C++ `swapper<bool>` mutation of `trace`.
+    pub fn print_single_window<W: Write>(
+        &mut self,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+        trace: bool,
+    ) {
         // (The C++ virtual dispatch to the MweSplit / FormatConverter
         // overrides is the StreamFormat strategy; this is the base CG
         // implementation.)
@@ -1145,7 +1175,7 @@ impl super::GrammarApplicator {
         }
 
         for cohort in all_cohorts {
-            self.print_cohort(cohort, output, profiling);
+            self.print_cohort(cohort, output, profiling, trace);
         }
 
         if !text_post.is_empty() && text_post.chars().any(|c| !self.is_ws(c)) {
@@ -1731,12 +1761,11 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn]
     /// C++ inline `void printDebugRule(const Rule& rule, bool target, bool cntx)`.
     /// Renders the whole in-flight window set (profiling mode) with `trace`
-    /// force-disabled, into a buffer written to stderr (the C++ `ux_stderr`);
-    /// the C++ `swapper<bool>` is a manual save/restore of `trace`.
+    /// force-disabled, into a buffer written to stderr (the C++ `ux_stderr`).
+    /// The C++ `swapper<bool>(true, trace, ttrace=false)` save/restore of the
+    /// shared `trace` member is replaced by passing `trace = false` down the
+    /// print chain, so `self.trace` (config) is never mutated.
     pub fn print_debug_rule(&mut self, rule: RuleId, target: bool, cntx: bool) {
-        let saved_trace = self.trace;
-        self.trace = false; // swapper<bool>(true, trace, ttrace=false)
-
         let mut buf: Vec<u8> = Vec::new();
         let line = self.grammar.rule_by_number[rule.0].line;
         let _ = writeln!(
@@ -1758,16 +1787,16 @@ impl super::GrammarApplicator {
         let _ = writeln!(&mut buf, "# PREVIOUS WINDOWS");
         for i in 0..self.window.previous.len() {
             let s = self.window.previous[i];
-            self.print_single_window(s, &mut buf, true);
+            self.print_single_window(s, &mut buf, true, false);
         }
         let _ = writeln!(&mut buf, "# CURRENT WINDOW");
         if let Some(cur) = self.window.current {
-            self.print_single_window(cur, &mut buf, true);
+            self.print_single_window(cur, &mut buf, true, false);
         }
         let _ = writeln!(&mut buf, "# NEXT WINDOWS");
         for i in 0..self.window.next.len() {
             let s = self.window.next[i];
-            self.print_single_window(s, &mut buf, true);
+            self.print_single_window(s, &mut buf, true, false);
         }
 
         let _ = writeln!(&mut buf, "# ===== END RULE {line} =====");
@@ -1775,38 +1804,35 @@ impl super::GrammarApplicator {
         // u_fprintf(ux_stderr, "%s", buf) — a raw stream dump (window data),
         // not a log event: write it straight to stderr like the C++.
         let _ = std::io::stderr().write_all(&buf);
-        self.trace = saved_trace;
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
     /// C++ template `void addProfilingExample(T& item)`. Renders the whole
-    /// in-flight window set (previous / current / next, trace force-disabled via
-    /// the C++ `swapper<bool>`) into a buffer, interns it in the profiler string
-    /// table, and stores the id into `entries[key].example_window`. (The C++
-    /// passes the entry by reference; the port passes its `key` — same entry,
-    /// borrow-checker-friendly.) Caller guarantees `self.profiler` is `Some` and
-    /// the entry exists.
+    /// in-flight window set (previous / current / next, trace force-disabled)
+    /// into a buffer, interns it in the profiler string table, and stores the id
+    /// into `entries[key].example_window`. (The C++ passes the entry by
+    /// reference; the port passes its `key` — same entry, borrow-checker-
+    /// friendly.) Caller guarantees `self.profiler` is `Some` and the entry
+    /// exists. The C++ `swapper<bool>(true, trace, ttrace=false)` save/restore
+    /// of the shared `trace` member is replaced by passing `trace = false` down
+    /// the print chain, so `self.trace` (config) is never mutated.
     pub(super) fn add_profiling_example(&mut self, key: crate::profiler::Key) {
-        let saved_trace = self.trace;
-        self.trace = false; // swapper<bool> _st(true, trace, ttrace=false)
-
         let mut buf: Vec<u8> = Vec::new();
         let _ = writeln!(&mut buf, "# PREVIOUS WINDOWS");
         for i in 0..self.window.previous.len() {
             let s = self.window.previous[i];
-            self.print_single_window(s, &mut buf, true);
+            self.print_single_window(s, &mut buf, true, false);
         }
         let _ = writeln!(&mut buf, "# CURRENT WINDOW");
         if let Some(cur) = self.window.current {
-            self.print_single_window(cur, &mut buf, true);
+            self.print_single_window(cur, &mut buf, true, false);
         }
         let _ = writeln!(&mut buf, "# NEXT WINDOWS");
         for i in 0..self.window.next.len() {
             let s = self.window.next[i];
-            self.print_single_window(s, &mut buf, true);
+            self.print_single_window(s, &mut buf, true, false);
         }
-        self.trace = saved_trace;
 
         let p = self.profiler.as_mut().unwrap();
         let sz = p.add_string(&String::from_utf8_lossy(&buf));

@@ -37,8 +37,10 @@
 //!   * `run_grammar.rs` calls `add_tag_to_reading(c_reading, self.begintag)` with
 //!     `self.begintag` (a `u32` hash — the C++ `uint32_t` overload). Since Rust
 //!     cannot overload and `TagId` was chosen (majority of call sites pass a
-//!     `TagId`), those sites must pass `self.tag_begin.unwrap()` / `self.tag_end
-//!     .unwrap()` (both already on the struct) — a run_grammar-side edit.
+//!     `TagId`), those sites must pass the cached `self.tag_begin.unwrap()` — a
+//!     run_grammar-side edit. (`tag_begin` is retained for exactly this; the
+//!     redundant `tag_end`/`tag_subst` caches were de-warted, so the end/subst
+//!     paths route through the `endtag`/`substtag` hash forms instead.)
 //!
 //! REPRODUCED BUGS (see the C++ + the reflow spec):
 //!   * `del_tag_from_reading` does NOT update the bloom filters, `tags_string`/

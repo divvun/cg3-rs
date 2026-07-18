@@ -152,6 +152,28 @@ children (
                 title "Wart removal — some logic shouldn't be saved: drop faithfully-ported mutation hacks with no observable purpose (the trace swapper<bool> toggling self.trace during example prints, mutable-through-const patterns, write-only fields); bump/errata the sem rules that pinned them; conformance corpus is the oracle"
                 priority 0
                 deps (engine-decomp.triage)
+                log (
+                    {
+                        at 2026-07-18T14:56:29.613418Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Operator decision (2026-07-18): dry_run + debug_level are KEPT (wiring tracked as option-wiring.dry-run / option-wiring.debug-level), extending the principle to all unwired-C++-FEATURE state: span_pattern_latin/utf (deferred dep-span formatter) and match_single/match_comp/match_sub (verbose stats counters) also stay. Deletion scope is therefore: meaningless-in-Rust or redundant storage only — owns_grammar, filebase, ss_taglist, tag_end, tag_subst. context_target needs a C++-source check (../cg3-old-port) before disposition: a missing reader may be a port bug, not a wart."
+                    }
+
+                    {
+                        at 2026-07-18T14:56:39.352131Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-18T15:18:39.59493Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
             }
 
             {
@@ -220,6 +242,24 @@ children (
                 title "Spec reconciliation: per-bucket def-rule redefinitions landed with version bumps, sem anchors verified intact on their (unmoved) functions, wart errata recorded, nplan audit clean with zero orphan refs; conformance + clippy green on both feature configs"
                 priority 1
                 deps (engine-decomp.peel.drivers)
+            }
+        )
+    }
+
+    {
+        id option-wiring
+        title "Wire the parse-and-ignore CLI options to their C++ behavior (fields kept through the decomposition by operator decision)"
+        children (
+            {
+                id option-wiring.dry-run
+                title "Wire --dry-run: the C++ gating that runs the grammar without mutating output; the port parses the flag into GrammarApplicator.dry_run but nothing reads it"
+                priority 2
+            }
+
+            {
+                id option-wiring.debug-level
+                title "Wire --debug: the C++ debug_level-gated diagnostics output; the port parses the flag into GrammarApplicator.debug_level but nothing reads it (family: w4-io-sinks-profiler deferred I/O)"
+                priority 2
             }
         )
     }

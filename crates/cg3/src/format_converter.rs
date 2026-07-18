@@ -398,7 +398,10 @@ impl StreamFormat for ConvFormat {
     ) {
         use cg3_sformat::*;
         match app.fmt_output {
-            CG3SF_CG => app.print_cohort(cohort, output, profiling),
+            CG3SF_CG => {
+                let trace = app.trace;
+                app.print_cohort(cohort, output, profiling, trace)
+            }
             CG3SF_APERTIUM => self.apertium.print_cohort(app, cohort, output, profiling),
             CG3SF_FST => self.fst.print_cohort(app, cohort, output, profiling),
             CG3SF_NICELINE => {
@@ -421,7 +424,8 @@ impl StreamFormat for ConvFormat {
         use cg3_sformat::*;
         match app.fmt_output {
             CG3SF_CG => {
-                app.print_single_window(window, output, profiling);
+                let trace = app.trace;
+                app.print_single_window(window, output, profiling, trace);
             }
             CG3SF_APERTIUM => self
                 .apertium

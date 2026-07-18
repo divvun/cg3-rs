@@ -56,7 +56,6 @@ impl crate::grammar_applicator::GrammarApplicator {
         if let Some(at) = self.get_attach_to().cohort {
             attach = at;
         }
-        self.context_target = Some(attach);
         let mut good = true;
         let dep_tests: Vec<CtxId> = self
             .grammar
@@ -802,7 +801,6 @@ impl crate::grammar_applicator::GrammarApplicator {
         if let Some(at) = self.get_attach_to().cohort {
             attach = at;
         }
-        self.context_target = Some(attach);
         let mut good = true;
         let dep_tests: Vec<CtxId> = self
             .grammar

@@ -542,7 +542,6 @@ impl crate::grammar_applicator::GrammarApplicator {
                 self.unif_last_textual = TagHash(0);
                 self.same_basic = r_hash_plain;
                 self.rule_target = None;
-                self.context_target = None;
                 if self.context_stack.len() > 1 {
                     let m = self.context_stack[self.context_stack.len() - 2].mark;
                     if m.is_some() {
@@ -575,7 +574,6 @@ impl crate::grammar_applicator::GrammarApplicator {
                         regex_prop = false;
                     }
                     self.rule_target = Some(cohort);
-                    self.context_target = Some(cohort);
                     self.store.readings.get_mut(reading.0).matched_target = true;
                     matched_target = true;
                     let mut good = true;
