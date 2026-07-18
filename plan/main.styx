@@ -116,6 +116,14 @@ children (
                 id engine-decomp.window-api
                 title "Window de-blob: dead parent back-pointer removed, next_cohort_number() replaces 15 hand-rolled post-increments, ONE shuffle entry point + rotate_next() (fixes ~20 applicator sites silently skipping the C++ parent->variables snapshot; binary_applicator duplicate deleted), gWindow field renamed window, borrow-dodge clones killed"
                 priority 0
+                log (
+                    {
+                        at 2026-07-18T14:35:47.633619Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Done (nplan_complete)"
+                    }
+                )
             }
 
             {

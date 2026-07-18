@@ -23,4 +23,5 @@ derived_priorities (
 
 assertions (
     {id w4-stream-format-trait, kind @complete, author "brendan@necessary.nu", at 2026-07-18T14:01:26.817884Z}
+    {id engine-decomp.window-api, kind @complete, author "brendan@necessary.nu", at 2026-07-18T14:35:47.633619Z}
 )
