@@ -864,14 +864,28 @@ impl Engine<'_> {
             // (a) the (*) set
             retval = true;
         } else if ssets_empty {
-            // (b) LIST set. The tries MUST be the grammar-owned ones (not clones):
-            // C++ stores `&kv` (a node address inside `Set::trie`) into the frame's
-            // `unif_tags` via check_unif_tags, and BOTH the cross-call identity
-            // compare and run_rules' getTagList → trie_getTagList(trie, tags, node)
-            // rely on that address pointing into the grammar's own trie. The set
-            // tries are never mutated during application (parse-time only), so the
-            // laundered borrows below cannot dangle; `&mut self` re-entry only
-            // touches `store`, caches, and `single_tags*`.
+            // (b) LIST set.
+            // SAFETY: `ff`/`trie`/`trie_sp` re-borrow `self.grammar.sets_list[set]`
+            // (an owned field of the applicator, never moved for the applicator's
+            // lifetime) as `&`s whose lifetime is detached from `self`, so they can
+            // outlive the `&mut self` re-entry in `does_set_match_reading_tags`.
+            // This is sound (not just borrow-checker-defeating) because:
+            //   1. The set tries and `ff_tags` are built at parse time and are
+            //      NEVER mutated during application — the only grammar mutation the
+            //      `&mut self` chain can reach is `generate_varstring_tag`/`add_tag`
+            //      interning into the DISJOINT tag arenas (`single_tags*`,
+            //      `regex_tags`), which never touch `sets_list`. So these borrows
+            //      cannot dangle or observe a torn write.
+            //   2. The node ADDRESSES inside `trie` are load-bearing: `check_unif_tags`
+            //      stores `&kv` (a trie-node address) into the frame's `unif_tags`
+            //      and later compares identity, and run_rules' `getTagList` walks the
+            //      same nodes — so the tries handed down MUST be the grammar-owned
+            //      ones (cloning would change addresses and break unification).
+            // A fully-safe form would require splitting `Grammar` so `sets_list`
+            // borrows `&` while `single_tags*` borrows `&mut` across the whole
+            // matcher recursion, or re-keying the trie-node identity off `(set,
+            // path)` instead of raw addresses — both are semantic redesigns with
+            // conformance risk, out of scope for a behavior-identical pass.
             let (ff, trie, trie_sp): (&TagSortedVector, &trie_t, &trie_t) = {
                 let s = self.grammar.set_by_number(SetNumber(set)); // grammar->sets_list[set]
                 unsafe {

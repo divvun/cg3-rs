@@ -169,14 +169,14 @@ pub struct Rule_Context {
     pub is_with: bool,
 }
 
-// [spec:cg3:def:grammar-applicator.cg3.rule-callback]
-/// C++ `typedef std::function<void(void)> RuleCallback` — the reading/cohort
-/// callbacks handed to `runSingleRule`. DISSOLVED (wave 4): the only two
-/// callbacks ever constructed were `reading_cb_dispatch`/`cohort_cb_dispatch`
-/// closing over `this` + the shared `RRState`; `run_single_rule` now takes
-/// `&mut RRState` and calls the dispatch methods directly, so the type-erased
-/// closures (and their raw-pointer trampolines) are gone.
-pub type RuleCallback = Box<dyn FnMut()>;
+// C++ `typedef std::function<void(void)> RuleCallback` (spec
+// `grammar-applicator.cg3.rule-callback`) — the reading/cohort callbacks handed
+// to `runSingleRule`. DISSOLVED in the port: the only two callbacks ever
+// constructed were `reading_cb_dispatch`/`cohort_cb_dispatch` closing over
+// `this` + the shared `RRState`; `run_single_rule` now takes `&mut RRState` and
+// calls the dispatch methods directly, so the type-erased closures (and their
+// raw-pointer trampolines) are gone. No port symbol remains, so the C++
+// typedef's `[spec:cg3:def:...]` is intentionally left unmapped.
 
 // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.all-mappings-t]
 /// C++ `typedef std::map<Reading*, TagList> all_mappings_t`.

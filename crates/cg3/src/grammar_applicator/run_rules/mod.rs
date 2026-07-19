@@ -55,11 +55,10 @@ fn iv_to_vec(iv: &uint32IntervalVector) -> Vec<u32> {
 /// The shared, mutable per-`runRulesOnSingleWindow` state that C++ captures by
 /// reference into the `reading_cb`/`cohort_cb` closures and the helper lambdas.
 /// The C++ closures alias `this` and these locals through the stack; the port
-/// threads this struct explicitly (`&mut RRState`) into the dispatch/helper
-/// methods, while the two `RuleCallback` trampolines carry raw `*mut Self` +
-/// `*mut RRState` (reproducing the C++ aliasing, matching the raw-pointer design
-/// the applicator struct already uses for `cohortsets`/`rocits`). Not a manifest
-/// symbol.
+/// threads this struct explicitly as `&mut RRState` into the dispatch/helper
+/// methods and calls them directly, so the type-erased `RuleCallback` closures
+/// (and the raw-pointer trampolines they would have needed) are dissolved
+/// entirely — no `*mut Self`/`*mut RRState` is created. Not a manifest symbol.
 pub(crate) struct RRState {
     pub(crate) current: SwId,
     /// The `rules` parameter (read-only working set).

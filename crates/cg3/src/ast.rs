@@ -6,15 +6,17 @@
 //! consumes it. The flagged quirks are reproduced rather than fixed.
 //!
 //! ## Porting-representation decisions (apply throughout this file)
-//! * **Source pointers (`ASTNode::b` / `ASTNode::e`).** The C++ `const UChar*`
-//!   begin/end pointers delimit the node's span *inside the grammar source
-//!   buffer*. They are kept as raw `*const UChar` (`*const char`) so that
-//!   [`print_ast`]'s offset arithmetic (`UI32(node.b - b)`) and the
-//!   `AST_Grammar` re-basing — where an `#include`d sub-grammar's offsets are
-//!   relative to *its own* buffer — translate 1:1 without an extra
-//!   buffer/lifetime parameter, exactly as the original. The future textual
-//!   parser (which walks `&[char]` with a cursor) obtains these via
-//!   `buf.as_ptr().add(pos)`.
+//! * **Source spans (`ASTNode::b` / `ASTNode::e` + `ASTNode::buf`).** The C++
+//!   `const UChar*` begin/end pointers delimit the node's span *inside the
+//!   grammar source buffer*. The port stores them as `usize` **offsets** (`b`,
+//!   `e`) into the node's owning buffer plus a shared handle to that buffer
+//!   (`buf: Rc<[char]>`). [`print_ast`]'s offset arithmetic (`UI32(node.b - b)`)
+//!   becomes the identical subtraction on offsets, and the `AST_Grammar`
+//!   re-basing — where an `#include`d sub-grammar's offsets are relative to
+//!   *its own* buffer — is preserved by carrying each node's own `buf`. The
+//!   textual parser (which walks `&[char]` with a cursor) supplies the offset
+//!   directly (`pos`) and clones the shared buffer handle; this replaces the
+//!   original's raw `buf.as_ptr().add(pos)` with no observable change.
 //!   - DEVIATION (inherent to the UTF-8 port, see [`crate::types`]): `UChar` is
 //!     a `char` (Unicode scalar, 4 bytes), not a UTF-16 code unit, so the `b`/`e`
 //!     offsets printed by [`print_ast`] are in **code-point** units, whereas the
@@ -40,10 +42,15 @@
 //!   errors are ignored.
 
 use std::io::Write;
-use std::ptr;
+use std::rc::Rc;
 
 use crate::inlines::ui32;
 use crate::types::{UChar, UString};
+
+/// Shared, immutable handle to a grammar source buffer. The parser's
+/// `grammarbufs` entries and every [`ASTNode`] span reference one of these; a
+/// clone is a refcount bump, so associating a span with its buffer is cheap.
+pub type SrcBuf = Rc<[char]>;
 
 // [spec:cg3:def:ast.ast-type]
 /// C++ `enum ASTType`. The concrete C++ name is `ASTType`; kept verbatim (as
@@ -213,15 +220,25 @@ pub struct ASTNode {
     pub r#type: ASTType,
     /// C++ `size_t line = 0;` — 1-based source line number.
     pub line: usize,
-    /// C++ `const UChar *b = nullptr;` — begin pointer into the source buffer.
-    pub b: *const UChar,
-    /// C++ `const UChar *e = nullptr;` — end pointer into the source buffer.
-    pub e: *const UChar,
+    /// C++ `const UChar *b = nullptr;` — begin **offset** into [`buf`](Self::buf).
+    pub b: usize,
+    /// C++ `const UChar *e = nullptr;` — end **offset** into [`buf`](Self::buf)
+    /// (`usize::MAX` marks the not-yet-set state the C++ null `e` had before
+    /// `AST_CLOSE` fills it in).
+    pub e: usize,
+    /// The grammar source buffer this node's `[b, e)` span points into. Replaces
+    /// the C++ pointers' implicit buffer identity; carried per-node so the
+    /// `AST_Grammar` re-basing (an `#include`d sub-grammar in its own buffer)
+    /// keeps working. A cheap-to-clone [`Rc`] handle.
+    pub buf: SrcBuf,
     /// C++ `uint32_t u = 0;` — extra payload (e.g. a dedup id set by `AST_CLOSE_ID`).
     pub u: u32,
     /// C++ `std::vector<ASTNode> cs;` — children stored by value.
     pub cs: Vec<ASTNode>,
 }
+
+/// Sentinel for an as-yet-unset end offset (the C++ null `e` before `AST_CLOSE`).
+pub const AST_E_UNSET: usize = usize::MAX;
 
 impl ASTNode {
     // [spec:cg3:def:ast.ast-node.ast-node-fn]
@@ -229,14 +246,15 @@ impl ASTNode {
     /// Constructs an `ASTNode`. Member-initializes `type`/`line`/`b`/`e` from
     /// the arguments; `u` defaults to `0` and `cs` to an empty vector. (The C++
     /// ctor supplies defaults `AST_Unknown, 0, nullptr, nullptr`; Rust has no
-    /// default arguments, so callers pass them explicitly — `null` for an
-    /// as-yet-unset `e`, which `AST_CLOSE` fills in later.)
-    pub fn new(r#type: ASTType, line: usize, b: *const UChar, e: *const UChar) -> ASTNode {
+    /// default arguments, so callers pass them explicitly — [`AST_E_UNSET`] for
+    /// an as-yet-unset `e`, which `AST_CLOSE` fills in later.)
+    pub fn new(r#type: ASTType, line: usize, b: usize, e: usize, buf: SrcBuf) -> ASTNode {
         ASTNode {
             r#type,
             line,
             b,
             e,
+            buf,
             u: 0,
             cs: Vec::new(),
         }
@@ -270,7 +288,13 @@ impl Ast {
     pub fn new(enabled: bool) -> Ast {
         Ast {
             enabled,
-            root: ASTNode::new(ASTType::AST_Unknown, 0, ptr::null(), ptr::null()),
+            root: ASTNode::new(
+                ASTType::AST_Unknown,
+                0,
+                0,
+                AST_E_UNSET,
+                Rc::from([] as [char; 0]),
+            ),
             cursor: Vec::new(),
         }
     }
@@ -316,19 +340,15 @@ impl Ast {
     }
 }
 
-/// `node.b - b` in `UChar` (element) units — the pointer subtraction that feeds
-/// the C++ `UI32(...)`. Uses a wrapping byte-distance / `size_of` rather than
-/// `offset_from` to avoid UB on a null/foreign pointer (which never occurs for
-/// an `AST_OPEN`'d node — its `b`/`e` are always set).
-fn uchar_offset(p: *const UChar, base: *const UChar) -> usize {
-    (p as usize).wrapping_sub(base as usize) / core::mem::size_of::<UChar>()
-}
-
 // [spec:cg3:def:ast.xml-encode-fn]
 // [spec:cg3:sem:ast.xml-encode-fn]
-/// XML-escapes the `[b, e)` `UChar` range and returns it. Escapes exactly five
-/// characters — `&`→`&amp;`, `"`→`&quot;`, `'`→`&apos;`, `<`→`&lt;`, `>`→`&gt;`
-/// — appending every other code unit verbatim.
+/// XML-escapes the `[b, e)` `UChar` range of `src` and returns it. Escapes
+/// exactly five characters — `&`→`&amp;`, `"`→`&quot;`, `'`→`&apos;`, `<`→`&lt;`,
+/// `>`→`&gt;` — appending every other code unit verbatim.
+///
+/// PORT DEVIATION (span form): the C++ takes two `const UChar*` (`b`, `e`) into a
+/// live buffer; the port passes the already-sliced `[b, e)` span (`src`) —
+/// identical elements, walked one-by-one exactly as the C++ `for (; b != e; ++b)`.
 ///
 /// PORT DEVIATION (buffer lifetime): the C++ returns a `const UChar*` aliasing a
 /// shared `static thread_local UString buf` that is valid only until the next
@@ -336,24 +356,18 @@ fn uchar_offset(p: *const UChar, base: *const UChar) -> usize {
 /// `u_fprintf` — before calling again). That footgun does not translate to safe
 /// Rust, so this returns an **owned** [`UString`]; the returned text is
 /// identical and callers no longer have the consume-before-reuse constraint.
-pub fn xml_encode(b: *const UChar, e: *const UChar) -> UString {
+pub fn xml_encode(src: &[UChar]) -> UString {
     let mut buf = UString::new();
     // C++ `buf.reserve(e - b)` (element count).
-    buf.reserve(uchar_offset(e, b));
-    // SAFETY: `[b, e)` is the caller-supplied source span; walked by element,
-    // exactly as the C++ `for (; b != e; ++b)`.
-    let mut p = b;
-    unsafe {
-        while p != e {
-            match *p {
-                '&' => buf.push_str("&amp;"),
-                '"' => buf.push_str("&quot;"),
-                '\'' => buf.push_str("&apos;"),
-                '<' => buf.push_str("&lt;"),
-                '>' => buf.push_str("&gt;"),
-                c => buf.push(c),
-            }
-            p = p.add(1);
+    buf.reserve(src.len());
+    for &c in src {
+        match c {
+            '&' => buf.push_str("&amp;"),
+            '"' => buf.push_str("&quot;"),
+            '\'' => buf.push_str("&apos;"),
+            '<' => buf.push_str("&lt;"),
+            '>' => buf.push_str("&gt;"),
+            c => buf.push(c),
         }
     }
     buf
@@ -362,25 +376,25 @@ pub fn xml_encode(b: *const UChar, e: *const UChar) -> UString {
 // [spec:cg3:def:ast.print-ast-fn]
 // [spec:cg3:sem:ast.print-ast-fn]
 /// Recursively serializes the `node` subtree to `out` as indented pseudo-XML.
-/// `b` is the base pointer used to compute character offsets; `n` is the
-/// indentation depth (leading spaces). Errors from `out` are ignored, matching
-/// `u_fprintf`.
-pub fn print_ast(out: &mut dyn Write, b: *const UChar, n: usize, node: &ASTNode) {
+/// `base` is the base **offset** subtracted to yield each node's printed
+/// character offset (C++'s base pointer `b`); `n` is the indentation depth
+/// (leading spaces). Errors from `out` are ignored, matching `u_fprintf`.
+pub fn print_ast(out: &mut dyn Write, base: usize, n: usize, node: &ASTNode) {
     use ASTType::*;
 
     // C++ `std::string indent(n, ' ');`
     let indent = " ".repeat(n);
     // C++ `ASTType_str[node.type]` (see the ASTTYPE_STR deviation note).
     let name = ASTTYPE_STR[node.r#type as usize];
-    // C++ `%s<%s l="%u" b="%u" e="%u"` — offsets in UChar units.
+    // C++ `%s<%s l="%u" b="%u" e="%u"` — offsets in UChar units (`node.b - base`).
     let _ = write!(
         out,
         "{}<{} l=\"{}\" b=\"{}\" e=\"{}\"",
         indent,
         name,
         ui32(node.line),
-        ui32(uchar_offset(node.b, b)),
-        ui32(uchar_offset(node.e, b)),
+        ui32(node.b.wrapping_sub(base)),
+        ui32(node.e.wrapping_sub(base)),
     );
     // Text-bearing node types also emit ` t="<XML-escaped source span>"`.
     if matches!(
@@ -407,7 +421,16 @@ pub fn print_ast(out: &mut dyn Write, b: *const UChar, n: usize, node: &ASTNode)
             | AST_TemplateName
             | AST_TemplateRef
     ) {
-        let _ = write!(out, " t=\"{}\"", xml_encode(node.b, node.e));
+        // C++ `xml_encode(node.b, node.e)` — the `[b, e)` span of the node's own
+        // buffer. Text-bearing printed nodes are always closed, so `e` is set;
+        // the `AST_E_UNSET` guard makes an unclosed node's span empty (the C++
+        // would have read from a null `e`, which never occurs here).
+        let end = if node.e == AST_E_UNSET {
+            node.b
+        } else {
+            node.e
+        };
+        let _ = write!(out, " t=\"{}\"", xml_encode(&node.buf[node.b..end]));
     }
     // C++ `if (node.u) { ... " u=\"%u\"" ... }`
     if node.u != 0 {
@@ -424,7 +447,7 @@ pub fn print_ast(out: &mut dyn Write, b: *const UChar, n: usize, node: &ASTNode)
             // Re-base offsets to the `#include`d sub-grammar's own buffer.
             print_ast(out, it.b, n + 1, it);
         } else {
-            print_ast(out, b, n + 1, it);
+            print_ast(out, base, n + 1, it);
         }
     }
     let _ = writeln!(out, "{}</{}>", indent, name);
@@ -456,17 +479,18 @@ impl ASTHelper {
     // [spec:cg3:sem:ast.ast-helper.ast-helper-fn]
     /// Opens a new AST node as a child of the current node (the `AST_OPEN`
     /// operation). If AST building is enabled, pushes an
-    /// `ASTNode(type, line, b, null)` onto the current node's children and
+    /// `ASTNode(type, line, b, unset)` onto the current node's children and
     /// advances the cursor to it. When AST building is disabled the helper is
-    /// **inert** (no node created) and [`destroy`] skips. `b` marks the node's
-    /// begin; `e` is filled later by [`close`].
+    /// **inert** (no node created) and [`destroy`] skips. `b` is the begin
+    /// **offset** into `buf` (the node's owning grammar buffer); `e` is filled
+    /// later by [`close`].
     ///
     /// (The C++ ctor's default argument `const UChar* e = nullptr` is elided —
-    /// `AST_OPEN` never passes it; `e` is always null at construction.)
+    /// `AST_OPEN` never passes it; `e` is always unset at construction.)
     ///
     /// [`destroy`]: ASTHelper::destroy
     /// [`close`]: ASTHelper::close
-    pub fn new(ast: &mut Ast, r#type: ASTType, line: usize, b: *const UChar) -> ASTHelper {
+    pub fn new(ast: &mut Ast, r#type: ASTType, line: usize, b: usize, buf: SrcBuf) -> ASTHelper {
         // C++: `if (!parse_ast) { c = nullptr; h = nullptr; return; }`
         if !ast.enabled {
             return ASTHelper { open: false };
@@ -475,7 +499,7 @@ impl ASTHelper {
         // The index-path cursor stays valid across `cs` reallocations (the C++
         // raw-pointer version could dangle — see the module note).
         let cur = ast.current_mut();
-        cur.cs.push(ASTNode::new(r#type, line, b, ptr::null()));
+        cur.cs.push(ASTNode::new(r#type, line, b, AST_E_UNSET, buf));
         let idx = cur.cs.len() - 1;
         ast.cursor.push(idx);
         ASTHelper { open: true }
@@ -498,10 +522,10 @@ impl ASTHelper {
     }
 
     /// Port of the `AST_CLOSE(p)` macro (a bare macro in AST.hpp — no spec id):
-    /// sets the current node's end pointer, then closes it via [`destroy`].
+    /// sets the current node's end **offset**, then closes it via [`destroy`].
     ///
     /// [`destroy`]: ASTHelper::destroy
-    pub fn close(&mut self, ast: &mut Ast, e: *const UChar) {
+    pub fn close(&mut self, ast: &mut Ast, e: usize) {
         // C++: `cur_ast->e = (p); cur_ast_help->destroy();`
         if ast.enabled {
             ast.current_mut().e = e;
@@ -510,10 +534,10 @@ impl ASTHelper {
     }
 
     /// Port of the `AST_CLOSE_ID(p, n)` macro (no spec id): sets the current
-    /// node's end pointer and `u` payload, then closes it via [`destroy`].
+    /// node's end **offset** and `u` payload, then closes it via [`destroy`].
     ///
     /// [`destroy`]: ASTHelper::destroy
-    pub fn close_id(&mut self, ast: &mut Ast, e: *const UChar, u: u32) {
+    pub fn close_id(&mut self, ast: &mut Ast, e: usize, u: u32) {
         // C++: `cur_ast->e = (p); cur_ast->u = (n); cur_ast_help->destroy();`
         if ast.enabled {
             let node = ast.current_mut();
@@ -528,20 +552,18 @@ impl ASTHelper {
 mod tests {
     use super::*;
 
-    // ASTNode::new member-initializes type/line/b/e, defaulting u=0 and cs empty;
-    // xml_encode escapes exactly &,",',<,> over a [b,e) UChar span.
+    // ASTNode::new member-initializes type/line/b/e/buf, defaulting u=0 and cs
+    // empty; xml_encode escapes exactly &,",',<,> over a [b,e) UChar span.
     // [spec:cg3:sem:ast.ast-node.ast-node-fn/test]
     // [spec:cg3:sem:ast.xml-encode-fn/test]
     #[test]
     fn node_ctor_and_xml_encode() {
-        // A source buffer to point b/e into (kept alive for the whole test).
-        let src: Vec<UChar> = "a&b<c>\"d'e".chars().collect();
-        let b = src.as_ptr();
-        // SAFETY: within the allocation; e is one-past the last element.
-        let e = unsafe { b.add(src.len()) };
+        // A source buffer the b/e offsets index into.
+        let src: SrcBuf = Rc::from("a&b<c>\"d'e".chars().collect::<Vec<UChar>>().as_slice());
+        let (b, e) = (0usize, src.len());
 
         // ASTNode::new: fields set from args; u=0, cs empty.
-        let node = ASTNode::new(ASTType::AST_Tag, 7, b, e);
+        let node = ASTNode::new(ASTType::AST_Tag, 7, b, e, src.clone());
         assert_eq!(node.r#type, ASTType::AST_Tag);
         assert_eq!(node.line, 7);
         assert_eq!(node.u, 0);
@@ -550,11 +572,11 @@ mod tests {
         assert_eq!(node.e, e);
 
         // xml_encode escapes the five entities and passes everything else through.
-        let encoded = xml_encode(b, e);
+        let encoded = xml_encode(&src[b..e]);
         assert_eq!(encoded, "a&amp;b&lt;c&gt;&quot;d&apos;e");
 
         // Empty span (b == e) encodes to empty.
-        assert_eq!(xml_encode(b, b), "");
+        assert_eq!(xml_encode(&src[b..b]), "");
     }
 
     // print_ast renders a node subtree as indented pseudo-XML, emitting t="..."
@@ -563,19 +585,16 @@ mod tests {
     #[test]
     fn print_ast_renders_tree() {
         // Buffer for offsets and text spans.
-        let src: Vec<UChar> = "noun".chars().collect();
-        let base = src.as_ptr();
-        // SAFETY: within allocation.
-        let tag_e = unsafe { base.add(4) };
+        let src: SrcBuf = Rc::from("noun".chars().collect::<Vec<UChar>>().as_slice());
 
         // A Tag child (text-bearing -> gets a t="noun" attribute), spanning [0,4).
-        let child = ASTNode::new(ASTType::AST_Tag, 2, base, tag_e);
+        let child = ASTNode::new(ASTType::AST_Tag, 2, 0, 4, src.clone());
         // A Set parent containing the child; span [0,0) (offsets b=0,e=0).
-        let mut parent = ASTNode::new(ASTType::AST_Set, 1, base, base);
+        let mut parent = ASTNode::new(ASTType::AST_Set, 1, 0, 0, src.clone());
         parent.cs.push(child);
 
         let mut out: Vec<u8> = Vec::new();
-        print_ast(&mut out, base, 0, &parent);
+        print_ast(&mut out, 0, 0, &parent);
         let s = String::from_utf8(out).unwrap();
 
         // Parent opens with its offsets, then the nested Tag with its text span,
@@ -585,9 +604,9 @@ mod tests {
         assert!(s.contains("</Set>"));
 
         // A childless, non-text node self-closes with "/>".
-        let leaf = ASTNode::new(ASTType::AST_Anchor, 3, base, base);
+        let leaf = ASTNode::new(ASTType::AST_Anchor, 3, 0, 0, src.clone());
         let mut out2: Vec<u8> = Vec::new();
-        print_ast(&mut out2, base, 0, &leaf);
+        print_ast(&mut out2, 0, 0, &leaf);
         let s2 = String::from_utf8(out2).unwrap();
         assert_eq!(s2, "<Anchor l=\"3\" b=\"0\" e=\"0\"/>\n");
     }
@@ -600,13 +619,12 @@ mod tests {
     // [spec:cg3:sem:ast.ast-helper.destroy-fn/test]
     #[test]
     fn ast_helper_open_and_close() {
-        let src: Vec<UChar> = "x".chars().collect();
-        let b = src.as_ptr();
+        let src: SrcBuf = Rc::from("x".chars().collect::<Vec<UChar>>().as_slice());
 
         // Disabled: helper is inert (no node created).
         let mut ast_off = Ast::new(false);
         {
-            let h = ASTHelper::new(&mut ast_off, ASTType::AST_Rule, 1, b);
+            let h = ASTHelper::new(&mut ast_off, ASTType::AST_Rule, 1, 0, src.clone());
             assert!(!h.open);
             assert!(ast_off.root().cs.is_empty());
         }
@@ -615,7 +633,7 @@ mod tests {
         // cursor advances to it.
         let mut ast = Ast::new(true);
         {
-            let mut h = ASTHelper::new(&mut ast, ASTType::AST_Rule, 5, b);
+            let mut h = ASTHelper::new(&mut ast, ASTType::AST_Rule, 5, 0, src.clone());
             assert!(h.open);
             assert_eq!(ast.root().cs.len(), 1);
             // The newly opened child carries the type/line we passed.
@@ -623,11 +641,11 @@ mod tests {
             assert_eq!(last.r#type, ASTType::AST_Rule);
             assert_eq!(last.line, 5);
             // A nested open lands under the first node (cursor advanced).
-            let mut h2 = ASTHelper::new(&mut ast, ASTType::AST_Tag, 6, b);
+            let mut h2 = ASTHelper::new(&mut ast, ASTType::AST_Tag, 6, 0, src.clone());
             assert_eq!(ast.root().cs[0].cs.len(), 1);
-            // close(e) fills the current node's end pointer and pops back.
-            h2.close(&mut ast, b);
-            assert!(!ast.root().cs[0].cs[0].e.is_null());
+            // close(e) fills the current node's end offset and pops back.
+            h2.close(&mut ast, 1);
+            assert_ne!(ast.root().cs[0].cs[0].e, AST_E_UNSET);
 
             // destroy() closes: restores the parent cursor and goes inert.
             h.destroy(&mut ast);
@@ -637,10 +655,10 @@ mod tests {
             assert!(!h.open);
         }
 
-        // close_id sets both the end pointer and the u payload.
+        // close_id sets both the end offset and the u payload.
         let mut ast2 = Ast::new(true);
-        let mut g = ASTHelper::new(&mut ast2, ASTType::AST_Grammar, 1, b);
-        g.close_id(&mut ast2, b, 42);
+        let mut g = ASTHelper::new(&mut ast2, ASTType::AST_Grammar, 1, 0, src.clone());
+        g.close_id(&mut ast2, 1, 42);
         assert_eq!(ast2.root().cs[0].u, 42);
     }
 }

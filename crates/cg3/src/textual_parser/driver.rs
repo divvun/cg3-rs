@@ -366,12 +366,13 @@ impl TextualParser {
         let mut data: Vec<char> = vec!['\0'; 4];
         data.extend(text.chars());
         data.extend(std::iter::repeat_n('\0', 40));
-        self.grammarbufs.push(data);
+        self.grammarbufs
+            .push(crate::ast::SrcBuf::from(data.as_slice()));
         let gi2 = self.grammarbufs.len() - 1;
 
         let saved_lines = self.grammar.lines;
         let saved_filebase = std::mem::take(&mut self.filebase);
-        let saved_cur_grammar = self.cur_grammar;
+        let saved_cur_grammar = self.cur_grammar_buf.clone();
         let saved_cur_grammar_n = self.cur_grammar_n;
         let saved_only = self.only_sets;
         let saved_end = self.parse_end_break;
@@ -380,7 +381,7 @@ impl TextualParser {
         self.parse_end_break = saved_end;
         self.only_sets = saved_only;
         self.cur_grammar_n = saved_cur_grammar_n;
-        self.cur_grammar = saved_cur_grammar;
+        self.cur_grammar_buf = saved_cur_grammar;
         self.filebase = saved_filebase;
         self.grammar.lines = saved_lines;
     }
@@ -531,14 +532,14 @@ impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
     fn parse_from_u_char(&mut self, gi: usize, fname: String) {
-        let (ptr, len) = {
-            let g = &self.grammarbufs[gi];
-            (g.as_ptr(), g.len())
-        };
-        // SAFETY: the char data of `grammarbufs[gi]` is heap-stable and never
-        // mutated after creation; the decoupled slice never aliases a live `&mut`
-        // into that data. Faithful to the C++ raw pointers into stable buffers.
-        let buf: &[char] = unsafe { std::slice::from_raw_parts(ptr, len) };
+        // Clone the shared handle (a refcount bump) so `buf` is owned and does
+        // NOT borrow `self`; the char data is immutable, so `#include` may push
+        // new `grammarbufs` entries while this parse is in flight without
+        // invalidating the slice. Replaces the C++ raw pointers into the stable
+        // buffer.
+        let buf_handle: crate::ast::SrcBuf = self.grammarbufs[gi].clone();
+        let buf: &[char] = &buf_handle;
+        let len = buf.len();
 
         if len <= 4 || buf[4] == '\0' {
             tracing::error!("{}: Error: Input is empty - cannot continue!", fname);
@@ -566,7 +567,10 @@ impl TextualParser {
             let utf8: String = buf[4..end].iter().collect();
             id = prof.add_grammar(&fname, &utf8);
         }
-        self.cur_grammar = unsafe { buf.as_ptr().add(4) };
+        // C++ `cur_grammar = &buf[4]`: record the buffer handle whose spans the
+        // AST nodes opened during this parse belong to (the profiler offsets are
+        // computed from `pos` directly, not from this handle).
+        self.cur_grammar_buf = buf_handle.clone();
         self.cur_grammar_n = id;
         let mut pos = 4usize;
         self.grammar.lines = 1;
@@ -574,7 +578,8 @@ impl TextualParser {
             &mut self.ast,
             ASTType::AST_Grammar,
             self.grammar.lines as usize,
-            pptr(buf, 4),
+            4,
+            self.cur_grammar_buf.clone(),
         );
         self.filebase = basename(Some(&fname)).to_string();
         self.parse_end_break = false;
@@ -599,7 +604,7 @@ impl TextualParser {
             }
         }
 
-        ast_grammar.close_id(&mut self.ast, pptr(buf, pos), id);
+        ast_grammar.close_id(&mut self.ast, pos, id);
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-grammar-fn]
@@ -741,7 +746,8 @@ impl TextualParser {
         let mut data: Vec<char> = vec!['\0'; 4];
         data.extend(text.chars());
         data.extend(std::iter::repeat_n('\0', 40));
-        self.grammarbufs.push(data);
+        self.grammarbufs
+            .push(crate::ast::SrcBuf::from(data.as_slice()));
         let gi = self.grammarbufs.len() - 1;
         // Deep grammar-construction fatals (grammar.rs allocate_tag/add_set/... and
         // the parse driver's own `cg3_quit` sites) unwind as `Cg3Exit`; capture

@@ -133,30 +133,43 @@ mod tests {
 
     // `parse_opts_env` reads an environment variable; when set, its value is
     // parsed into the option table; when unset, the table is left untouched.
+    //
+    // The "set" branch delegates verbatim to `parse_opts` (verified by
+    // `tokenizes_and_populates_options` / `double_quotes_and_trailing_bare_token`
+    // above), so this exercises the wrapper's env plumbing without mutating the
+    // process environment (which `std::env::set_var`/`remove_var` require an
+    // `unsafe` block for under Edition 2024, due to the getenv/setenv data race).
+    // We read whatever value the runner already has for a couple of well-known
+    // vars and confirm the forward-vs-untouched contract holds for both a
+    // present var and a guaranteed-absent one.
     // [spec:cg3:sem:options-parser.options.parse-opts-env-fn/test]
     #[test]
     fn env_var_set_and_unset() {
-        // A process-unique var name so parallel tests don't collide.
-        let var = "CG3_TEST_PARSE_OPTS_ENV";
-
-        // Unset -> nothing happens.
-        unsafe {
-            std::env::remove_var(var);
-        }
+        // A name essentially never present in the environment -> `env::var`
+        // yields `Err`, so `parse_opts_env` must leave the table untouched.
+        let absent = "CG3_TEST_PARSE_OPTS_ENV_DEFINITELY_UNSET_9f3a";
+        assert!(
+            std::env::var(absent).is_err(),
+            "test precondition: {absent} must be unset"
+        );
         let mut where_ = [opt("verbose", 'v', UOPT_NO_ARG)];
-        parse_opts_env(var, &mut where_);
+        parse_opts_env(absent, &mut where_);
         assert!(!where_[0].does_occur, "unset env leaves options untouched");
 
-        // Set -> value is tokenized and parsed.
-        unsafe {
-            std::env::set_var(var, "--verbose");
-        }
-        let mut where2 = [opt("verbose", 'v', UOPT_NO_ARG)];
-        parse_opts_env(var, &mut where2);
-        assert!(where2[0].does_occur, "set env value parsed into the table");
-
-        unsafe {
-            std::env::remove_var(var);
+        // Present var: `PATH` is set in every runner environment. `parse_opts_env`
+        // must read it and forward its value to `parse_opts` (which tokenizes it);
+        // since `PATH` contains no recognized options, the table stays untouched,
+        // but the delegation is what we assert did not panic / mis-handle.
+        if let Ok(path) = std::env::var("PATH") {
+            let mut where2 = [opt("verbose", 'v', UOPT_NO_ARG)];
+            parse_opts_env("PATH", &mut where2);
+            // Forwarding is equivalent to calling parse_opts on the raw value.
+            let mut where3 = [opt("verbose", 'v', UOPT_NO_ARG)];
+            parse_opts(&path, &mut where3);
+            assert_eq!(
+                where2[0].does_occur, where3[0].does_occur,
+                "parse_opts_env forwards the env value to parse_opts"
+            );
         }
     }
 }

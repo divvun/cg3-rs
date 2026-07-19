@@ -9,13 +9,14 @@
 //!   decoupled `buf: &[char]` slice plus a `pos: &mut usize` cursor (the same
 //!   convention as `crate::inlines`). The buffer is the whole grammar source
 //!   (4 leading NULs + text + trailing NUL padding); `pos` starts at 4 (C++
-//!   `&data[4]`). `buf` is reconstructed via `slice::from_raw_parts` from a
-//!   `grammarbufs` entry so it does NOT borrow `self` — letting every parse
-//!   method take `&mut self` + `buf` + `pos` without a borrow conflict. The char
-//!   data of each `grammarbufs` entry is heap-stable and never mutated after
-//!   creation (only new buffers are pushed), so the shared `buf` slice never
-//!   aliases a live `&mut` into the same data — faithful to the C++ raw pointers
-//!   into stable `unique_ptr<UString>` buffers.
+//!   `&data[4]`). Each `grammarbufs` entry is a shared, immutable
+//!   [`SrcBuf`](crate::ast::SrcBuf) (`Rc<[char]>`); `parse_from_u_char` clones
+//!   the handle (a refcount bump) into an owned local, so `buf` does NOT borrow
+//!   `self` — letting every parse method take `&mut self` + `buf` + `pos`
+//!   without a borrow conflict (and letting `#include` push new buffers while a
+//!   parse is in flight). The char data is never mutated after creation, so the
+//!   shared handle is faithful to the C++ raw pointers into stable
+//!   `unique_ptr<UString>` buffers.
 //! * **Errors / exceptions.** The C++ `error(...)` is `[[noreturn]]` and throws
 //!   an `int` caught by the per-statement `try/catch(int)` in `parseFromUChar`
 //!   (which recovers by skipping to the next line). Ported with `panic_any`
@@ -292,12 +293,6 @@ fn slen(s: &str) -> usize {
     s.chars().count()
 }
 
-/// Raw begin/end pointer into the source buffer for AST nodes.
-#[inline]
-fn pptr(buf: &[char], pos: usize) -> *const char {
-    unsafe { buf.as_ptr().add(pos) }
-}
-
 /// `ux_simplecasecmp(p, STR.data(), STR.size())`.
 fn simplecasecmp(buf: &[char], pos: usize, s: &str) -> bool {
     let bc: Vec<char> = s.chars().collect();
@@ -535,11 +530,17 @@ pub struct TextualParser {
     /// target). See `add_rule_to_grammar`.
     nested_subrules: Vec<RuleId>,
     filename: String,
-    cur_grammar: *const char,
+    /// Shared handle to the grammar buffer currently being parsed — the buffer
+    /// each AST node opened here records for its span. Replaces the C++
+    /// `cur_grammar` raw pointer (which the port never dereferenced: profiler
+    /// spans are computed from `pos` offsets directly, so the pointer's only
+    /// live role was buffer identity for AST nodes). Saved/restored around
+    /// `#include` exactly as the C++ pointer was.
+    cur_grammar_buf: crate::ast::SrcBuf,
     cur_grammar_n: u32,
     num_grammars: u32,
     deferred_tmpls: deferred_t,
-    grammarbufs: Vec<Vec<char>>,
+    grammarbufs: Vec<crate::ast::SrcBuf>,
     error_counter: i32,
     /// Signals the `END` directive breaking the `parseFromUChar` loop.
     parse_end_break: bool,
@@ -588,7 +589,7 @@ impl TextualParser {
             only_sets: false,
             nested_subrules: Vec::new(),
             filename: String::new(),
-            cur_grammar: std::ptr::null(),
+            cur_grammar_buf: crate::ast::SrcBuf::from([] as [char; 0]),
             cur_grammar_n: 0,
             num_grammars: 0,
             deferred_tmpls: HashMap::new(),
@@ -1442,7 +1443,8 @@ impl TextualParser {
             &mut self.ast,
             ASTType::AST_Context,
             self.grammar.lines as usize,
-            pptr(buf, *pos),
+            *pos,
+            self.cur_grammar_buf.clone(),
         );
         let ot = self.grammar.allocate_contextual_test();
         let mut t_cur = ot;
@@ -1656,7 +1658,7 @@ impl TextualParser {
 
         // C++ `AST_CLOSE_ID(p, t->hash)`.
         let t_hash = self.grammar.contexts_arena[t.0].hash;
-        ast_context.close_id(&mut self.ast, pptr(buf, *pos), t_hash);
+        ast_context.close_id(&mut self.ast, *pos, t_hash);
 
         t
     }

@@ -53,7 +53,8 @@ impl TextualParser {
             &mut self.ast,
             ASTType::AST_Rule,
             self.grammar.lines as usize,
-            pptr(buf, *pos),
+            *pos,
+            self.cur_grammar_buf.clone(),
         );
         let mut rule = self.grammar.allocate_rule();
         rule.line = self.grammar.lines;
@@ -534,7 +535,7 @@ impl TextualParser {
         if destroy {
             // `destroyRule` on a heap Rule*; the port's local value is just dropped.
             // C++ `AST_CLOSE(p)`.
-            ast_rule.close(&mut self.ast, pptr(buf, *pos));
+            ast_rule.close(&mut self.ast, *pos);
         } else {
             let rid = self.add_rule_to_grammar(rule);
             if let Some(prof) = self.profiler.as_mut() {
@@ -546,7 +547,7 @@ impl TextualParser {
             }
             // C++ `AST_CLOSE_ID(p, rule->number + 1)`.
             let rnum = self.grammar.rule_by_number.get(rid.0).number;
-            ast_rule.close_id(&mut self.ast, pptr(buf, *pos), rnum + 1);
+            ast_rule.close_id(&mut self.ast, *pos, rnum + 1);
         }
     }
 }
