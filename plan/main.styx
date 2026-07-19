@@ -525,4 +525,25 @@ children (
             }
         )
     }
+
+    {
+        id unsafe-zero
+        title "Zero unsafe: re-key unification identity off values — unif_tags_t stores a semantic key (set, which-trie, top-level TagId) instead of trie-node addresses; getTagList resolves keys through the grammar; the matcher chain drops its detached-lifetime trie refs for short borrows (range-cursor iteration), deleting the last unsafe block in match_set"
+        priority 0
+        log (
+            {
+                at 2026-07-19T23:28:27.420796Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan_start)"
+            }
+
+            {
+                at 2026-07-19T23:41:42.679293Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Doing → Done (nplan_complete)"
+            }
+        )
+    }
 )

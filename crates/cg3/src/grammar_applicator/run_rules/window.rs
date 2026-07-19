@@ -459,20 +459,17 @@ impl crate::grammar_applicator::Engine<'_> {
                 .unwrap();
             let val = self.scratch.unif_tags_store[unif_tags]
                 .get(&the_set.number.get())
-                .copied();
-            if let Some(node) = val {
-                crate::tag_trie::trie_get_tag_list_find(
-                    &the_set.trie,
-                    the_tags,
-                    node as *const core::ffi::c_void,
-                    self.grammar,
-                );
-                crate::tag_trie::trie_get_tag_list_find(
-                    &the_set.trie_special,
-                    the_tags,
-                    node as *const core::ffi::c_void,
-                    self.grammar,
-                );
+                .cloned();
+            // C++ `trie_getTagList(trie, theTags, node)` / `(trie_special, ...)`
+            // walk both tries by the recorded node ADDRESS, appending the
+            // reconstructed root-to-node tag path. The address-free `UnifKey`
+            // ALREADY carries that path (in root-to-node order — exactly what the
+            // successful DFS branch pushes) plus which trie it lives in, so the
+            // walk collapses to appending `key.path` to `the_tags`.
+            if let Some(key) = val {
+                for tid in key.path {
+                    the_tags.push(tid);
+                }
             }
         } else {
             crate::tag_trie::trie_get_tag_list_append(&the_set.trie, the_tags, self.grammar);

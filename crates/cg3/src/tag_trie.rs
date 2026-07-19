@@ -274,9 +274,12 @@ pub fn trie_get_tag_list_append(trie: &trie_t, the_tags: &mut TagList, grammar: 
 ///
 /// IDENTITY NOTE: C++ compares `node == &kv`, the address of the flat_map
 /// (key,value) PAIR. The port compares against the address of the node VALUE
-/// (`&kv.second`) cast to `*const c_void`. The matcher port (a later wave; C++
-/// stores `&kv` in `unif_tags`) must store the SAME node-value address so the
-/// identity token is consistent.
+/// (`&kv.second`) cast to `*const c_void`. This faithful-overload form is kept
+/// for the spec'd C++ signature; the live unification path no longer routes
+/// through it — the matcher/`getTagList` port replaced the `&kv` address token
+/// with the address-free `UnifKey` (`(special, root-to-node TagId path)`), which
+/// `getTagList` resolves by appending `path` directly (same output order as this
+/// walk's successful branch).
 pub fn trie_get_tag_list_find(
     trie: &trie_t,
     the_tags: &mut TagList,

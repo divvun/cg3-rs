@@ -25,7 +25,7 @@
 //!       deep: Option<*mut Option<CohortId>>,
 //!       origin: Option<CohortId>) -> Option<CohortId>
 //!     - runCtx:   fn check_unif_tags(&mut self, set_number: u32,
-//!       node: *const core::ffi::c_void) -> bool
+//!       key: UnifKey) -> bool
 //!
 //! EXPOSED for the other engine agents (they call these):
 //!     does_set_match_reading, does_set_match_reading_tags,
@@ -59,13 +59,17 @@
 //!     additionally skipped when the set is ST_TAG_UNIFY or `unif_mode`.
 //!
 //! CAVEATS the lead must reconcile (NOTED, not fixed):
-//!   - trie node identity (FIXED in Wave 3): `does_set_match_reading` no longer
-//!     clones the set's tries; it launders `&Set::{ff_tags,trie,trie_special}`
-//!     borrows out of `self.grammar` (safe: set tries are parse-time-immutable),
-//!     so the `*const trie_node_t` handed to `check_unif_tags` is the address of
-//!     the grammar-owned node — stable across calls and findable by run_rules'
-//!     `get_tag_list` → `trie_get_tag_list_find` pointer-identity walk, matching
-//!     the C++ `&kv` semantics.
+//!   - trie node identity (address-free): the C++ `check_unif_tags(theset.number,
+//!     &kv)` records a `trie_t` ENTRY ADDRESS (the terminal node reached at some
+//!     depth); run_rules' `get_tag_list` walks the same tries by that address to
+//!     rebuild the root-to-node path. The port carries that identity as the
+//!     address-free [`UnifKey`] (`(special, root-to-node TagId path)`) — a
+//!     bijection with the entry address within a set (see `UnifKey` docs), so
+//!     `does_set_match_reading_tags`/`_trie` navigate the tries FRESH from
+//!     `self.grammar` at each step (short borrows) rather than laundering a
+//!     detached `&Set::{ff_tags,trie,trie_special}` reference across the `&mut
+//!     self` recursion. No `unsafe`; `get_tag_list` resolves the key by appending
+//!     `path`.
 //!   - `TagSet_SubsetOf_TSet` / `Set::ff_tags` order by the placeholder
 //!     `compare_Tag` (TagId order, not Tag::hash) — the merge assumes hash order;
 //!     correct once `compare_Tag` is arena-hash-aware.
@@ -94,10 +98,10 @@ use crate::tag::{
     T_REGEXP, T_REGEXP_ANY, T_REGEXP_LINE, T_SAME_BASIC, T_SET, T_SPECIAL, T_TARGET, T_TEXTUAL,
     T_VARIABLE, T_VARSTRING, T_WORDFORM, Tag, TagList, TagSortedVector,
 };
-use crate::tag_trie::trie_t;
+use crate::tag_trie::{trie_node_t, trie_t};
 use crate::types::{SetNumber, TagHash, UString};
 
-use super::{Engine, dSMC_Context, regexgrps_t};
+use super::{Engine, UnifKey, dSMC_Context, regexgrps_t};
 
 // C++ Strings.hpp set-operator enum values (`S_IGNORE, S_OR=3, S_PLUS, S_MINUS,
 // ... S_FAILFAST=8`). Only the four `doesSetMatchReading` uses are reproduced.
@@ -694,21 +698,35 @@ impl Engine<'_> {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-trie-fn]
     // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-trie-fn]
     // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-trie-fn]
-    /// Recursive trie walk: does the reading contain a complete tag path in `trie`?
-    /// `trie` is owned by the caller (a clone out of the set), so its sub-tries are
-    /// passed by reference through the recursion without aliasing `self`. Entries
-    /// are visited in ascending-`Tag::hash` order (the C++ flat_map order).
+    /// Recursive trie walk: does the reading contain a complete tag path in the
+    /// set's trie (or `trie_special` when `special`)? The sub-trie to walk is named
+    /// by `set`/`special`/`path` (the `TagId` prefix already descended), re-borrowed
+    /// fresh from `self.grammar` at each step so no trie borrow is held across a
+    /// `&mut self` re-entry — `path` is threaded (push on descend, pop on backtrack),
+    /// giving each terminal its root-to-node path for the address-free [`UnifKey`].
+    /// Entries are visited in ascending-`Tag::hash` order (the C++ flat_map order).
     pub fn does_set_match_reading_trie(
         &mut self,
         reading: ReadingId,
         set_number: u32,
-        trie: &trie_t,
+        set: u32,
+        special: bool,
+        path: &mut Vec<TagId>,
         unif_mode: bool,
     ) -> bool {
-        let mut entries: Vec<(TagId, u32)> = trie
-            .keys()
-            .map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
-            .collect();
+        // Snapshot this level's entries (ascending Tag::hash) with a short borrow;
+        // the trie borrow is released before any `&mut self` call below. `path`
+        // names the node whose child-trie is walked here — an empty `path` walks
+        // the root trie directly (the C++ top-level `doesSetMatchReading_trie`).
+        let mut entries: Vec<(TagId, u32)> = {
+            match self.trie_level_at(set, special, path) {
+                Some(t) => t
+                    .keys()
+                    .map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
+                    .collect(),
+                None => return false,
+            }
+        };
         entries.sort_by_key(|e| e.1);
         for (tid, _h) in entries {
             let tagv = self.grammar.single_tags_list[tid.0].clone();
@@ -717,57 +735,106 @@ impl Engine<'_> {
                 if tagv.r#type.intersects(T_FAILFAST) {
                     continue;
                 }
-                let node = &trie[&tid];
-                if node.terminal {
+                path.push(tid);
+                // Re-borrow the node fresh to read its flags (short borrow).
+                let (terminal, has_child) = {
+                    let n = self.trie_node_at(set, special, path).unwrap();
+                    (n.terminal, n.trie.is_some())
+                };
+                if terminal {
                     if unif_mode {
-                        let np = (node as *const _) as *const ();
-                        if !self.check_unif_tags(set_number, np) {
+                        let key = UnifKey {
+                            special,
+                            path: path.clone(),
+                        };
+                        if !self.check_unif_tags(set_number, key) {
+                            path.pop();
                             continue;
                         }
                     }
+                    path.pop();
                     return true;
                 }
-                if let Some(child) = node.trie.as_deref()
-                    && self.does_set_match_reading_trie(reading, set_number, child, unif_mode)
+                if has_child
+                    && self.does_set_match_reading_trie(
+                        reading, set_number, set, special, path, unif_mode,
+                    )
                 {
+                    path.pop();
                     return true;
                 }
+                path.pop();
             }
         }
         false
+    }
+
+    /// Resolve `set`'s `trie`/`trie_special` (per `special`) down `path` (a
+    /// `TagId` sequence) to the named node, `None` when the path is absent. A
+    /// SHORT borrow: the returned ref lives only until the caller's snapshot
+    /// completes, so it is never held across a `&mut self` re-entry. `path` is the
+    /// root-to-node key of the address-free [`UnifKey`]; navigating it fresh at
+    /// each matcher step replaces holding a laundered sub-trie borrow. Requires a
+    /// non-empty `path` (a node is named by at least one key).
+    fn trie_node_at(&self, set: u32, special: bool, path: &[TagId]) -> Option<&trie_node_t> {
+        let s = self.grammar.set_by_number(SetNumber(set));
+        let root = if special { &s.trie_special } else { &s.trie };
+        let mut node = root.get(path.first()?)?;
+        for tid in &path[1..] {
+            node = node.trie.as_deref()?.get(tid)?;
+        }
+        Some(node)
+    }
+
+    /// The trie LEVEL walked when at `path`: the root trie for an empty `path`
+    /// (the C++ top-level `doesSetMatchReading_trie(theset.trie_special)` walk),
+    /// else the child-trie of the node named by `path`. Short borrow, like
+    /// [`Self::trie_node_at`].
+    fn trie_level_at(&self, set: u32, special: bool, path: &[TagId]) -> Option<&trie_t> {
+        let s = self.grammar.set_by_number(SetNumber(set));
+        let root = if special { &s.trie_special } else { &s.trie };
+        if path.is_empty() {
+            return Some(root);
+        }
+        self.trie_node_at(set, special, path)?.trie.as_deref()
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-tags-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-tags-fn]
     // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-tags-fn]
     // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-tags-fn]
-    /// Tests whether a reading matches a LIST set. Takes the set's `number` and its
-    /// (caller-cloned) `ff_tags`/`trie`/`trie_special` so the grammar borrow does
-    /// not alias `&mut self`.
+    /// Tests whether a reading matches a LIST set. Takes the set's `number` (the
+    /// resolved `theset.number`) and navigates its `ff_tags`/`trie`/`trie_special`
+    /// fresh from `self.grammar` at each step (short borrows), so no grammar borrow
+    /// aliases `&mut self` — the former laundered-reference `unsafe` is gone.
     pub fn does_set_match_reading_tags(
         &mut self,
         reading: ReadingId,
         set_number: u32,
-        ff_tags: &TagSortedVector,
-        trie: &trie_t,
-        trie_special: &trie_t,
         unif_mode: bool,
     ) -> bool {
         let mut retval = false;
 
-        // Fail-fast pre-check.
-        if !ff_tags.empty() {
-            let ff: Vec<TagId> = ff_tags.iter().copied().collect();
-            for tid in ff {
-                let tagv = self.grammar.single_tags_list[tid.0].clone();
-                if self.does_tag_match_reading(reading, &tagv, unif_mode, false) != 0 {
-                    return false;
-                }
+        // Fail-fast pre-check. Snapshot the ff_tags ids with a short borrow.
+        let ff: Vec<TagId> = {
+            let s = self.grammar.set_by_number(SetNumber(set_number));
+            if s.ff_tags.empty() {
+                Vec::new()
+            } else {
+                s.ff_tags.iter().copied().collect()
+            }
+        };
+        for tid in ff {
+            let tagv = self.grammar.single_tags_list[tid.0].clone();
+            if self.does_tag_match_reading(reading, &tagv, unif_mode, false) != 0 {
+                return false;
             }
         }
 
         // Main fast path: merge-intersect the reading's plain tags with the trie's
-        // first-level keys (both ascending by hash).
+        // first-level keys (both ascending by hash). `entries` is snapshotted with
+        // a short borrow; node flags are re-read fresh per hit (never held across a
+        // `&mut self` re-entry). `path` is the root-to-node key of the [`UnifKey`].
         let plain: Vec<u32> = self
             .doc
             .store
@@ -776,28 +843,41 @@ impl Engine<'_> {
             .tags_plain
             .as_slice()
             .to_vec();
-        if !trie.is_empty() && !plain.is_empty() {
-            let mut entries: Vec<(TagId, u32)> = trie
-                .keys()
-                .map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
-                .collect();
-            entries.sort_by_key(|e| e.1);
-
+        let entries: Vec<(TagId, u32)> = {
+            match self.trie_level_at(set_number, false, &[]) {
+                Some(t) if !plain.is_empty() => {
+                    let mut e: Vec<(TagId, u32)> = t
+                        .keys()
+                        .map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
+                        .collect();
+                    e.sort_by_key(|x| x.1);
+                    e
+                }
+                _ => Vec::new(),
+            }
+        };
+        if !entries.is_empty() {
             let front_hash = plain[0]; // tags_plain.front() (smallest)
             let smallest_trie_hash = entries[0].1; // trie.begin()->first->hash
             let mut oi = plain.partition_point(|&x| x < smallest_trie_hash);
             let mut ii = entries.partition_point(|e| e.1 < front_hash);
+            let mut path: Vec<TagId> = Vec::new();
             while oi < plain.len() && ii < entries.len() {
                 if plain[oi] == entries[ii].1 {
                     let tid = entries[ii].0;
+                    path.clear();
+                    path.push(tid);
                     let (terminal, has_child) = {
-                        let n = &trie[&tid];
+                        let n = self.trie_node_at(set_number, false, &path).unwrap();
                         (n.terminal, n.trie.is_some())
                     };
                     if terminal {
                         if unif_mode {
-                            let np = (&trie[&tid] as *const _) as *const ();
-                            if !self.check_unif_tags(set_number, np) {
+                            let key = UnifKey {
+                                special: false,
+                                path: path.clone(),
+                            };
+                            if !self.check_unif_tags(set_number, key) {
                                 ii += 1;
                                 continue;
                             }
@@ -805,12 +885,13 @@ impl Engine<'_> {
                         retval = true;
                         break;
                     }
-                    if has_child {
-                        let child = trie[&tid].trie.as_deref().unwrap();
-                        if self.does_set_match_reading_trie(reading, set_number, child, unif_mode) {
-                            retval = true;
-                            break;
-                        }
+                    if has_child
+                        && self.does_set_match_reading_trie(
+                            reading, set_number, set_number, false, &mut path, unif_mode,
+                        )
+                    {
+                        retval = true;
+                        break;
                     }
                     ii += 1;
                 }
@@ -823,8 +904,18 @@ impl Engine<'_> {
             }
         }
 
-        if !retval && !trie_special.is_empty() {
-            retval = self.does_set_match_reading_trie(reading, set_number, trie_special, unif_mode);
+        if !retval {
+            let has_special = self
+                .grammar
+                .set_by_number(SetNumber(set_number))
+                .trie_special
+                .is_empty();
+            if !has_special {
+                let mut path: Vec<TagId> = Vec::new();
+                retval = self.does_set_match_reading_trie(
+                    reading, set_number, set_number, true, &mut path, unif_mode,
+                );
+            }
         }
         retval
     }
@@ -864,46 +955,12 @@ impl Engine<'_> {
             // (a) the (*) set
             retval = true;
         } else if ssets_empty {
-            // (b) LIST set.
-            // SAFETY: `ff`/`trie`/`trie_sp` re-borrow `self.grammar.sets_list[set]`
-            // (an owned field of the applicator, never moved for the applicator's
-            // lifetime) as `&`s whose lifetime is detached from `self`, so they can
-            // outlive the `&mut self` re-entry in `does_set_match_reading_tags`.
-            // This is sound (not just borrow-checker-defeating) because:
-            //   1. The set tries and `ff_tags` are built at parse time and are
-            //      NEVER mutated during application — the only grammar mutation the
-            //      `&mut self` chain can reach is `generate_varstring_tag`/`add_tag`
-            //      interning into the DISJOINT tag arenas (`single_tags*`,
-            //      `regex_tags`), which never touch `sets_list`. So these borrows
-            //      cannot dangle or observe a torn write.
-            //   2. The node ADDRESSES inside `trie` are load-bearing: `check_unif_tags`
-            //      stores `&kv` (a trie-node address) into the frame's `unif_tags`
-            //      and later compares identity, and run_rules' `getTagList` walks the
-            //      same nodes — so the tries handed down MUST be the grammar-owned
-            //      ones (cloning would change addresses and break unification).
-            // A fully-safe form would require splitting `Grammar` so `sets_list`
-            // borrows `&` while `single_tags*` borrows `&mut` across the whole
-            // matcher recursion, or re-keying the trie-node identity off `(set,
-            // path)` instead of raw addresses — both are semantic redesigns with
-            // conformance risk, out of scope for a behavior-identical pass.
-            let (ff, trie, trie_sp): (&TagSortedVector, &trie_t, &trie_t) = {
-                let s = self.grammar.set_by_number(SetNumber(set)); // grammar->sets_list[set]
-                unsafe {
-                    (
-                        &*(&s.ff_tags as *const TagSortedVector),
-                        &*(&s.trie as *const trie_t),
-                        &*(&s.trie_special as *const trie_t),
-                    )
-                }
-            };
-            retval = self.does_set_match_reading_tags(
-                reading,
-                snumber,
-                ff,
-                trie,
-                trie_sp,
-                tagunif || unif_mode,
-            );
+            // (b) LIST set. `does_set_match_reading_tags` navigates the set's
+            // `ff_tags`/`trie`/`trie_special` fresh from `self.grammar` at each
+            // step (short borrows), so no grammar borrow aliases the `&mut self`
+            // re-entry — the C++ `&kv` node identity is carried as an address-free
+            // `UnifKey` (`(special, TagId path)`), leaving this case plain safe code.
+            retval = self.does_set_match_reading_tags(reading, snumber, tagunif || unif_mode);
         } else if stype.intersects(ST_SET_UNIFY) {
             // (c) &&-unified set
             let usets_idx = self
@@ -1028,16 +1085,16 @@ impl Engine<'_> {
                     .unif_tags
                     .unwrap();
                 let ut = &mut self.scratch.unif_tags_store[ut_idx];
-                let mut tagptr: Option<*const ()> = None;
+                let mut tag: Option<UnifKey> = None;
                 for &s in ssets.iter().take(size) {
-                    if let Some(&t) = ut.get(&s) {
-                        tagptr = Some(t);
+                    if let Some(t) = ut.get(&s) {
+                        tag = Some(t.clone());
                         break;
                     }
                 }
-                if let Some(t) = tagptr {
+                if let Some(t) = tag {
                     for &s in ssets.iter().take(size) {
-                        ut.insert(s, t);
+                        ut.insert(s, t.clone());
                     }
                 }
             }

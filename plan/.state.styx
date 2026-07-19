@@ -49,4 +49,5 @@ assertions (
     {id w4-file-split-fmt, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:38.905191Z}
     {id w4-utf8-native-strings, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:40.500409Z}
     {id w4-unsafe-elimination, kind @complete, author "brendan@necessary.nu", at 2026-07-19T23:21:00.160291Z}
+    {id unsafe-zero, kind @complete, author "brendan@necessary.nu", at 2026-07-19T23:41:42.679293Z}
 )

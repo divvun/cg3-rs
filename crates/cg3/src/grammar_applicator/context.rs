@@ -10,12 +10,13 @@
 //! returned C++ `ReadingSpec` (a `{cohort, reading, subreading}` triple) is
 //! [`ReadingSpec`](super::ReadingSpec) (all three `Option<…Id>`). `set_attach_to`
 //! derives the cohort from `reading->parent`, so it reads `self.doc.store`.
-//! `check_unif_tags` dereferences the frame's `unif_tags` raw pointer (which
-//! aliases an entry of `unif_tags_store`), matching the C++
-//! `*(context_stack.back().unif_tags)`; the pointer is a `const void*` compared
-//! only by identity (never dereferenced), so it stays a raw pointer here too.
+//! `check_unif_tags` indexes the frame's `unif_tags` map (an entry of
+//! `unif_tags_store`), matching the C++ `*(context_stack.back().unif_tags)`; the
+//! C++ value was a `const void*` (a `trie_t` entry address) compared only by
+//! identity, ported to the address-free [`UnifKey`](super::UnifKey) — value
+//! equality of `(special, path)`, an exact bijection with the entry address.
 
-use super::{Engine, ReadingSpec, unif_tags_t};
+use super::{Engine, ReadingSpec, UnifKey, unif_tags_t};
 use crate::arena::{CohortId, ReadingId};
 
 impl Engine<'_> {
@@ -117,8 +118,10 @@ impl Engine<'_> {
     /// val)`. Unification helper keyed on the current context's `unif_tags` map:
     /// empty stack → false; first sight of `set` records `val` and returns true;
     /// every later attempt for `set` succeeds only if it presents the identical
-    /// pointer (enforcing "same tag across all uses").
-    pub fn check_unif_tags(&mut self, set: u32, val: *const ()) -> bool {
+    /// key (enforcing "same tag across all uses"). The C++ `const void*` (a
+    /// `trie_t` entry address) is the address-free [`UnifKey`]; identity is now
+    /// value equality of that key.
+    pub fn check_unif_tags(&mut self, set: u32, val: UnifKey) -> bool {
         if self.scratch.context_stack.is_empty() {
             return false;
         }
@@ -133,8 +136,8 @@ impl Engine<'_> {
             .unif_tags
             .expect("check_unif_tags: active context frame has a null unif_tags index");
         let unif_tags: &mut unif_tags_t = &mut self.scratch.unif_tags_store[idx];
-        if let Some(&existing) = unif_tags.get(&set) {
-            return existing == val;
+        if let Some(existing) = unif_tags.get(&set) {
+            return *existing == val;
         }
         unif_tags.insert(set, val);
         true

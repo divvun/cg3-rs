@@ -78,11 +78,38 @@ pub enum cg3_sformat {
 /// groups for one context frame (`UnicodeString` → UTF-8 [`UString`]).
 pub type regexgrps_t = Vec<UString>;
 
-// Value can be either tag or trie, but we only ever compare pointers and never
-// dereference, so just make it a raw address (`const void*` → `*const ()`).
+// [spec:cg3:def:grammar-applicator.cg3.unif-key]
+/// Semantic identity of a unified trie node, replacing the C++ `const void*`
+/// (`&kv`, the address of a `trie_t` entry).
+///
+/// C++ `check_unif_tags(set, &kv)` records the ADDRESS of a `(Tag*, trie_node_t)`
+/// entry — of the terminal node reached by `doesSetMatchReading_{trie,tags}` at
+/// some depth — and later compares those addresses for identity; run_rules'
+/// `getTagList(..., node)` walks the same tries by that address to rebuild the
+/// root-to-node tag path. Within one set an entry address is in bijection with
+/// `(which trie, root-to-node path of TagIds)`: `Set::trie`/`Set::trie_special`
+/// are `BTreeMap<TagId, trie_node_t>`, so a path of `TagId`s names exactly one
+/// node, and the two tries are disjoint (`special` disambiguates). Keying off the
+/// path instead of the address is therefore an exact, address-free equivalent —
+/// same first-sight-wins recording, same identity comparisons, same `getTagList`
+/// output order (the successful DFS branch pushes exactly this path).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct UnifKey {
+    /// Which of the set's two tries the node lives in (`false` = `trie`,
+    /// `true` = `trie_special`) — the C++ address is globally unique across both,
+    /// so `getTagList` tries `trie` then `trie_special` on the same pointer.
+    pub special: bool,
+    /// Root-to-node `TagId` path (the sequence of `trie` keys descended to reach
+    /// the recorded terminal node). Uniquely identifies the node within its trie.
+    pub path: Vec<TagId>,
+}
+
 // [spec:cg3:def:grammar-applicator.cg3.unif-tags-t]
-/// C++ `typedef bc::flat_map<uint32_t, const void*> unif_tags_t`.
-pub type unif_tags_t = BTreeMap<u32, *const ()>;
+/// C++ `typedef bc::flat_map<uint32_t, const void*> unif_tags_t`. The `const void*`
+/// value (a `trie_t` entry address) becomes the address-free [`UnifKey`] (see its
+/// docs for the address↔key bijection); comparison is still pure identity, now
+/// value equality of `(special, path)`.
+pub type unif_tags_t = BTreeMap<u32, UnifKey>;
 // [spec:cg3:def:grammar-applicator.cg3.unif-sets-t]
 /// C++ `typedef bc::flat_map<uint32_t, uint32SortedVector> unif_sets_t`.
 pub type unif_sets_t = BTreeMap<u32, uint32SortedVector>;
