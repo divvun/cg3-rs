@@ -33,4 +33,5 @@ assertions (
     {id engine-decomp.peel.context, kind @complete, author "brendan@necessary.nu", at 2026-07-19T16:53:06.697856Z}
     {id engine-decomp.peel.rules, kind @complete, author "brendan@necessary.nu", at 2026-07-19T17:23:42.43318Z}
     {id engine-decomp.peel.drivers, kind @complete, author "brendan@necessary.nu", at 2026-07-19T18:18:24.800908Z}
+    {id engine-decomp.spec-audit, kind @complete, author "brendan@necessary.nu", at 2026-07-19T18:21:19.119305Z}
 )

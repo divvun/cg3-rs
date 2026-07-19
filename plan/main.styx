@@ -347,6 +347,21 @@ children (
                 title "Spec reconciliation: per-bucket def-rule redefinitions landed with version bumps, sem anchors verified intact on their (unmoved) functions, wart errata recorded, nplan audit clean with zero orphan refs; conformance + clippy green on both feature configs"
                 priority 1
                 deps (engine-decomp.peel.drivers)
+                log (
+                    {
+                        at 2026-07-19T18:20:10.065396Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-19T18:21:19.119305Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
             }
         )
     }
