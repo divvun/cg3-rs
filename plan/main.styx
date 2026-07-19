@@ -151,6 +151,14 @@ children (
             {
                 id w4-unsafe-elimination
                 title "Unsafe elimination (target near-zero outside flat containers): run_rules Box<dyn FnMut>+raw-this callbacks (30 blocks), mem::take store swap dance (10 sites), scoped_stack *mut proxy, inlines Linked/reverse and voidp, trie borrow-laundering"
+                log (
+                    {
+                        at 2026-07-19T22:55:36.580241Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Status audit (2026-07-20): this node is GENUINELY OPEN — the only wave-4 node that is. Evidence: ~10 real unsafe blocks remain outside the flat containers (options_parser.rs:143/151/158, ast.rs:346/541/569, textual_parser/driver.rs:541/569 + mod.rs:298, match_set.rs:877), and the RuleCallback trampoline type survives at grammar_applicator/mod.rs:179 with the raw-*mut description at run_rules/mod.rs:59 (though schedule.rs no longer uses raw-this callbacks — verify how much of the trampoline machinery is vestigial vs live). The flat containers themselves are already unsafe-free. Post-decomposition, the Engine view may make several of these trivially removable."
+                    }
+                )
             }
 
             {
