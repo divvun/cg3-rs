@@ -34,4 +34,18 @@ assertions (
     {id engine-decomp.peel.rules, kind @complete, author "brendan@necessary.nu", at 2026-07-19T17:23:42.43318Z}
     {id engine-decomp.peel.drivers, kind @complete, author "brendan@necessary.nu", at 2026-07-19T18:18:24.800908Z}
     {id engine-decomp.spec-audit, kind @complete, author "brendan@necessary.nu", at 2026-07-19T18:21:19.119305Z}
+    {id w4-deglobalize-ast, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:08.583904Z}
+    {id w4-deglobalize-prng-errno, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:14.782384Z}
+    {id w4-bitflags, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:16.353316Z}
+    {id w4-sentinels-newtypes, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:18.887023Z}
+    {id w4-arena-generations, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:20.447466Z}
+    {id w4-rule-context-indices, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:22.950652Z}
+    {id w4-tag-union-enum, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:24.394764Z}
+    {id w4-io-sinks-profiler, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:26.730589Z}
+    {id w4-library-errors, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:28.579717Z}
+    {id w4-outparams-goto, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:30.519195Z}
+    {id w4-printf-removal-tracing, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:32.983801Z}
+    {id w4-container-iterators, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:34.793939Z}
+    {id w4-file-split-fmt, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:38.905191Z}
+    {id w4-utf8-native-strings, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:40.500409Z}
 )

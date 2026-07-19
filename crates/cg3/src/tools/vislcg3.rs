@@ -8,10 +8,9 @@
 //! ([`crate::grammar_writer::GrammarWriter`]) and/or binary
 //! ([`crate::binary_grammar::BinaryGrammar`]) form.
 //!
-//! Remaining NOTEd elisions: the `--nrules` / `--nrules-inv` regex filters
-//! (parser internals not surfaced publicly) and the engine's `profiler` field
-//! being an `Option<()>` placeholder (the `--profile` database `write` is live,
-//! but no per-rule data is gathered by the run).
+//! Remaining NOTEd elision: `--stderr` creates the redirect file (same
+//! truncation side effect as the C++) but diagnostics still go to process
+//! stderr — the engine has no wired `ux_stderr` sink.
 
 use std::io::{Read, Write};
 

@@ -314,7 +314,9 @@ pub fn main_proc(args: &[String]) -> i32 {
                     "VISL CG-3 Disambiguator version {}.{}.{}.{}",
                     CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
                 );
-                std::process::exit(0); // EXIT_SUCCESS
+                // C++ exit(EXIT_SUCCESS) — unwound through the CLI boundary so
+                // no process::exit lives outside src/bin.
+                crate::error::cg3_exit(0);
             }
             'z' => { /* Null-flush is default */ }
             _ => end_program(prog), // 'h' and default
