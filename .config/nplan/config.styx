@@ -1,15 +1,39 @@
 platforms (
     {
-        platform "c++"
-        files (src/**/*.c src/**/*.cc src/**/*.cpp src/**/*.cxx src/**/*.h src/**/*.hpp include/**/*.h include/**/*.hpp)
+        platform rust
+        files (crates/**/*.rs crates/**/Cargo.toml Cargo.toml Cargo.lock)
         checks {
             format {
-                cmd "find src include -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' | xargs clang-format --dry-run --Werror"
-                fix "find src include -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' | xargs clang-format -i"
+                cmd "cargo fmt --all --check"
+                fix "cargo fmt --all"
+            }
+            lint {
+                cmd "cargo clippy --all-targets -p cg3 -- -D warnings"
+            }
+            lint-profiler {
+                cmd "cargo clippy --all-targets -p cg3 --features profiler -- -D warnings"
+            }
+            test {
+                cmd "cargo nextest run -p cg3"
+            }
+            test-profiler {
+                cmd "cargo nextest run -p cg3 --features profiler"
             }
         }
     }
 )
+
+quality {
+    test-footprint {
+        // Ratchet: floor set just under the measured crate-scope ratio
+        // (tests 3626 / src 40404 = 0.0897 at the time of writing). Raise it
+        // as the test corpus grows; never lower it.
+        scope crate
+        languages (
+            {lang rust, floor-milli 85}
+        )
+    }
+}
 
 commit {
     type-prefix "required"
