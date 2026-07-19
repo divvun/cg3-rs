@@ -765,11 +765,11 @@ fn format_converter_print_dispatch() {
             co.global_number = cg3::types::GlobalNumber(1);
         }
         let r = cg3::reading::alloc_reading(&mut b.doc.store, Some(c));
-        b.add_tag_to_reading(r, wf);
+        b.engine().add_tag_to_reading(r, wf);
         let bf = b.add_tag("\"word\"", cg3::tag::TagType::empty());
-        b.add_tag_to_reading(r, bf);
+        b.engine().add_tag_to_reading(r, bf);
         let t = b.add_tag("X", cg3::tag::TagType::empty());
-        b.add_tag_to_reading(r, t);
+        b.engine().add_tag_to_reading(r, t);
         cg3::cohort::append_reading(&mut b.doc.store, c, r);
         cg3::single_window::append_cohort(
             &mut b.doc.store,

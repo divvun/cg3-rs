@@ -19,7 +19,7 @@ use crate::types::TagHash;
 
 use super::*;
 
-impl crate::grammar_applicator::GrammarApplicator {
+impl crate::grammar_applicator::Engine<'_> {
     // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
     // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
@@ -45,7 +45,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 for rd_orig in readings.iter().copied() {
                     let mut rd = rd_orig;
                     if rsub_reading != GSR_ANY {
-                        if let Some(sr) = self.engine().get_sub_reading(rd, rsub_reading) {
+                        if let Some(sr) = self.get_sub_reading(rd, rsub_reading) {
                             rd = sr;
                         } else {
                             // rd stays; C++ leaves `rd` at the sub or nullptr — if
@@ -54,7 +54,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     }
                     // Manually trace non-matching readings.
                     let sr_opt = if rsub_reading != GSR_ANY {
-                        self.engine().get_sub_reading(rd_orig, rsub_reading)
+                        self.get_sub_reading(rd_orig, rsub_reading)
                     } else {
                         Some(rd)
                     };
@@ -180,7 +180,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         } else if rtype == K_REMVARIABLE {
             let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
             if let Some(ml) = maplist {
-                let names = self.engine().get_tag_list_of_set(ml, false);
+                let names = self.get_tag_list_of_set(ml, false);
                 let current = st.current;
                 for tag0 in names {
                     let mut tag = tag0;
@@ -197,7 +197,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         let vars: Vec<(u32, u32)> = self.variables_entries();
                         let mut f = None;
                         for (k, _) in vars {
-                            if self.engine().does_tag_match_regexp(k, &tagv, false) != 0 {
+                            if self.does_tag_match_regexp(k, &tagv, false) != 0 {
                                 f = Some(k);
                                 break;
                             }
@@ -208,7 +208,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         let vars: Vec<(u32, u32)> = self.variables_entries();
                         let mut f = None;
                         for (k, _) in vars {
-                            if self.engine().does_tag_match_icase(k, &tagv, false) != 0 {
+                            if self.does_tag_match_icase(k, &tagv, false) != 0 {
                                 f = Some(k);
                                 break;
                             }
@@ -567,7 +567,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
         let mut out = TagList::new();
         if let Some(ml) = maplist {
-            let raw = self.engine().get_tag_list_of_set(ml, false);
+            let raw = self.get_tag_list_of_set(ml, false);
             for &t0 in &raw {
                 let mut t = t0;
                 while self
@@ -630,7 +630,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let cohorts = self.doc.store.single_windows.get(current.0).cohorts.clone();
         for c in cohorts {
             if self.doc.store.cohorts.get(c.0).dep_parent == Some(parent_gn)
-                && self.engine().does_set_match_cohort_normal(c, childset1, None)
+                && self.does_set_match_cohort_normal(c, childset1, None)
             {
                 siblings.push(c);
             }
@@ -681,7 +681,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         };
         let mut keep: ReadingList = Vec::new();
         for rid in list {
-            if self.engine().does_set_match_reading(rid, maplist_num, false, false) {
+            if self.does_set_match_reading(rid, maplist_num, false, false) {
                 {
                     let r = self.doc.store.readings.get_mut(rid.0);
                     r.deleted = false;
@@ -761,7 +761,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 out.push(tt);
             } else if ttype.intersects(T_SPECIAL) {
                 let tagv = self.grammar.single_tags_list.get(tt.0).clone();
-                let stag = self.engine().does_tag_match_reading(reading, &tagv, false, true);
+                let stag = self.does_tag_match_reading(reading, &tagv, false, true);
                 if stag != 0 {
                     out.push(self.tag_by_hash(TagHash(stag)));
                 }
@@ -789,13 +789,13 @@ impl crate::grammar_applicator::GrammarApplicator {
         let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
         let mut the_tags = TagList::new();
         if let Some(ml) = maplist {
-            the_tags = self.engine().get_tag_list_of_set(ml, false);
+            the_tags = self.get_tag_list_of_set(ml, false);
         }
 
         let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
         let mut did_insert = false;
         if childset1 != 0 {
-            let mut spot_tags = self.engine().get_tag_list_of_set_number(childset1, false);
+            let mut spot_tags = self.get_tag_list_of_set_number(childset1, false);
             self.rr_fill_tag_list(&mut spot_tags);
             // Find the spot in reading.tags_list matching all of spot_tags.
             let tags_list = self.doc.store.readings.get(reading.0).tags_list.clone();
@@ -851,8 +851,8 @@ impl crate::grammar_applicator::GrammarApplicator {
         let mut excepts = TagList::new();
         let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
         if let Some(sl) = sublist {
-            let tags = self.engine().get_tag_list_of_set(sl, false);
-            self.engine().get_tags_matching(reading, &tags, &mut excepts);
+            let tags = self.get_tag_list_of_set(sl, false);
+            self.get_tags_matching(reading, &tags, &mut excepts);
         }
 
         let wf_hash = {
@@ -878,7 +878,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let the_tags = {
             let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
             match maplist {
-                Some(ml) => self.engine().get_tag_list_of_set(ml, false),
+                Some(ml) => self.get_tag_list_of_set(ml, false),
                 None => TagList::new(),
             }
         };
@@ -992,7 +992,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let src = self.get_apply_to().reading.unwrap();
         // C++ `allocateAppendReading(*get_apply_to().reading)` — exactly ONE
         // copy-construction (number + 100, one deep clone of the next chain).
-        let src_snapshot = self.engine().clone_reading_value(src);
+        let src_snapshot = self.clone_reading_value(src);
         let creading =
             crate::cohort::allocate_append_reading_copy(&mut self.doc.store, cohort, &src_snapshot);
         self.doc.num_readings = self.doc.num_readings.wrapping_add(1);
@@ -1006,9 +1006,9 @@ impl crate::grammar_applicator::GrammarApplicator {
 
         let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
         if let Some(sl) = sublist {
-            let tags = self.engine().get_tag_list_of_set(sl, false);
+            let tags = self.get_tag_list_of_set(sl, false);
             let mut excepts = TagList::new();
-            self.engine().get_tags_matching(creading, &tags, &mut excepts);
+            self.get_tags_matching(creading, &tags, &mut excepts);
             excepts.extend(tags.iter().copied());
             let mut rc = Some(creading);
             while let Some(r) = rc {
@@ -1022,7 +1022,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let mut mappings = TagList::new();
         let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
         let the_tags = match maplist {
-            Some(ml) => self.engine().get_tag_list_of_set(ml, false),
+            Some(ml) => self.get_tag_list_of_set(ml, false),
             None => TagList::new(),
         };
 
@@ -1030,7 +1030,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let rflags = self.grammar.rule_by_number.get(rule.0).flags;
         let mut did_insert = false;
         if childset1 != 0 {
-            let mut spot_tags = self.engine().get_tag_list_of_set_number(childset1, false);
+            let mut spot_tags = self.get_tag_list_of_set_number(childset1, false);
             self.rr_fill_tag_list(&mut spot_tags);
             let tags_list = self.doc.store.readings.get(creading.0).tags_list.clone();
             let spot_hashes: Vec<u32> = spot_tags
@@ -1095,7 +1095,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let state_hash = self.doc.store.readings.get(sr.0).hash;
         let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
         let mut the_tags = match sublist {
-            Some(sl) => self.engine().get_tag_list_of_set(sl, false),
+            Some(sl) => self.get_tag_list_of_set(sl, false),
             None => TagList::new(),
         };
         let appending = the_tags.len() == 1
@@ -1190,7 +1190,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let mut mappings = TagList::new();
             let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
             let map_tags = match maplist {
-                Some(ml) => self.engine().get_tag_list_of_set(ml, false),
+                Some(ml) => self.get_tag_list_of_set(ml, false),
                 None => TagList::new(),
             };
             let mut wf: Option<TagId> = None;
@@ -1311,7 +1311,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 out.push(tt);
             } else if ttype.intersects(T_SPECIAL) {
                 let tagv = self.grammar.single_tags_list.get(tt.0).clone();
-                let stag = self.engine().does_tag_match_reading(reading, &tagv, false, true);
+                let stag = self.does_tag_match_reading(reading, &tagv, false, true);
                 if stag != 0 {
                     out.push(self.tag_by_hash(TagHash(stag)));
                 }
@@ -1368,13 +1368,13 @@ impl crate::grammar_applicator::GrammarApplicator {
             };
             let mut attach_out: Option<CohortId> = None;
             let res =
-                self.engine().run_contextual_test(tparent, tlocal, dep_target, Some(&mut attach_out), None);
+                self.run_contextual_test(tparent, tlocal, dep_target, Some(&mut attach_out), None);
             if res.is_some()
                 && let Some(mut attach) = attach_out
             {
                 self.profile_rule_context(true, rule, dep_target);
                 let break_after = self.scratch.seen_barrier || (rflags.intersects(RF_NEAREST));
-                if let Some(at) = self.engine().get_attach_to().cohort {
+                if let Some(at) = self.get_attach_to().cohort {
                     attach = at;
                 }
                 let mut good = true;
@@ -1394,8 +1394,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         let c = self.doc.store.cohorts.get(attach.0);
                         (c.parent, c.local_number)
                     };
-                    let tg = self.engine()
-                        .run_contextual_test(aparent, alocal, it, None, None)
+                    let tg = self.run_contextual_test(aparent, alocal, it, None, None)
                         .is_some();
                     self.profile_rule_context(tg, rule, it);
                     if !tg {
@@ -1403,7 +1402,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         break;
                     }
                 }
-                if self.engine().get_attach_to().cohort.is_none() {
+                if self.get_attach_to().cohort.is_none() {
                     self.scratch
                         .context_stack
                         .last_mut()
@@ -1536,7 +1535,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let mut rel_did_anything = false;
         let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
         let map_tags = match maplist {
-            Some(ml) => self.engine().get_tag_list_of_set(ml, false),
+            Some(ml) => self.get_tag_list_of_set(ml, false),
             None => TagList::new(),
         };
         for t0 in map_tags {
@@ -1594,7 +1593,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         if is_plural {
             let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
             let sub_tags = match sublist {
-                Some(sl) => self.engine().get_tag_list_of_set(sl, false),
+                Some(sl) => self.get_tag_list_of_set(sl, false),
                 None => TagList::new(),
             };
             let target_gn = self.doc.store.cohorts.get(target.0).global_number.get();

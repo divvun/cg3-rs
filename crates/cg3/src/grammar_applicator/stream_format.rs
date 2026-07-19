@@ -83,7 +83,7 @@ impl StreamFormat for CgFormat {
         profiling: bool,
     ) {
         let trace = app.cfg.trace;
-        app.print_cohort(cohort, output, profiling, trace);
+        app.engine().print_cohort(cohort, output, profiling, trace);
     }
 
     fn print_single_window<W: Write>(
@@ -94,7 +94,7 @@ impl StreamFormat for CgFormat {
         profiling: bool,
     ) {
         let trace = app.cfg.trace;
-        app.print_single_window(window, output, profiling, trace);
+        app.engine().print_single_window(window, output, profiling, trace);
     }
 
     fn print_stream_command<W: Write>(
@@ -103,7 +103,7 @@ impl StreamFormat for CgFormat {
         cmd: &str,
         output: &mut W,
     ) {
-        app.print_stream_command(cmd, output);
+        app.engine().print_stream_command(cmd, output);
     }
 
     fn print_plain_text_line<W: Write>(
@@ -112,6 +112,6 @@ impl StreamFormat for CgFormat {
         line: &str,
         output: &mut W,
     ) {
-        app.print_plain_text_line(line, output);
+        app.engine().print_plain_text_line(line, output);
     }
 }

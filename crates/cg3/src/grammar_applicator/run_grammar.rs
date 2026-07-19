@@ -131,7 +131,7 @@ impl super::GrammarApplicator {
         // addTagToReading(*cReading, begintag);  [uint32_t overload —
         // resolves the hash via grammar->single_tags[hash], then the Tag* form]
         let begin_tag_id = super::core::tag_by_hash(&self.grammar, self.cfg.begintag);
-        self.add_tag_to_reading(c_reading, begin_tag_id);
+        self.engine().add_tag_to_reading(c_reading, begin_tag_id);
         // cCohort->appendReading(cReading);
         crate::cohort::append_reading(&mut self.doc.store, c_cohort, c_reading);
         // cSWindow->appendCohort(cCohort);
@@ -151,6 +151,9 @@ impl super::GrammarApplicator {
         }
     }
 
+}
+
+impl super::Engine<'_> {
     // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.init-empty-cohort-fn]
     // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.init-empty-cohort-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.init-empty-cohort-fn]
@@ -195,7 +198,9 @@ impl super::GrammarApplicator {
         self.doc.num_readings = self.doc.num_readings.wrapping_add(1);
         c_reading
     }
+}
 
+impl super::GrammarApplicator {
     /// The C++ `got_reading:` GOTO LABEL body from `runGrammarOnText` (the block
     /// entered by both the ` "` reading line — falling through — and the `; "`
     /// deleted-reading line — via `goto got_reading`). Restructured into a helper
@@ -254,7 +259,7 @@ impl super::GrammarApplicator {
             self.grammar.sets_any.as_ref(),
         );
         let wordform = self.doc.store.cohorts.get(c_cohort.0).wordform.unwrap();
-        self.add_tag_to_reading(c_reading, wordform);
+        self.engine().add_tag_to_reading(c_reading, wordform);
 
         // UChar* space = &cleaned[1]; UChar* base = space;
         let mut space = 1usize;
@@ -329,7 +334,7 @@ impl super::GrammarApplicator {
                             self.grammar.single_tags_list[tag.0].r#type |= crate::tag::T_MAPPING;
                             all_mappings.entry(c_reading).or_default().push(tag);
                         } else {
-                            self.add_tag_to_reading(c_reading, tag);
+                            self.engine().add_tag_to_reading(c_reading, tag);
                         }
                     }
                     base = space;
@@ -352,7 +357,7 @@ impl super::GrammarApplicator {
                 self.grammar.single_tags_list[tag.0].r#type |= crate::tag::T_MAPPING;
                 all_mappings.entry(c_reading).or_default().push(tag);
             } else {
-                self.add_tag_to_reading(c_reading, tag);
+                self.engine().add_tag_to_reading(c_reading, tag);
             }
         }
         if self.doc.store.readings.get(c_reading.0).baseform.is_none() {
@@ -372,7 +377,7 @@ impl super::GrammarApplicator {
                     mlist.pop();
                 }
                 let mut ml = all_mappings.remove(&c_reading).unwrap();
-                self.split_mappings(&mut ml, c_cohort, c_reading, true);
+                self.engine().split_mappings(&mut ml, c_cohort, c_reading, true);
             }
             // readings->back()->rehash();
             let list_back = if is_deleted {
@@ -417,7 +422,7 @@ impl super::GrammarApplicator {
                     > self.cfg.dep_delimit)
         {
             let gn = self.doc.store.cohorts.get(c_cohort.0).global_number.get();
-            self.reflow_dependency_window(gn);
+            self.engine().reflow_dependency_window(gn);
 
             let cur = *c_swindow;
             if let Some(sw) = cur {
@@ -432,7 +437,7 @@ impl super::GrammarApplicator {
                 let rs = self.doc.store.cohorts.get(last_cohort.0).readings.clone();
                 for r in rs {
                     let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                    self.add_tag_to_reading(r, tid);
+                    self.engine().add_tag_to_reading(r, tid);
                 }
             }
 
@@ -479,7 +484,7 @@ impl super::GrammarApplicator {
                 self.doc.store.cohorts.get_mut(c_cohort.0).parent = *c_swindow;
                 let rs = self.doc.store.cohorts.get(c_cohort.0).readings.clone();
                 for rit in rs {
-                    self.reflow_reading(rit);
+                    self.engine().reflow_reading(rit);
                 }
             }
         }
@@ -659,7 +664,7 @@ impl super::GrammarApplicator {
                     if let Some(cc) = c_cohort
                         && self.doc.store.cohorts.get(cc.0).readings.is_empty()
                     {
-                        self.init_empty_cohort(cc);
+                        self.engine().init_empty_cohort(cc);
                     }
 
                     // (a) Soft-limit lookback.
@@ -677,7 +682,7 @@ impl super::GrammarApplicator {
                             for &c in cohorts.iter().rev() {
                                 if self.engine().does_set_match_cohort_normal(c, sd, None) {
                                     did_soft_lookback = false;
-                                    let cohort = self.delimit_at(sw, c);
+                                    let cohort = self.engine().delimit_at(sw, c);
                                     // cSWindow = cohort->parent->next;
                                     let parent =
                                         self.doc.store.cohorts.get(cohort.0).parent.unwrap();
@@ -708,7 +713,7 @@ impl super::GrammarApplicator {
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                                self.add_tag_to_reading(r, tid);
+                                self.engine().add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             crate::single_window::append_cohort(
@@ -751,7 +756,7 @@ impl super::GrammarApplicator {
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                                self.add_tag_to_reading(r, tid);
+                                self.engine().add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             crate::single_window::append_cohort(
@@ -855,7 +860,7 @@ impl super::GrammarApplicator {
                     if cleaned[space] != '\0' {
                         let wread = crate::reading::alloc_reading(&mut self.doc.store, Some(cc));
                         self.doc.store.cohorts.get_mut(cc.0).wread = Some(wread);
-                        self.add_tag_to_reading(wread, wf);
+                        self.engine().add_tag_to_reading(wread, wf);
                         while cleaned[space] != '\0' {
                             crate::inlines::skipws_chars(&cleaned, &mut space, '\0', '\0', true);
                             let mut n = space;
@@ -870,7 +875,7 @@ impl super::GrammarApplicator {
                                 .take_while(|&&c| c != '\0')
                                 .collect();
                             let tag = self.add_tag(&tag_text, crate::tag::TagType::empty());
-                            self.add_tag_to_reading(wread, tag);
+                            self.engine().add_tag_to_reading(wread, tag);
                             space = n + 1;
                         }
                     }
@@ -951,12 +956,12 @@ impl super::GrammarApplicator {
                                 }
                             }
                             if self.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                                self.init_empty_cohort(cc);
+                                self.engine().init_empty_cohort(cc);
                             }
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                                self.add_tag_to_reading(r, tid);
+                                self.engine().add_tag_to_reading(r, tid);
                             }
                             c_reading = None;
                             l_reading = None;
@@ -1166,7 +1171,7 @@ impl super::GrammarApplicator {
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                                self.add_tag_to_reading(r, tid);
+                                self.engine().add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             let sw = c_swindow.unwrap();
@@ -1243,12 +1248,12 @@ impl super::GrammarApplicator {
                 }
             }
             if self.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                self.init_empty_cohort(cc);
+                self.engine().init_empty_cohort(cc);
             }
             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                self.add_tag_to_reading(r, tid);
+                self.engine().add_tag_to_reading(r, tid);
             }
             c_reading = None;
             c_cohort = None;

@@ -264,7 +264,7 @@ impl MatxinApplicator {
         if unknown {
             let h = self.base.grammar.single_tags_list.get(tag.0).hash;
             self.base.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
-            self.base.add_tag_to_reading(c_reading, tag);
+            self.base.engine().add_tag_to_reading(c_reading, tag);
             return;
         }
 
@@ -382,12 +382,12 @@ impl MatxinApplicator {
                         if is_mapping {
                             mappings.push(iter);
                         } else {
-                            self.base.add_tag_to_reading(reading, iter);
+                            self.base.engine().add_tag_to_reading(reading, iter);
                         }
                     }
                     if !mappings.is_empty() {
                         let parent = self.base.doc.store.readings.get(reading.0).parent.unwrap();
-                        self.base
+                        self.base.engine()
                             .split_mappings(&mut mappings, parent, reading, true);
                     }
                     while let Some(&last) = taglist.last() {
@@ -848,7 +848,7 @@ impl MatxinApplicator {
             if let Some(cc) = c_cohort
                 && self.base.doc.store.cohorts.get(cc.0).readings.is_empty()
             {
-                self.base.init_empty_cohort(cc);
+                self.base.engine().init_empty_cohort(cc);
             }
             // Soft-limit break.
             if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
@@ -934,7 +934,7 @@ impl MatxinApplicator {
                     self.base.grammar.sets_any.as_ref(),
                 );
                 let bt = tag_by_hash(&self.base.grammar, self.base.cfg.begintag);
-                self.base.add_tag_to_reading(cr, bt);
+                self.base.engine().add_tag_to_reading(cr, bt);
                 append_reading(&mut self.base.doc.store, cc, cr);
                 append_cohort(
                     &mut self.base.doc.store,
@@ -1013,7 +1013,7 @@ impl MatxinApplicator {
                     }
                     if inchar == '>' {
                         let t = self.base.add_tag(&tagbuf, crate::tag::TagType::empty());
-                        self.base.add_tag_to_reading(wread, t);
+                        self.base.engine().add_tag_to_reading(wread, t);
                         tagbuf.clear();
                         continue;
                     }
@@ -1045,7 +1045,7 @@ impl MatxinApplicator {
                         );
                     }
                     let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                    self.base.add_tag_to_reading(cr, wf);
+                    self.base.engine().add_tag_to_reading(cr, wf);
                     self.process_reading(cr, &current_reading);
                     let mut cr = cr;
                     if self.base.grammar.sub_readings_ltr
@@ -1062,7 +1062,7 @@ impl MatxinApplicator {
                 if inchar == '/' {
                     let cr = alloc_reading(&mut self.base.doc.store, Some(cc));
                     let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                    self.base.add_tag_to_reading(cr, wf);
+                    self.base.engine().add_tag_to_reading(cr, wf);
                     self.process_reading(cr, &current_reading);
                     let mut cr2 = cr;
                     if self.base.grammar.sub_readings_ltr
@@ -1106,7 +1106,7 @@ impl MatxinApplicator {
                 cc,
             );
             if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                self.base.init_empty_cohort(cc);
+                self.base.engine().init_empty_cohort(cc);
             }
             self.add_endtag_all(cc);
             c_reading = None;
@@ -1146,7 +1146,7 @@ impl MatxinApplicator {
         let readings = self.base.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in readings {
             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-            self.base.add_tag_to_reading(r, et);
+            self.base.engine().add_tag_to_reading(r, et);
         }
     }
 }

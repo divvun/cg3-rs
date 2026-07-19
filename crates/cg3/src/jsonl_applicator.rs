@@ -277,7 +277,7 @@ impl<'a> JsonlApplicator<'a> {
             .get(parent_cohort.0)
             .wordform
             .expect("parseJsonReading: cohort has no wordform");
-        self.base.add_tag_to_reading(c_reading, wordform);
+        self.base.engine().add_tag_to_reading(c_reading, wordform);
 
         // Baseform ("l").
         if let Some(l_val) = obj.get("l") {
@@ -288,7 +288,7 @@ impl<'a> JsonlApplicator<'a> {
                 base_tag.push_str(&base_str);
                 base_tag.push('"');
                 let tid = self.base.add_tag(&base_tag, crate::tag::TagType::empty());
-                self.base.add_tag_to_reading(c_reading, tid);
+                self.base.engine().add_tag_to_reading(c_reading, tid);
             } else {
                 tracing::warn!(
                     "Warning: Empty 'l' (baseform) in reading on line {}.",
@@ -319,12 +319,12 @@ impl<'a> JsonlApplicator<'a> {
                     {
                         mappings.push(tag);
                     } else {
-                        self.base.add_tag_to_reading(c_reading, tag);
+                        self.base.engine().add_tag_to_reading(c_reading, tag);
                     }
                 }
             }
             if !mappings.is_empty() {
-                self.base
+                self.base.engine()
                     .split_mappings(&mut mappings, parent_cohort, c_reading, true);
             }
         }
@@ -420,7 +420,7 @@ impl<'a> JsonlApplicator<'a> {
             if self.base.doc.store.cohorts.get(c_cohort.0).wread.is_none() {
                 let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
                 self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
-                self.base.add_tag_to_reading(wread, wf);
+                self.base.engine().add_tag_to_reading(wread, wf);
                 let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
                 self.base.doc.store.readings.get_mut(wread.0).baseform = Some(wf_hash);
             }
@@ -474,7 +474,7 @@ impl<'a> JsonlApplicator<'a> {
             .readings
             .is_empty()
         {
-            self.base.init_empty_cohort(c_cohort);
+            self.base.engine().init_empty_cohort(c_cohort);
         }
         crate::inlines::insert_if_exists(
             &mut self
@@ -1270,7 +1270,7 @@ impl<'a> JsonlApplicator<'a> {
     /// Not a manifest symbol — a helper deduplicating the repeated end-tagging.
     fn add_endtag(&mut self, reading: ReadingId) {
         let endtag_id = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-        self.base.add_tag_to_reading(reading, endtag_id);
+        self.base.engine().add_tag_to_reading(reading, endtag_id);
     }
 }
 

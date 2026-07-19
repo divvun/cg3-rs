@@ -141,7 +141,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
         profiling: bool,
     ) {
         let trace = app.cfg.trace;
-        app.print_cohort(cohort, output, profiling, trace);
+        app.engine().print_cohort(cohort, output, profiling, trace);
     }
 
     fn print_single_window<W: std::io::Write>(
@@ -160,7 +160,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
         cmd: &str,
         output: &mut W,
     ) {
-        app.print_stream_command(cmd, output);
+        app.engine().print_stream_command(cmd, output);
     }
 
     fn print_plain_text_line<W: std::io::Write>(
@@ -169,7 +169,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
         line: &str,
         output: &mut W,
     ) {
-        app.print_plain_text_line(line, output);
+        app.engine().print_plain_text_line(line, output);
     }
 }
 
@@ -463,7 +463,7 @@ impl GrammarApplicator {
         };
 
         if !text.is_empty() {
-            self.print_plain_text_line(&text, output);
+            self.engine().print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }
@@ -478,12 +478,12 @@ impl GrammarApplicator {
             for iter in split {
                 // Inherited GrammarApplicator::printCohort.
                 let trace = self.cfg.trace;
-                self.print_cohort(iter, output, profiling, trace);
+                self.engine().print_cohort(iter, output, profiling, trace);
             }
         }
 
         if !text_post.is_empty() {
-            self.print_plain_text_line(&text_post, output);
+            self.engine().print_plain_text_line(&text_post, output);
             if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }

@@ -405,7 +405,7 @@ where
     /// between `/` and the next `/`/`$`) into `c_reading`, incl. sub-readings.
     /// `p` is the `Vec<char>` reading buffer (mutable: `esc_lt` → `<` rewrites).
     pub fn process_reading(&mut self, c_reading: ReadingId, mut p: Vec<char>, wform: TagId) {
-        self.base.add_tag_to_reading(c_reading, wform);
+        self.base.engine().add_tag_to_reading(c_reading, wform);
 
         let mut taglist: TagList = Vec::new();
         let mut bf: UString = String::from("\"");
@@ -514,7 +514,7 @@ where
                         let nr = Reading::allocate_reading(&mut self.base.doc.store, parent);
                         self.base.doc.store.readings.get_mut(reading.0).next = Some(nr);
                         reading = nr;
-                        self.base.add_tag_to_reading(reading, wform);
+                        self.base.engine().add_tag_to_reading(reading, wform);
                     }
                     // Add tags from ri forward to end.
                     let mut mappings: TagList = Vec::new();
@@ -529,12 +529,12 @@ where
                         if is_mapping {
                             mappings.push(iter);
                         } else {
-                            self.base.add_tag_to_reading(reading, iter);
+                            self.base.engine().add_tag_to_reading(reading, iter);
                         }
                     }
                     if !mappings.is_empty() {
                         let parent = self.base.doc.store.readings.get(reading.0).parent.unwrap();
-                        self.base
+                        self.base.engine()
                             .split_mappings(&mut mappings, parent, reading, true);
                     }
                     // Pop trailing non-baseform tags, then the baseform.
@@ -775,7 +775,12 @@ where
         if self.base.cfg.trace {
             for &iter_hb in r.hit_by.iter() {
                 u_fputc('<', output);
-                self.base.print_trace(output, iter_hb);
+                crate::grammar_applicator::core::print_trace(
+                    &self.base.grammar,
+                    &self.base.cfg,
+                    output,
+                    iter_hb,
+                );
                 u_fputc('>', output);
             }
         }
@@ -1380,7 +1385,7 @@ where
                         }
                         if tchars[p] == '>' {
                             let t = self.base.add_tag(&tagbuf, crate::tag::TagType::empty());
-                            self.base.add_tag_to_reading(wread, t);
+                            self.base.engine().add_tag_to_reading(wread, t);
                             tagbuf.clear();
                             p += 1;
                             continue;
@@ -1455,7 +1460,7 @@ where
 
                 // Magic reading.
                 if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                    self.base.init_empty_cohort(cc);
+                    self.base.engine().init_empty_cohort(cc);
                 }
                 {
                     let base = &mut *self.base;
@@ -1502,7 +1507,7 @@ where
                         let readings = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
                             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                            self.base.add_tag_to_reading(r, et);
+                            self.base.engine().add_tag_to_reading(r, et);
                         }
                         l_swindow = Some(cs);
                         c_swindow = None;
@@ -1537,7 +1542,7 @@ where
                         let readings = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
                             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                            self.base.add_tag_to_reading(r, et);
+                            self.base.engine().add_tag_to_reading(r, et);
                         }
                         l_swindow = Some(cs);
                         c_swindow = None;
@@ -1602,7 +1607,7 @@ where
         if front_lacks {
             for r in readings {
                 let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                self.base.add_tag_to_reading(r, et);
+                self.base.engine().add_tag_to_reading(r, et);
             }
         }
     }
@@ -1805,7 +1810,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for ApertiumFormat {
         cmd: &str,
         output: &mut W,
     ) {
-        app.print_stream_command(cmd, output);
+        app.engine().print_stream_command(cmd, output);
     }
 
     fn print_plain_text_line<W: Write>(
@@ -1814,7 +1819,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for ApertiumFormat {
         line: &str,
         output: &mut W,
     ) {
-        app.print_plain_text_line(line, output);
+        app.engine().print_plain_text_line(line, output);
     }
 }
 

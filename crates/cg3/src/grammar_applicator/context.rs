@@ -19,6 +19,29 @@ use super::{Engine, ReadingSpec, unif_tags_t};
 use crate::arena::{CohortId, ReadingId};
 
 impl super::GrammarApplicator {
+    // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.set-attach-to-fn]
+    // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.set-attach-to-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.set-attach-to-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-attach-to-fn]
+    /// C++ `void GrammarApplicator::set_attach_to(Reading* reading, Reading*
+    /// subreading)`. Records an attach target on the current context (silent
+    /// no-op when the stack is empty). The cohort is derived from
+    /// `reading->parent` — not passed separately; `reading` is unconditionally
+    /// dereferenced in C++ so it is a bare [`ReadingId`], while `subreading`
+    /// (stored as-is, may be null) is `Option<ReadingId>`.
+    pub fn set_attach_to(&mut self, reading: ReadingId, subreading: Option<ReadingId>) {
+        if !self.scratch.context_stack.is_empty() {
+            // spec.cohort = reading->parent (read before the mutable borrow below).
+            let parent = self.doc.store.readings.get(reading.0).parent;
+            let spec = &mut self.scratch.context_stack.last_mut().unwrap().attach_to;
+            spec.cohort = parent;
+            spec.reading = Some(reading);
+            spec.subreading = subreading;
+        }
+    }
+}
+
+impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.get-apply-to-fn]
     // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.get-apply-to-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-apply-to-fn]
@@ -45,29 +68,6 @@ impl super::GrammarApplicator {
         }
     }
 
-    // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.set-attach-to-fn]
-    // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.set-attach-to-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.set-attach-to-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-attach-to-fn]
-    /// C++ `void GrammarApplicator::set_attach_to(Reading* reading, Reading*
-    /// subreading)`. Records an attach target on the current context (silent
-    /// no-op when the stack is empty). The cohort is derived from
-    /// `reading->parent` — not passed separately; `reading` is unconditionally
-    /// dereferenced in C++ so it is a bare [`ReadingId`], while `subreading`
-    /// (stored as-is, may be null) is `Option<ReadingId>`.
-    pub fn set_attach_to(&mut self, reading: ReadingId, subreading: Option<ReadingId>) {
-        if !self.scratch.context_stack.is_empty() {
-            // spec.cohort = reading->parent (read before the mutable borrow below).
-            let parent = self.doc.store.readings.get(reading.0).parent;
-            let spec = &mut self.scratch.context_stack.last_mut().unwrap().attach_to;
-            spec.cohort = parent;
-            spec.reading = Some(reading);
-            spec.subreading = subreading;
-        }
-    }
-}
-
-impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.get-attach-to-fn]
     // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.get-attach-to-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-attach-to-fn]

@@ -31,4 +31,5 @@ assertions (
     {id engine-decomp.rehome.scratch, kind @complete, author "brendan@necessary.nu", at 2026-07-19T16:18:27.326815Z}
     {id engine-decomp.peel.matchset, kind @complete, author "brendan@necessary.nu", at 2026-07-19T16:28:06.375348Z}
     {id engine-decomp.peel.context, kind @complete, author "brendan@necessary.nu", at 2026-07-19T16:53:06.697856Z}
+    {id engine-decomp.peel.rules, kind @complete, author "brendan@necessary.nu", at 2026-07-19T17:23:42.43318Z}
 )

@@ -16,7 +16,7 @@ use crate::types::{SetNumber, TagHash};
 
 use super::*;
 
-impl crate::grammar_applicator::GrammarApplicator {
+impl crate::grammar_applicator::Engine<'_> {
     // ---- small helpers (not manifest symbols) --------------------------------
 
     /// Resolve a tag *hash* to its `TagId` via `grammar.single_tags`
@@ -34,7 +34,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     #[inline]
     pub(crate) fn generate_varstring_tag_id(&mut self, tag: TagId) -> TagId {
         let t = self.grammar.single_tags_list.get(tag.0).clone();
-        self.engine().generate_varstring_tag(&t)
+        self.generate_varstring_tag(&t)
     }
 
     /// C++ `TRACE` macro: push `rule->number` onto the apply-to subreading's
@@ -80,11 +80,11 @@ impl crate::grammar_applicator::GrammarApplicator {
                 .map(|c| self.grammar.single_tags_list.get(c.0).hash)
                 .map_or(0, |h| h.get());
             if rword_tag.r#type.intersects(crate::tag::T_REGEXP) {
-                if self.engine().does_tag_match_regexp(chash, &rword_tag, false) == 0 {
+                if self.does_tag_match_regexp(chash, &rword_tag, false) == 0 {
                     return false;
                 }
             } else if rword_tag.r#type.intersects(crate::tag::T_CASE_INSENSITIVE) {
-                if self.engine().does_tag_match_icase(chash, &rword_tag, false) == 0 {
+                if self.does_tag_match_icase(chash, &rword_tag, false) == 0 {
                     return false;
                 }
             } else {
@@ -388,7 +388,7 @@ impl crate::grammar_applicator::GrammarApplicator {
 // `get_sub_reading`), converted onto the split-borrow `Engine<'_>` view.
 // The `getTagList` overloads form a `&self` call chain and so peel as a unit;
 // unpeeled `&mut self` callers split at the call site via
-// `self.engine().<method>(...)`.
+// `self.<method>(...)`.
 // ===========================================================================
 impl crate::grammar_applicator::Engine<'_> {
     /// C++ `TagList getTagList(const Set& theSet, bool unif_mode) const` — the
@@ -632,7 +632,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     pub fn run_grammar_on_single_window(&mut self, current: SwId) -> u32 {
         if !self.grammar.before_sections.is_empty() && !self.cfg.no_before_sections {
             let rules = self.cfg.runsections.get(&-1).cloned().unwrap_or_default();
-            let rv = self.run_rules_on_single_window(current, &rules);
+            let rv = self.engine().run_rules_on_single_window(current, &rules);
             if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
                 return rv;
             }
@@ -658,7 +658,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     continue;
                 }
                 let rules = self.cfg.runsections.get(&key).cloned().unwrap();
-                let rv = self.run_rules_on_single_window(current, &rules);
+                let rv = self.engine().run_rules_on_single_window(current, &rules);
                 *counter.entry(key).or_insert(0) += 1;
                 if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
                     return rv;
@@ -678,7 +678,7 @@ impl crate::grammar_applicator::GrammarApplicator {
 
         if !self.grammar.after_sections.is_empty() && !self.cfg.no_after_sections {
             let rules = self.cfg.runsections.get(&-2).cloned().unwrap_or_default();
-            let rv = self.run_rules_on_single_window(current, &rules);
+            let rv = self.engine().run_rules_on_single_window(current, &rules);
             if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
                 return rv;
             }
@@ -964,7 +964,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         self.scratch.rule_hits.clear();
         self.scratch.index_ruleCohort_no.clear(0);
         let current = self.doc.stream.current.unwrap();
-        self.index_single_window(current);
+        self.engine().index_single_window(current);
         self.doc
             .store
             .single_windows
@@ -1055,7 +1055,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let cid = self.doc.store.single_windows.get(current.0).cohorts[k];
                 self.doc.store.cohorts.get_mut(cid.0).local_number = ui32(k);
             }
-            self.reflow_dependency_window(0);
+            self.engine().reflow_dependency_window(0);
         }
         std::ops::ControlFlow::Break(())
     }
@@ -1116,7 +1116,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         *self.doc.variables.index_or_insert(mk.get()) = mv.get();
 
         if self.doc.deps.has_dep {
-            self.reflow_dependency_window(0);
+            self.engine().reflow_dependency_window(0);
             if !self.doc.input_eof
                 && !self.doc.stream.next.is_empty()
                 && self

@@ -133,7 +133,7 @@ fn last_index_of(hay: &[char], needle: &[char], start: usize) -> i32 {
     -1
 }
 
-impl super::GrammarApplicator {
+impl Engine<'_> {
     // =======================================================================
     // makeBaseFromWord
     // =======================================================================
@@ -564,6 +564,9 @@ impl super::GrammarApplicator {
     // reflowRelationWindow
     // =======================================================================
 
+}
+
+impl super::GrammarApplicator {
     // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn]
     // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn]
@@ -660,6 +663,9 @@ impl super::GrammarApplicator {
         }
     }
 
+}
+
+impl Engine<'_> {
     // =======================================================================
     // reflowReading
     // =======================================================================
@@ -700,7 +706,7 @@ impl super::GrammarApplicator {
             self.add_tag_to_reading_rehash(reading, tid, false);
         }
 
-        reading_rehash(&mut self.doc.store, &self.grammar, reading);
+        reading_rehash(&mut self.doc.store, self.grammar, reading);
     }
 
     // =======================================================================
@@ -733,7 +739,7 @@ impl super::GrammarApplicator {
             .intersects(T_VARSTRING)
         {
             let tval = self.grammar.single_tags_list[tag.0].clone();
-            tag = self.engine().generate_varstring_tag(&tval);
+            tag = self.generate_varstring_tag(&tval);
         }
 
         // Snapshot the tag's scalar fields (it lives in the grammar arena).
@@ -878,7 +884,7 @@ impl super::GrammarApplicator {
             r.tags_plain_bloom.insert(thash.get());
         }
         if rehash {
-            reading_rehash(&mut self.doc.store, &self.grammar, reading);
+            reading_rehash(&mut self.doc.store, self.grammar, reading);
         }
 
         if self.grammar.has_bag_of_tags {
@@ -983,7 +989,7 @@ impl super::GrammarApplicator {
         if self.doc.store.readings.get(reading.0).baseform == Some(utag) {
             self.doc.store.readings.get_mut(reading.0).baseform = None;
         }
-        reading_rehash(&mut self.doc.store, &self.grammar, reading);
+        reading_rehash(&mut self.doc.store, self.grammar, reading);
         let parent = self.doc.store.readings.get(reading.0).parent.unwrap();
         self.doc.store.cohorts.get_mut(parent.0).r#type &= !CT_NUM_CURRENT;
     }
@@ -1044,7 +1050,7 @@ impl super::GrammarApplicator {
                 .intersects(T_VARSTRING)
             {
                 let tval = self.grammar.single_tags_list[t.0].clone();
-                t = self.engine().generate_varstring_tag(&tval);
+                t = self.generate_varstring_tag(&tval);
                 mappings[idx] = t;
             }
             let (ttype, first_char) = {
@@ -1127,6 +1133,9 @@ impl super::GrammarApplicator {
         }
     }
 
+}
+
+impl super::GrammarApplicator {
     // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.split-all-mappings-fn]
     // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.split-all-mappings-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.split-all-mappings-fn]
@@ -1148,7 +1157,7 @@ impl super::GrammarApplicator {
                 Some(m) => m,
                 None => continue,
             };
-            self.split_mappings(&mut mlist, cohort, reading, mapped);
+            self.engine().split_mappings(&mut mlist, cohort, reading, mapped);
         }
         // std::sort(cohort.readings, Reading::cmp_number).
         self.sort_cohort_readings(cohort);
@@ -1183,7 +1192,9 @@ impl super::GrammarApplicator {
         });
         self.doc.store.cohorts.get_mut(cohort.0).readings = v;
     }
+}
 
+impl Engine<'_> {
     // =======================================================================
     // mergeReadings / mergeMappings
     // =======================================================================

@@ -350,11 +350,12 @@ impl<'a> BinaryApplicator<'a> {
                 let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
                 self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
                 let wf = window_tags[wf_idx];
-                self.base.add_tag_to_reading(wread, wf);
+                self.base.engine().add_tag_to_reading(wread, wf);
                 for tn in 0..stag_count {
                     let ti = read_u16!() as usize;
                     let rehash = tn + 1 == stag_count;
                     self.base
+                        .engine()
                         .add_tag_to_reading_rehash(wread, window_tags[ti], rehash);
                 }
             }
@@ -415,7 +416,7 @@ impl<'a> BinaryApplicator<'a> {
             // Readings.
             let reading_count = read_u16!();
             if reading_count == 0 {
-                self.base.init_empty_cohort(c_cohort);
+                self.base.engine().init_empty_cohort(c_cohort);
             }
             let mut prev: Option<crate::arena::ReadingId> = None;
             for _ in 0..reading_count {
@@ -429,12 +430,12 @@ impl<'a> BinaryApplicator<'a> {
                     .get(c_cohort.0)
                     .wordform
                     .unwrap();
-                self.base.add_tag_to_reading(c_reading, wf);
+                self.base.engine().add_tag_to_reading(c_reading, wf);
 
                 let rflags = read_u16!();
 
                 let base_idx = read_u16!() as usize;
-                self.base
+                self.base.engine()
                     .add_tag_to_reading(c_reading, window_tags[base_idx]);
 
                 let rtag_count = read_u16!();
@@ -448,11 +449,11 @@ impl<'a> BinaryApplicator<'a> {
                     {
                         mappings.push(tid);
                     } else {
-                        self.base.add_tag_to_reading(c_reading, tid);
+                        self.base.engine().add_tag_to_reading(c_reading, tid);
                     }
                 }
                 if !mappings.is_empty() {
-                    self.base
+                    self.base.engine()
                         .split_mappings(&mut mappings, c_cohort, c_reading, true);
                 }
 
@@ -492,7 +493,7 @@ impl<'a> BinaryApplicator<'a> {
                         .find(self.base.cfg.endtag.get())
                         != self.base.doc.store.readings.get(r.0).tags.end();
                     if !has {
-                        self.base.add_tag_to_reading(r, endtag_id);
+                        self.base.engine().add_tag_to_reading(r, endtag_id);
                     }
                 }
             }

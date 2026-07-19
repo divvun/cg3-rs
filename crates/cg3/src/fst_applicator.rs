@@ -228,7 +228,7 @@ where
             if !profiling {
                 crate::cohort::unignore_all(&mut self.base.doc.store, cohort);
                 if !self.base.cfg.split_mappings {
-                    self.base.merge_mappings(cohort);
+                    self.base.engine().merge_mappings(cohort);
                 }
             }
 
@@ -546,7 +546,7 @@ where
                             );
                         }
                         let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                        self.base.add_tag_to_reading(c_reading, wf);
+                        self.base.engine().add_tag_to_reading(c_reading, wf);
 
                         // const UChar* base = space; (index into cleaned). A quoted
                         // baseform reassignment (base = tag.data()) is tracked with
@@ -724,14 +724,14 @@ where
                                 {
                                     mappings.push(t);
                                 } else {
-                                    self.base.add_tag_to_reading(c_reading, t);
+                                    self.base.engine().add_tag_to_reading(c_reading, t);
                                 }
                                 // if (hash && hash[0] == 0) { ... new sub-reading ... }
                                 if let Some(hidx) = hash
                                     && cleaned[hidx] == '\0'
                                 {
                                     if let Some(wt) = wtag_tag {
-                                        self.base.add_tag_to_reading(c_reading, wt);
+                                        self.base.engine().add_tag_to_reading(c_reading, wt);
                                     }
                                     let parent =
                                         self.base.doc.store.readings.get(c_reading.0).parent;
@@ -790,11 +790,11 @@ where
                             {
                                 mappings.push(t);
                             } else {
-                                self.base.add_tag_to_reading(c_reading, t);
+                                self.base.engine().add_tag_to_reading(c_reading, t);
                             }
                         }
                         if let Some(wt) = wtag_tag {
-                            self.base.add_tag_to_reading(c_reading, wt);
+                            self.base.engine().add_tag_to_reading(c_reading, wt);
                         }
                         // if (!cReading->baseform) { baseform = wordform->hash; warn }
                         if self
@@ -835,14 +835,14 @@ where
                                 .count()
                         };
                         if bf_size == 2 {
-                            self.base.del_tag_from_reading_hash(c_reading, bf_hash);
+                            self.base.engine().del_tag_from_reading_hash(c_reading, bf_hash);
                             let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                            let base = self.base.make_base_from_word(wf);
+                            let base = self.base.engine().make_base_from_word(wf);
                             let h = self.base.grammar.single_tags_list.get(base.0).hash;
                             self.base.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
                         }
                         if !mappings.is_empty() {
-                            self.base.split_mappings(&mut mappings, cc, c_reading, true);
+                            self.base.engine().split_mappings(&mut mappings, cc, c_reading, true);
                         }
                         if self.base.grammar.sub_readings_ltr
                             && self.base.doc.store.readings.get(c_reading.0).next.is_some()
@@ -894,12 +894,12 @@ where
                 );
             }
             if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                self.base.init_empty_cohort(cc);
+                self.base.engine().init_empty_cohort(cc);
             }
             let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                self.base.add_tag_to_reading(r, et);
+                self.base.engine().add_tag_to_reading(r, et);
             }
         }
 
@@ -952,7 +952,7 @@ where
         if let Some(cc) = *c_cohort
             && self.base.doc.store.cohorts.get(cc.0).readings.is_empty()
         {
-            self.base.init_empty_cohort(cc);
+            self.base.engine().init_empty_cohort(cc);
         }
 
         // is_conv fast path.
@@ -991,7 +991,7 @@ where
                 for &c in reversed(&cohorts) {
                     if self.base.engine().does_set_match_cohort_normal(c, sd, None) {
                         *did_soft_lookback = false;
-                        let cohort = self.base.delimit_at(cs, c);
+                        let cohort = self.base.engine().delimit_at(cs, c);
                         // cSWindow = cohort->parent->next;
                         let parent = self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
                         *c_swindow = self.base.doc.store.single_windows.get(parent.0).next;
@@ -1019,7 +1019,7 @@ where
                 let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
                     let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                    self.base.add_tag_to_reading(r, et);
+                    self.base.engine().add_tag_to_reading(r, et);
                 }
                 {
                     let base = &mut *self.base;
@@ -1064,7 +1064,7 @@ where
                 let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
                     let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                    self.base.add_tag_to_reading(r, et);
+                    self.base.engine().add_tag_to_reading(r, et);
                 }
                 {
                     let base = &mut *self.base;
@@ -1239,7 +1239,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for FstFormat {
         cmd: &str,
         output: &mut W,
     ) {
-        app.print_stream_command(cmd, output);
+        app.engine().print_stream_command(cmd, output);
     }
 
     fn print_plain_text_line<W: Write>(
@@ -1248,7 +1248,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for FstFormat {
         line: &str,
         output: &mut W,
     ) {
-        app.print_plain_text_line(line, output);
+        app.engine().print_plain_text_line(line, output);
     }
 }
 

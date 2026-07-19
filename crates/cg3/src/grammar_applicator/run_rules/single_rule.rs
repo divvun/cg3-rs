@@ -19,7 +19,7 @@ use crate::types::{GlobalNumber, TagHash};
 
 use super::*;
 
-impl crate::grammar_applicator::GrammarApplicator {
+impl crate::grammar_applicator::Engine<'_> {
     // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
     // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
@@ -416,7 +416,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let mut i = 0usize;
             while i < self.doc.store.cohorts.get(cohort.0).readings.len() {
                 let reading_i = self.doc.store.cohorts.get(cohort.0).readings[i];
-                let reading = match self.engine().get_sub_reading(reading_i, rsub_reading) {
+                let reading = match self.get_sub_reading(reading_i, rsub_reading) {
                     Some(r) => r,
                     None => {
                         let rr = self.doc.store.readings.get_mut(reading_i.0);
@@ -556,12 +556,12 @@ impl crate::grammar_applicator::GrammarApplicator {
                 if self.scratch.context_stack.len() > 1 {
                     let m = self.scratch.context_stack[self.scratch.context_stack.len() - 2].mark;
                     if m.is_some() {
-                        self.engine().set_mark(m);
+                        self.set_mark(m);
                     } else {
-                        self.engine().set_mark(Some(cohort));
+                        self.set_mark(Some(cohort));
                     }
                 } else {
-                    self.engine().set_mark(Some(cohort));
+                    self.set_mark(Some(cohort));
                 }
                 let orz = self.scratch.context_stack.last().unwrap().regexgrp_ct;
                 {
@@ -576,7 +576,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 // First check: does the rule target match?
                 let target_matches = rtarget.get() != 0 && {
                     let bypass = set_type.intersects(ST_CHILD_UNIFY | ST_SPECIAL);
-                    self.engine().does_set_match_reading(reading, rtarget.get(), bypass, false)
+                    self.does_set_match_reading(reading, rtarget.get(), bypass, false)
                 };
                 if target_matches {
                     let mut regex_prop = true;
@@ -607,7 +607,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         while ti < tests.len() {
                             let test = tests[ti];
                             if rflags.intersects(RF_RESETX) || !rflags.intersects(RF_REMEMBERX) {
-                                self.engine().set_mark(Some(cohort));
+                                self.set_mark(Some(cohort));
                             }
                             self.scratch.seen_barrier = false;
                             self.scratch.dep_deep_seen.clear();
@@ -628,7 +628,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                                 && (self.cfg.no_pass_origin
                                     || (tpos.intersects(POS_NO_PASS_ORIGIN)))
                             {
-                                self.engine().run_contextual_test(
+                                self.run_contextual_test(
                                     Some(current),
                                     c,
                                     test,
@@ -636,7 +636,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                                     Some(cohort),
                                 )
                             } else {
-                                self.engine().run_contextual_test(
+                                self.run_contextual_test(
                                     Some(current),
                                     c,
                                     test,
@@ -694,7 +694,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                                 let mut j = 0usize;
                                 while j < i {
                                     let rj = self.doc.store.cohorts.get(cohort.0).readings[j];
-                                    if let Some(sr) = self.engine().get_sub_reading(rj, rsub_reading)
+                                    if let Some(sr) = self.get_sub_reading(rj, rsub_reading)
                                         && self.doc.store.readings.get(sr.0).immutable
                                     {
                                         let r = self.doc.store.readings.get_mut(sr.0);
@@ -1149,7 +1149,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// resolution — returns the first tag of a set's expanded tag list, varstring-
     /// generated. Used by JUMP / SETVARIABLE.
     pub(crate) fn rr_first_taglist_tag(&mut self, set: SetId) -> Option<TagId> {
-        let list = self.engine().get_tag_list_of_set(set, false);
+        let list = self.get_tag_list_of_set(set, false);
         let first = list.first().copied()?;
         let ttype = self.grammar.single_tags_list.get(first.0).r#type;
         if ttype.intersects(T_VARSTRING) {

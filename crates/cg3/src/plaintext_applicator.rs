@@ -188,7 +188,7 @@ where
                 if let Some(cc) = c_cohort
                     && self.base.doc.store.cohorts.get(cc.0).readings.is_empty()
                 {
-                    self.base.init_empty_cohort(cc);
+                    self.base.engine().init_empty_cohort(cc);
                 }
 
                 // (a) Soft-limit lookback (the ONLY split path that can fire).
@@ -208,7 +208,7 @@ where
                         for &c in cohorts.iter().rev() {
                             if self.base.engine().does_set_match_cohort_normal(c, sd, None) {
                                 did_soft_lookback = false;
-                                let cohort = self.base.delimit_at(sw, c);
+                                let cohort = self.base.engine().delimit_at(sw, c);
                                 let parent =
                                     self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
                                 c_swindow = self.base.doc.store.single_windows.get(parent.0).next;
@@ -238,7 +238,7 @@ where
                         for r in rs {
                             let te = self.base.cfg.endtag;
                             let tid = tag_by_hash(&self.base.grammar, te);
-                            self.base.add_tag_to_reading(r, tid);
+                            self.base.engine().add_tag_to_reading(r, tid);
                         }
                         {
                             let base = &mut *self.base;
@@ -278,7 +278,7 @@ where
                         for r in rs {
                             let te = self.base.cfg.endtag;
                             let tid = tag_by_hash(&self.base.grammar, te);
-                            self.base.add_tag_to_reading(r, tid);
+                            self.base.engine().add_tag_to_reading(r, tid);
                         }
                         {
                             let base = &mut *self.base;
@@ -388,12 +388,12 @@ where
                     c_cohort = Some(cc);
                     l_cohort = Some(cc);
                     self.base.doc.num_cohorts += 1;
-                    let cr = self.base.init_empty_cohort(cc);
+                    let cr = self.base.engine().init_empty_cohort(cc);
                     c_reading = Some(cr);
                     self.base.doc.store.readings.get_mut(cr.0).noprint = !self.add_tags;
                     if self.add_tags {
                         let tag = self.base.add_tag("<cg-conv>", crate::tag::TagType::empty());
-                        self.base.add_tag_to_reading(cr, tag);
+                        self.base.engine().add_tag_to_reading(cr, tag);
                     }
                     if self.add_tags && (first_upper || all_upper || mixed_upper) {
                         let baseform = self
@@ -404,30 +404,30 @@ where
                             .get(cr.0)
                             .baseform
                             .unwrap_or(TagHash(0));
-                        self.base.del_tag_from_reading_hash(cr, baseform);
+                        self.base.engine().del_tag_from_reading_hash(cr, baseform);
                         let lowered: String = token_str.to_lowercase();
                         let base_tag_text = format!("\"{lowered}\"");
                         let bt = self
                             .base
                             .add_tag(&base_tag_text, crate::tag::TagType::empty());
-                        self.base.add_tag_to_reading(cr, bt);
+                        self.base.engine().add_tag_to_reading(cr, bt);
                         if all_upper {
                             let t = self
                                 .base
                                 .add_tag("<all-upper>", crate::tag::TagType::empty());
-                            self.base.add_tag_to_reading(cr, t);
+                            self.base.engine().add_tag_to_reading(cr, t);
                         }
                         if first_upper {
                             let t = self
                                 .base
                                 .add_tag("<first-upper>", crate::tag::TagType::empty());
-                            self.base.add_tag_to_reading(cr, t);
+                            self.base.engine().add_tag_to_reading(cr, t);
                         }
                         if mixed_upper && !all_upper {
                             let t = self
                                 .base
                                 .add_tag("<mixed-upper>", crate::tag::TagType::empty());
-                            self.base.add_tag_to_reading(cr, t);
+                            self.base.engine().add_tag_to_reading(cr, t);
                         }
                     }
                     {
@@ -495,13 +495,13 @@ where
                 );
             }
             if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                self.base.init_empty_cohort(cc);
+                self.base.engine().init_empty_cohort(cc);
             }
             let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let te = self.base.cfg.endtag;
                 let tid = tag_by_hash(&self.base.grammar, te);
-                self.base.add_tag_to_reading(r, tid);
+                self.base.engine().add_tag_to_reading(r, tid);
             }
             #[allow(unused_assignments)]
             {
@@ -613,7 +613,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for PlaintextFormat 
         cmd: &str,
         output: &mut W,
     ) {
-        app.print_stream_command(cmd, output);
+        app.engine().print_stream_command(cmd, output);
     }
 
     fn print_plain_text_line<W: Write>(
@@ -622,7 +622,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for PlaintextFormat 
         line: &str,
         output: &mut W,
     ) {
-        app.print_plain_text_line(line, output);
+        app.engine().print_plain_text_line(line, output);
     }
 }
 

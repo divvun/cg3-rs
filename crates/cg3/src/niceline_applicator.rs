@@ -207,7 +207,7 @@ impl<'a> NicelineApplicator<'a> {
                             for &c in cohorts.iter().rev() {
                                 if self.base.engine().does_set_match_cohort_normal(c, sd, None) {
                                     did_soft_lookback = false;
-                                    let cohort = self.base.delimit_at(sw, c);
+                                    let cohort = self.base.engine().delimit_at(sw, c);
                                     // cSWindow = cohort->parent->next;
                                     let parent =
                                         self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
@@ -241,7 +241,7 @@ impl<'a> NicelineApplicator<'a> {
                             for r in rs {
                                 let te = self.base.cfg.endtag;
                                 let tid = tag_by_hash(&self.base.grammar, te);
-                                self.base.add_tag_to_reading(r, tid);
+                                self.base.engine().add_tag_to_reading(r, tid);
                             }
                             crate::single_window::append_cohort(
                                 &mut self.base.doc.store,
@@ -278,7 +278,7 @@ impl<'a> NicelineApplicator<'a> {
                             for r in rs {
                                 let te = self.base.cfg.endtag;
                                 let tid = tag_by_hash(&self.base.grammar, te);
-                                self.base.add_tag_to_reading(r, tid);
+                                self.base.engine().add_tag_to_reading(r, tid);
                             }
                             crate::single_window::append_cohort(
                                 &mut self.base.doc.store,
@@ -406,7 +406,7 @@ impl<'a> NicelineApplicator<'a> {
                                 {
                                     mappings.push(tag);
                                 } else {
-                                    self.base.add_tag_to_reading(cr, tag);
+                                    self.base.engine().add_tag_to_reading(cr, tag);
                                 }
                             }
                             // base = ++space; skip quoted / bracketed base again.
@@ -437,7 +437,7 @@ impl<'a> NicelineApplicator<'a> {
                             {
                                 mappings.push(tag);
                             } else {
-                                self.base.add_tag_to_reading(cr, tag);
+                                self.base.engine().add_tag_to_reading(cr, tag);
                             }
                         }
 
@@ -457,7 +457,7 @@ impl<'a> NicelineApplicator<'a> {
                             // "Line %u had no valid baseform." warning: deferred.
                         }
                         if !mappings.is_empty() {
-                            self.base.split_mappings(&mut mappings, cc, cr, true);
+                            self.base.engine().split_mappings(&mut mappings, cc, cr, true);
                         }
                         crate::cohort::append_reading(&mut self.base.doc.store, cc, cr);
                         self.base.doc.num_readings += 1;
@@ -469,7 +469,7 @@ impl<'a> NicelineApplicator<'a> {
                         }
                     }
                     if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                        self.base.init_empty_cohort(cc);
+                        self.base.engine().init_empty_cohort(cc);
                     }
                 }
             } else {
@@ -526,13 +526,13 @@ impl<'a> NicelineApplicator<'a> {
                 cc,
             );
             if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                self.base.init_empty_cohort(cc);
+                self.base.engine().init_empty_cohort(cc);
             }
             let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let te = self.base.cfg.endtag;
                 let tid = tag_by_hash(&self.base.grammar, te);
-                self.base.add_tag_to_reading(r, tid);
+                self.base.engine().add_tag_to_reading(r, tid);
             }
             #[allow(unused_assignments)]
             {
@@ -721,7 +721,7 @@ impl<'a> NicelineApplicator<'a> {
             let hit_by: Vec<u32> = self.base.doc.store.readings.get(reading.0).hit_by.clone();
             for hb in hit_by {
                 u_fputc(' ', output);
-                self.base.print_trace(output, hb);
+                self.base.engine().print_trace(output, hb);
             }
         }
 
@@ -751,7 +751,7 @@ impl<'a> NicelineApplicator<'a> {
         if local_number != 0 && !removed {
             let wblank = self.base.doc.store.cohorts.get(cohort.0).wblank.clone();
             if !wblank.is_empty() {
-                self.base.print_plain_text_line(&wblank, output);
+                self.base.engine().print_plain_text_line(&wblank, output);
                 if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
                     u_fputc('\n', output);
                 }
@@ -773,7 +773,7 @@ impl<'a> NicelineApplicator<'a> {
             if !profiling {
                 unignore_all(&mut self.base.doc.store, cohort);
                 if !self.base.cfg.split_mappings {
-                    self.base.merge_mappings(cohort);
+                    self.base.engine().merge_mappings(cohort);
                 }
             }
 
@@ -791,7 +791,7 @@ impl<'a> NicelineApplicator<'a> {
         u_fputc('\n', output);
         let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
         if !text.is_empty() && text.chars().any(|c| !is_ws(&self.base.cfg.ws, c)) {
-            self.base.print_plain_text_line(&text, output);
+            self.base.engine().print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }
@@ -809,7 +809,7 @@ impl<'a> NicelineApplicator<'a> {
         };
 
         if !text.is_empty() {
-            self.base.print_plain_text_line(&text, output);
+            self.base.engine().print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }
@@ -820,7 +820,7 @@ impl<'a> NicelineApplicator<'a> {
         }
 
         if !text_post.is_empty() {
-            self.base.print_plain_text_line(&text_post, output);
+            self.base.engine().print_plain_text_line(&text_post, output);
             if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }

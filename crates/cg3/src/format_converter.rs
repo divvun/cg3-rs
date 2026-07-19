@@ -400,7 +400,7 @@ impl StreamFormat for ConvFormat {
         match app.cfg.fmt_output {
             CG3SF_CG => {
                 let trace = app.cfg.trace;
-                app.print_cohort(cohort, output, profiling, trace)
+                app.engine().print_cohort(cohort, output, profiling, trace)
             }
             CG3SF_APERTIUM => self.apertium.print_cohort(app, cohort, output, profiling),
             CG3SF_FST => self.fst.print_cohort(app, cohort, output, profiling),
@@ -425,7 +425,7 @@ impl StreamFormat for ConvFormat {
         match app.cfg.fmt_output {
             CG3SF_CG => {
                 let trace = app.cfg.trace;
-                app.print_single_window(window, output, profiling, trace);
+                app.engine().print_single_window(window, output, profiling, trace);
             }
             CG3SF_APERTIUM => self
                 .apertium
@@ -460,7 +460,7 @@ impl StreamFormat for ConvFormat {
             // BinaryApplicator::printStreamCommand.
             CG3SF_BINARY => self.binary.bin_print_stream_command(cmd, output),
             // CG / APERTIUM / FST / NICELINE / PLAIN / default → base.
-            _ => app.print_stream_command(cmd, output),
+            _ => app.engine().print_stream_command(cmd, output),
         }
     }
 
@@ -476,7 +476,7 @@ impl StreamFormat for ConvFormat {
             // BinaryApplicator::printPlainTextLine.
             CG3SF_BINARY => self.binary.bin_print_plain_text_line(line, output),
             // CG / APERTIUM / FST / NICELINE / PLAIN / default → base.
-            _ => app.print_plain_text_line(line, output),
+            _ => app.engine().print_plain_text_line(line, output),
         }
     }
 }

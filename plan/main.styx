@@ -301,6 +301,21 @@ children (
                         title "run_rules cluster (dispatch/schedule/single_rule/window/restructure) onto the view; RRState folds into or rides beside RuleScratch"
                         priority 1
                         deps (engine-decomp.peel.context)
+                        log (
+                            {
+                                at 2026-07-19T16:53:50.802409Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Todo → Doing (nplan_start)"
+                            }
+
+                            {
+                                at 2026-07-19T17:23:42.43318Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Doing → Done (nplan_complete)"
+                            }
+                        )
                     }
 
                     {

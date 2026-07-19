@@ -154,6 +154,79 @@ fn keyword_name(k: KEYWORDS) -> &'static str {
     }
 }
 
+/// C++ `r->maplist->getNonEmpty().begin()->first->tag` — the first tag text
+/// of a rule's map/sub set (its `trie`, or `trie_special` when the trie is
+/// empty). `getNonEmpty` is not yet ported in `set.rs`; reproduced inline.
+///
+/// A free `&Grammar` reader (rather than an `Engine`/`&self` method) so it is
+/// callable from both the peeled `Engine` printers and the `&self` per-format
+/// print paths (`print_trace`).
+fn first_maplist_tag(grammar: &Grammar, set: Option<crate::arena::SetId>) -> Option<&str> {
+    let sid = set?;
+    let s = &grammar.sets_list[sid.0];
+    let trie = if !s.trie.is_empty() {
+        &s.trie
+    } else {
+        &s.trie_special
+    };
+    let (tid, _node) = trie.iter().next()?;
+    Some(&grammar.single_tags_list[tid.0].tag)
+}
+
+// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-trace-fn]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-trace-fn]
+/// C++ `void printTrace(std::ostream& output, uint32_t hit_by)`.
+///
+/// A free `&Grammar`/`&EngineConfig` reader so it is callable from both the
+/// peeled `Engine` printers ([`Engine::print_trace`]) and the `&self`
+/// per-format print paths (Apertium/Niceline `printReading`), which cannot
+/// split `&self` into an `Engine` view. Reads only `grammar`/`cfg`.
+pub fn print_trace<W: Write>(
+    grammar: &Grammar,
+    cfg: &super::EngineConfig,
+    output: &mut W,
+    hit_by: u32,
+) {
+    if (hit_by as usize) < grammar.rule_by_number.capacity() as usize
+        && grammar.rule_by_number.try_get(hit_by).is_some()
+    {
+        let r = &grammar.rule_by_number[hit_by];
+        let _ = write!(output, "{}", keyword_name(r.r#type));
+        use KEYWORDS::*;
+        let is_rel = matches!(
+            r.r#type,
+            K_ADDRELATION
+                | K_SETRELATION
+                | K_REMRELATION
+                | K_ADDRELATIONS
+                | K_SETRELATIONS
+                | K_REMRELATIONS
+        );
+        if is_rel {
+            if let Some(txt) = first_maplist_tag(grammar, r.maplist) {
+                let _ = write!(output, "({txt}");
+            }
+            if matches!(r.r#type, K_ADDRELATIONS | K_SETRELATIONS | K_REMRELATIONS)
+                && let Some(txt) = first_maplist_tag(grammar, r.sublist)
+            {
+                let _ = write!(output, ",{txt}");
+            }
+            let _ = write!(output, ")");
+        }
+        if !cfg.trace_name_only || r.name.is_empty() {
+            let _ = write!(output, ":{}", r.line);
+        }
+        if !r.name.is_empty() {
+            u_fputc(':', output);
+            let _ = write!(output, "{}", r.name);
+        }
+    } else {
+        // C++ ENCL pass number: numeric_limits<uint32_t>::max() - hit_by.
+        let pass = u32::MAX - hit_by;
+        let _ = write!(output, "ENCL:{pass}");
+    }
+}
+
 /// `std::ostream` <-> `Process` write bridge (the C++ `Process& output` is
 /// written with the same `writeRaw`/`output.write(...)` primitives as a stream).
 struct ProcWrite<'a>(&'a mut Process);
@@ -542,6 +615,9 @@ impl super::GrammarApplicator {
         self.cfg.did_index = true;
     }
 
+}
+
+impl Engine<'_> {
     /// Dependency span zero-pad width — `floor(log10(hard_limit)) + 1`, matching
     /// the digit baked into `span_pattern_*` by [`index`].
     fn dep_span_width(&self) -> usize {
@@ -574,63 +650,11 @@ impl super::GrammarApplicator {
         let _ = write!(output, "{line}");
     }
 
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-trace-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-trace-fn]
-    /// C++ `void printTrace(std::ostream& output, uint32_t hit_by)`.
+    /// C++ `void printTrace(std::ostream& output, uint32_t hit_by)` — thin `&self`
+    /// wrapper delegating to the free [`print_trace`] (which reads only
+    /// `grammar`/`cfg`, so it is also callable from `&self` non-Engine printers).
     pub fn print_trace<W: Write>(&self, output: &mut W, hit_by: u32) {
-        if (hit_by as usize) < self.grammar.rule_by_number.capacity() as usize
-            && self.grammar.rule_by_number.try_get(hit_by).is_some()
-        {
-            let r = &self.grammar.rule_by_number[hit_by];
-            let _ = write!(output, "{}", keyword_name(r.r#type));
-            use KEYWORDS::*;
-            let is_rel = matches!(
-                r.r#type,
-                K_ADDRELATION
-                    | K_SETRELATION
-                    | K_REMRELATION
-                    | K_ADDRELATIONS
-                    | K_SETRELATIONS
-                    | K_REMRELATIONS
-            );
-            if is_rel {
-                if let Some(txt) = self.first_maplist_tag(r.maplist) {
-                    let _ = write!(output, "({txt}");
-                }
-                if matches!(r.r#type, K_ADDRELATIONS | K_SETRELATIONS | K_REMRELATIONS)
-                    && let Some(txt) = self.first_maplist_tag(r.sublist)
-                {
-                    let _ = write!(output, ",{txt}");
-                }
-                let _ = write!(output, ")");
-            }
-            if !self.cfg.trace_name_only || r.name.is_empty() {
-                let _ = write!(output, ":{}", r.line);
-            }
-            if !r.name.is_empty() {
-                u_fputc(':', output);
-                let _ = write!(output, "{}", r.name);
-            }
-        } else {
-            // C++ ENCL pass number: numeric_limits<uint32_t>::max() - hit_by.
-            let pass = u32::MAX - hit_by;
-            let _ = write!(output, "ENCL:{pass}");
-        }
-    }
-
-    /// C++ `r->maplist->getNonEmpty().begin()->first->tag` — the first tag text
-    /// of a rule's map/sub set (its `trie`, or `trie_special` when the trie is
-    /// empty). `getNonEmpty` is not yet ported in `set.rs`; reproduced inline.
-    fn first_maplist_tag(&self, set: Option<crate::arena::SetId>) -> Option<&str> {
-        let sid = set?;
-        let s = &self.grammar.sets_list[sid.0];
-        let trie = if !s.trie.is_empty() {
-            &s.trie
-        } else {
-            &s.trie_special
-        };
-        let (tid, _node) = trie.iter().next()?;
-        Some(&self.grammar.single_tags_list[tid.0].tag)
+        print_trace(self.grammar, self.cfg, output, hit_by);
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-reading-fn]
@@ -679,7 +703,7 @@ impl super::GrammarApplicator {
         };
 
         if baseform != TagHash(0) {
-            let tid = tag_by_hash(&self.grammar, baseform);
+            let tid = tag_by_hash(self.grammar, baseform);
             let _ = write!(output, "{}", self.grammar.single_tags_list[tid.0].tag);
         }
 
@@ -700,7 +724,7 @@ impl super::GrammarApplicator {
                 }
                 unique.insert(tter.get());
             }
-            let tid = tag_by_hash(&self.grammar, tter);
+            let tid = tag_by_hash(self.grammar, tter);
             let ttype = self.grammar.single_tags_list[tid.0].r#type;
             if ttype.intersects(T_DEPENDENCY) && self.doc.deps.has_dep && !self.cfg.dep_original {
                 continue;
@@ -809,7 +833,7 @@ impl super::GrammarApplicator {
             let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
                 for siter in targets.iter() {
-                    let tid = tag_by_hash(&self.grammar, TagHash(*rel_hash));
+                    let tid = tag_by_hash(self.grammar, TagHash(*rel_hash));
                     let _ = write!(
                         output,
                         " R:{}:{siter}",
@@ -903,7 +927,7 @@ impl super::GrammarApplicator {
                         if tter == wf_hash {
                             continue;
                         }
-                        let tid = tag_by_hash(&self.grammar, tter);
+                        let tid = tag_by_hash(self.grammar, tter);
                         let _ = write!(output, " {}", self.grammar.single_tags_list[tid.0].tag);
                     }
                 }
@@ -1003,7 +1027,7 @@ impl super::GrammarApplicator {
 
         for var in vars_output {
             let key_tag = {
-                let tid = tag_by_hash(&self.grammar, TagHash(var));
+                let tid = tag_by_hash(self.grammar, TagHash(var));
                 self.grammar.single_tags_list[tid.0].tag.clone()
             };
             let value_hash: Option<u32> = {
@@ -1019,7 +1043,7 @@ impl super::GrammarApplicator {
             match value_hash {
                 Some(vh) => {
                     if vh != self.grammar.tag_any {
-                        let vtid = tag_by_hash(&self.grammar, TagHash(vh));
+                        let vtid = tag_by_hash(self.grammar, TagHash(vh));
                         cmd_buf.push_str(STR_CMD_SETVAR);
                         cmd_buf.push_str(&key_tag);
                         cmd_buf.push('=');
@@ -1082,7 +1106,7 @@ impl super::GrammarApplicator {
         write_raw(&mut ss, flags);
 
         if r.baseform.is_some() {
-            let tid = tag_by_hash(&self.grammar, r.baseform.unwrap_or(TagHash(0)));
+            let tid = tag_by_hash(self.grammar, r.baseform.unwrap_or(TagHash(0)));
             write_utf8_raw(&mut ss, &self.grammar.single_tags_list[tid.0].tag);
         }
 
@@ -1101,7 +1125,7 @@ impl super::GrammarApplicator {
             if r.baseform == Some(tter) || tter == wordform_hash {
                 continue;
             }
-            let tid = tag_by_hash(&self.grammar, tter);
+            let tid = tag_by_hash(self.grammar, tter);
             if self.grammar.single_tags_list[tid.0]
                 .r#type
                 .intersects(T_DEPENDENCY)
@@ -1117,7 +1141,7 @@ impl super::GrammarApplicator {
             if r.baseform == Some(tter) || tter == wordform_hash {
                 continue;
             }
-            let tid = tag_by_hash(&self.grammar, tter);
+            let tid = tag_by_hash(self.grammar, tter);
             if self.grammar.single_tags_list[tid.0]
                 .r#type
                 .intersects(T_DEPENDENCY)
@@ -1243,7 +1267,7 @@ impl super::GrammarApplicator {
                 .baseform
                 .unwrap_or(TagHash(0));
             let cur = {
-                let tid = tag_by_hash(&self.grammar, baseform);
+                let tid = tag_by_hash(self.grammar, baseform);
                 self.grammar.single_tags_list[tid.0].tag.clone()
             };
             if str != cur {
@@ -1374,6 +1398,9 @@ impl super::GrammarApplicator {
     // overloads collapse to &str)
     // =======================================================================
 
+}
+
+impl super::GrammarApplicator {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.error-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.error-fn]
     /// C++ `void error(const char* str, const UChar* p)` — `p` ignored. The C
@@ -1632,6 +1659,9 @@ impl super::GrammarApplicator {
     // printDebugRule / addProfilingExample / profileRuleContext (inline .hpp)
     // =======================================================================
 
+}
+
+impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn]
     /// C++ inline `void printDebugRule(const Rule& rule, bool target, bool cntx)`.

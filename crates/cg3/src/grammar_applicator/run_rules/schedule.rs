@@ -16,7 +16,7 @@ use crate::types::{TagHash, UString};
 
 use super::*;
 
-impl crate::grammar_applicator::GrammarApplicator {
+impl crate::grammar_applicator::Engine<'_> {
     // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn]
     // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn]
@@ -240,7 +240,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     (c.global_number, c.dep_parent)
                 };
                 if gn == head_gn
-                    || (dp == Some(head_gn) && self.engine().does_set_match_cohort_normal(*iter, cset, None))
+                    || (dp == Some(head_gn) && self.does_set_match_cohort_normal(*iter, cset, None))
                 {
                     self.cohortset_insert(cs, *iter);
                 }
@@ -396,7 +396,7 @@ impl crate::grammar_applicator::Engine<'_> {
     }
 }
 
-impl crate::grammar_applicator::GrammarApplicator {
+impl crate::grammar_applicator::Engine<'_> {
     /// `clear(subs_any)` — free every amalgamated sub-reading back to the readings
     /// arena and empty the tracking vector. RECONCILIATION: matches the required
     /// `Vec<ReadingId>` shape of `subs_any` (see [`Self::subs_any_push`]).
