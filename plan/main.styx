@@ -257,6 +257,21 @@ children (
                         title "Call-graph leaves: match_set (does_set_match_*, does_tag_match_*, tag matching helpers) take (cfg, doc, scratch, grammar) views instead of &mut self"
                         priority 1
                         deps (engine-decomp.rehome.scratch)
+                        log (
+                            {
+                                at 2026-07-19T16:20:34.160626Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Todo → Doing (nplan_start)"
+                            }
+
+                            {
+                                at 2026-07-19T16:28:06.375348Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Doing → Done (nplan_complete)"
+                            }
+                        )
                     }
 
                     {

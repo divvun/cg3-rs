@@ -80,11 +80,11 @@ impl crate::grammar_applicator::GrammarApplicator {
                 .map(|c| self.grammar.single_tags_list.get(c.0).hash)
                 .map_or(0, |h| h.get());
             if rword_tag.r#type.intersects(crate::tag::T_REGEXP) {
-                if self.does_tag_match_regexp(chash, &rword_tag, false) == 0 {
+                if self.engine().does_tag_match_regexp(chash, &rword_tag, false) == 0 {
                     return false;
                 }
             } else if rword_tag.r#type.intersects(crate::tag::T_CASE_INSENSITIVE) {
-                if self.does_tag_match_icase(chash, &rword_tag, false) == 0 {
+                if self.engine().does_tag_match_icase(chash, &rword_tag, false) == 0 {
                     return false;
                 }
             } else {

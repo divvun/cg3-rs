@@ -714,4 +714,36 @@ impl GrammarApplicator {
             grammar,
         }
     }
+
+    /// Splits `&mut self` into an [`Engine`] view over the five subsystems.
+    ///
+    /// One `engine()` call at a driver's top hands the peeled method tree the
+    /// disjoint borrows it needs, ending the false borrow conflicts of the
+    /// monolithic `&mut self` receiver. Stage-C decomposition converts method
+    /// clusters onto this view leaves-first along the call graph; unpeeled
+    /// `&mut self` methods split at the call site (`self.engine().foo(...)`).
+    pub fn engine(&mut self) -> Engine<'_> {
+        Engine {
+            cfg: &self.cfg,
+            doc: &mut self.doc,
+            scratch: &mut self.scratch,
+            diag: &mut self.diag,
+            grammar: &self.grammar,
+        }
+    }
+}
+
+/// Split-borrow view over the engine's subsystems: one [`GrammarApplicator::engine`]
+/// call at a driver's top splits `&mut self` into disjoint borrows the method
+/// tree can thread, ending the false borrow conflicts of the monolithic
+/// receiver. Peeled method clusters (Stage-C decomposition) live in `impl
+/// Engine<'_>` blocks in the partial modules that own their C++ translation
+/// unit; a method takes the narrowest borrow subset it needs by pattern-binding
+/// the fields it touches.
+pub struct Engine<'a> {
+    pub cfg: &'a EngineConfig,
+    pub doc: &'a mut Document,
+    pub scratch: &'a mut RuleScratch,
+    pub diag: &'a mut Diagnostics,
+    pub grammar: &'a crate::grammar::Grammar,
 }

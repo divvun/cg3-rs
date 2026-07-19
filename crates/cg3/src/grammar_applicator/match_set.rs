@@ -97,7 +97,7 @@ use crate::tag::{
 use crate::tag_trie::trie_t;
 use crate::types::{SetNumber, TagHash, UString};
 
-use super::{dSMC_Context, regexgrps_t};
+use super::{Engine, dSMC_Context, regexgrps_t};
 
 // C++ Strings.hpp set-operator enum values (`S_IGNORE, S_OR=3, S_PLUS, S_MINUS,
 // ... S_FAILFAST=8`). Only the four `doesSetMatchReading` uses are reproduced.
@@ -322,195 +322,6 @@ fn group_count(tag: &Tag) -> i32 {
 }
 
 impl super::GrammarApplicator {
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-regexp-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-regexp-fn]
-    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-regexp-fn]
-    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-regexp-fn]
-    /// Tests whether input tag `test` matches regexp pattern `tag`, with a yes/no
-    /// memo cache and optional capture harvesting.
-    pub fn does_tag_match_regexp(&mut self, test: u32, tag: &Tag, bypass_index: bool) -> u32 {
-        let gc = group_count(tag);
-        let mut m: u32 = 0;
-        let ih = make_64(tag.hash.get(), test);
-        if !bypass_index && self.scratch.index_regexp_no.contains(ih) {
-            m = 0;
-        } else if !bypass_index && gc == 0 && self.scratch.index_regexp_yes.contains(ih) {
-            m = test;
-        } else {
-            // itag = *(grammar->single_tags.find(test)->second)
-            let (itag_hash, itag_text) = {
-                let it = self.grammar.single_tags.find(test);
-                let tid = it.get().1;
-                let t = &self.grammar.single_tags_list[tid.0];
-                (t.hash.get(), t.tag.clone())
-            };
-            // uregex_setText + uregex_find(-1) == unanchored `is_match`.
-            if let Some(re) = &tag.regexp
-                && re.is_match(&itag_text)
-            {
-                m = itag_hash;
-            }
-            if m != 0 {
-                let capture = gc > 0
-                    && !self.scratch.context_stack.is_empty()
-                    && self
-                        .scratch
-                        .context_stack
-                        .last()
-                        .unwrap()
-                        .regexgrps
-                        .is_some();
-                if capture {
-                    if let Some(re) = &tag.regexp {
-                        let idx = self
-                            .scratch
-                            .context_stack
-                            .last()
-                            .unwrap()
-                            .regexgrps
-                            .unwrap();
-                        let frame = self.scratch.context_stack.last_mut().unwrap();
-                        let rg = &mut self.scratch.regexgrps_store[idx];
-                        capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &itag_text);
-                    }
-                } else {
-                    self.scratch.index_regexp_yes.insert(ih);
-                }
-            } else {
-                self.scratch.index_regexp_no.insert(ih);
-            }
-        }
-        m
-    }
-
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-icase-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-icase-fn]
-    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-icase-fn]
-    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-icase-fn]
-    /// Case-insensitive whole-string equality of input tag `test` vs pattern
-    /// `tag`, with a yes/no memo cache.
-    pub fn does_tag_match_icase(&mut self, test: u32, tag: &Tag, bypass_index: bool) -> u32 {
-        let mut m: u32 = 0;
-        let ih = make_64(tag.hash.get(), test);
-        if !bypass_index && self.scratch.index_icase_no.contains(ih) {
-            m = 0;
-        } else if !bypass_index && self.scratch.index_icase_yes.contains(ih) {
-            m = test;
-        } else {
-            let (itag_hash, itag_text) = {
-                let it = self.grammar.single_tags.find(test);
-                let tid = it.get().1;
-                let t = &self.grammar.single_tags_list[tid.0];
-                (t.hash.get(), t.tag.clone())
-            };
-            if ux_str_case_compare(&tag.tag, &itag_text) {
-                m = itag_hash;
-            }
-            if m != 0 {
-                self.scratch.index_icase_yes.insert(ih);
-            } else {
-                self.scratch.index_icase_no.insert(ih);
-            }
-        }
-        m
-    }
-
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-regexp-match-line-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-regexp-match-line-fn]
-    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-line-fn]
-    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-line-fn]
-    /// Ordered-mode helper (C++ "ToDo: Remove for real ordered mode"): tests a
-    /// regexp tag against the reading's concatenated `tags_string`.
-    pub fn does_regexp_match_line(
-        &mut self,
-        reading: ReadingId,
-        tag: &Tag,
-        bypass_index: bool,
-    ) -> u32 {
-        let gc = group_count(tag);
-        let mut m: u32 = 0;
-        let (tsh, ts) = {
-            let r = self.doc.store.readings.get(reading.0);
-            (r.tags_string_hash, r.tags_string.clone())
-        };
-        let ih = make_64(tsh, tag.hash.get());
-        if !bypass_index && self.scratch.index_regexp_no.contains(ih) {
-            m = 0;
-        } else if !bypass_index && gc == 0 && self.scratch.index_regexp_yes.contains(ih) {
-            m = tsh;
-        } else {
-            if let Some(re) = &tag.regexp
-                && re.is_match(&ts)
-            {
-                m = tsh;
-            }
-            if m != 0 {
-                let capture = gc > 0
-                    && !self.scratch.context_stack.is_empty()
-                    && self
-                        .scratch
-                        .context_stack
-                        .last()
-                        .unwrap()
-                        .regexgrps
-                        .is_some();
-                if capture {
-                    if let Some(re) = &tag.regexp {
-                        let idx = self
-                            .scratch
-                            .context_stack
-                            .last()
-                            .unwrap()
-                            .regexgrps
-                            .unwrap();
-                        let frame = self.scratch.context_stack.last_mut().unwrap();
-                        let rg = &mut self.scratch.regexgrps_store[idx];
-                        capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &ts);
-                    }
-                } else {
-                    self.scratch.index_regexp_yes.insert(ih);
-                }
-            } else {
-                self.scratch.index_regexp_no.insert(ih);
-            }
-        }
-        m
-    }
-
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-regexp-match-reading-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-regexp-match-reading-fn]
-    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-reading-fn]
-    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-reading-fn]
-    /// Tests whether any textual tag of a reading matches regexp `tag`. `T_REGEXP_LINE`
-    /// delegates to `does_regexp_match_line`; otherwise the first matching
-    /// `tags_textual` entry wins.
-    pub fn does_regexp_match_reading(
-        &mut self,
-        reading: ReadingId,
-        tag: &Tag,
-        bypass_index: bool,
-    ) -> u32 {
-        if tag.r#type.intersects(T_REGEXP_LINE) {
-            return self.does_regexp_match_line(reading, tag, bypass_index);
-        }
-        let textual: Vec<u32> = self
-            .doc
-            .store
-            .readings
-            .get(reading.0)
-            .tags_textual
-            .as_slice()
-            .to_vec();
-        let mut m: u32 = 0;
-        for mter in textual {
-            m = self.does_tag_match_regexp(mter, tag, bypass_index);
-            if m != 0 {
-                break;
-            }
-        }
-        m
-    }
-
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
     // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn]
@@ -596,7 +407,7 @@ impl super::GrammarApplicator {
             }
         } else if tag.regexp.is_some() {
             // (5) regular regexp tag
-            m = self.does_regexp_match_reading(reading, tag, bypass_index);
+            m = self.engine().does_regexp_match_reading(reading, tag, bypass_index);
         } else if tag.r#type.intersects(T_CASE_INSENSITIVE) {
             // (6) case-insensitive
             let textual: Vec<u32> = self
@@ -608,7 +419,7 @@ impl super::GrammarApplicator {
                 .as_slice()
                 .to_vec();
             for mter in textual {
-                m = self.does_tag_match_icase(mter, tag, bypass_index);
+                m = self.engine().does_tag_match_icase(mter, tag, bypass_index);
                 if m != 0 {
                     break;
                 }
@@ -735,7 +546,7 @@ impl super::GrammarApplicator {
                 let found_value: Option<u32> = if key_type.intersects(T_REGEXP) {
                     let mut fv = None;
                     for &(k, v) in &var_entries {
-                        if self.does_tag_match_regexp(k, &key_tag, bypass_index) != 0 {
+                        if self.engine().does_tag_match_regexp(k, &key_tag, bypass_index) != 0 {
                             fv = Some(v);
                             break;
                         }
@@ -744,7 +555,7 @@ impl super::GrammarApplicator {
                 } else if key_type.intersects(T_CASE_INSENSITIVE) {
                     let mut fv = None;
                     for &(k, v) in &var_entries {
-                        if self.does_tag_match_icase(k, &key_tag, bypass_index) != 0 {
+                        if self.engine().does_tag_match_icase(k, &key_tag, bypass_index) != 0 {
                             fv = Some(v);
                             break;
                         }
@@ -767,11 +578,15 @@ impl super::GrammarApplicator {
                         };
                         let comp_tag = self.grammar.single_tags_list[comp_tid.0].clone();
                         if comp_tag.r#type.intersects(T_REGEXP) {
-                            if self.does_tag_match_regexp(itval, &comp_tag, bypass_index) != 0 {
+                            if self.engine().does_tag_match_regexp(itval, &comp_tag, bypass_index)
+                                != 0
+                            {
                                 m = tag.hash.get();
                             }
                         } else if comp_tag.r#type.intersects(T_CASE_INSENSITIVE) {
-                            if self.does_tag_match_icase(itval, &comp_tag, bypass_index) != 0 {
+                            if self.engine().does_tag_match_icase(itval, &comp_tag, bypass_index)
+                                != 0
+                            {
                                 m = tag.hash.get();
                             }
                         } else if comp_tag.hash.get() == itval {
@@ -871,78 +686,6 @@ impl super::GrammarApplicator {
             retval = m;
         }
         retval
-    }
-
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-tags-matching-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.get-tags-matching-fn]
-    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.get-tags-matching-fn]
-    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.get-tags-matching-fn]
-    /// Appends onto `rv_tags` the reading's own tags matched by any pattern tag in
-    /// `the_tags`. `rv_tags` accumulates (not cleared); duplicates possible.
-    pub fn get_tags_matching(
-        &mut self,
-        reading: ReadingId,
-        the_tags: &TagList,
-        rv_tags: &mut TagList,
-    ) {
-        let tags_list: Vec<u32> = self.doc.store.readings.get(reading.0).tags_list.clone();
-        for &tid in the_tags {
-            let tag = self.grammar.single_tags_list[tid.0].clone();
-            for &tt in &tags_list {
-                let mut m: u32 = 0;
-                let itag_id = {
-                    let it = self.grammar.single_tags.find(tt);
-                    it.get().1
-                };
-                let (itype, ihash, itag0) = {
-                    let t = &self.grammar.single_tags_list[itag_id.0];
-                    (t.r#type, t.hash, t.tag.chars().next().unwrap_or('\0'))
-                };
-                if tag.regexp.is_some() {
-                    m = self.does_tag_match_regexp(tt, &tag, false);
-                } else if tag.r#type.intersects(T_CASE_INSENSITIVE) {
-                    m = self.does_tag_match_icase(tt, &tag, false);
-                } else if (tag.r#type.intersects(T_REGEXP_ANY)) && (itype.intersects(T_TEXTUAL)) {
-                    if tag.r#type.intersects(T_BASEFORM) {
-                        if itype.intersects(T_BASEFORM) {
-                            m = self
-                                .doc
-                                .store
-                                .readings
-                                .get(reading.0)
-                                .baseform
-                                .map_or(0, |h| h.get());
-                        }
-                    } else if tag.r#type.intersects(T_WORDFORM) {
-                        if itype.intersects(T_WORDFORM) {
-                            let cid = self.doc.store.readings.get(reading.0).parent.unwrap();
-                            let wf = self.doc.store.cohorts.get(cid.0).wordform.unwrap();
-                            m = self.grammar.single_tags_list[wf.0].hash.get();
-                        }
-                    } else if !itype.intersects(T_BASEFORM | T_WORDFORM) {
-                        let tag0 = tag.tag.chars().next().unwrap_or('\0');
-                        if (tag0 == '"' && itag0 == '"') || (tag0 == '<' && itag0 == '<') {
-                            m = ihash.get();
-                        }
-                    }
-                } else if (tag.r#type.intersects(T_NUMERICAL)) && (itype.intersects(T_NUMERICAL)) {
-                    let itag = self.grammar.single_tags_list[itag_id.0].clone();
-                    m = test_tag_numerical(
-                        &mut self.doc.store,
-                        &self.grammar,
-                        reading,
-                        &tag,
-                        &itag,
-                    )
-                    .get();
-                } else if tag.hash == ihash {
-                    m = ihash.get();
-                }
-                if m != 0 {
-                    rv_tags.push(itag_id);
-                }
-            }
-        }
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-trie-fn]
@@ -1734,5 +1477,274 @@ impl super::GrammarApplicator {
             }
         }
         lists
+    }
+}
+
+// ===========================================================================
+// Peeled leaves (Stage-C decomposition): the match-set fns that do NOT call
+// back into an unpeeled `&mut self` engine method, converted onto the
+// split-borrow `Engine<'_>` view. Call syntax stays method-like; an unpeeled
+// `&mut self` method splits at the call site via `self.engine().<method>(...)`.
+// ===========================================================================
+impl Engine<'_> {
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-regexp-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-regexp-fn]
+    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-regexp-fn]
+    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-regexp-fn]
+    /// Tests whether input tag `test` matches regexp pattern `tag`, with a yes/no
+    /// memo cache and optional capture harvesting.
+    pub fn does_tag_match_regexp(&mut self, test: u32, tag: &Tag, bypass_index: bool) -> u32 {
+        let gc = group_count(tag);
+        let mut m: u32 = 0;
+        let ih = make_64(tag.hash.get(), test);
+        if !bypass_index && self.scratch.index_regexp_no.contains(ih) {
+            m = 0;
+        } else if !bypass_index && gc == 0 && self.scratch.index_regexp_yes.contains(ih) {
+            m = test;
+        } else {
+            // itag = *(grammar->single_tags.find(test)->second)
+            let (itag_hash, itag_text) = {
+                let it = self.grammar.single_tags.find(test);
+                let tid = it.get().1;
+                let t = &self.grammar.single_tags_list[tid.0];
+                (t.hash.get(), t.tag.clone())
+            };
+            // uregex_setText + uregex_find(-1) == unanchored `is_match`.
+            if let Some(re) = &tag.regexp
+                && re.is_match(&itag_text)
+            {
+                m = itag_hash;
+            }
+            if m != 0 {
+                let capture = gc > 0
+                    && !self.scratch.context_stack.is_empty()
+                    && self
+                        .scratch
+                        .context_stack
+                        .last()
+                        .unwrap()
+                        .regexgrps
+                        .is_some();
+                if capture {
+                    if let Some(re) = &tag.regexp {
+                        let idx = self
+                            .scratch
+                            .context_stack
+                            .last()
+                            .unwrap()
+                            .regexgrps
+                            .unwrap();
+                        let frame = self.scratch.context_stack.last_mut().unwrap();
+                        let rg = &mut self.scratch.regexgrps_store[idx];
+                        capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &itag_text);
+                    }
+                } else {
+                    self.scratch.index_regexp_yes.insert(ih);
+                }
+            } else {
+                self.scratch.index_regexp_no.insert(ih);
+            }
+        }
+        m
+    }
+
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-icase-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-icase-fn]
+    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-icase-fn]
+    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-icase-fn]
+    /// Case-insensitive whole-string equality of input tag `test` vs pattern
+    /// `tag`, with a yes/no memo cache.
+    pub fn does_tag_match_icase(&mut self, test: u32, tag: &Tag, bypass_index: bool) -> u32 {
+        let mut m: u32 = 0;
+        let ih = make_64(tag.hash.get(), test);
+        if !bypass_index && self.scratch.index_icase_no.contains(ih) {
+            m = 0;
+        } else if !bypass_index && self.scratch.index_icase_yes.contains(ih) {
+            m = test;
+        } else {
+            let (itag_hash, itag_text) = {
+                let it = self.grammar.single_tags.find(test);
+                let tid = it.get().1;
+                let t = &self.grammar.single_tags_list[tid.0];
+                (t.hash.get(), t.tag.clone())
+            };
+            if ux_str_case_compare(&tag.tag, &itag_text) {
+                m = itag_hash;
+            }
+            if m != 0 {
+                self.scratch.index_icase_yes.insert(ih);
+            } else {
+                self.scratch.index_icase_no.insert(ih);
+            }
+        }
+        m
+    }
+
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-regexp-match-line-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-regexp-match-line-fn]
+    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-line-fn]
+    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-line-fn]
+    /// Ordered-mode helper (C++ "ToDo: Remove for real ordered mode"): tests a
+    /// regexp tag against the reading's concatenated `tags_string`.
+    pub fn does_regexp_match_line(
+        &mut self,
+        reading: ReadingId,
+        tag: &Tag,
+        bypass_index: bool,
+    ) -> u32 {
+        let gc = group_count(tag);
+        let mut m: u32 = 0;
+        let (tsh, ts) = {
+            let r = self.doc.store.readings.get(reading.0);
+            (r.tags_string_hash, r.tags_string.clone())
+        };
+        let ih = make_64(tsh, tag.hash.get());
+        if !bypass_index && self.scratch.index_regexp_no.contains(ih) {
+            m = 0;
+        } else if !bypass_index && gc == 0 && self.scratch.index_regexp_yes.contains(ih) {
+            m = tsh;
+        } else {
+            if let Some(re) = &tag.regexp
+                && re.is_match(&ts)
+            {
+                m = tsh;
+            }
+            if m != 0 {
+                let capture = gc > 0
+                    && !self.scratch.context_stack.is_empty()
+                    && self
+                        .scratch
+                        .context_stack
+                        .last()
+                        .unwrap()
+                        .regexgrps
+                        .is_some();
+                if capture {
+                    if let Some(re) = &tag.regexp {
+                        let idx = self
+                            .scratch
+                            .context_stack
+                            .last()
+                            .unwrap()
+                            .regexgrps
+                            .unwrap();
+                        let frame = self.scratch.context_stack.last_mut().unwrap();
+                        let rg = &mut self.scratch.regexgrps_store[idx];
+                        capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &ts);
+                    }
+                } else {
+                    self.scratch.index_regexp_yes.insert(ih);
+                }
+            } else {
+                self.scratch.index_regexp_no.insert(ih);
+            }
+        }
+        m
+    }
+
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-regexp-match-reading-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-regexp-match-reading-fn]
+    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-reading-fn]
+    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-reading-fn]
+    /// Tests whether any textual tag of a reading matches regexp `tag`. `T_REGEXP_LINE`
+    /// delegates to `does_regexp_match_line`; otherwise the first matching
+    /// `tags_textual` entry wins.
+    pub fn does_regexp_match_reading(
+        &mut self,
+        reading: ReadingId,
+        tag: &Tag,
+        bypass_index: bool,
+    ) -> u32 {
+        if tag.r#type.intersects(T_REGEXP_LINE) {
+            return self.does_regexp_match_line(reading, tag, bypass_index);
+        }
+        let textual: Vec<u32> = self
+            .doc
+            .store
+            .readings
+            .get(reading.0)
+            .tags_textual
+            .as_slice()
+            .to_vec();
+        let mut m: u32 = 0;
+        for mter in textual {
+            m = self.does_tag_match_regexp(mter, tag, bypass_index);
+            if m != 0 {
+                break;
+            }
+        }
+        m
+    }
+
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-tags-matching-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.get-tags-matching-fn]
+    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.get-tags-matching-fn]
+    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.get-tags-matching-fn]
+    /// Appends onto `rv_tags` the reading's own tags matched by any pattern tag in
+    /// `the_tags`. `rv_tags` accumulates (not cleared); duplicates possible.
+    pub fn get_tags_matching(
+        &mut self,
+        reading: ReadingId,
+        the_tags: &TagList,
+        rv_tags: &mut TagList,
+    ) {
+        let tags_list: Vec<u32> = self.doc.store.readings.get(reading.0).tags_list.clone();
+        for &tid in the_tags {
+            let tag = self.grammar.single_tags_list[tid.0].clone();
+            for &tt in &tags_list {
+                let mut m: u32 = 0;
+                let itag_id = {
+                    let it = self.grammar.single_tags.find(tt);
+                    it.get().1
+                };
+                let (itype, ihash, itag0) = {
+                    let t = &self.grammar.single_tags_list[itag_id.0];
+                    (t.r#type, t.hash, t.tag.chars().next().unwrap_or('\0'))
+                };
+                if tag.regexp.is_some() {
+                    m = self.does_tag_match_regexp(tt, &tag, false);
+                } else if tag.r#type.intersects(T_CASE_INSENSITIVE) {
+                    m = self.does_tag_match_icase(tt, &tag, false);
+                } else if (tag.r#type.intersects(T_REGEXP_ANY)) && (itype.intersects(T_TEXTUAL)) {
+                    if tag.r#type.intersects(T_BASEFORM) {
+                        if itype.intersects(T_BASEFORM) {
+                            m = self
+                                .doc
+                                .store
+                                .readings
+                                .get(reading.0)
+                                .baseform
+                                .map_or(0, |h| h.get());
+                        }
+                    } else if tag.r#type.intersects(T_WORDFORM) {
+                        if itype.intersects(T_WORDFORM) {
+                            let cid = self.doc.store.readings.get(reading.0).parent.unwrap();
+                            let wf = self.doc.store.cohorts.get(cid.0).wordform.unwrap();
+                            m = self.grammar.single_tags_list[wf.0].hash.get();
+                        }
+                    } else if !itype.intersects(T_BASEFORM | T_WORDFORM) {
+                        let tag0 = tag.tag.chars().next().unwrap_or('\0');
+                        if (tag0 == '"' && itag0 == '"') || (tag0 == '<' && itag0 == '<') {
+                            m = ihash.get();
+                        }
+                    }
+                } else if (tag.r#type.intersects(T_NUMERICAL)) && (itype.intersects(T_NUMERICAL)) {
+                    let itag = self.grammar.single_tags_list[itag_id.0].clone();
+                    m = test_tag_numerical(
+                        &mut self.doc.store,
+                        self.grammar,
+                        reading,
+                        &tag,
+                        &itag,
+                    )
+                    .get();
+                } else if tag.hash == ihash {
+                    m = ihash.get();
+                }
+                if m != 0 {
+                    rv_tags.push(itag_id);
+                }
+            }
+        }
     }
 }

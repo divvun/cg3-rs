@@ -197,7 +197,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         let vars: Vec<(u32, u32)> = self.variables_entries();
                         let mut f = None;
                         for (k, _) in vars {
-                            if self.does_tag_match_regexp(k, &tagv, false) != 0 {
+                            if self.engine().does_tag_match_regexp(k, &tagv, false) != 0 {
                                 f = Some(k);
                                 break;
                             }
@@ -208,7 +208,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         let vars: Vec<(u32, u32)> = self.variables_entries();
                         let mut f = None;
                         for (k, _) in vars {
-                            if self.does_tag_match_icase(k, &tagv, false) != 0 {
+                            if self.engine().does_tag_match_icase(k, &tagv, false) != 0 {
                                 f = Some(k);
                                 break;
                             }
@@ -852,7 +852,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
         if let Some(sl) = sublist {
             let tags = self.get_tag_list_of_set(sl, false);
-            self.get_tags_matching(reading, &tags, &mut excepts);
+            self.engine().get_tags_matching(reading, &tags, &mut excepts);
         }
 
         let wf_hash = {
@@ -1008,7 +1008,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         if let Some(sl) = sublist {
             let tags = self.get_tag_list_of_set(sl, false);
             let mut excepts = TagList::new();
-            self.get_tags_matching(creading, &tags, &mut excepts);
+            self.engine().get_tags_matching(creading, &tags, &mut excepts);
             excepts.extend(tags.iter().copied());
             let mut rc = Some(creading);
             while let Some(r) = rc {

@@ -1603,7 +1603,7 @@ impl super::GrammarApplicator {
                         .cohorts
                         .cohort_map
                         .contains_key(&GlobalNumber(citer))
-                        && self.does_tag_match_regexp(*name, &rtag, caps != 0) != 0
+                        && self.engine().does_tag_match_regexp(*name, &rtag, caps != 0) != 0
                     {
                         let c = *self
                             .doc

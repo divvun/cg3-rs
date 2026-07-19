@@ -29,4 +29,5 @@ assertions (
     {id engine-decomp.rehome.config, kind @complete, author "brendan@necessary.nu", at 2026-07-18T15:42:42.709046Z}
     {id engine-decomp.rehome.document, kind @complete, author "brendan@necessary.nu", at 2026-07-19T15:58:52.706479Z}
     {id engine-decomp.rehome.scratch, kind @complete, author "brendan@necessary.nu", at 2026-07-19T16:18:27.326815Z}
+    {id engine-decomp.peel.matchset, kind @complete, author "brendan@necessary.nu", at 2026-07-19T16:28:06.375348Z}
 )

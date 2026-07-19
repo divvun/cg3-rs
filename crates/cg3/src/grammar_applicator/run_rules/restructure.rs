@@ -914,7 +914,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         if let Some(sl) = sublist {
             let tags = self.get_tag_list_of_set(sl, false);
             let subreading = self.get_apply_to().subreading.unwrap();
-            self.get_tags_matching(subreading, &tags, &mut excepts);
+            self.engine().get_tags_matching(subreading, &tags, &mut excepts);
             excepts.extend(tags.iter().copied());
         }
 
