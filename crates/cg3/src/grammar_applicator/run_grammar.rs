@@ -675,7 +675,7 @@ impl super::GrammarApplicator {
                                 .get();
                             let cohorts = self.doc.store.single_windows.get(sw.0).cohorts.clone();
                             for &c in cohorts.iter().rev() {
-                                if self.does_set_match_cohort_normal(c, sd, None) {
+                                if self.engine().does_set_match_cohort_normal(c, sd, None) {
                                     did_soft_lookback = false;
                                     let cohort = self.delimit_at(sw, c);
                                     // cSWindow = cohort->parent->next;
@@ -701,7 +701,7 @@ impl super::GrammarApplicator {
                                 [self.grammar.soft_delimiters.unwrap().0]
                                 .number
                                 .get();
-                            self.does_set_match_cohort_normal(cc, sd, None)
+                            self.engine().does_set_match_cohort_normal(cc, sd, None)
                         };
                         if sd_hit {
                             // verbose soft-limit warning: deferred.
@@ -744,7 +744,7 @@ impl super::GrammarApplicator {
                                 let d = self.grammar.sets_list[self.grammar.delimiters.unwrap().0]
                                     .number
                                     .get();
-                                self.does_set_match_cohort_normal(cc, d, None)
+                                self.engine().does_set_match_cohort_normal(cc, d, None)
                             };
                         if over_hard || delim_hit {
                             // (!is_conv && over_hard) "Hard limit ... forcing break": deferred.

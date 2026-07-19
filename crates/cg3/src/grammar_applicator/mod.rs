@@ -728,7 +728,7 @@ impl GrammarApplicator {
             doc: &mut self.doc,
             scratch: &mut self.scratch,
             diag: &mut self.diag,
-            grammar: &self.grammar,
+            grammar: &mut self.grammar,
         }
     }
 }
@@ -745,5 +745,10 @@ pub struct Engine<'a> {
     pub doc: &'a mut Document,
     pub scratch: &'a mut RuleScratch,
     pub diag: &'a mut Diagnostics,
-    pub grammar: &'a crate::grammar::Grammar,
+    /// C++ `const Grammar* grammar` (read-only for the whole matcher tree)
+    /// EXCEPT the runtime tag-generation path (`add_tag` interning a
+    /// varstring/regex/icase tag), reached from the contextual matcher knot via
+    /// `generate_varstring_tag`. Held `&mut` so that single write path can
+    /// intern into the tag arenas; every other peeled method only reads it.
+    pub grammar: &'a mut crate::grammar::Grammar,
 }

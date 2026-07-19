@@ -52,6 +52,7 @@
 //!     variable `i` (recomputes the same `parent.dep_parent` lookup every
 //!     iteration).
 
+use super::Engine;
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::{CT_DEP_DONE, CT_ENCLOSED, CT_IGNORED, CT_NUM_CURRENT, CT_REMOVED};
 use crate::inlines::{erase, hash_value, insert_if_exists, ui32};
@@ -703,186 +704,6 @@ impl super::GrammarApplicator {
     }
 
     // =======================================================================
-    // generateVarstringTag
-    // =======================================================================
-
-    // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.generate-varstring-tag-fn]
-    // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.generate-varstring-tag-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.generate-varstring-tag-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.generate-varstring-tag-fn]
-    /// C++ `Tag* generateVarstringTag(const Tag* tag)` — expands a VARSTRING
-    /// template: unified-set substitution, `$1..$9` capture-group substitution,
-    /// and `%u/%U/%l/%L` case markers, then interns the result. `tag` is a
-    /// borrowed pattern tag NOT aliasing `self.grammar` (matchSet clones it out
-    /// before calling), so the signature is `&Tag` per the matchSet header.
-    ///
-    /// ICU `UnicodeString` ops map to `Vec<char>` splicing (`findAndReplace`,
-    /// `lastIndexOf`) and `char::to_uppercase`/`to_lowercase` (the ICU full
-    /// case mapping analog; parity risk for locale-specific mappings, noted).
-    pub fn generate_varstring_tag(&mut self, tag: &Tag) -> TagId {
-        let mut tmp: Vec<char> = tag.tag.chars().collect();
-        let mut did_something = false;
-
-        // (1) Escape %[UuLl] and $1-9 markers to control-code sentinels.
-        let raw: [&str; 13] = [
-            STR_VSU_RAW,
-            STR_VSUU_RAW,
-            STR_VSL_RAW,
-            STR_VSLL_RAW,
-            STR_VS_RAW[0],
-            STR_VS_RAW[1],
-            STR_VS_RAW[2],
-            STR_VS_RAW[3],
-            STR_VS_RAW[4],
-            STR_VS_RAW[5],
-            STR_VS_RAW[6],
-            STR_VS_RAW[7],
-            STR_VS_RAW[8],
-        ];
-        let x01: [&str; 13] = [
-            STR_VSU, STR_VSUU, STR_VSL, STR_VSLL, STR_VS[0], STR_VS[1], STR_VS[2], STR_VS[3],
-            STR_VS[4], STR_VS[5], STR_VS[6], STR_VS[7], STR_VS[8],
-        ];
-        for i in 0..13 {
-            find_and_replace(&mut tmp, raw[i], x01[i]);
-        }
-
-        // (2) Replace unified sets with their matching tags.
-        if let Some(vs_sets) = &tag.vs_sets {
-            let vs_names = tag.vs_names.as_ref();
-            for i in 0..vs_sets.len() {
-                let set_id = vs_sets[i];
-                // getTagList(*(*tag->vs_sets)[i], tags) — 2-arg form, unif_mode=false.
-                let tags = {
-                    let mut tl = Vec::new();
-                    let the_set = self.grammar.sets_list.get(set_id.0);
-                    // get_tag_list borrows &self.grammar; clone the set out first
-                    // to avoid aliasing while it appends into `tl`.
-                    let set_clone = the_set;
-                    self.get_tag_list(set_clone, &mut tl, false);
-                    tl
-                };
-                // Build rpl: tag texts joined with '_' between multiple.
-                let mut rpl = String::new();
-                let n = tags.len();
-                for (j, &tid) in tags.iter().enumerate() {
-                    rpl.push_str(&self.grammar.single_tags_list[tid.0].tag);
-                    if n - j > 1 {
-                        rpl.push('_');
-                    }
-                }
-                if let Some(names) = vs_names
-                    && i < names.len()
-                    && find_and_replace(&mut tmp, &names[i], &rpl) > 0
-                {
-                    did_something = true;
-                }
-            }
-        }
-
-        // (3) Replace $1-$9 with the current context frame's capture groups.
-        if let Some(frame) = self.scratch.context_stack.last() {
-            let ct = frame.regexgrp_ct as usize;
-            let grps_idx = frame.regexgrps;
-            let mut i = 0usize;
-            while i < ct && i < 9 {
-                let text: String = match grps_idx {
-                    Some(gi) => self.scratch.regexgrps_store[gi]
-                        .get(i)
-                        .cloned()
-                        .unwrap_or_default(),
-                    None => String::new(),
-                };
-                if find_and_replace(&mut tmp, STR_VS[i], &text) > 0 {
-                    did_something = true;
-                }
-                i += 1;
-            }
-        }
-
-        // (4) Handle %U %u %L %l markers, rightmost-first, until none remain.
-        loop {
-            let mut found = false;
-            let mut mpos: i32 = -1;
-            let mut pos;
-            let su: Vec<char> = STR_VSU.chars().collect();
-            let suu: Vec<char> = STR_VSUU.chars().collect();
-            let sl: Vec<char> = STR_VSL.chars().collect();
-            let sll: Vec<char> = STR_VSLL.chars().collect();
-            pos = last_index_of(&tmp, &su, 0);
-            if pos != -1 {
-                found = true;
-                mpos = mpos.max(pos);
-            }
-            pos = last_index_of(&tmp, &suu, mpos.max(0) as usize);
-            if pos != -1 {
-                found = true;
-                mpos = mpos.max(pos);
-            }
-            pos = last_index_of(&tmp, &sl, mpos.max(0) as usize);
-            if pos != -1 {
-                found = true;
-                mpos = mpos.max(pos);
-            }
-            pos = last_index_of(&tmp, &sll, mpos.max(0) as usize);
-            if pos != -1 {
-                found = true;
-                mpos = mpos.max(pos);
-            }
-            if found && mpos != -1 {
-                let m = mpos as usize;
-                let mode = tmp[m + 1];
-                // tmp.remove(mpos, 2)
-                tmp.drain(m..m + 2);
-                match mode {
-                    'u' => {
-                        let up: String = tmp[m].to_uppercase().collect();
-                        // setCharAt(mpos, range[0]) — first mapped char.
-                        if let Some(c0) = up.chars().next() {
-                            tmp[m] = c0;
-                        }
-                    }
-                    'U' => {
-                        let tail: String = tmp[m..].iter().collect::<String>().to_uppercase();
-                        tmp.truncate(m);
-                        tmp.extend(tail.chars());
-                    }
-                    'l' => {
-                        let lo: String = tmp[m].to_lowercase().collect();
-                        if let Some(c0) = lo.chars().next() {
-                            tmp[m] = c0;
-                        }
-                    }
-                    'L' => {
-                        let tail: String = tmp[m..].iter().collect::<String>().to_lowercase();
-                        tmp.truncate(m);
-                        tmp.extend(tail.chars());
-                    }
-                    _ => {}
-                }
-                did_something = true;
-            } else {
-                break;
-            }
-        }
-
-        // (5) Re-append type suffixes so the regenerated string re-parses.
-        if tag.r#type.intersects(T_CASE_INSENSITIVE) {
-            tmp.push('i');
-        }
-        if tag.r#type.intersects(T_REGEXP) {
-            tmp.push('r');
-        }
-
-        let nt: String = tmp.into_iter().collect();
-        if !did_something && nt == tag.tag {
-            // "Warning: Unable to generate from tag ..." — I/O deferred.
-        }
-        // addTag(nt, tag->type)
-        self.add_tag(&nt, tag.r#type)
-    }
-
-    // =======================================================================
     // addTagToReading
     // =======================================================================
 
@@ -912,7 +733,7 @@ impl super::GrammarApplicator {
             .intersects(T_VARSTRING)
         {
             let tval = self.grammar.single_tags_list[tag.0].clone();
-            tag = self.generate_varstring_tag(&tval);
+            tag = self.engine().generate_varstring_tag(&tval);
         }
 
         // Snapshot the tag's scalar fields (it lives in the grammar arena).
@@ -1223,7 +1044,7 @@ impl super::GrammarApplicator {
                 .intersects(T_VARSTRING)
             {
                 let tval = self.grammar.single_tags_list[t.0].clone();
-                t = self.generate_varstring_tag(&tval);
+                t = self.engine().generate_varstring_tag(&tval);
                 mappings[idx] = t;
             }
             let (ttype, first_char) = {
@@ -1685,6 +1506,195 @@ impl super::GrammarApplicator {
         self.doc.stream.rebuild_cohort_links(&mut self.doc.store);
 
         cohort
+    }
+
+}
+
+// ===========================================================================
+// Stage-C decomposition: the reflow fns reached from the contextual matcher
+// knot (`generate_varstring_tag` and the `reflowTextuals*` family it triggers
+// via `add_tag`), converted onto the split-borrow `Engine<'_>` view. Unpeeled
+// `&mut self` callers split at the call site via `self.engine().<method>(...)`.
+// ===========================================================================
+impl Engine<'_> {
+    // =======================================================================
+    // generateVarstringTag
+    // =======================================================================
+
+    // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.generate-varstring-tag-fn]
+    // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.generate-varstring-tag-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.generate-varstring-tag-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.generate-varstring-tag-fn]
+    /// C++ `Tag* generateVarstringTag(const Tag* tag)` — expands a VARSTRING
+    /// template: unified-set substitution, `$1..$9` capture-group substitution,
+    /// and `%u/%U/%l/%L` case markers, then interns the result. `tag` is a
+    /// borrowed pattern tag NOT aliasing `self.grammar` (matchSet clones it out
+    /// before calling), so the signature is `&Tag` per the matchSet header.
+    ///
+    /// ICU `UnicodeString` ops map to `Vec<char>` splicing (`findAndReplace`,
+    /// `lastIndexOf`) and `char::to_uppercase`/`to_lowercase` (the ICU full
+    /// case mapping analog; parity risk for locale-specific mappings, noted).
+    pub fn generate_varstring_tag(&mut self, tag: &Tag) -> TagId {
+        let mut tmp: Vec<char> = tag.tag.chars().collect();
+        let mut did_something = false;
+
+        // (1) Escape %[UuLl] and $1-9 markers to control-code sentinels.
+        let raw: [&str; 13] = [
+            STR_VSU_RAW,
+            STR_VSUU_RAW,
+            STR_VSL_RAW,
+            STR_VSLL_RAW,
+            STR_VS_RAW[0],
+            STR_VS_RAW[1],
+            STR_VS_RAW[2],
+            STR_VS_RAW[3],
+            STR_VS_RAW[4],
+            STR_VS_RAW[5],
+            STR_VS_RAW[6],
+            STR_VS_RAW[7],
+            STR_VS_RAW[8],
+        ];
+        let x01: [&str; 13] = [
+            STR_VSU, STR_VSUU, STR_VSL, STR_VSLL, STR_VS[0], STR_VS[1], STR_VS[2], STR_VS[3],
+            STR_VS[4], STR_VS[5], STR_VS[6], STR_VS[7], STR_VS[8],
+        ];
+        for i in 0..13 {
+            find_and_replace(&mut tmp, raw[i], x01[i]);
+        }
+
+        // (2) Replace unified sets with their matching tags.
+        if let Some(vs_sets) = &tag.vs_sets {
+            let vs_names = tag.vs_names.as_ref();
+            for i in 0..vs_sets.len() {
+                let set_id = vs_sets[i];
+                // getTagList(*(*tag->vs_sets)[i], tags) — 2-arg form, unif_mode=false.
+                let tags = {
+                    let mut tl = Vec::new();
+                    let the_set = self.grammar.sets_list.get(set_id.0);
+                    // get_tag_list borrows &self.grammar; clone the set out first
+                    // to avoid aliasing while it appends into `tl`.
+                    let set_clone = the_set;
+                    self.get_tag_list(set_clone, &mut tl, false);
+                    tl
+                };
+                // Build rpl: tag texts joined with '_' between multiple.
+                let mut rpl = String::new();
+                let n = tags.len();
+                for (j, &tid) in tags.iter().enumerate() {
+                    rpl.push_str(&self.grammar.single_tags_list[tid.0].tag);
+                    if n - j > 1 {
+                        rpl.push('_');
+                    }
+                }
+                if let Some(names) = vs_names
+                    && i < names.len()
+                    && find_and_replace(&mut tmp, &names[i], &rpl) > 0
+                {
+                    did_something = true;
+                }
+            }
+        }
+
+        // (3) Replace $1-$9 with the current context frame's capture groups.
+        if let Some(frame) = self.scratch.context_stack.last() {
+            let ct = frame.regexgrp_ct as usize;
+            let grps_idx = frame.regexgrps;
+            let mut i = 0usize;
+            while i < ct && i < 9 {
+                let text: String = match grps_idx {
+                    Some(gi) => self.scratch.regexgrps_store[gi]
+                        .get(i)
+                        .cloned()
+                        .unwrap_or_default(),
+                    None => String::new(),
+                };
+                if find_and_replace(&mut tmp, STR_VS[i], &text) > 0 {
+                    did_something = true;
+                }
+                i += 1;
+            }
+        }
+
+        // (4) Handle %U %u %L %l markers, rightmost-first, until none remain.
+        loop {
+            let mut found = false;
+            let mut mpos: i32 = -1;
+            let mut pos;
+            let su: Vec<char> = STR_VSU.chars().collect();
+            let suu: Vec<char> = STR_VSUU.chars().collect();
+            let sl: Vec<char> = STR_VSL.chars().collect();
+            let sll: Vec<char> = STR_VSLL.chars().collect();
+            pos = last_index_of(&tmp, &su, 0);
+            if pos != -1 {
+                found = true;
+                mpos = mpos.max(pos);
+            }
+            pos = last_index_of(&tmp, &suu, mpos.max(0) as usize);
+            if pos != -1 {
+                found = true;
+                mpos = mpos.max(pos);
+            }
+            pos = last_index_of(&tmp, &sl, mpos.max(0) as usize);
+            if pos != -1 {
+                found = true;
+                mpos = mpos.max(pos);
+            }
+            pos = last_index_of(&tmp, &sll, mpos.max(0) as usize);
+            if pos != -1 {
+                found = true;
+                mpos = mpos.max(pos);
+            }
+            if found && mpos != -1 {
+                let m = mpos as usize;
+                let mode = tmp[m + 1];
+                // tmp.remove(mpos, 2)
+                tmp.drain(m..m + 2);
+                match mode {
+                    'u' => {
+                        let up: String = tmp[m].to_uppercase().collect();
+                        // setCharAt(mpos, range[0]) — first mapped char.
+                        if let Some(c0) = up.chars().next() {
+                            tmp[m] = c0;
+                        }
+                    }
+                    'U' => {
+                        let tail: String = tmp[m..].iter().collect::<String>().to_uppercase();
+                        tmp.truncate(m);
+                        tmp.extend(tail.chars());
+                    }
+                    'l' => {
+                        let lo: String = tmp[m].to_lowercase().collect();
+                        if let Some(c0) = lo.chars().next() {
+                            tmp[m] = c0;
+                        }
+                    }
+                    'L' => {
+                        let tail: String = tmp[m..].iter().collect::<String>().to_lowercase();
+                        tmp.truncate(m);
+                        tmp.extend(tail.chars());
+                    }
+                    _ => {}
+                }
+                did_something = true;
+            } else {
+                break;
+            }
+        }
+
+        // (5) Re-append type suffixes so the regenerated string re-parses.
+        if tag.r#type.intersects(T_CASE_INSENSITIVE) {
+            tmp.push('i');
+        }
+        if tag.r#type.intersects(T_REGEXP) {
+            tmp.push('r');
+        }
+
+        let nt: String = tmp.into_iter().collect();
+        if !did_something && nt == tag.tag {
+            // "Warning: Unable to generate from tag ..." — I/O deferred.
+        }
+        // addTag(nt, tag->type)
+        self.add_tag(&nt, tag.r#type)
     }
 
     // =======================================================================

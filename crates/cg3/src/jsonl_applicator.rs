@@ -1138,7 +1138,7 @@ impl<'a> JsonlApplicator<'a> {
                             [self.base.grammar.soft_delimiters.unwrap().0]
                             .number
                             .get();
-                        self.base.does_set_match_cohort_normal(cc, sd, None)
+                        self.base.engine().does_set_match_cohort_normal(cc, sd, None)
                     };
                 if soft_hit {
                     // verbose Info: deferred.
@@ -1156,7 +1156,7 @@ impl<'a> JsonlApplicator<'a> {
                                 [self.base.grammar.delimiters.unwrap().0]
                                 .number
                                 .get();
-                            self.base.does_set_match_cohort_normal(cc, d, None)
+                            self.base.engine().does_set_match_cohort_normal(cc, d, None)
                         });
                     if hard_hit {
                         if cohorts_len >= self.base.cfg.hard_limit as usize {

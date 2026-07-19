@@ -51,7 +51,7 @@ use crate::tag_trie::trie_get_tag_list_append;
 use crate::types::{GlobalNumber, TagHash};
 use crate::uextras::{u_fflush, u_fputc, ux_strCaseCompare};
 
-use super::tmpl_context_t;
+use super::{Engine, tmpl_context_t};
 
 // ===========================================================================
 // Local port infrastructure.
@@ -301,60 +301,6 @@ impl super::GrammarApplicator {
     // addTag (Tag* internal overload + UChar*/type public overload)
     // =======================================================================
 
-    /// C++ (unspecced internal) `Tag* GrammarApplicator::addTag(Tag* tag)` —
-    /// interns a freshly-built `Tag` value into `grammar.single_tags_list`
-    /// (arena) + `grammar.single_tags` (hash → id) with the 0..9999 seed-probe
-    /// dedup. Identical algorithm to `Grammar::add_tag`; kept as the applicator's
-    /// own per scope. The `verbosity_level>0` seed warning is deferred I/O
-    /// (`ux_stderr` placeholder). Returns the canonical `TagId`.
-    fn add_tag_ptr(&mut self, mut tag: Tag) -> TagId {
-        let hash = tag.rehash();
-        let mut existing: Option<TagId> = None;
-        let mut chosen_seed: Option<u32> = None;
-        let mut seed = 0u32;
-        while seed < 10000 {
-            let ih = hash.wrapping_add(seed);
-            let found: Option<TagId> = {
-                let it = self.grammar.single_tags.find(ih.get());
-                if it != self.grammar.single_tags.end() {
-                    Some(it.get().1)
-                } else {
-                    None
-                }
-            };
-            match found {
-                Some(t_id) => {
-                    // `t == tag` (pointer identity) is impossible for a fresh
-                    // by-value tag; only the text-equality dedup applies.
-                    if self.grammar.single_tags_list[t_id.0].tag == tag.tag {
-                        existing = Some(t_id);
-                        break;
-                    }
-                }
-                None => {
-                    chosen_seed = Some(seed);
-                    break;
-                }
-            }
-            seed += 1;
-        }
-
-        if let Some(t_id) = existing {
-            // C++ `delete tag`: the incoming value drops at end of scope.
-            return t_id;
-        }
-
-        let seed = chosen_seed.expect("addTag: hash seed space exhausted");
-        tag.seed = seed;
-        let new_hash = tag.rehash();
-        let idx = self.grammar.single_tags_list.alloc(tag);
-        self.grammar.single_tags_list[idx].number = idx;
-        self.grammar
-            .single_tags
-            .insert((new_hash.get(), TagId(idx)));
-        TagId(idx)
-    }
-
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
     /// C++ `Tag* addTag(const UChar* txt, uint32_t type)` — interns a tag from
@@ -362,105 +308,13 @@ impl super::GrammarApplicator {
     /// (`const UChar*` / `const UString&` / `UStringView`), which all map onto
     /// `&str`. Returns `TagId`.
     ///
-    /// The `T_VARSTRING` branch is the applicator instantiation of the
-    /// `parser_helpers.hpp` template: `::CG3::parseTag(txt, 0, *this,
-    /// !(type & T_PRESERVE_ESC))` — full tag parsing (prefixes, r/i/v/l/p
-    /// suffixes, regex compile, numeric `<…>`), so runtime-generated tags get
-    /// their T_REGEXP / T_SET / T_NUMERICAL / … semantics.
+    /// Public-API entry retained on `GrammarApplicator` (the format applicators,
+    /// setup, and tests call it through `self.base`); the body lives on
+    /// [`Engine`](super::Engine) because it is reached from the peeled contextual
+    /// matcher knot (`generate_varstring_tag` → `add_tag`). This one-line
+    /// split-borrow forwarder is the Stage-C boundary between the two callers.
     pub fn add_tag(&mut self, txt: &str, r#type: crate::tag::TagType) -> TagId {
-        // Fast path: an existing un-seeded slot whose text matches exactly.
-        let thash = hash_value_ustring(txt, 0);
-        {
-            let it = self.grammar.single_tags.find(thash);
-            if it != self.grammar.single_tags.end() {
-                let tid = it.get().1;
-                let t = &self.grammar.single_tags_list[tid.0];
-                if !t.tag.is_empty() && t.tag == txt {
-                    return tid;
-                }
-            }
-        }
-
-        let tag: TagId = if r#type.intersects(T_VARSTRING) {
-            // C++: tag = ::CG3::parseTag(txt, 0, *this, !type.intersects(T_PRESERVE_ESC));
-            // (`p = 0` — no near-context at runtime.)
-            crate::parser_helpers::parse_tag(txt, &[], self, !r#type.intersects(T_PRESERVE_ESC))
-        } else {
-            let mut t = Tag::default();
-            crate::tag::parse_tag_raw(&mut t, txt, &mut self.grammar);
-            self.add_tag_ptr(t)
-        };
-
-        let mut reflow = false;
-        let (ttype, is_txt) = {
-            let t = &self.grammar.single_tags_list[tag.0];
-            (t.r#type, is_textual(&t.tag))
-        };
-
-        if (ttype.intersects(T_REGEXP)) && !is_txt {
-            // grammar->regex_tags.insert(tag->regexp).second — the set is keyed
-            // by TagId here; treat a newly-inserted id as ".second == true".
-            let inserted = self.grammar.regex_tags.insert(tag);
-            if inserted {
-                // Scan every non-textual single_tag against every regex tag;
-                // mark T_TEXTUAL on any (unanchored) match. Collect ids first to
-                // avoid aliasing the arena during mutation.
-                let all_tags: Vec<TagId> = (0..self.grammar.single_tags_list.capacity())
-                    .filter_map(|i| self.grammar.single_tags_list.try_get(i).map(|_| TagId(i)))
-                    .collect();
-                let regex_ids: Vec<TagId> = self.grammar.regex_tags.iter().copied().collect();
-                for titer in all_tags {
-                    if self.grammar.single_tags_list[titer.0]
-                        .r#type
-                        .intersects(T_TEXTUAL)
-                    {
-                        continue;
-                    }
-                    let text = self.grammar.single_tags_list[titer.0].tag.clone();
-                    for &rid in &regex_ids {
-                        let matched = self.grammar.single_tags_list[rid.0]
-                            .regexp
-                            .as_ref()
-                            .map(|re| re.is_match(&text))
-                            .unwrap_or(false);
-                        if matched {
-                            self.grammar.single_tags_list[titer.0].r#type |= T_TEXTUAL;
-                            reflow = true;
-                        }
-                    }
-                }
-            }
-        }
-        if (ttype.intersects(T_CASE_INSENSITIVE)) && !is_txt {
-            // grammar->icase_tags.insert(tag).second
-            let inserted = self.grammar.icase_tags.insert(tag).1;
-            if inserted {
-                let all_tags: Vec<TagId> = (0..self.grammar.single_tags_list.capacity())
-                    .filter_map(|i| self.grammar.single_tags_list.try_get(i).map(|_| TagId(i)))
-                    .collect();
-                let icase_ids: Vec<TagId> = self.grammar.icase_tags.iter().copied().collect();
-                for titer in all_tags {
-                    if self.grammar.single_tags_list[titer.0]
-                        .r#type
-                        .intersects(T_TEXTUAL)
-                    {
-                        continue;
-                    }
-                    let text = self.grammar.single_tags_list[titer.0].tag.clone();
-                    for &iid in &icase_ids {
-                        let itext = &self.grammar.single_tags_list[iid.0].tag;
-                        if ux_strCaseCompare(&text, itext) {
-                            self.grammar.single_tags_list[titer.0].r#type |= T_TEXTUAL;
-                            reflow = true;
-                        }
-                    }
-                }
-            }
-        }
-        if reflow {
-            self.reflow_textuals();
-        }
-        tag
+        self.engine().add_tag(txt, r#type)
     }
 
     // =======================================================================
@@ -1922,14 +1776,185 @@ fn sort_readings(store: &RuntimeStore, list: &mut [ReadingId]) {
     });
 }
 
+impl Engine<'_> {
+    // =======================================================================
+    // addTag (Tag* internal overload + UChar*/type public overload)
+    // =======================================================================
+
+    /// C++ (unspecced internal) `Tag* GrammarApplicator::addTag(Tag* tag)` —
+    /// interns a freshly-built `Tag` value into `grammar.single_tags_list`
+    /// (arena) + `grammar.single_tags` (hash → id) with the 0..9999 seed-probe
+    /// dedup. Identical algorithm to `Grammar::add_tag`; kept as the applicator's
+    /// own per scope. The `verbosity_level>0` seed warning is deferred I/O
+    /// (`ux_stderr` placeholder). Returns the canonical `TagId`.
+    fn add_tag_ptr(&mut self, mut tag: Tag) -> TagId {
+        let hash = tag.rehash();
+        let mut existing: Option<TagId> = None;
+        let mut chosen_seed: Option<u32> = None;
+        let mut seed = 0u32;
+        while seed < 10000 {
+            let ih = hash.wrapping_add(seed);
+            let found: Option<TagId> = {
+                let it = self.grammar.single_tags.find(ih.get());
+                if it != self.grammar.single_tags.end() {
+                    Some(it.get().1)
+                } else {
+                    None
+                }
+            };
+            match found {
+                Some(t_id) => {
+                    // `t == tag` (pointer identity) is impossible for a fresh
+                    // by-value tag; only the text-equality dedup applies.
+                    if self.grammar.single_tags_list[t_id.0].tag == tag.tag {
+                        existing = Some(t_id);
+                        break;
+                    }
+                }
+                None => {
+                    chosen_seed = Some(seed);
+                    break;
+                }
+            }
+            seed += 1;
+        }
+
+        if let Some(t_id) = existing {
+            // C++ `delete tag`: the incoming value drops at end of scope.
+            return t_id;
+        }
+
+        let seed = chosen_seed.expect("addTag: hash seed space exhausted");
+        tag.seed = seed;
+        let new_hash = tag.rehash();
+        let idx = self.grammar.single_tags_list.alloc(tag);
+        self.grammar.single_tags_list[idx].number = idx;
+        self.grammar
+            .single_tags
+            .insert((new_hash.get(), TagId(idx)));
+        TagId(idx)
+    }
+
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
+    /// C++ `Tag* addTag(const UChar* txt, uint32_t type)` — interns a tag from
+    /// text and returns its canonical `TagId`. Collapses the three C++ overloads
+    /// (`const UChar*` / `const UString&` / `UStringView`), which all map onto
+    /// `&str`. Returns `TagId`.
+    ///
+    /// The `T_VARSTRING` branch is the applicator instantiation of the
+    /// `parser_helpers.hpp` template: `::CG3::parseTag(txt, 0, *this,
+    /// !(type & T_PRESERVE_ESC))` — full tag parsing (prefixes, r/i/v/l/p
+    /// suffixes, regex compile, numeric `<…>`), so runtime-generated tags get
+    /// their T_REGEXP / T_SET / T_NUMERICAL / … semantics.
+    pub fn add_tag(&mut self, txt: &str, r#type: crate::tag::TagType) -> TagId {
+        // Fast path: an existing un-seeded slot whose text matches exactly.
+        let thash = hash_value_ustring(txt, 0);
+        {
+            let it = self.grammar.single_tags.find(thash);
+            if it != self.grammar.single_tags.end() {
+                let tid = it.get().1;
+                let t = &self.grammar.single_tags_list[tid.0];
+                if !t.tag.is_empty() && t.tag == txt {
+                    return tid;
+                }
+            }
+        }
+
+        let tag: TagId = if r#type.intersects(T_VARSTRING) {
+            // C++: tag = ::CG3::parseTag(txt, 0, *this, !type.intersects(T_PRESERVE_ESC));
+            // (`p = 0` — no near-context at runtime.)
+            crate::parser_helpers::parse_tag(txt, &[], self, !r#type.intersects(T_PRESERVE_ESC))
+        } else {
+            let mut t = Tag::default();
+            crate::tag::parse_tag_raw(&mut t, txt, self.grammar);
+            self.add_tag_ptr(t)
+        };
+
+        let mut reflow = false;
+        let (ttype, is_txt) = {
+            let t = &self.grammar.single_tags_list[tag.0];
+            (t.r#type, is_textual(&t.tag))
+        };
+
+        if (ttype.intersects(T_REGEXP)) && !is_txt {
+            // grammar->regex_tags.insert(tag->regexp).second — the set is keyed
+            // by TagId here; treat a newly-inserted id as ".second == true".
+            let inserted = self.grammar.regex_tags.insert(tag);
+            if inserted {
+                // Scan every non-textual single_tag against every regex tag;
+                // mark T_TEXTUAL on any (unanchored) match. Collect ids first to
+                // avoid aliasing the arena during mutation.
+                let all_tags: Vec<TagId> = (0..self.grammar.single_tags_list.capacity())
+                    .filter_map(|i| self.grammar.single_tags_list.try_get(i).map(|_| TagId(i)))
+                    .collect();
+                let regex_ids: Vec<TagId> = self.grammar.regex_tags.iter().copied().collect();
+                for titer in all_tags {
+                    if self.grammar.single_tags_list[titer.0]
+                        .r#type
+                        .intersects(T_TEXTUAL)
+                    {
+                        continue;
+                    }
+                    let text = self.grammar.single_tags_list[titer.0].tag.clone();
+                    for &rid in &regex_ids {
+                        let matched = self.grammar.single_tags_list[rid.0]
+                            .regexp
+                            .as_ref()
+                            .map(|re| re.is_match(&text))
+                            .unwrap_or(false);
+                        if matched {
+                            self.grammar.single_tags_list[titer.0].r#type |= T_TEXTUAL;
+                            reflow = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (ttype.intersects(T_CASE_INSENSITIVE)) && !is_txt {
+            // grammar->icase_tags.insert(tag).second
+            let inserted = self.grammar.icase_tags.insert(tag).1;
+            if inserted {
+                let all_tags: Vec<TagId> = (0..self.grammar.single_tags_list.capacity())
+                    .filter_map(|i| self.grammar.single_tags_list.try_get(i).map(|_| TagId(i)))
+                    .collect();
+                let icase_ids: Vec<TagId> = self.grammar.icase_tags.iter().copied().collect();
+                for titer in all_tags {
+                    if self.grammar.single_tags_list[titer.0]
+                        .r#type
+                        .intersects(T_TEXTUAL)
+                    {
+                        continue;
+                    }
+                    let text = self.grammar.single_tags_list[titer.0].tag.clone();
+                    for &iid in &icase_ids {
+                        let itext = &self.grammar.single_tags_list[iid.0].tag;
+                        if ux_strCaseCompare(&text, itext) {
+                            self.grammar.single_tags_list[titer.0].r#type |= T_TEXTUAL;
+                            reflow = true;
+                        }
+                    }
+                }
+            }
+        }
+        if reflow {
+            self.reflow_textuals();
+        }
+        tag
+    }
+}
+
 /// The applicator instantiation of the C++ `parser_helpers.hpp`
 /// `template<typename State> parseTag(...)` — used by
 /// [`GrammarApplicator::add_tag`]'s `T_VARSTRING` branch so runtime-generated
 /// tags go through the full parser (regex compile, prefixes, suffixes,
-/// numerics) instead of the raw path.
-impl crate::parser_helpers::ParseTagState for super::GrammarApplicator {
+/// numerics) instead of the raw path. Implemented on the split-borrow
+/// [`Engine`](super::Engine) view: the varstring branch is reached from the
+/// peeled contextual matcher knot, so `parse_tag(..., self, ...)` threads an
+/// `Engine`.
+impl crate::parser_helpers::ParseTagState for Engine<'_> {
     fn grammar(&self) -> &Grammar {
-        &self.grammar
+        &*self.grammar
     }
 
     /// C++ `GrammarApplicator::filebase` is `nullptr` (never set) — the
@@ -1941,9 +1966,17 @@ impl crate::parser_helpers::ParseTagState for super::GrammarApplicator {
     /// C++ `GrammarApplicator::error(str, p)` prints `("RT RULE",
     /// current_rule->line)` / `("RT INPUT", numLines)` into the format and
     /// RETURNS (non-fatal, unlike `TextualParser::error`). The port's
-    /// `error()` defers the sink, so emit a plain stderr line here.
+    /// `error()` defers the sink, so emit a plain stderr line here. The label/
+    /// line selection is `GrammarApplicator::error_labels` inlined (that helper
+    /// stays `&self` on the applicator; the values it reads live on `Engine`).
     fn error_near(&mut self, _near: &[char]) {
-        let (label, line) = self.error("", None);
+        let (label, line) = if let Some(rid) = self.scratch.current_rule
+            && self.grammar.rule_by_number[rid.0].line != 0
+        {
+            ("RT RULE", self.grammar.rule_by_number[rid.0].line)
+        } else {
+            ("RT INPUT", self.doc.num_lines)
+        };
         tracing::error!("Error: parseTag failed at {label} {line}");
     }
 

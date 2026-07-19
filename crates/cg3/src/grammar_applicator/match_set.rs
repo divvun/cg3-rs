@@ -321,7 +321,14 @@ fn group_count(tag: &Tag) -> i32 {
         .unwrap_or(0)
 }
 
-impl super::GrammarApplicator {
+// ===========================================================================
+// The match-set matcher cluster, converted onto the split-borrow `Engine<'_>`
+// view (Stage-C decomposition): the contextual-test knot's does_set_match_*
+// family plus the already-peeled tag/regexp leaves. Sibling calls stay
+// method-like; unpeeled `&mut self` methods split at the call site via
+// `self.engine().<method>(...)`.
+// ===========================================================================
+impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
     // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn]
@@ -407,7 +414,7 @@ impl super::GrammarApplicator {
             }
         } else if tag.regexp.is_some() {
             // (5) regular regexp tag
-            m = self.engine().does_regexp_match_reading(reading, tag, bypass_index);
+            m = self.does_regexp_match_reading(reading, tag, bypass_index);
         } else if tag.r#type.intersects(T_CASE_INSENSITIVE) {
             // (6) case-insensitive
             let textual: Vec<u32> = self
@@ -419,7 +426,7 @@ impl super::GrammarApplicator {
                 .as_slice()
                 .to_vec();
             for mter in textual {
-                m = self.engine().does_tag_match_icase(mter, tag, bypass_index);
+                m = self.does_tag_match_icase(mter, tag, bypass_index);
                 if m != 0 {
                     break;
                 }
@@ -507,7 +514,7 @@ impl super::GrammarApplicator {
             for tid in nums {
                 let itag = self.grammar.single_tags_list[tid.0].clone();
                 let rv =
-                    test_tag_numerical(&mut self.doc.store, &self.grammar, reading, tag, &itag);
+                    test_tag_numerical(&mut self.doc.store, self.grammar, reading, tag, &itag);
                 if rv != TagHash(0) {
                     m = rv.get();
                 }
@@ -546,7 +553,7 @@ impl super::GrammarApplicator {
                 let found_value: Option<u32> = if key_type.intersects(T_REGEXP) {
                     let mut fv = None;
                     for &(k, v) in &var_entries {
-                        if self.engine().does_tag_match_regexp(k, &key_tag, bypass_index) != 0 {
+                        if self.does_tag_match_regexp(k, &key_tag, bypass_index) != 0 {
                             fv = Some(v);
                             break;
                         }
@@ -555,7 +562,7 @@ impl super::GrammarApplicator {
                 } else if key_type.intersects(T_CASE_INSENSITIVE) {
                     let mut fv = None;
                     for &(k, v) in &var_entries {
-                        if self.engine().does_tag_match_icase(k, &key_tag, bypass_index) != 0 {
+                        if self.does_tag_match_icase(k, &key_tag, bypass_index) != 0 {
                             fv = Some(v);
                             break;
                         }
@@ -578,13 +585,13 @@ impl super::GrammarApplicator {
                         };
                         let comp_tag = self.grammar.single_tags_list[comp_tid.0].clone();
                         if comp_tag.r#type.intersects(T_REGEXP) {
-                            if self.engine().does_tag_match_regexp(itval, &comp_tag, bypass_index)
+                            if self.does_tag_match_regexp(itval, &comp_tag, bypass_index)
                                 != 0
                             {
                                 m = tag.hash.get();
                             }
                         } else if comp_tag.r#type.intersects(T_CASE_INSENSITIVE) {
-                            if self.engine().does_tag_match_icase(itval, &comp_tag, bypass_index)
+                            if self.does_tag_match_icase(itval, &comp_tag, bypass_index)
                                 != 0
                             {
                                 m = tag.hash.get();
@@ -1478,15 +1485,7 @@ impl super::GrammarApplicator {
         }
         lists
     }
-}
 
-// ===========================================================================
-// Peeled leaves (Stage-C decomposition): the match-set fns that do NOT call
-// back into an unpeeled `&mut self` engine method, converted onto the
-// split-borrow `Engine<'_>` view. Call syntax stays method-like; an unpeeled
-// `&mut self` method splits at the call site via `self.engine().<method>(...)`.
-// ===========================================================================
-impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-regexp-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-regexp-fn]
     // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-regexp-fn]

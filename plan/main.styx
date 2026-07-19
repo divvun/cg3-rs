@@ -279,6 +279,21 @@ children (
                         title "run_contextual_test + reflow + context helpers onto the view (the dep/relation logic lands on Document's DepBookkeeping API here)"
                         priority 1
                         deps (engine-decomp.peel.matchset)
+                        log (
+                            {
+                                at 2026-07-19T16:29:21.924838Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Todo → Doing (nplan_start)"
+                            }
+
+                            {
+                                at 2026-07-19T16:53:06.697856Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Doing → Done (nplan_complete)"
+                            }
+                        )
                     }
 
                     {

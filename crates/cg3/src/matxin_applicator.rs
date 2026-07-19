@@ -861,7 +861,7 @@ impl MatxinApplicator {
                         [self.base.grammar.soft_delimiters.unwrap().0]
                         .number
                         .get();
-                    if self.base.does_set_match_cohort_normal(cc, sd, None) {
+                    if self.base.engine().does_set_match_cohort_normal(cc, sd, None) {
                         self.add_endtag_all(cc);
                         append_cohort(
                             &mut self.base.doc.store,
@@ -886,7 +886,7 @@ impl MatxinApplicator {
                     let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0]
                         .number
                         .get();
-                    self.base.does_set_match_cohort_normal(cc, d, None)
+                    self.base.engine().does_set_match_cohort_normal(cc, d, None)
                 };
                 if hard || delim_match {
                     if !self.base.cfg.is_conv && cohorts_size >= self.base.cfg.hard_limit {

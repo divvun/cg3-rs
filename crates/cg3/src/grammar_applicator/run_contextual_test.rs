@@ -81,7 +81,7 @@ use crate::types::GlobalNumber;
 
 use crate::sorted_vector::uint32SortedVector;
 
-use super::{TRV_BARRIER, TRV_BREAK, TRV_BREAK_DEFAULT, dSMC_Context};
+use super::{Engine, TRV_BARRIER, TRV_BREAK, TRV_BREAK_DEFAULT, dSMC_Context};
 
 /// Which iterator pool `runContextualTest` selected for the generic-iterator
 /// arm (the C++ `CohortIterator* it`). The pools have incompatible concrete
@@ -132,7 +132,7 @@ fn cs_insert(store: &RuntimeStore, v: &mut Vec<CohortId>, t: CohortId) -> bool {
     false
 }
 
-impl super::GrammarApplicator {
+impl Engine<'_> {
     /// C++ constructor sets `ci_depths(6, 0)`; the scaffold `new()` leaves it
     /// empty. Grow-to-6 lazily so the six pooled-iterator counters are always
     /// indexable (a no-op once `ci_depths` is 6-wide). NOTE: the real
@@ -878,7 +878,7 @@ impl super::GrammarApplicator {
         &crate::grammar::Grammar,
         &crate::window::CohortRegistry,
     ) {
-        (&self.doc.store, &self.grammar, &self.doc.cohorts)
+        (&self.doc.store, self.grammar, &self.doc.cohorts)
     }
 
     /// The C++ generic-iterator arm (`if (it) { ... }`): resets nothing here (the
@@ -1016,19 +1016,19 @@ impl super::GrammarApplicator {
             }
             ItSel::Left(k) => {
                 if let Some(mut i) = self.scratch.topologyLeftIters.remove(&k) {
-                    i.advance(&self.doc.store, &self.grammar);
+                    i.advance(&self.doc.store, self.grammar);
                     self.scratch.topologyLeftIters.insert(k, i);
                 }
             }
             ItSel::Right(k) => {
                 if let Some(mut i) = self.scratch.topologyRightIters.remove(&k) {
-                    i.advance(&self.doc.store, &self.grammar);
+                    i.advance(&self.doc.store, self.grammar);
                     self.scratch.topologyRightIters.insert(k, i);
                 }
             }
             ItSel::DepParent(k) => {
                 if let Some(mut i) = self.scratch.depParentIters.remove(&k) {
-                    i.advance(&self.doc.store, &self.grammar, &self.doc.cohorts);
+                    i.advance(&self.doc.store, self.grammar, &self.doc.cohorts);
                     self.scratch.depParentIters.insert(k, i);
                 }
             }
@@ -1603,7 +1603,7 @@ impl super::GrammarApplicator {
                         .cohorts
                         .cohort_map
                         .contains_key(&GlobalNumber(citer))
-                        && self.engine().does_tag_match_regexp(*name, &rtag, caps != 0) != 0
+                        && self.does_tag_match_regexp(*name, &rtag, caps != 0) != 0
                     {
                         let c = *self
                             .doc

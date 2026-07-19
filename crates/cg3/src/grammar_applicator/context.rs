@@ -15,40 +15,10 @@
 //! `*(context_stack.back().unif_tags)`; the pointer is a `const void*` compared
 //! only by identity (never dereferenced), so it stays a raw pointer here too.
 
-use super::{ReadingSpec, unif_tags_t};
+use super::{Engine, ReadingSpec, unif_tags_t};
 use crate::arena::{CohortId, ReadingId};
 
 impl super::GrammarApplicator {
-    // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.get-attach-to-fn]
-    // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.get-attach-to-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-attach-to-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.get-attach-to-fn]
-    /// C++ `ReadingSpec GrammarApplicator::get_attach_to()`. Returns the current
-    /// context's explicit attach target (does NOT fall back to `target`); an
-    /// empty stack yields a default-constructed (all-null) `ReadingSpec`.
-    pub fn get_attach_to(&self) -> ReadingSpec {
-        if self.scratch.context_stack.is_empty() {
-            ReadingSpec::default()
-        } else {
-            self.scratch.context_stack.last().unwrap().attach_to.clone()
-        }
-    }
-
-    // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.get-mark-fn]
-    // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.get-mark-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-mark-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.get-mark-fn]
-    /// C++ `Cohort* GrammarApplicator::get_mark()`. Returns the current context's
-    /// mark cohort (`X`/MARK reference), `None` on an empty stack (the stored
-    /// `mark` may itself be `None`).
-    pub fn get_mark(&self) -> Option<CohortId> {
-        if self.scratch.context_stack.is_empty() {
-            None
-        } else {
-            self.scratch.context_stack.last().unwrap().mark
-        }
-    }
-
     // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.get-apply-to-fn]
     // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.get-apply-to-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-apply-to-fn]
@@ -93,6 +63,38 @@ impl super::GrammarApplicator {
             spec.cohort = parent;
             spec.reading = Some(reading);
             spec.subreading = subreading;
+        }
+    }
+}
+
+impl Engine<'_> {
+    // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.get-attach-to-fn]
+    // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.get-attach-to-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-attach-to-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.get-attach-to-fn]
+    /// C++ `ReadingSpec GrammarApplicator::get_attach_to()`. Returns the current
+    /// context's explicit attach target (does NOT fall back to `target`); an
+    /// empty stack yields a default-constructed (all-null) `ReadingSpec`.
+    pub fn get_attach_to(&self) -> ReadingSpec {
+        if self.scratch.context_stack.is_empty() {
+            ReadingSpec::default()
+        } else {
+            self.scratch.context_stack.last().unwrap().attach_to.clone()
+        }
+    }
+
+    // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.get-mark-fn]
+    // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.get-mark-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-mark-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.get-mark-fn]
+    /// C++ `Cohort* GrammarApplicator::get_mark()`. Returns the current context's
+    /// mark cohort (`X`/MARK reference), `None` on an empty stack (the stored
+    /// `mark` may itself be `None`).
+    pub fn get_mark(&self) -> Option<CohortId> {
+        if self.scratch.context_stack.is_empty() {
+            None
+        } else {
+            self.scratch.context_stack.last().unwrap().mark
         }
     }
 

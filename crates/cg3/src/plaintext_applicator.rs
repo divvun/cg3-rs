@@ -206,7 +206,7 @@ where
                             .get();
                         let cohorts = self.base.doc.store.single_windows.get(sw.0).cohorts.clone();
                         for &c in cohorts.iter().rev() {
-                            if self.base.does_set_match_cohort_normal(c, sd, None) {
+                            if self.base.engine().does_set_match_cohort_normal(c, sd, None) {
                                 did_soft_lookback = false;
                                 let cohort = self.base.delimit_at(sw, c);
                                 let parent =
@@ -231,7 +231,7 @@ where
                             [self.base.grammar.soft_delimiters.unwrap().0]
                             .number
                             .get();
-                        self.base.does_set_match_cohort_normal(cc, sd, None)
+                        self.base.engine().does_set_match_cohort_normal(cc, sd, None)
                     };
                     if over_soft && sd_hit {
                         let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
@@ -271,7 +271,7 @@ where
                                 [self.base.grammar.delimiters.unwrap().0]
                                 .number
                                 .get();
-                            self.base.does_set_match_cohort_normal(cc, d, None)
+                            self.base.engine().does_set_match_cohort_normal(cc, d, None)
                         };
                     if over_hard || delim_hit {
                         let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();

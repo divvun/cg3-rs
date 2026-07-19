@@ -50,7 +50,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             crate::grammar_applicator::ReadingSpec::default();
         let mut attach_out: Option<CohortId> = None;
         let res =
-            self.run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None);
+            self.engine().run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None);
         let attach0 = attach_out;
         let same_parent = attach0
             .map(|a| {
@@ -63,7 +63,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         }
         let mut attach = attach0.unwrap();
         self.profile_rule_context(true, rule, dep_target);
-        if let Some(at) = self.get_attach_to().cohort {
+        if let Some(at) = self.engine().get_attach_to().cohort {
             attach = at;
         }
         let mut good = true;
@@ -83,7 +83,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let cc = self.doc.store.cohorts.get(attach.0);
                 (cc.parent, cc.local_number)
             };
-            let tg = self
+            let tg = self.engine()
                 .run_contextual_test(aparent, alocal, it, None, None)
                 .is_some();
             self.profile_rule_context(tg, rule, it);
@@ -726,7 +726,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 (c.parent, c.local_number)
             };
             let mut attach: Option<CohortId> = None;
-            let tg = self
+            let tg = self.engine()
                 .run_contextual_test(tparent, tlocal, it, Some(&mut attach), None)
                 .is_some()
                 && attach.is_some();
@@ -735,7 +735,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 self.scratch.finish_reading_loop = false;
                 return;
             }
-            if let Some(at) = self.get_attach_to().cohort {
+            if let Some(at) = self.engine().get_attach_to().cohort {
                 merge_at = at;
                 if let Some(mw) = self.scratch.merge_with {
                     withs.insert(mw);
@@ -840,13 +840,13 @@ impl crate::grammar_applicator::GrammarApplicator {
         };
         let mut attach_out: Option<CohortId> = None;
         let res =
-            self.run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None);
+            self.engine().run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None);
         if !(res.is_some() && attach_out.is_some()) {
             return;
         }
         let mut attach = attach_out.unwrap();
         self.profile_rule_context(true, rule, dep_target);
-        if let Some(at) = self.get_attach_to().cohort {
+        if let Some(at) = self.engine().get_attach_to().cohort {
             attach = at;
         }
         let mut good = true;
@@ -866,7 +866,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let cc = self.doc.store.cohorts.get(attach.0);
                 (cc.parent, cc.local_number)
             };
-            let tg = self
+            let tg = self.engine()
                 .run_contextual_test(aparent, alocal, it, None, None)
                 .is_some();
             self.profile_rule_context(tg, rule, it);
@@ -912,7 +912,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let mut excepts = TagList::new();
         let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
         if let Some(sl) = sublist {
-            let tags = self.get_tag_list_of_set(sl, false);
+            let tags = self.engine().get_tag_list_of_set(sl, false);
             let subreading = self.get_apply_to().subreading.unwrap();
             self.engine().get_tags_matching(subreading, &tags, &mut excepts);
             excepts.extend(tags.iter().copied());

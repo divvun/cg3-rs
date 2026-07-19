@@ -1498,7 +1498,7 @@ where
                         [self.base.grammar.soft_delimiters.unwrap().0]
                         .number
                         .get();
-                    if self.base.does_set_match_cohort_normal(cc, sd, None) {
+                    if self.base.engine().does_set_match_cohort_normal(cc, sd, None) {
                         let readings = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
                             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
@@ -1519,7 +1519,7 @@ where
                             [self.base.grammar.delimiters.unwrap().0]
                             .number
                             .get();
-                        self.base.does_set_match_cohort_normal(cc, d, None)
+                        self.base.engine().does_set_match_cohort_normal(cc, d, None)
                     };
                     if hard || delim_match {
                         if !self.base.cfg.is_conv && cohorts_size >= self.base.cfg.hard_limit {

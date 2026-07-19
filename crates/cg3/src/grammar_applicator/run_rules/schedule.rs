@@ -240,7 +240,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     (c.global_number, c.dep_parent)
                 };
                 if gn == head_gn
-                    || (dp == Some(head_gn) && self.does_set_match_cohort_normal(*iter, cset, None))
+                    || (dp == Some(head_gn) && self.engine().does_set_match_cohort_normal(*iter, cset, None))
                 {
                     self.cohortset_insert(cs, *iter);
                 }
@@ -378,7 +378,12 @@ impl crate::grammar_applicator::GrammarApplicator {
         self.reflow_reading(reading);
     }
 
-    /// C++ `subs_any.emplace_back(...)` bookkeeping helper.
+}
+
+impl crate::grammar_applicator::Engine<'_> {
+    /// C++ `subs_any.emplace_back(...)` bookkeeping helper. Peeled onto the
+    /// split-borrow `Engine<'_>` view: it is called from `get_sub_reading`,
+    /// which the contextual matcher knot reaches.
     ///
     /// RECONCILIATION (see `get_sub_reading` doc + report): the C++ `subs_any` is
     /// a `std::deque<Reading>` of amalgamated sub-readings; in the arena model the
@@ -389,7 +394,9 @@ impl crate::grammar_applicator::GrammarApplicator {
     pub(crate) fn subs_any_push(&mut self, rid: ReadingId) {
         self.scratch.subs_any.push(rid);
     }
+}
 
+impl crate::grammar_applicator::GrammarApplicator {
     /// `clear(subs_any)` — free every amalgamated sub-reading back to the readings
     /// arena and empty the tracking vector. RECONCILIATION: matches the required
     /// `Vec<ReadingId>` shape of `subs_any` (see [`Self::subs_any_push`]).

@@ -34,7 +34,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     #[inline]
     pub(crate) fn generate_varstring_tag_id(&mut self, tag: TagId) -> TagId {
         let t = self.grammar.single_tags_list.get(tag.0).clone();
-        self.generate_varstring_tag(&t)
+        self.engine().generate_varstring_tag(&t)
     }
 
     /// C++ `TRACE` macro: push `rule->number` onto the apply-to subreading's
@@ -379,6 +379,18 @@ impl crate::grammar_applicator::GrammarApplicator {
         }
     }
 
+}
+
+// ===========================================================================
+// Stage-C decomposition: the `getTagList` read family + `get_sub_reading` /
+// `clone_reading_value`, reached from the contextual matcher knot
+// (`generate_varstring_tag` → `get_tag_list`; `does_set_match_*` →
+// `get_sub_reading`), converted onto the split-borrow `Engine<'_>` view.
+// The `getTagList` overloads form a `&self` call chain and so peel as a unit;
+// unpeeled `&mut self` callers split at the call site via
+// `self.engine().<method>(...)`.
+// ===========================================================================
+impl crate::grammar_applicator::Engine<'_> {
     /// C++ `TagList getTagList(const Set& theSet, bool unif_mode) const` — the
     /// returning overload: constructs a fresh list, fills it, returns it.
     pub fn get_tag_list_ret(&self, the_set: &Set, unif_mode: bool) -> TagList {
@@ -454,21 +466,21 @@ impl crate::grammar_applicator::GrammarApplicator {
                     &the_set.trie,
                     the_tags,
                     node as *const core::ffi::c_void,
-                    &self.grammar,
+                    self.grammar,
                 );
                 crate::tag_trie::trie_get_tag_list_find(
                     &the_set.trie_special,
                     the_tags,
                     node as *const core::ffi::c_void,
-                    &self.grammar,
+                    self.grammar,
                 );
             }
         } else {
-            crate::tag_trie::trie_get_tag_list_append(&the_set.trie, the_tags, &self.grammar);
+            crate::tag_trie::trie_get_tag_list_append(&the_set.trie, the_tags, self.grammar);
             crate::tag_trie::trie_get_tag_list_append(
                 &the_set.trie_special,
                 the_tags,
-                &self.grammar,
+                self.grammar,
             );
         }
 
@@ -571,7 +583,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     r.matched_tests = true;
                 }
             }
-            crate::reading::reading_rehash(&mut self.doc.store, &self.grammar, rid);
+            crate::reading::reading_rehash(&mut self.doc.store, self.grammar, rid);
             return Some(rid);
         }
 
@@ -609,7 +621,9 @@ impl crate::grammar_applicator::GrammarApplicator {
     pub(crate) fn clone_reading_value(&self, id: ReadingId) -> Reading {
         crate::reading::clone_verbatim(self.doc.store.readings.get(id.0))
     }
+}
 
+impl crate::grammar_applicator::GrammarApplicator {
     // [spec:cg3:def:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-single-window-fn]
     // [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-single-window-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-single-window-fn]
