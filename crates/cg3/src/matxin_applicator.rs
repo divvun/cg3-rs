@@ -4,10 +4,10 @@
 //!
 //! COMPOSITION-OVER-INHERITANCE. C++ `class MatxinApplicator : public virtual
 //! GrammarApplicator`. In Rust the base engine is held by value in `base`; all
-//! engine/core calls go through `self.base.<method>` / `self.base.store` /
-//! `self.base.grammar` / `self.base.window`.
+//! engine/core calls go through `self.base.<method>` / `self.base.doc.store` /
+//! `self.base.grammar` / `self.base.doc.stream`.
 //!
-//! ARENA MODEL. Pointers become arena ids resolved through `self.base.store`
+//! ARENA MODEL. Pointers become arena ids resolved through `self.base.doc.store`
 //! (`Cohort*`→`CohortId`, `Reading*`→`ReadingId`, `SingleWindow*`→`SwId`) and
 //! `self.base.grammar.single_tags_list` (`Tag*`→`TagId`). Char-by-char C++ walks
 //! (UTF-16 `UChar`) become UTF-8 char reads via `uextras::u_fgetc`.
@@ -150,7 +150,7 @@ impl MatxinApplicator {
     /// but the survivor is a fresh COPY (`alloc_reading(*(clist.front()))`) — the
     /// originals are NOT freed (orphaned in the pool).
     pub fn merge_mappings(&mut self, cohort: CohortId) {
-        let store = &mut self.base.store;
+        let store = &mut self.base.doc.store;
         let trace = self.base.cfg.trace;
 
         let readings: ReadingList = store.cohorts.get(cohort.0).readings.clone();
@@ -206,9 +206,9 @@ impl MatxinApplicator {
         let len = s.len();
 
         // insert_if_exists(cReading->parent->possible_sets, grammar->sets_any)
-        if let Some(parent) = self.base.store.readings.get(c_reading.0).parent {
+        if let Some(parent) = self.base.doc.store.readings.get(c_reading.0).parent {
             insert_if_exists(
-                &mut self.base.store.cohorts.get_mut(parent.0).possible_sets,
+                &mut self.base.doc.store.cohorts.get_mut(parent.0).possible_sets,
                 self.base.grammar.sets_any.as_ref(),
             );
         }
@@ -263,7 +263,7 @@ impl MatxinApplicator {
 
         if unknown {
             let h = self.base.grammar.single_tags_list.get(tag.0).hash;
-            self.base.store.readings.get_mut(c_reading.0).baseform = Some(h);
+            self.base.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
             self.base.add_tag_to_reading(c_reading, tag);
             return;
         }
@@ -355,11 +355,19 @@ impl MatxinApplicator {
                     .r#type
                     .intersects(T_BASEFORM)
                 {
-                    if self.base.store.readings.get(reading.0).baseform.is_some() {
+                    if self
+                        .base
+                        .doc
+                        .store
+                        .readings
+                        .get(reading.0)
+                        .baseform
+                        .is_some()
+                    {
                         // Sub-reading — NOTE: Matxin does NOT re-add the wordform.
-                        let parent = self.base.store.readings.get(reading.0).parent;
-                        let nr = Reading::allocate_reading(&mut self.base.store, parent);
-                        self.base.store.readings.get_mut(reading.0).next = Some(nr);
+                        let parent = self.base.doc.store.readings.get(reading.0).parent;
+                        let nr = Reading::allocate_reading(&mut self.base.doc.store, parent);
+                        self.base.doc.store.readings.get_mut(reading.0).next = Some(nr);
                         reading = nr;
                     }
                     let mut mappings: TagVector = Vec::new();
@@ -378,7 +386,7 @@ impl MatxinApplicator {
                         }
                     }
                     if !mappings.is_empty() {
-                        let parent = self.base.store.readings.get(reading.0).parent.unwrap();
+                        let parent = self.base.doc.store.readings.get(reading.0).parent.unwrap();
                         self.base
                             .split_mappings(&mut mappings, parent, reading, true);
                     }
@@ -408,7 +416,7 @@ impl MatxinApplicator {
     /// std::ostream& output)`. Fills `node` from the reading; hard-exits on
     /// sub-readings (Matxin can't represent them).
     pub fn print_reading<W: Write>(&self, reading: ReadingId, node: &mut Node, output: &mut W) {
-        let r = self.base.store.readings.get(reading.0);
+        let r = self.base.doc.store.readings.get(reading.0);
         if r.noprint {
             return;
         }
@@ -505,11 +513,12 @@ impl MatxinApplicator {
     /// C++ `void MatxinApplicator::printSingleWindow(SingleWindow* window,
     /// std::ostream& output, bool profiling)`. Emits one `<SENTENCE>` block.
     pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
-        let number = self.base.store.single_windows.get(window.0).number;
+        let number = self.base.doc.store.single_windows.get(window.0).number;
         let _ = writeln!(output, "  <SENTENCE ord=\"{number}\" alloc=\"0\">");
 
         let all_cohorts = self
             .base
+            .doc
             .store
             .single_windows
             .get(window.0)
@@ -517,7 +526,7 @@ impl MatxinApplicator {
             .clone();
         for cohort in all_cohorts {
             let (local_number, ctype) = {
-                let c = self.base.store.cohorts.get(cohort.0);
+                let c = self.base.doc.store.cohorts.get(cohort.0);
                 (c.local_number, c.r#type)
             };
             if local_number == 0 || (ctype.intersects(CT_REMOVED)) {
@@ -525,7 +534,7 @@ impl MatxinApplicator {
             }
 
             if !profiling {
-                unignore_all(&mut self.base.store, cohort);
+                unignore_all(&mut self.base.doc.store, cohort);
                 if !self.base.cfg.split_mappings {
                     self.merge_mappings(cohort);
                 }
@@ -536,6 +545,7 @@ impl MatxinApplicator {
             // Wordform, `"<`/`>"` stripped, XML-escaped (entity+literal bug).
             let wf_tid = self
                 .base
+                .doc
                 .store
                 .cohorts
                 .get(cohort.0)
@@ -565,12 +575,12 @@ impl MatxinApplicator {
                 wf_escaped.push(ch);
             }
 
-            let global_number = self.base.store.cohorts.get(cohort.0).global_number;
+            let global_number = self.base.doc.store.cohorts.get(cohort.0).global_number;
             n.self_ = global_number.get() as i32;
             n.form = wf_escaped;
 
             // Only the FIRST reading.
-            let reading = self.base.store.cohorts.get(cohort.0).readings[0];
+            let reading = self.base.doc.store.cohorts.get(cohort.0).readings[0];
             self.print_reading(reading, &mut n, output);
 
             // Fallback root `r`.
@@ -583,7 +593,7 @@ impl MatxinApplicator {
 
             self.nodes.insert(global_number.get() as i32, n);
 
-            let dep_parent = self.base.store.cohorts.get(cohort.0).dep_parent;
+            let dep_parent = self.base.doc.store.cohorts.get(cohort.0).dep_parent;
             if let Some(dp) = dep_parent {
                 self.deps
                     .entry(dp.get() as i32)
@@ -765,7 +775,7 @@ impl MatxinApplicator {
         let mut c_reading: Option<ReadingId> = None;
         let mut l_swindow: Option<SwId> = None;
 
-        self.base.window.window_span = self.base.cfg.num_windows;
+        self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
         ux_strip_bom(input);
 
@@ -788,16 +798,23 @@ impl MatxinApplicator {
             if inchar == '\\' && !incohort && !superblank {
                 let n = u_fgetc(input);
                 if let Some(cc) = c_cohort {
-                    self.base.store.cohorts.get_mut(cc.0).text.push(inchar);
-                    self.base.store.cohorts.get_mut(cc.0).text.push(n);
+                    self.base.doc.store.cohorts.get_mut(cc.0).text.push(inchar);
+                    self.base.doc.store.cohorts.get_mut(cc.0).text.push(n);
                 } else if let Some(ls) = l_swindow {
                     self.base
+                        .doc
                         .store
                         .single_windows
                         .get_mut(ls.0)
                         .text
                         .push(inchar);
-                    self.base.store.single_windows.get_mut(ls.0).text.push(n);
+                    self.base
+                        .doc
+                        .store
+                        .single_windows
+                        .get_mut(ls.0)
+                        .text
+                        .push(n);
                 } else {
                     let _ = write!(output, "{inchar}");
                     let _ = write!(output, "{n}");
@@ -811,9 +828,10 @@ impl MatxinApplicator {
 
             if superblank || inchar == ']' || !incohort {
                 if let Some(cc) = c_cohort {
-                    self.base.store.cohorts.get_mut(cc.0).text.push(inchar);
+                    self.base.doc.store.cohorts.get_mut(cc.0).text.push(inchar);
                 } else if let Some(ls) = l_swindow {
                     self.base
+                        .doc
                         .store
                         .single_windows
                         .get_mut(ls.0)
@@ -828,13 +846,14 @@ impl MatxinApplicator {
             // We are at the start of a cohort.
             // Magic reading for the previous cohort.
             if let Some(cc) = c_cohort
-                && self.base.store.cohorts.get(cc.0).readings.is_empty()
+                && self.base.doc.store.cohorts.get(cc.0).readings.is_empty()
             {
                 self.base.init_empty_cohort(cc);
             }
             // Soft-limit break.
             if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
-                let cohorts_size = self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
+                let cohorts_size =
+                    self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32;
                 if cohorts_size >= self.base.cfg.soft_limit
                     && self.base.grammar.soft_delimiters.is_some()
                 {
@@ -844,17 +863,24 @@ impl MatxinApplicator {
                         .get();
                     if self.base.does_set_match_cohort_normal(cc, sd, None) {
                         self.add_endtag_all(cc);
-                        append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
+                        append_cohort(
+                            &mut self.base.doc.store,
+                            &mut self.base.doc.cohorts,
+                            &mut self.base.doc.deps,
+                            cs,
+                            cc,
+                        );
                         l_swindow = Some(cs);
                         c_swindow = None;
                         c_cohort = None;
-                        self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
+                        self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
                     }
                 }
             }
             // Hard-limit break.
             if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
-                let cohorts_size = self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
+                let cohorts_size =
+                    self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32;
                 let hard = cohorts_size >= self.base.cfg.hard_limit;
                 let delim_match = self.base.grammar.delimiters.is_some() && {
                     let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0]
@@ -864,71 +890,90 @@ impl MatxinApplicator {
                 };
                 if hard || delim_match {
                     if !self.base.cfg.is_conv && cohorts_size >= self.base.cfg.hard_limit {
-                        let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                        let wf_tid = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                         let wftag = self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
                         tracing::warn!(
                             "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
                             self.base.cfg.hard_limit,
                             wftag,
-                            self.base.numCohorts,
-                            self.base.numLines
+                            self.base.doc.num_cohorts,
+                            self.base.doc.num_lines
                         );
                     }
                     self.add_endtag_all(cc);
-                    append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
+                    append_cohort(
+                        &mut self.base.doc.store,
+                        &mut self.base.doc.cohorts,
+                        &mut self.base.doc.deps,
+                        cs,
+                        cc,
+                    );
                     l_swindow = Some(cs);
                     c_swindow = None;
                     c_cohort = None;
-                    self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
+                    self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
                 }
             }
             // Create a window if none.
             if c_swindow.is_none() {
                 let cs = self
                     .base
-                    .window
-                    .alloc_append_single_window(&mut self.base.store);
+                    .doc
+                    .stream
+                    .alloc_append_single_window(&mut self.base.doc.store);
                 c_swindow = Some(cs);
                 // 0th BOS cohort.
-                let cc = alloc_cohort(&mut self.base.store, Some(cs));
-                let gn = self.base.window.next_cohort_number();
-                self.base.store.cohorts.get_mut(cc.0).global_number = gn;
-                self.base.store.cohorts.get_mut(cc.0).wordform = self.base.cfg.tag_begin;
-                let cr = alloc_reading(&mut self.base.store, Some(cc));
-                self.base.store.readings.get_mut(cr.0).baseform = Some(self.base.cfg.begintag);
+                let cc = alloc_cohort(&mut self.base.doc.store, Some(cs));
+                let gn = self.base.doc.cohorts.next_cohort_number();
+                self.base.doc.store.cohorts.get_mut(cc.0).global_number = gn;
+                self.base.doc.store.cohorts.get_mut(cc.0).wordform = self.base.cfg.tag_begin;
+                let cr = alloc_reading(&mut self.base.doc.store, Some(cc));
+                self.base.doc.store.readings.get_mut(cr.0).baseform = Some(self.base.cfg.begintag);
                 insert_if_exists(
-                    &mut self.base.store.cohorts.get_mut(cc.0).possible_sets,
+                    &mut self.base.doc.store.cohorts.get_mut(cc.0).possible_sets,
                     self.base.grammar.sets_any.as_ref(),
                 );
                 let bt = tag_by_hash(&self.base.grammar, self.base.cfg.begintag);
                 self.base.add_tag_to_reading(cr, bt);
-                append_reading(&mut self.base.store, cc, cr);
-                append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
+                append_reading(&mut self.base.doc.store, cc, cr);
+                append_cohort(
+                    &mut self.base.doc.store,
+                    &mut self.base.doc.cohorts,
+                    &mut self.base.doc.deps,
+                    cs,
+                    cc,
+                );
                 l_swindow = Some(cs);
-                self.base.store.single_windows.get_mut(cs.0).text = firstblank.clone();
+                self.base.doc.store.single_windows.get_mut(cs.0).text = firstblank.clone();
                 firstblank.clear();
                 c_cohort = None;
-                self.base.numWindows = self.base.numWindows.wrapping_add(1);
+                self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
             }
             let cs = c_swindow.unwrap();
 
             // Append the PREVIOUS cohort.
             if let Some(cc) = c_cohort {
-                append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
+                append_cohort(
+                    &mut self.base.doc.store,
+                    &mut self.base.doc.cohorts,
+                    &mut self.base.doc.deps,
+                    cs,
+                    cc,
+                );
             }
-            if self.base.window.next.len() as u32 > self.base.cfg.num_windows {
+            if self.base.doc.stream.next.len() as u32 > self.base.cfg.num_windows {
                 self.base.shuffle_windows_down();
                 self.base.run_grammar_on_window(output);
-                if reset_after != 0 && self.base.numWindows.is_multiple_of(reset_after) {
+                if reset_after != 0 && self.base.doc.num_windows.is_multiple_of(reset_after) {
                     self.base.reset_indexes();
                 }
             }
 
             // Allocate the new cohort.
-            let cc = alloc_cohort(&mut self.base.store, Some(cs));
+            let cc = alloc_cohort(&mut self.base.doc.store, Some(cs));
             c_cohort = Some(cc);
-            let gn = self.base.window.next_cohort_number();
-            self.base.store.cohorts.get_mut(cc.0).global_number = gn;
+            let gn = self.base.doc.cohorts.next_cohort_number();
+            self.base.doc.store.cohorts.get_mut(cc.0).global_number = gn;
 
             // Read the wordform.
             let mut wordform: UString = String::from("\"<");
@@ -945,16 +990,16 @@ impl MatxinApplicator {
             }
             wordform.push_str(">\"");
             let wf_tid = self.base.add_tag(&wordform, crate::tag::TagType::empty());
-            self.base.store.cohorts.get_mut(cc.0).wordform = Some(wf_tid);
-            self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
+            self.base.doc.store.cohorts.get_mut(cc.0).wordform = Some(wf_tid);
+            self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
 
             let mut current_reading: Vec<char> = Vec::new();
             c_reading = None;
 
             // Static reading.
             if inchar == '<' {
-                let wread = alloc_reading(&mut self.base.store, Some(cc));
-                self.base.store.cohorts.get_mut(cc.0).wread = Some(wread);
+                let wread = alloc_reading(&mut self.base.doc.store, Some(cc));
+                self.base.doc.store.cohorts.get_mut(cc.0).wread = Some(wread);
                 let mut tagbuf: UString = String::new();
                 loop {
                     inchar = u_fgetc(input);
@@ -991,42 +1036,42 @@ impl MatxinApplicator {
                     continue;
                 }
                 if inchar == '$' {
-                    let cr = alloc_reading(&mut self.base.store, Some(cc));
+                    let cr = alloc_reading(&mut self.base.doc.store, Some(cc));
                     c_reading = Some(cr);
-                    if let Some(parent) = self.base.store.readings.get(cr.0).parent {
+                    if let Some(parent) = self.base.doc.store.readings.get(cr.0).parent {
                         insert_if_exists(
-                            &mut self.base.store.cohorts.get_mut(parent.0).possible_sets,
+                            &mut self.base.doc.store.cohorts.get_mut(parent.0).possible_sets,
                             self.base.grammar.sets_any.as_ref(),
                         );
                     }
-                    let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                    let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                     self.base.add_tag_to_reading(cr, wf);
                     self.process_reading(cr, &current_reading);
                     let mut cr = cr;
                     if self.base.grammar.sub_readings_ltr
-                        && self.base.store.readings.get(cr.0).next.is_some()
+                        && self.base.doc.store.readings.get(cr.0).next.is_some()
                     {
-                        cr = reverse_reading(&mut self.base.store, cr);
+                        cr = reverse_reading(&mut self.base.doc.store, cr);
                     }
-                    append_reading(&mut self.base.store, cc, cr);
+                    append_reading(&mut self.base.doc.store, cc, cr);
                     c_reading = Some(cr);
-                    self.base.numReadings = self.base.numReadings.wrapping_add(1);
+                    self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
                     current_reading.clear();
                     incohort = false;
                 }
                 if inchar == '/' {
-                    let cr = alloc_reading(&mut self.base.store, Some(cc));
-                    let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                    let cr = alloc_reading(&mut self.base.doc.store, Some(cc));
+                    let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                     self.base.add_tag_to_reading(cr, wf);
                     self.process_reading(cr, &current_reading);
                     let mut cr2 = cr;
                     if self.base.grammar.sub_readings_ltr
-                        && self.base.store.readings.get(cr2.0).next.is_some()
+                        && self.base.doc.store.readings.get(cr2.0).next.is_some()
                     {
-                        cr2 = reverse_reading(&mut self.base.store, cr2);
+                        cr2 = reverse_reading(&mut self.base.doc.store, cr2);
                     }
-                    append_reading(&mut self.base.store, cc, cr2);
-                    self.base.numReadings = self.base.numReadings.wrapping_add(1);
+                    append_reading(&mut self.base.doc.store, cc, cr2);
+                    self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
                     current_reading.clear();
                     continue;
                 }
@@ -1035,16 +1080,16 @@ impl MatxinApplicator {
 
             // if (!cReading->baseform) warn
             let no_baseform = match c_reading {
-                Some(cr) => self.base.store.readings.get(cr.0).baseform.is_none(),
+                Some(cr) => self.base.doc.store.readings.get(cr.0).baseform.is_none(),
                 None => true,
             };
             if no_baseform {
                 tracing::warn!(
                     "Warning: Line {} had no valid baseform.",
-                    self.base.numLines
+                    self.base.doc.num_lines
                 );
             }
-            self.base.numLines = self.base.numLines.wrapping_add(1);
+            self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
         }
 
         if !firstblank.is_empty() {
@@ -1053,8 +1098,14 @@ impl MatxinApplicator {
         }
 
         if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
-            append_cohort(&mut self.base.window, &mut self.base.store, cs, cc);
-            if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+            append_cohort(
+                &mut self.base.doc.store,
+                &mut self.base.doc.cohorts,
+                &mut self.base.doc.deps,
+                cs,
+                cc,
+            );
+            if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
                 self.base.init_empty_cohort(cc);
             }
             self.add_endtag_all(cc);
@@ -1070,12 +1121,17 @@ impl MatxinApplicator {
             self.base.run_grammar_on_window(output);
         }
         self.base.shuffle_windows_down();
-        while !self.base.window.previous.is_empty() {
-            let tmp = self.base.window.previous[0];
+        while !self.base.doc.stream.previous.is_empty() {
+            let tmp = self.base.doc.stream.previous[0];
             self.print_single_window(tmp, output, false);
             let opt = Some(tmp);
-            crate::single_window::free_swindow(&mut self.base.window, &mut self.base.store, opt);
-            self.base.window.previous.remove(0);
+            crate::single_window::free_swindow(
+                &mut self.base.doc.store,
+                &mut self.base.doc.cohorts,
+                &mut self.base.doc.deps,
+                opt,
+            );
+            self.base.doc.stream.previous.remove(0);
         }
 
         if inchar != '\0' && inchar != '\u{FFFF}' {
@@ -1087,7 +1143,7 @@ impl MatxinApplicator {
 
     /// C++ `for (auto iter : cCohort->readings) addTagToReading(*iter, endtag);`.
     fn add_endtag_all(&mut self, cohort: CohortId) {
-        let readings = self.base.store.cohorts.get(cohort.0).readings.clone();
+        let readings = self.base.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in readings {
             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
             self.base.add_tag_to_reading(r, et);

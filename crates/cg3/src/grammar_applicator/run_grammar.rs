@@ -112,20 +112,20 @@ impl super::GrammarApplicator {
     /// ANY set flagged on the cohort, and the `begintag` tag added. Touches no
     /// numReadings/numCohorts counters.
     pub fn init_empty_single_window(&mut self, c_swindow: crate::arena::SwId) {
-        let c_cohort = crate::cohort::alloc_cohort(&mut self.store, Some(c_swindow));
+        let c_cohort = crate::cohort::alloc_cohort(&mut self.doc.store, Some(c_swindow));
         // cCohort->global_number = gWindow->cohort_counter++;
-        let gn = self.window.next_cohort_number();
+        let gn = self.doc.cohorts.next_cohort_number();
         {
-            let c = self.store.cohorts.get_mut(c_cohort.0);
+            let c = self.doc.store.cohorts.get_mut(c_cohort.0);
             c.global_number = gn;
             c.wordform = self.cfg.tag_begin;
         }
-        let c_reading = crate::reading::alloc_reading(&mut self.store, Some(c_cohort));
-        self.store.readings.get_mut(c_reading.0).baseform = Some(self.cfg.begintag);
+        let c_reading = crate::reading::alloc_reading(&mut self.doc.store, Some(c_cohort));
+        self.doc.store.readings.get_mut(c_reading.0).baseform = Some(self.cfg.begintag);
         // insert_if_exists(cReading->parent->possible_sets, grammar->sets_any);
         // cReading->parent == c_cohort.
         crate::inlines::insert_if_exists(
-            &mut self.store.cohorts.get_mut(c_cohort.0).possible_sets,
+            &mut self.doc.store.cohorts.get_mut(c_cohort.0).possible_sets,
             self.grammar.sets_any.as_ref(),
         );
         // addTagToReading(*cReading, begintag);  [uint32_t overload —
@@ -133,14 +133,20 @@ impl super::GrammarApplicator {
         let begin_tag_id = super::core::tag_by_hash(&self.grammar, self.cfg.begintag);
         self.add_tag_to_reading(c_reading, begin_tag_id);
         // cCohort->appendReading(cReading);
-        crate::cohort::append_reading(&mut self.store, c_cohort, c_reading);
+        crate::cohort::append_reading(&mut self.doc.store, c_cohort, c_reading);
         // cSWindow->appendCohort(cCohort);
-        crate::single_window::append_cohort(&mut self.window, &mut self.store, c_swindow, c_cohort);
+        crate::single_window::append_cohort(
+            &mut self.doc.store,
+            &mut self.doc.cohorts,
+            &mut self.doc.deps,
+            c_swindow,
+            c_cohort,
+        );
         // C++ SingleWindow::appendCohort: if (cohort->dep_self)
         // parent->parent->dep_highest_seen = cohort->dep_self;
         {
-            if let Some(ds) = self.store.cohorts.get(c_cohort.0).dep_self {
-                self.dep_highest_seen = ds;
+            if let Some(ds) = self.doc.store.cohorts.get(c_cohort.0).dep_self {
+                self.doc.deps.dep_highest_seen = ds;
             }
         }
     }
@@ -158,9 +164,10 @@ impl super::GrammarApplicator {
         &mut self,
         c_cohort: crate::arena::CohortId,
     ) -> crate::arena::ReadingId {
-        let c_reading = crate::reading::alloc_reading(&mut self.store, Some(c_cohort));
+        let c_reading = crate::reading::alloc_reading(&mut self.doc.store, Some(c_cohort));
         // cCohort.wordform is dereferenced unconditionally (`->hash`).
         let wordform = self
+            .doc
             .store
             .cohorts
             .get(c_cohort.0)
@@ -170,22 +177,22 @@ impl super::GrammarApplicator {
             // baseform = makeBaseFromWord(cCohort.wordform)->hash
             let base = self.make_base_from_word(wordform);
             let h = self.grammar.single_tags_list.get(base.0).hash;
-            self.store.readings.get_mut(c_reading.0).baseform = Some(h);
+            self.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
         } else {
             // baseform = cCohort.wordform->hash
             let h = self.grammar.single_tags_list.get(wordform.0).hash;
-            self.store.readings.get_mut(c_reading.0).baseform = Some(h);
+            self.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
         }
         crate::inlines::insert_if_exists(
-            &mut self.store.cohorts.get_mut(c_cohort.0).possible_sets,
+            &mut self.doc.store.cohorts.get_mut(c_cohort.0).possible_sets,
             self.grammar.sets_any.as_ref(),
         );
         // addTagToReading(*cReading, cCohort.wordform);  [Tag* overload]
         self.add_tag_to_reading(c_reading, wordform);
-        self.store.readings.get_mut(c_reading.0).noprint = true;
+        self.doc.store.readings.get_mut(c_reading.0).noprint = true;
         // cCohort.appendReading(cReading);
-        crate::cohort::append_reading(&mut self.store, c_cohort, c_reading);
-        self.numReadings = self.numReadings.wrapping_add(1);
+        crate::cohort::append_reading(&mut self.doc.store, c_cohort, c_reading);
+        self.doc.num_readings = self.doc.num_readings.wrapping_add(1);
         c_reading
     }
 
@@ -223,29 +230,30 @@ impl super::GrammarApplicator {
         let c_reading: crate::arena::ReadingId;
         if !indents.is_empty() && indent > indents.last().unwrap().0 {
             let back = indents.last().unwrap().1;
-            if self.store.readings.get(back.0).next.is_some() {
+            if self.doc.store.readings.get(back.0).next.is_some() {
                 // "Sub-reading … will be ignored and lost …": deferred emission.
                 return GotReading::Continue;
             }
-            let parent = self.store.readings.get(back.0).parent;
-            let cr = crate::reading::Reading::allocate_reading(&mut self.store, parent);
-            self.store.readings.get_mut(back.0).next = Some(cr);
+            let parent = self.doc.store.readings.get(back.0).parent;
+            let cr = crate::reading::Reading::allocate_reading(&mut self.doc.store, parent);
+            self.doc.store.readings.get_mut(back.0).next = Some(cr);
             c_reading = cr;
         } else {
-            c_reading = crate::reading::alloc_reading(&mut self.store, Some(c_cohort));
+            c_reading = crate::reading::alloc_reading(&mut self.doc.store, Some(c_cohort));
         }
         // insert_if_exists(cReading->parent->possible_sets, grammar->sets_any);
         let parent_cid = self
+            .doc
             .store
             .readings
             .get(c_reading.0)
             .parent
             .expect("reading has no parent cohort");
         crate::inlines::insert_if_exists(
-            &mut self.store.cohorts.get_mut(parent_cid.0).possible_sets,
+            &mut self.doc.store.cohorts.get_mut(parent_cid.0).possible_sets,
             self.grammar.sets_any.as_ref(),
         );
-        let wordform = self.store.cohorts.get(c_cohort.0).wordform.unwrap();
+        let wordform = self.doc.store.cohorts.get(c_cohort.0).wordform.unwrap();
         self.add_tag_to_reading(c_reading, wordform);
 
         // UChar* space = &cleaned[1]; UChar* base = space;
@@ -272,15 +280,22 @@ impl super::GrammarApplicator {
         if cleaned[space] != '"' {
             // "looked like a reading but wasn't - treated as text": deferred.
             if !indents.is_empty()
-                && self.store.readings.get(indents.last().unwrap().1.0).next == Some(c_reading)
+                && self
+                    .doc
+                    .store
+                    .readings
+                    .get(indents.last().unwrap().1.0)
+                    .next
+                    == Some(c_reading)
             {
-                self.store
+                self.doc
+                    .store
                     .readings
                     .get_mut(indents.last().unwrap().1.0)
                     .next = None;
             }
             let cr = Some(c_reading);
-            crate::reading::free_reading(&mut self.store, cr);
+            crate::reading::free_reading(&mut self.doc.store, cr);
             if is_deleted {
                 cleaned.insert(0, ';');
                 line.insert(0, ';');
@@ -288,7 +303,7 @@ impl super::GrammarApplicator {
             return GotReading::Istext;
         }
 
-        self.store.readings.get_mut(c_reading.0).deleted = is_deleted;
+        self.doc.store.readings.get_mut(c_reading.0).deleted = is_deleted;
 
         // while (space && (space = u_strchr(space, ' ')) != 0) { … }
         // Loop over each space-delimited [base .. space) tag region.
@@ -340,7 +355,7 @@ impl super::GrammarApplicator {
                 self.add_tag_to_reading(c_reading, tag);
             }
         }
-        if self.store.readings.get(c_reading.0).baseform.is_none() {
+        if self.doc.store.readings.get(c_reading.0).baseform.is_none() {
             // "Line %u had no valid baseform.": deferred emission.
         }
         if indents.is_empty() || indent <= indents.last().unwrap().0 {
@@ -348,7 +363,7 @@ impl super::GrammarApplicator {
             if is_deleted {
                 self.append_reading_deleted(c_cohort, c_reading);
             } else {
-                crate::cohort::append_reading(&mut self.store, c_cohort, c_reading);
+                crate::cohort::append_reading(&mut self.doc.store, c_cohort, c_reading);
             }
         } else {
             if let Some(mlist) = all_mappings.get_mut(&c_reading) {
@@ -361,21 +376,34 @@ impl super::GrammarApplicator {
             }
             // readings->back()->rehash();
             let list_back = if is_deleted {
-                self.store.cohorts.get(c_cohort.0).deleted.last().copied()
+                self.doc
+                    .store
+                    .cohorts
+                    .get(c_cohort.0)
+                    .deleted
+                    .last()
+                    .copied()
             } else {
-                self.store.cohorts.get(c_cohort.0).readings.last().copied()
+                self.doc
+                    .store
+                    .cohorts
+                    .get(c_cohort.0)
+                    .readings
+                    .last()
+                    .copied()
             };
             if let Some(b) = list_back {
                 let grammar = std::mem::take(&mut self.grammar);
-                crate::reading::reading_rehash(&mut self.store, &grammar, b);
+                crate::reading::reading_rehash(&mut self.doc.store, &grammar, b);
                 self.grammar = grammar;
             }
         }
         indents.push((indent, c_reading));
-        self.numReadings += 1;
+        self.doc.num_readings += 1;
 
         // Check whether the cohort still belongs to the window, as per --dep-delimit
         let dep_self = self
+            .doc
             .store
             .cohorts
             .get(c_cohort.0)
@@ -383,30 +411,41 @@ impl super::GrammarApplicator {
             .map_or(0, |g| g.get());
         if !is_deleted
             && self.cfg.dep_delimit != 0
-            && self.dep_highest_seen.get() != 0
-            && (dep_self <= self.dep_highest_seen.get()
-                || dep_self.wrapping_sub(self.dep_highest_seen.get()) > self.cfg.dep_delimit)
+            && self.doc.deps.dep_highest_seen.get() != 0
+            && (dep_self <= self.doc.deps.dep_highest_seen.get()
+                || dep_self.wrapping_sub(self.doc.deps.dep_highest_seen.get())
+                    > self.cfg.dep_delimit)
         {
-            let gn = self.store.cohorts.get(c_cohort.0).global_number.get();
+            let gn = self.doc.store.cohorts.get(c_cohort.0).global_number.get();
             self.reflow_dependency_window(gn);
 
             let cur = *c_swindow;
             if let Some(sw) = cur {
-                let last_cohort = *self.store.single_windows.get(sw.0).cohorts.last().unwrap();
-                let rs = self.store.cohorts.get(last_cohort.0).readings.clone();
+                let last_cohort = *self
+                    .doc
+                    .store
+                    .single_windows
+                    .get(sw.0)
+                    .cohorts
+                    .last()
+                    .unwrap();
+                let rs = self.doc.store.cohorts.get(last_cohort.0).readings.clone();
                 for r in rs {
                     let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                     self.add_tag_to_reading(r, tid);
                 }
             }
 
-            let nsw = self.window.alloc_append_single_window(&mut self.store);
+            let nsw = self
+                .doc
+                .stream
+                .alloc_append_single_window(&mut self.doc.store);
             self.init_empty_single_window(nsw);
             *c_swindow = Some(nsw);
 
             // cSWindow->variables_set = variables_set; variables_set.clear(); …
             {
-                let sww = self.store.single_windows.get_mut(nsw.0);
+                let sww = self.doc.store.single_windows.get_mut(nsw.0);
                 sww.variables_set.clear(0);
                 sww.variables_rem.clear(0);
                 sww.variables_output.clear();
@@ -415,7 +454,7 @@ impl super::GrammarApplicator {
             let vr = live_set_values(variables_rem);
             let vo: Vec<u32> = variables_output.as_slice().to_vec();
             {
-                let sww = self.store.single_windows.get_mut(nsw.0);
+                let sww = self.doc.store.single_windows.get_mut(nsw.0);
                 for (k, v) in vs {
                     sww.variables_set.insert((k, v));
                 }
@@ -431,14 +470,14 @@ impl super::GrammarApplicator {
             variables_output.clear();
 
             *l_swindow = Some(nsw);
-            self.numWindows += 1;
+            self.doc.num_windows += 1;
             *did_soft_lookback = false;
-            self.dep_highest_seen = crate::types::GlobalNumber(0);
+            self.doc.deps.dep_highest_seen = crate::types::GlobalNumber(0);
 
             if self.grammar.has_bag_of_tags {
                 // Slow and not 100% correct as it doesn't remove tags from prev.
-                self.store.cohorts.get_mut(c_cohort.0).parent = *c_swindow;
-                let rs = self.store.cohorts.get(c_cohort.0).readings.clone();
+                self.doc.store.cohorts.get_mut(c_cohort.0).parent = *c_swindow;
+                let rs = self.doc.store.cohorts.get(c_cohort.0).readings.clone();
                 for rit in rs {
                     self.reflow_reading(rit);
                 }
@@ -459,7 +498,7 @@ impl super::GrammarApplicator {
     ) {
         let crate::store::RuntimeStore {
             cohorts, readings, ..
-        } = &mut self.store;
+        } = &mut self.doc.store;
         let cohort = cohorts.get_mut(this.0);
         cohort.deleted.push(read);
         let sz = cohort.deleted.len();
@@ -551,7 +590,7 @@ impl super::GrammarApplicator {
         let mut l_cohort: Option<crate::arena::CohortId> = None;
         let mut l_reading: Option<crate::arena::ReadingId> = None;
 
-        self.window.window_span = self.cfg.num_windows;
+        self.doc.stream.window_span = self.cfg.num_windows;
 
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::new();
         let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::new();
@@ -564,7 +603,10 @@ impl super::GrammarApplicator {
 
         // binary_maybe_window() [inlined; the C++ lambda captures cSWindow/lSWindow]
         if self.cfg.fmt_output == super::cg3_sformat::CG3SF_BINARY {
-            let sw = self.window.alloc_append_single_window(&mut self.store);
+            let sw = self
+                .doc
+                .stream
+                .alloc_append_single_window(&mut self.doc.store);
             self.init_empty_single_window(sw);
             c_swindow = Some(sw);
             l_swindow = Some(sw);
@@ -615,14 +657,14 @@ impl super::GrammarApplicator {
 
                     // If a pending cCohort has no readings, init it empty.
                     if let Some(cc) = c_cohort
-                        && self.store.cohorts.get(cc.0).readings.is_empty()
+                        && self.doc.store.cohorts.get(cc.0).readings.is_empty()
                     {
                         self.init_empty_cohort(cc);
                     }
 
                     // (a) Soft-limit lookback.
                     if let Some(sw) = c_swindow {
-                        let over_soft = self.store.single_windows.get(sw.0).cohorts.len()
+                        let over_soft = self.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.cfg.soft_limit as usize;
                         if over_soft && self.grammar.soft_delimiters.is_some() && !did_soft_lookback
                         {
@@ -631,16 +673,17 @@ impl super::GrammarApplicator {
                                 [self.grammar.soft_delimiters.unwrap().0]
                                 .number
                                 .get();
-                            let cohorts = self.store.single_windows.get(sw.0).cohorts.clone();
+                            let cohorts = self.doc.store.single_windows.get(sw.0).cohorts.clone();
                             for &c in cohorts.iter().rev() {
                                 if self.does_set_match_cohort_normal(c, sd, None) {
                                     did_soft_lookback = false;
                                     let cohort = self.delimit_at(sw, c);
                                     // cSWindow = cohort->parent->next;
-                                    let parent = self.store.cohorts.get(cohort.0).parent.unwrap();
-                                    c_swindow = self.store.single_windows.get(parent.0).next;
+                                    let parent =
+                                        self.doc.store.cohorts.get(cohort.0).parent.unwrap();
+                                    c_swindow = self.doc.store.single_windows.get(parent.0).next;
                                     if let Some(cc) = c_cohort {
-                                        self.store.cohorts.get_mut(cc.0).parent = c_swindow;
+                                        self.doc.store.cohorts.get_mut(cc.0).parent = c_swindow;
                                     }
                                     // verbose soft-limit warning: deferred.
                                     break;
@@ -651,7 +694,7 @@ impl super::GrammarApplicator {
 
                     // (b) Soft-delimiter on the current cohort.
                     if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
-                        let over_soft = self.store.single_windows.get(sw.0).cohorts.len()
+                        let over_soft = self.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.cfg.soft_limit as usize;
                         let sd_hit = over_soft && self.grammar.soft_delimiters.is_some() && {
                             let sd = self.grammar.sets_list
@@ -662,30 +705,31 @@ impl super::GrammarApplicator {
                         };
                         if sd_hit {
                             // verbose soft-limit warning: deferred.
-                            let rs = self.store.cohorts.get(cc.0).readings.clone();
+                            let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                                 self.add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             crate::single_window::append_cohort(
-                                &mut self.window,
-                                &mut self.store,
+                                &mut self.doc.store,
+                                &mut self.doc.cohorts,
+                                &mut self.doc.deps,
                                 sw,
                                 cc,
                             );
                             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                             // parent->parent->dep_highest_seen = cohort->dep_self;
                             {
-                                if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
-                                    self.dep_highest_seen = ds;
+                                if let Some(ds) = self.doc.store.cohorts.get(cc.0).dep_self {
+                                    self.doc.deps.dep_highest_seen = ds;
                                 }
                             }
-                            self.store.cohorts.get_mut(cc.0).line_number = self.numLines;
+                            self.doc.store.cohorts.get_mut(cc.0).line_number = self.doc.num_lines;
                             l_swindow = Some(sw);
                             c_swindow = None;
                             c_cohort = None;
-                            self.numCohorts += 1;
+                            self.doc.num_cohorts += 1;
                             did_soft_lookback = false;
                         }
                     }
@@ -693,7 +737,7 @@ impl super::GrammarApplicator {
                     // (c) Hard break.
                     if let Some(cc) = c_cohort {
                         let sw = c_swindow.unwrap();
-                        let over_hard = self.store.single_windows.get(sw.0).cohorts.len()
+                        let over_hard = self.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.cfg.hard_limit as usize;
                         let delim_hit =
                             self.cfg.dep_delimit == 0 && self.grammar.delimiters.is_some() && {
@@ -704,42 +748,46 @@ impl super::GrammarApplicator {
                             };
                         if over_hard || delim_hit {
                             // (!is_conv && over_hard) "Hard limit ... forcing break": deferred.
-                            let rs = self.store.cohorts.get(cc.0).readings.clone();
+                            let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                                 self.add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             crate::single_window::append_cohort(
-                                &mut self.window,
-                                &mut self.store,
+                                &mut self.doc.store,
+                                &mut self.doc.cohorts,
+                                &mut self.doc.deps,
                                 sw,
                                 cc,
                             );
                             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                             // parent->parent->dep_highest_seen = cohort->dep_self;
                             {
-                                if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
-                                    self.dep_highest_seen = ds;
+                                if let Some(ds) = self.doc.store.cohorts.get(cc.0).dep_self {
+                                    self.doc.deps.dep_highest_seen = ds;
                                 }
                             }
-                            self.store.cohorts.get_mut(cc.0).line_number = self.numLines;
+                            self.doc.store.cohorts.get_mut(cc.0).line_number = self.doc.num_lines;
                             l_swindow = Some(sw);
                             c_swindow = None;
                             c_cohort = None;
-                            self.numCohorts += 1;
+                            self.doc.num_cohorts += 1;
                             did_soft_lookback = false;
                         }
                     }
 
                     // No current window: allocate + init a fresh one.
                     if c_swindow.is_none() {
-                        let sw = self.window.alloc_append_single_window(&mut self.store);
+                        let sw = self
+                            .doc
+                            .stream
+                            .alloc_append_single_window(&mut self.doc.store);
                         self.init_empty_single_window(sw);
                         l_swindow = Some(sw);
                         c_swindow = Some(sw);
                         c_cohort = None;
-                        self.numWindows += 1;
+                        self.doc.num_windows += 1;
                         did_soft_lookback = false;
                     }
 
@@ -747,26 +795,27 @@ impl super::GrammarApplicator {
                     if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                         self.split_all_mappings(&mut all_mappings, cc, true);
                         crate::single_window::append_cohort(
-                            &mut self.window,
-                            &mut self.store,
+                            &mut self.doc.store,
+                            &mut self.doc.cohorts,
+                            &mut self.doc.deps,
                             sw,
                             cc,
                         );
                         // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                         // parent->parent->dep_highest_seen = cohort->dep_self;
                         {
-                            if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
-                                self.dep_highest_seen = ds;
+                            if let Some(ds) = self.doc.store.cohorts.get(cc.0).dep_self {
+                                self.doc.deps.dep_highest_seen = ds;
                             }
                         }
                     }
 
                     // Drain a window if enough have queued up.
-                    if self.window.next.len() > (self.cfg.num_windows + 1) as usize {
+                    if self.doc.stream.next.len() > (self.cfg.num_windows + 1) as usize {
                         self.shuffle_windows_down();
 
                         self.run_grammar_on_window_with(fmt, output);
-                        if self.numWindows.is_multiple_of(reset_after) {
+                        if self.doc.num_windows.is_multiple_of(reset_after) {
                             self.reset_indexes();
                         }
                         // verbose progress: deferred.
@@ -774,7 +823,7 @@ impl super::GrammarApplicator {
 
                     // First real cohort of this window → adopt the pending variables.
                     let sw = c_swindow.unwrap();
-                    if self.store.single_windows.get(sw.0).all_cohorts.len() == 1 {
+                    if self.doc.store.single_windows.get(sw.0).all_cohorts.len() == 1 {
                         self.adopt_variables(
                             sw,
                             &mut variables_set,
@@ -784,13 +833,13 @@ impl super::GrammarApplicator {
                     }
 
                     // Allocate the new cCohort.
-                    let cc = crate::cohort::alloc_cohort(&mut self.store, Some(sw));
-                    let gn = self.window.next_cohort_number();
+                    let cc = crate::cohort::alloc_cohort(&mut self.doc.store, Some(sw));
+                    let gn = self.doc.cohorts.next_cohort_number();
                     // wordform = addTag(&cleaned[0]) (up to the NUL at space+1).
                     let wf_text: String = cleaned.iter().take_while(|&&c| c != '\0').collect();
                     let wf = self.add_tag(&wf_text, crate::tag::TagType::empty());
                     {
-                        let c = self.store.cohorts.get_mut(cc.0);
+                        let c = self.doc.store.cohorts.get_mut(cc.0);
                         c.global_number = gn;
                         c.wordform = Some(wf);
                     }
@@ -798,14 +847,14 @@ impl super::GrammarApplicator {
                     l_cohort = Some(cc);
                     l_reading = None;
                     indents.clear();
-                    self.numCohorts += 1;
-                    self.store.cohorts.get_mut(cc.0).line_number = self.numLines;
+                    self.doc.num_cohorts += 1;
+                    self.doc.store.cohorts.get_mut(cc.0).line_number = self.doc.num_lines;
 
                     // Trailing word-level tags after the wordform → build `wread`.
                     space += 2;
                     if cleaned[space] != '\0' {
-                        let wread = crate::reading::alloc_reading(&mut self.store, Some(cc));
-                        self.store.cohorts.get_mut(cc.0).wread = Some(wread);
+                        let wread = crate::reading::alloc_reading(&mut self.doc.store, Some(cc));
+                        self.doc.store.cohorts.get_mut(cc.0).wread = Some(wread);
                         self.add_tag_to_reading(wread, wf);
                         while cleaned[space] != '\0' {
                             crate::inlines::skipws_chars(&cleaned, &mut space, '\0', '\0', true);
@@ -881,29 +930,30 @@ impl super::GrammarApplicator {
                     if cleaned_str == crate::strings::STR_CMD_FLUSH {
                         // "FLUSH encountered … Flushing…": deferred.
                         is_cmd = true;
-                        let back_swindow = self.window.back();
+                        let back_swindow = self.doc.stream.back();
                         if let Some(bsw) = back_swindow {
-                            self.store.single_windows.get_mut(bsw.0).flush_after = true;
+                            self.doc.store.single_windows.get_mut(bsw.0).flush_after = true;
                         }
                         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             crate::single_window::append_cohort(
-                                &mut self.window,
-                                &mut self.store,
+                                &mut self.doc.store,
+                                &mut self.doc.cohorts,
+                                &mut self.doc.deps,
                                 sw,
                                 cc,
                             );
                             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                             // parent->parent->dep_highest_seen = cohort->dep_self;
                             {
-                                if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
-                                    self.dep_highest_seen = ds;
+                                if let Some(ds) = self.doc.store.cohorts.get(cc.0).dep_self {
+                                    self.doc.deps.dep_highest_seen = ds;
                                 }
                             }
-                            if self.store.cohorts.get(cc.0).readings.is_empty() {
+                            if self.doc.store.cohorts.get(cc.0).readings.is_empty() {
                                 self.init_empty_cohort(cc);
                             }
-                            let rs = self.store.cohorts.get(cc.0).readings.clone();
+                            let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                                 self.add_tag_to_reading(r, tid);
@@ -917,26 +967,27 @@ impl super::GrammarApplicator {
                         }
                         while self.rotate_next().is_some() {
                             self.run_grammar_on_window_with(fmt, output);
-                            if self.numWindows.is_multiple_of(reset_after) {
+                            if self.doc.num_windows.is_multiple_of(reset_after) {
                                 self.reset_indexes();
                             }
                         }
                         self.shuffle_windows_down();
-                        while !self.window.previous.is_empty() {
-                            let tmp = self.window.previous[0];
+                        while !self.doc.stream.previous.is_empty() {
+                            let tmp = self.doc.stream.previous[0];
                             fmt.print_single_window(self, tmp, output, false);
                             crate::single_window::free_swindow(
-                                &mut self.window,
-                                &mut self.store,
+                                &mut self.doc.store,
+                                &mut self.doc.cohorts,
+                                &mut self.doc.deps,
                                 Some(tmp),
                             );
-                            self.window.previous.remove(0);
+                            self.doc.stream.previous.remove(0);
                         }
                         if back_swindow.is_none() {
                             fmt.print_stream_command(self, crate::strings::STR_CMD_FLUSH, output);
                         }
                         line[0] = '\0';
-                        self.variables.clear(0);
+                        self.doc.variables.clear(0);
                         crate::uextras::u_fflush(output);
                     } else if cleaned_str == crate::strings::STR_CMD_IGNORE {
                         // "IGNORE encountered …": deferred.
@@ -977,7 +1028,7 @@ impl super::GrammarApplicator {
                             variables_rem.erase(h);
                             variables_output.insert(h);
                             if c_swindow.is_none() {
-                                *self.variables.index_or_insert(h) = self.grammar.tag_any;
+                                *self.doc.variables.index_or_insert(h) = self.grammar.tag_any;
                             }
                         } else {
                             let mut a: u32;
@@ -1105,13 +1156,14 @@ impl super::GrammarApplicator {
                         {
                             // Text-delimiter line.
                             let lsw = l_swindow.unwrap();
-                            self.store
+                            self.doc
+                                .store
                                 .single_windows
                                 .get_mut(lsw.0)
                                 .text_post
                                 .push_str(&line_str);
                             let cc = c_cohort.unwrap();
-                            let rs = self.store.cohorts.get(cc.0).readings.clone();
+                            let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                                 self.add_tag_to_reading(r, tid);
@@ -1119,29 +1171,35 @@ impl super::GrammarApplicator {
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             let sw = c_swindow.unwrap();
                             crate::single_window::append_cohort(
-                                &mut self.window,
-                                &mut self.store,
+                                &mut self.doc.store,
+                                &mut self.doc.cohorts,
+                                &mut self.doc.deps,
                                 sw,
                                 cc,
                             );
                             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
                             // parent->parent->dep_highest_seen = cohort->dep_self;
                             {
-                                if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
-                                    self.dep_highest_seen = ds;
+                                if let Some(ds) = self.doc.store.cohorts.get(cc.0).dep_self {
+                                    self.doc.deps.dep_highest_seen = ds;
                                 }
                             }
-                            self.store.cohorts.get_mut(cc.0).line_number = self.numLines;
+                            self.doc.store.cohorts.get_mut(cc.0).line_number = self.doc.num_lines;
                             l_swindow = Some(sw);
                             c_swindow = None;
                             c_cohort = None;
                             l_cohort = None;
-                            self.numCohorts += 1;
+                            self.doc.num_cohorts += 1;
                             did_soft_lookback = false;
                         } else if let Some(lc) = l_cohort {
-                            self.store.cohorts.get_mut(lc.0).text.push_str(&line_str);
+                            self.doc
+                                .store
+                                .cohorts
+                                .get_mut(lc.0)
+                                .text
+                                .push_str(&line_str);
                         } else if let Some(lsw) = l_swindow {
-                            let sww = self.store.single_windows.get_mut(lsw.0);
+                            let sww = self.doc.store.single_windows.get_mut(lsw.0);
                             if !sww.text_post.is_empty() {
                                 sww.text_post.push_str(&line_str);
                             } else {
@@ -1154,7 +1212,7 @@ impl super::GrammarApplicator {
                 }
             }
 
-            self.numLines += 1;
+            self.doc.num_lines += 1;
             line[0] = '\0';
             cleaned[0] = '\0';
 
@@ -1165,23 +1223,29 @@ impl super::GrammarApplicator {
             }
         }
 
-        self.input_eof = true;
+        self.doc.input_eof = true;
 
         // Pending cCohort + cSWindow at EOF.
         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
             self.split_all_mappings(&mut all_mappings, cc, true);
-            crate::single_window::append_cohort(&mut self.window, &mut self.store, sw, cc);
+            crate::single_window::append_cohort(
+                &mut self.doc.store,
+                &mut self.doc.cohorts,
+                &mut self.doc.deps,
+                sw,
+                cc,
+            );
             // C++ SingleWindow::appendCohort: if (cohort->dep_self)
             // parent->parent->dep_highest_seen = cohort->dep_self;
             {
-                if let Some(ds) = self.store.cohorts.get(cc.0).dep_self {
-                    self.dep_highest_seen = ds;
+                if let Some(ds) = self.doc.store.cohorts.get(cc.0).dep_self {
+                    self.doc.deps.dep_highest_seen = ds;
                 }
             }
-            if self.store.cohorts.get(cc.0).readings.is_empty() {
+            if self.doc.store.cohorts.get(cc.0).readings.is_empty() {
                 self.init_empty_cohort(cc);
             }
-            let rs = self.store.cohorts.get(cc.0).readings.clone();
+            let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
                 self.add_tag_to_reading(r, tid);
@@ -1194,7 +1258,10 @@ impl super::GrammarApplicator {
         if self.cfg.fmt_output == super::cg3_sformat::CG3SF_BINARY && !variables_output.empty() {
             // binary_maybe_window() + adopt_variables() [inlined]
             if self.cfg.fmt_output == super::cg3_sformat::CG3SF_BINARY {
-                let sw = self.window.alloc_append_single_window(&mut self.store);
+                let sw = self
+                    .doc
+                    .stream
+                    .alloc_append_single_window(&mut self.doc.store);
                 self.init_empty_single_window(sw);
                 l_swindow = Some(sw);
                 c_swindow = Some(sw);
@@ -1215,12 +1282,17 @@ impl super::GrammarApplicator {
             // verbose progress: deferred.
         }
         self.shuffle_windows_down();
-        while !self.window.previous.is_empty() {
-            let tmp = self.window.previous[0];
+        while !self.doc.stream.previous.is_empty() {
+            let tmp = self.doc.stream.previous[0];
             fmt.print_single_window(self, tmp, output, false);
             let t = Some(tmp);
-            crate::single_window::free_swindow(&mut self.window, &mut self.store, t);
-            self.window.previous.remove(0);
+            crate::single_window::free_swindow(
+                &mut self.doc.store,
+                &mut self.doc.cohorts,
+                &mut self.doc.deps,
+                t,
+            );
+            self.doc.stream.previous.remove(0);
         }
 
         crate::uextras::u_fflush(output);
@@ -1275,21 +1347,21 @@ impl super::GrammarApplicator {
     /// C++ `Window::shuffleWindowsDown()` as invoked from `runGrammarOnText`.
     /// The C++ method does `current->variables_set = parent->variables;` through
     /// the Window's applicator back-pointer before retiring `current`; the Rust
-    /// `Window` has no such back-pointer, so the engine performs that snapshot
-    /// here before delegating to `window.shuffle_windows_down` (which still
-    /// clears `variables_rem` and shuffles the lists). The ONE shuffle entry
-    /// point for the engine and every stream applicator — never call the raw
-    /// `Window` method directly.
+    /// `WindowStream` has no such back-pointer, so the engine performs that
+    /// snapshot here before delegating to `doc.stream.shuffle_windows_down`
+    /// (which still clears `variables_rem` and shuffles the lists). The ONE
+    /// shuffle entry point for the engine and every stream applicator — never
+    /// call the raw `WindowStream` method directly.
     pub(crate) fn shuffle_windows_down(&mut self) {
-        if let Some(current) = self.window.current {
-            let vars = live_map_pairs(&mut self.variables);
-            let sww = self.store.single_windows.get_mut(current.0);
+        if let Some(current) = self.doc.stream.current {
+            let vars = live_map_pairs(&mut self.doc.variables);
+            let sww = self.doc.store.single_windows.get_mut(current.0);
             sww.variables_set.clear(0);
             for (k, v) in vars {
                 sww.variables_set.insert((k, v));
             }
         }
-        self.window.shuffle_windows_down(&mut self.store);
+        self.doc.stream.shuffle_windows_down(&mut self.doc.store);
     }
 
     /// The C++ drain idiom `while (!gWindow->next.empty()) {
@@ -1299,11 +1371,11 @@ impl super::GrammarApplicator {
     ///
     /// [`shuffle_windows_down`]: GrammarApplicator::shuffle_windows_down
     pub(crate) fn rotate_next(&mut self) -> Option<crate::arena::SwId> {
-        if self.window.next.is_empty() {
+        if self.doc.stream.next.is_empty() {
             return None;
         }
         self.shuffle_windows_down();
-        self.window.current
+        self.doc.stream.current
     }
 
     /// C++ `adopt_variables` lambda from `runGrammarOnText`: move the pending
@@ -1320,7 +1392,7 @@ impl super::GrammarApplicator {
         let vs = live_map_pairs(variables_set);
         let vr = live_set_values(variables_rem);
         let vo: Vec<u32> = variables_output.as_slice().to_vec();
-        let sww = self.store.single_windows.get_mut(c_swindow.0);
+        let sww = self.doc.store.single_windows.get_mut(c_swindow.0);
         for (k, v) in vs {
             sww.variables_set.insert((k, v));
         }

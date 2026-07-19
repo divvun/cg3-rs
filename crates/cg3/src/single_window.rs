@@ -1,10 +1,10 @@
 //! Types ported from `src/SingleWindow.hpp` — the `SingleWindow` (one sentence
-//! worth of cohorts inside a [`Window`](crate::window::Window)) plus the
-//! `compare_Cohort` ordering functor.
+//! worth of cohorts inside the document window) plus the `compare_Cohort`
+//! ordering functor.
 //!
 //! Arena model: `Cohort*` → [`CohortId`], `SingleWindow*` → [`SwId`]. The
-//! `Window* parent` back-reference has no arena id (a `Window` is a singleton
-//! owned by the engine), so it is kept as a raw `Option<u32>` handle
+//! `Window* parent` back-reference has no arena id (the document window is a
+//! singleton owned by the engine), so it is kept as a raw `Option<u32>` handle
 //! placeholder. `CohortVector` (`std::vector<Cohort*>`) → `Vec<CohortId>`, and
 //! `CohortSet` (`sorted_vector<Cohort*, compare_Cohort>`) → `Vec<CohortId>`
 //! (the compare_Cohort ordering needs the runtime store and is applied by the
@@ -18,11 +18,14 @@ use crate::interval_vector::uint32IntervalVector;
 use crate::sorted_vector::uint32SortedVector;
 use crate::store::RuntimeStore;
 use crate::types::{GlobalNumber, UString};
-use crate::window::Window;
+use crate::window::{CohortRegistry, DepBookkeeping};
 
 // [spec:cg3:def:single-window.cg3.single-window]
 /// C++ `class SingleWindow`: an ordered run of cohorts (one "window"/sentence)
-/// belonging to a parent [`Window`](crate::window::Window).
+/// belonging to the document window (C++ `Window`, dissolved Stage-B into
+/// [`WindowStream`](crate::window::WindowStream) /
+/// [`CohortRegistry`](crate::window::CohortRegistry) /
+/// [`DepBookkeeping`](crate::window::DepBookkeeping)).
 #[derive(Default)]
 pub struct SingleWindow {
     pub number: u32,
@@ -77,12 +80,14 @@ pub struct compare_Cohort;
 //   allocate new" split maps onto `Arena::alloc` (reuse a freed slot / else
 //   push a new slot); its `put` (which `clear()`s then stores) maps onto
 //   `single_window_clear` + `Arena::free_slot`.
-// * `SingleWindow::parent` is the owning `Window`, a per-applicator singleton
-//   that is NOT in the store and has no arena id. Every C++ `parent->…` access
-//   (the `relation_map` / `cohort_map` / `dep_window` bookkeeping) is therefore
-//   threaded through an explicit `window: &mut Window` parameter rather than
-//   resolved from the (placeholder) `parent` field. `parent->parent` is the
-//   `GrammarApplicator` (`dep_highest_seen`), a placeholder — not threaded.
+// * `SingleWindow::parent` is the owning document window, a per-applicator
+//   singleton that is NOT in the store and has no arena id. Every C++ `parent->…`
+//   access is therefore threaded through explicit view params rather than
+//   resolved from the (placeholder) `parent` field: the `cohort_map` bookkeeping
+//   through `cohorts: &mut CohortRegistry`, and the `dep_window`/`relation_map`
+//   bookkeeping through `deps: &mut DepBookkeeping` (Stage-B: the C++ `Window`
+//   was dissolved into these views). `parent->parent` is the `GrammarApplicator`
+//   (`dep_highest_seen`), a placeholder — not threaded.
 // * `less_Cohort` / `compare_Cohort::operator()` dereference two `Cohort*` and
 //   their owning `SingleWindow*`, so they become store-taking free functions
 //   (`&RuntimeStore` is enough — read-only).
@@ -115,12 +120,18 @@ pub fn alloc_swindow(store: &mut RuntimeStore, p: Option<u32>) -> SwId {
 /// [`single_window_clear`]) and stores the object for reuse — by clearing then
 /// returning the slot to the arena free-list; freeing an already-freed slot is a
 /// no-op, matching the pool's silently-ignored duplicate insert. Needs the
-/// owning `window` because `clear` prunes `window.relation_map`. (The C++
+/// `cohorts`/`deps` views because `clear` prunes `deps.relation_map` (and, via
+/// `free_cohort`, `cohorts.cohort_map` + `deps.dep_window`). (The C++
 /// `SingleWindow*&` caller-handle null-out is ownership by value here — wave 4;
 /// a caller keeping a long-lived handle sets it `None` itself.)
-pub fn free_swindow(window: &mut Window, store: &mut RuntimeStore, s: Option<SwId>) {
+pub fn free_swindow(
+    store: &mut RuntimeStore,
+    cohorts: &mut CohortRegistry,
+    deps: &mut DepBookkeeping,
+    s: Option<SwId>,
+) {
     let Some(id) = s else { return };
-    single_window_clear(window, store, id);
+    single_window_clear(store, cohorts, deps, id);
     store.single_windows.free_slot(id.0);
 }
 
@@ -128,7 +139,7 @@ pub fn free_swindow(window: &mut Window, store: &mut RuntimeStore, s: Option<SwI
 /// first half of `SingleWindow::clear()` (the C++ duplicates it verbatim). NOT a
 /// manifest symbol — port infra factoring the duplication.
 ///
-/// (1) If `cohorts.size() > 1`, prune `window.relation_map`: erase every entry
+/// (1) If `cohorts.size() > 1`, prune `deps.relation_map`: erase every entry
 /// whose value (a global cohort number) is `<= cohorts.back()->global_number`.
 /// The C++ iterate-and-`erase(iterator)` becomes collect-the-matching-keys then
 /// `erase(key)` (the map port cannot both hold a const iterator and mutate); the
@@ -138,32 +149,38 @@ pub fn free_swindow(window: &mut Window, store: &mut RuntimeStore, s: Option<SwI
 /// the cohort's arena slot but does not yet clear the cohort or free its
 /// readings — see the crate report. (3) Splice this window out of the sibling
 /// doubly-linked list.
-fn single_window_teardown(window: &mut Window, store: &mut RuntimeStore, sw_id: SwId) {
+fn single_window_teardown(
+    store: &mut RuntimeStore,
+    cohorts: &mut CohortRegistry,
+    deps: &mut DepBookkeeping,
+    sw_id: SwId,
+) {
     // (1) relation_map prune.
     if store.single_windows.get(sw_id.0).cohorts.len() > 1 {
         let back = *store.single_windows.get(sw_id.0).cohorts.last().unwrap();
         let threshold = store.cohorts.get(back.0).global_number;
         let mut to_erase: Vec<u32> = Vec::new();
         {
-            for &pair in window.relation_map.iter() {
+            for &pair in deps.relation_map.iter() {
                 if pair.1 <= threshold.get() {
                     to_erase.push(pair.0);
                 }
             }
         }
         for k in to_erase {
-            window.relation_map.erase(k);
+            deps.relation_map.erase(k);
         }
     }
 
     // (2) free_cohort(iter) for every cohort in all_cohorts. Must go through
-    // free_cohort → cohort_clear so the cohort is erased from the Window's
-    // cohort_map/dep_window — a bare free_slot leaves stale map entries that
-    // later resolve dep links to freed slots (C++ Cohort::clear() erases them).
+    // free_cohort → cohort_clear so the cohort is erased from the document
+    // window's cohort_map/dep_window — a bare free_slot leaves stale map entries
+    // that later resolve dep links to freed slots (C++ Cohort::clear() erases
+    // them).
     let all = store.single_windows.get(sw_id.0).all_cohorts.clone();
     for iter in all {
         let h = Some(iter);
-        crate::cohort::free_cohort(store, Some(&mut *window), h);
+        crate::cohort::free_cohort(store, Some((&mut *cohorts, &mut *deps)), h);
     }
 
     // (3) Splice out of the sibling doubly-linked list.
@@ -192,11 +209,16 @@ fn single_window_teardown(window: &mut Window, store: &mut RuntimeStore, sw_id: 
 /// Runs exactly the shared teardown ([`single_window_teardown`]): prune the
 /// owning window's `relation_map`, recycle every cohort in `all_cohorts`, then
 /// splice this window out of the sibling chain. (`CG_TRACE_OBJECTS` diagnostics
-/// are compile-time only.) STORE + WINDOW taking free fn — a `Window` is not in
-/// the store and Rust `Drop` cannot take those, so the destructor body is a
-/// manual function (invoked explicitly by the engine layer).
-pub fn single_window_destroy(window: &mut Window, store: &mut RuntimeStore, sw_id: SwId) {
-    single_window_teardown(window, store, sw_id);
+/// are compile-time only.) STORE + REGISTRY + DEPS taking free fn — the document
+/// window views are not in the store and Rust `Drop` cannot take those, so the
+/// destructor body is a manual function (invoked explicitly by the engine layer).
+pub fn single_window_destroy(
+    store: &mut RuntimeStore,
+    cohorts: &mut CohortRegistry,
+    deps: &mut DepBookkeeping,
+    sw_id: SwId,
+) {
+    single_window_teardown(store, cohorts, deps, sw_id);
 }
 
 // [spec:cg3:def:single-window.cg3.single-window.clear-fn]
@@ -209,8 +231,13 @@ pub fn single_window_destroy(window: &mut Window, store: &mut RuntimeStore, sw_i
 /// (the `unique_ptr<CohortSet>`) is NOT reset here, so a stale nested set can
 /// survive a `clear()` and be reused via the pool. The outer `rule_to_cohorts`
 /// vector keeps its size/capacity — only the per-index sets are emptied.
-pub fn single_window_clear(window: &mut Window, store: &mut RuntimeStore, sw_id: SwId) {
-    single_window_teardown(window, store, sw_id);
+pub fn single_window_clear(
+    store: &mut RuntimeStore,
+    cohorts: &mut CohortRegistry,
+    deps: &mut DepBookkeeping,
+    sw_id: SwId,
+) {
+    single_window_teardown(store, cohorts, deps, sw_id);
 
     let sw = store.single_windows.get_mut(sw_id.0);
     sw.number = 0;
@@ -243,14 +270,15 @@ pub fn single_window_clear(window: &mut Window, store: &mut RuntimeStore, sw_id:
 /// C++ `void SingleWindow::appendCohort(Cohort* cohort)` — appends `cohort_id`
 /// as the new last cohort of the window `sw_id` and wires up every link.
 ///
-/// STORE + WINDOW taking free fn: it touches `store.cohorts` (the cohort and its
-/// siblings), `store.single_windows` (the previous/next windows), and the owning
-/// `window`'s `cohort_map`/`dep_window`. The `if (cohort->dep_self)` branch sets
-/// `parent->parent->dep_highest_seen` on the `GrammarApplicator` (a placeholder)
-/// — not threaded.
+/// STORE + REGISTRY + DEPS taking free fn: it touches `store.cohorts` (the cohort
+/// and its siblings), `store.single_windows` (the previous/next windows), the
+/// `registry.cohort_map`, and `deps.dep_window`. The `if (cohort->dep_self)`
+/// branch sets `parent->parent->dep_highest_seen` on the `GrammarApplicator`
+/// (a placeholder) — not threaded.
 pub fn append_cohort(
-    window: &mut Window,
     store: &mut RuntimeStore,
+    registry: &mut CohortRegistry,
+    deps: &mut DepBookkeeping,
     sw_id: SwId,
     cohort_id: CohortId,
 ) {
@@ -275,10 +303,11 @@ pub fn append_cohort(
     if single_windows.get(sw_id.0).cohorts.is_empty() {
         // if (previous && !previous->cohorts.empty())
         if let Some(prev_id) = single_windows.get(sw_id.0).previous
-            && let Some(pb) = single_windows.get(prev_id.0).cohorts.last().copied() {
-                cohorts.get_mut(pb.0).next = Some(cohort_id);
-                cohorts.get_mut(cohort_id.0).prev = Some(pb);
-            }
+            && let Some(pb) = single_windows.get(prev_id.0).cohorts.last().copied()
+        {
+            cohorts.get_mut(pb.0).next = Some(cohort_id);
+            cohorts.get_mut(cohort_id.0).prev = Some(pb);
+        }
     } else {
         // cohort->prev = cohorts.back(); cohorts.back()->next = cohort;
         let back = *single_windows.get(sw_id.0).cohorts.last().unwrap();
@@ -288,10 +317,11 @@ pub fn append_cohort(
 
     // Forward link: if (next && !next->cohorts.empty())
     if let Some(next_id) = single_windows.get(sw_id.0).next
-        && let Some(nf) = single_windows.get(next_id.0).cohorts.first().copied() {
-            cohorts.get_mut(nf.0).prev = Some(cohort_id);
-            cohorts.get_mut(cohort_id.0).next = Some(nf);
-        }
+        && let Some(nf) = single_windows.get(next_id.0).cohorts.first().copied()
+    {
+        cohorts.get_mut(nf.0).prev = Some(cohort_id);
+        cohorts.get_mut(cohort_id.0).next = Some(nf);
+    }
 
     // cohorts.push_back(cohort); all_cohorts.push_back(cohort);
     {
@@ -301,11 +331,11 @@ pub fn append_cohort(
     }
 
     // parent->cohort_map[global] = cohort; parent->dep_window[global] = cohort;
-    window.cohort_map.insert(global_number, cohort_id);
-    window.dep_window.insert(global_number, cohort_id);
+    registry.cohort_map.insert(global_number, cohort_id);
+    deps.dep_window.insert(global_number, cohort_id);
     // if (cohort->local_number == 0) parent->cohort_map[0] = cohort;
     if local_number == 0 {
-        window.cohort_map.insert(GlobalNumber(0), cohort_id);
+        registry.cohort_map.insert(GlobalNumber(0), cohort_id);
     }
 }
 

@@ -125,9 +125,10 @@ impl<'a> JsonlApplicator<'a> {
         let mut tags_json: Vec<Value> = Vec::new();
 
         let (tags_list, baseform, parent_wf_hash) = {
-            let r = self.base.store.readings.get(reading.0);
+            let r = self.base.doc.store.readings.get(reading.0);
             let parent_wf_hash = r.parent.and_then(|cid| {
                 self.base
+                    .doc
                     .store
                     .cohorts
                     .get(cid.0)
@@ -144,7 +145,8 @@ impl<'a> JsonlApplicator<'a> {
         let mut unique = uint32SortedVector::new();
         for tter in tags_list {
             let tter = TagHash(tter);
-            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag) || tter == self.base.cfg.begintag
+            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag)
+                || tter == self.base.cfg.begintag
             {
                 continue;
             }
@@ -165,10 +167,13 @@ impl<'a> JsonlApplicator<'a> {
                 (t.r#type, t.tag.clone())
             };
 
-            if ttype.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.cfg.dep_original {
+            if ttype.intersects(T_DEPENDENCY)
+                && self.base.doc.deps.has_dep
+                && !self.base.cfg.dep_original
+            {
                 continue;
             }
-            if ttype.intersects(T_RELATION) && self.base.has_relations {
+            if ttype.intersects(T_RELATION) && self.base.doc.deps.has_relations {
                 continue;
             }
 
@@ -193,6 +198,7 @@ impl<'a> JsonlApplicator<'a> {
         // Baseform ("l").
         let baseform = self
             .base
+            .doc
             .store
             .readings
             .get(reading.0)
@@ -224,7 +230,7 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         // Subreading ("s").
-        let next = self.base.store.readings.get(reading.0).next;
+        let next = self.base.doc.store.readings.get(reading.0).next;
         if let Some(next) = next {
             let sub = self.build_json_reading(next);
             if !sub.is_empty() {
@@ -254,16 +260,18 @@ impl<'a> JsonlApplicator<'a> {
             _ => {
                 tracing::error!(
                     "Error: Expected reading object, but got different type on line {}.",
-                    self.base.numLines
+                    self.base.doc.num_lines
                 );
                 return None;
             }
         };
 
-        let c_reading = crate::reading::alloc_reading(&mut self.base.store, Some(parent_cohort));
+        let c_reading =
+            crate::reading::alloc_reading(&mut self.base.doc.store, Some(parent_cohort));
         // addTagToReading(*cReading, parentCohort->wordform); [Tag* overload]
         let wordform = self
             .base
+            .doc
             .store
             .cohorts
             .get(parent_cohort.0)
@@ -284,13 +292,13 @@ impl<'a> JsonlApplicator<'a> {
             } else {
                 tracing::warn!(
                     "Warning: Empty 'l' (baseform) in reading on line {}.",
-                    self.base.numLines
+                    self.base.doc.num_lines
                 );
             }
         } else {
             tracing::warn!(
                 "Warning: Reading missing 'l' (baseform) on line {}.",
-                self.base.numLines
+                self.base.doc.num_lines
             );
         }
 
@@ -326,28 +334,36 @@ impl<'a> JsonlApplicator<'a> {
             if sub_reading_val.is_object() {
                 let sub = self.parse_json_reading(sub_reading_val, parent_cohort);
                 if let Some(sub) = sub {
-                    self.base.store.readings.get_mut(c_reading.0).next = Some(sub);
+                    self.base.doc.store.readings.get_mut(c_reading.0).next = Some(sub);
                 } else {
                     tracing::error!(
                         "Error: Failed to parse subreading object on line {}.",
-                        self.base.numLines
+                        self.base.doc.num_lines
                     );
                 }
             } else {
                 tracing::warn!(
                     "Warning: Value for 's' (sub_reading) is not an object on line {}. Skipping.",
-                    self.base.numLines
+                    self.base.doc.num_lines
                 );
             }
         }
 
         // Ensure baseform exists.
-        if self.base.store.readings.get(c_reading.0).baseform.is_none() {
+        if self
+            .base
+            .doc
+            .store
+            .readings
+            .get(c_reading.0)
+            .baseform
+            .is_none()
+        {
             let wf_hash = self.base.grammar.single_tags_list.get(wordform.0).hash;
-            self.base.store.readings.get_mut(c_reading.0).baseform = Some(wf_hash);
+            self.base.doc.store.readings.get_mut(c_reading.0).baseform = Some(wf_hash);
             tracing::warn!(
                 "Warning: Reading on line {} ended up with no baseform. Using wordform.",
-                self.base.numLines
+                self.base.doc.num_lines
             );
         }
 
@@ -360,10 +376,15 @@ impl<'a> JsonlApplicator<'a> {
     /// Cohort*& cCohort)`. Parses one cohort object into a new cohort, assigning
     /// it into the returned value.
     fn parse_json_cohort(&mut self, obj: &Map<String, Value>, c_swindow: SwId) -> CohortId {
-        let c_cohort = crate::cohort::alloc_cohort(&mut self.base.store, Some(c_swindow));
-        let gn = self.base.window.next_cohort_number();
-        self.base.store.cohorts.get_mut(c_cohort.0).global_number = gn;
-        self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
+        let c_cohort = crate::cohort::alloc_cohort(&mut self.base.doc.store, Some(c_swindow));
+        let gn = self.base.doc.cohorts.next_cohort_number();
+        self.base
+            .doc
+            .store
+            .cohorts
+            .get_mut(c_cohort.0)
+            .global_number = gn;
+        self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
 
         // Wordform ("w").
         let wform_str = if let Some(w) = obj.get("w") {
@@ -371,7 +392,7 @@ impl<'a> JsonlApplicator<'a> {
         } else {
             tracing::warn!(
                 "Warning: JSON cohort on line {} missing 'w' (wordform). Using empty.",
-                self.base.numLines
+                self.base.doc.num_lines
             );
             UString::new()
         };
@@ -380,24 +401,30 @@ impl<'a> JsonlApplicator<'a> {
         wform_tag.push_str(&wform_str);
         wform_tag.push_str(">\"");
         let wf = self.base.add_tag(&wform_tag, crate::tag::TagType::empty());
-        self.base.store.cohorts.get_mut(c_cohort.0).wordform = Some(wf);
+        self.base.doc.store.cohorts.get_mut(c_cohort.0).wordform = Some(wf);
 
         // Text ("z").
-        self.base.store.cohorts.get_mut(c_cohort.0).wblank.clear();
+        self.base
+            .doc
+            .store
+            .cohorts
+            .get_mut(c_cohort.0)
+            .wblank
+            .clear();
         if let Some(z) = obj.get("z") {
-            self.base.store.cohorts.get_mut(c_cohort.0).text = json_to_ustring(z);
+            self.base.doc.store.cohorts.get_mut(c_cohort.0).text = json_to_ustring(z);
         }
 
         // Static tags ("sts").
         if let Some(Value::Array(sts)) = obj.get("sts") {
-            if self.base.store.cohorts.get(c_cohort.0).wread.is_none() {
-                let wread = crate::reading::alloc_reading(&mut self.base.store, Some(c_cohort));
-                self.base.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
+            if self.base.doc.store.cohorts.get(c_cohort.0).wread.is_none() {
+                let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
+                self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
                 self.base.add_tag_to_reading(wread, wf);
                 let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
-                self.base.store.readings.get_mut(wread.0).baseform = Some(wf_hash);
+                self.base.doc.store.readings.get_mut(wread.0).baseform = Some(wf_hash);
             }
-            let wread = self.base.store.cohorts.get(c_cohort.0).wread.unwrap();
+            let wread = self.base.doc.store.cohorts.get(c_cohort.0).wread.unwrap();
             for tag_val in sts {
                 let tag_str = json_to_ustring(tag_val);
                 if !tag_str.is_empty() {
@@ -405,6 +432,7 @@ impl<'a> JsonlApplicator<'a> {
                     let hash = self.base.grammar.single_tags_list.get(tag.0).hash;
                     // Pushed directly to the list, NOT via addTagToReading.
                     self.base
+                        .doc
                         .store
                         .readings
                         .get_mut(wread.0)
@@ -420,28 +448,42 @@ impl<'a> JsonlApplicator<'a> {
                 if !reading_val.is_object() {
                     tracing::warn!(
                         "Warning: Non-object found in 'rs' (readings) array on line {}. Skipping.",
-                        self.base.numLines
+                        self.base.doc.num_lines
                     );
                     continue;
                 }
                 let c_reading = self.parse_json_reading(reading_val, c_cohort);
                 if let Some(c_reading) = c_reading {
-                    crate::cohort::append_reading(&mut self.base.store, c_cohort, c_reading);
-                    self.base.numReadings = self.base.numReadings.wrapping_add(1);
+                    crate::cohort::append_reading(&mut self.base.doc.store, c_cohort, c_reading);
+                    self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
                 } else {
                     tracing::error!(
                         "Error: Failed to parse main reading on line {}.",
-                        self.base.numLines
+                        self.base.doc.num_lines
                     );
                 }
             }
         }
 
-        if self.base.store.cohorts.get(c_cohort.0).readings.is_empty() {
+        if self
+            .base
+            .doc
+            .store
+            .cohorts
+            .get(c_cohort.0)
+            .readings
+            .is_empty()
+        {
             self.base.init_empty_cohort(c_cohort);
         }
         crate::inlines::insert_if_exists(
-            &mut self.base.store.cohorts.get_mut(c_cohort.0).possible_sets,
+            &mut self
+                .base
+                .doc
+                .store
+                .cohorts
+                .get_mut(c_cohort.0)
+                .possible_sets,
             self.base.grammar.sets_any.as_ref(),
         );
 
@@ -449,13 +491,13 @@ impl<'a> JsonlApplicator<'a> {
         if let Some(ds) = obj.get("ds")
             && let Some(v) = as_uint(ds)
         {
-            self.base.store.cohorts.get_mut(c_cohort.0).dep_self =
+            self.base.doc.store.cohorts.get_mut(c_cohort.0).dep_self =
                 (v != 0).then_some(crate::types::GlobalNumber(v));
         }
         if let Some(dp) = obj.get("dp")
             && let Some(v) = as_uint(dp)
         {
-            self.base.store.cohorts.get_mut(c_cohort.0).dep_parent =
+            self.base.doc.store.cohorts.get_mut(c_cohort.0).dep_parent =
                 if v == crate::cohort::DEP_NO_PARENT {
                     None
                 } else {
@@ -471,8 +513,9 @@ impl<'a> JsonlApplicator<'a> {
                 }
                 let del_r = self.parse_json_reading(dr_val, c_cohort);
                 if let Some(del_r) = del_r {
-                    self.base.store.readings.get_mut(del_r.0).deleted = true;
+                    self.base.doc.store.readings.get_mut(del_r.0).deleted = true;
                     self.base
+                        .doc
                         .store
                         .cohorts
                         .get_mut(c_cohort.0)
@@ -481,7 +524,7 @@ impl<'a> JsonlApplicator<'a> {
                 } else {
                     tracing::error!(
                         "Error: Failed to parse deleted reading on line {}.",
-                        self.base.numLines
+                        self.base.doc.num_lines
                     );
                 }
             }
@@ -532,7 +575,7 @@ impl<'a> JsonlApplicator<'a> {
     /// byte-exact parity).
     pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
         let (local_number, ctype) = {
-            let c = self.base.store.cohorts.get(cohort.0);
+            let c = self.base.doc.store.cohorts.get(cohort.0);
             (c.local_number, c.r#type)
         };
         if local_number == 0 || (ctype.intersects(CT_REMOVED)) {
@@ -540,7 +583,7 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         if !profiling {
-            crate::cohort::unignore_all(&mut self.base.store, cohort);
+            crate::cohort::unignore_all(&mut self.base.doc.store, cohort);
         }
 
         let mut doc = Map::new();
@@ -549,6 +592,7 @@ impl<'a> JsonlApplicator<'a> {
         let wform_tag = {
             let wf = self
                 .base
+                .doc
                 .store
                 .cohorts
                 .get(cohort.0)
@@ -575,12 +619,13 @@ impl<'a> JsonlApplicator<'a> {
         doc.insert("w".to_string(), Value::String(wform_utf8));
 
         // Static tags ("sts").
-        let wread = self.base.store.cohorts.get(cohort.0).wread;
+        let wread = self.base.doc.store.cohorts.get(cohort.0).wread;
         if let Some(wread) = wread {
             let (tags_list, wf_hash) = {
-                let tl = self.base.store.readings.get(wread.0).tags_list.clone();
+                let tl = self.base.doc.store.readings.get(wread.0).tags_list.clone();
                 let wf_hash = self
                     .base
+                    .doc
                     .store
                     .cohorts
                     .get(cohort.0)
@@ -616,7 +661,7 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         // Text ("z").
-        let text = self.base.store.cohorts.get(cohort.0).text.clone();
+        let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
         if !text.is_empty() {
             let mut z_text = text;
             if z_text.ends_with('\n') {
@@ -629,9 +674,9 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         // Dependency ("ds" / "dp").
-        if self.base.has_dep && (!ctype.intersects(CT_REMOVED)) {
+        if self.base.doc.deps.has_dep && (!ctype.intersects(CT_REMOVED)) {
             let (dep_self, global_number, dep_parent) = {
-                let c = self.base.store.cohorts.get(cohort.0);
+                let c = self.base.doc.store.cohorts.get(cohort.0);
                 (c.dep_self, c.global_number, c.dep_parent)
             };
             let self_id = dep_self.unwrap_or(global_number);
@@ -642,12 +687,12 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         // Readings ("rs").
-        let mut readings = self.base.store.cohorts.get(cohort.0).readings.clone();
-        sort_readings(&self.base.store, &mut readings);
-        self.base.store.cohorts.get_mut(cohort.0).readings = readings.clone();
+        let mut readings = self.base.doc.store.cohorts.get(cohort.0).readings.clone();
+        sort_readings(&self.base.doc.store, &mut readings);
+        self.base.doc.store.cohorts.get_mut(cohort.0).readings = readings.clone();
         let mut readings_json: Vec<Value> = Vec::new();
         for reading in readings {
-            if self.base.store.readings.get(reading.0).noprint {
+            if self.base.doc.store.readings.get(reading.0).noprint {
                 continue;
             }
             let reading_json = self.build_json_reading(reading);
@@ -662,12 +707,12 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         // Deleted readings ("drs").
-        let deleted = self.base.store.cohorts.get(cohort.0).deleted.clone();
+        let deleted = self.base.doc.store.cohorts.get(cohort.0).deleted.clone();
         if !deleted.is_empty() {
             let mut deleted_readings_json: Vec<Value> = Vec::new();
             let mut deleted_sorted = deleted;
-            sort_readings(&self.base.store, &mut deleted_sorted);
-            self.base.store.cohorts.get_mut(cohort.0).deleted = deleted_sorted.clone();
+            sort_readings(&self.base.doc.store, &mut deleted_sorted);
+            self.base.doc.store.cohorts.get_mut(cohort.0).deleted = deleted_sorted.clone();
             for reading in deleted_sorted {
                 // noprint flag NOT checked here (faithful).
                 let reading_json = self.build_json_reading(reading);
@@ -692,7 +737,7 @@ impl<'a> JsonlApplicator<'a> {
     /// (2) pre-text; (3) each cohort; (4) post-text; (5) FLUSH if `flush_after`.
     pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         let (vars_output, text, all_cohorts, text_post, flush_after) = {
-            let w = self.base.store.single_windows.get(window.0);
+            let w = self.base.doc.store.single_windows.get(window.0);
             (
                 w.variables_output.iter().copied().collect::<Vec<u32>>(),
                 w.text.clone(),
@@ -709,7 +754,7 @@ impl<'a> JsonlApplicator<'a> {
                 self.base.grammar.single_tags_list.get(key.0).tag.clone()
             };
             let value_hash: Option<u32> = {
-                let w = self.base.store.single_windows.get(window.0);
+                let w = self.base.doc.store.single_windows.get(window.0);
                 let it = w.variables_set.find(var);
                 if it != w.variables_set.end() {
                     Some(it.get().1)
@@ -828,7 +873,7 @@ impl<'a> JsonlApplicator<'a> {
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.window.window_span = self.base.cfg.num_windows;
+        self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
         // LOCAL variable-tracking state.
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::default();
@@ -854,7 +899,7 @@ impl<'a> JsonlApplicator<'a> {
                 line_str.pop();
             }
 
-            self.base.numLines = self.base.numLines.wrapping_add(1);
+            self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
 
             // Skip empty / all-whitespace lines.
             if line_str.is_empty()
@@ -870,7 +915,7 @@ impl<'a> JsonlApplicator<'a> {
                 Err(e) => {
                     tracing::warn!(
                         "Warning: Failed to parse JSON on line {}: {} (offset {}). Skipping line.",
-                        self.base.numLines,
+                        self.base.doc.num_lines,
                         e,
                         e.column()
                     );
@@ -883,7 +928,7 @@ impl<'a> JsonlApplicator<'a> {
                 _ => {
                     tracing::warn!(
                         "Warning: JSON on line {} is not an object. Skipping line.",
-                        self.base.numLines
+                        self.base.doc.num_lines
                     );
                     continue;
                 }
@@ -895,19 +940,24 @@ impl<'a> JsonlApplicator<'a> {
                 if !cmd_ustr.is_empty() {
                     if cmd_ustr == STR_CMD_FLUSH {
                         // verbose Info line: deferred.
-                        let back_swindow = self.base.window.back();
+                        let back_swindow = self.base.doc.stream.back();
                         if let Some(bsw) = back_swindow {
-                            self.base.store.single_windows.get_mut(bsw.0).flush_after = true;
+                            self.base
+                                .doc
+                                .store
+                                .single_windows
+                                .get_mut(bsw.0)
+                                .flush_after = true;
                         }
 
                         // If lCohort is the last cohort of cSWindow, add endtag.
                         if let (Some(lc), Some(sw)) = (l_cohort, c_swindow) {
                             let is_last = {
-                                let cohorts = &self.base.store.single_windows.get(sw.0).cohorts;
+                                let cohorts = &self.base.doc.store.single_windows.get(sw.0).cohorts;
                                 !cohorts.is_empty() && *cohorts.last().unwrap() == lc
                             };
                             if is_last {
-                                let rs = self.base.store.cohorts.get(lc.0).readings.clone();
+                                let rs = self.base.doc.store.cohorts.get(lc.0).readings.clone();
                                 for r in rs {
                                     self.add_endtag(r);
                                 }
@@ -921,28 +971,29 @@ impl<'a> JsonlApplicator<'a> {
                         // Drain buffered windows.
                         while self.base.rotate_next().is_some() {
                             self.base.run_grammar_on_window_with(fmt, output);
-                            if self.base.numWindows.is_multiple_of(reset_after) {
+                            if self.base.doc.num_windows.is_multiple_of(reset_after) {
                                 self.base.reset_indexes();
                             }
                             // verbose progress: deferred.
                         }
                         self.base.shuffle_windows_down();
-                        while !self.base.window.previous.is_empty() {
-                            let tmp = self.base.window.previous[0];
+                        while !self.base.doc.stream.previous.is_empty() {
+                            let tmp = self.base.doc.stream.previous[0];
                             fmt.print_single_window(self.base, tmp, output, false);
                             crate::single_window::free_swindow(
-                                &mut self.base.window,
-                                &mut self.base.store,
+                                &mut self.base.doc.store,
+                                &mut self.base.doc.cohorts,
+                                &mut self.base.doc.deps,
                                 Some(tmp),
                             );
-                            self.base.window.previous.remove(0);
+                            self.base.doc.stream.previous.remove(0);
                         }
 
                         if back_swindow.is_none() {
                             fmt.print_stream_command(self.base, &cmd_ustr, output);
                         }
 
-                        self.base.variables.clear(0);
+                        self.base.doc.variables.clear(0);
                         let _ = output.flush();
                         // u_fflush(*ux_stderr): deferred.
                     } else if cmd_ustr == STR_CMD_IGNORE {
@@ -984,7 +1035,10 @@ impl<'a> JsonlApplicator<'a> {
                         variables_output.insert(key_hash);
                     }
                 } else {
-                    tracing::warn!("Warning: Empty 'cmd' value on line {}.", self.base.numLines);
+                    tracing::warn!(
+                        "Warning: Empty 'cmd' value on line {}.",
+                        self.base.doc.num_lines
+                    );
                 }
                 continue;
             }
@@ -1006,9 +1060,16 @@ impl<'a> JsonlApplicator<'a> {
                 if !t_ustr.is_empty() {
                     // verbose Info: deferred.
                     if let Some(lc) = l_cohort {
-                        self.base.store.cohorts.get_mut(lc.0).text.push_str(&t_ustr);
+                        self.base
+                            .doc
+                            .store
+                            .cohorts
+                            .get_mut(lc.0)
+                            .text
+                            .push_str(&t_ustr);
                     } else if let Some(lsw) = l_swindow {
                         self.base
+                            .doc
                             .store
                             .single_windows
                             .get_mut(lsw.0)
@@ -1018,7 +1079,10 @@ impl<'a> JsonlApplicator<'a> {
                         fmt.print_plain_text_line(self.base, &t_ustr, output);
                     }
                 } else {
-                    tracing::warn!("Warning: Empty 't' value on line {}.", self.base.numLines);
+                    tracing::warn!(
+                        "Warning: Empty 't' value on line {}.",
+                        self.base.doc.num_lines
+                    );
                 }
                 continue;
             } else if obj.contains_key("w") {
@@ -1026,8 +1090,9 @@ impl<'a> JsonlApplicator<'a> {
                 if c_swindow.is_none() {
                     let sw = self
                         .base
-                        .window
-                        .alloc_append_single_window(&mut self.base.store);
+                        .doc
+                        .stream
+                        .alloc_append_single_window(&mut self.base.doc.store);
                     self.base.init_empty_single_window(sw);
 
                     // Transfer local variable state into the window, then clear
@@ -1038,13 +1103,13 @@ impl<'a> JsonlApplicator<'a> {
                     // equivalent to copy-then-clear. (FlatUnorderedMap/Set are not
                     // Clone; `swap` is the faithful, allocation-free transfer.)
                     {
-                        let sww = self.base.store.single_windows.get_mut(sw.0);
+                        let sww = self.base.doc.store.single_windows.get_mut(sw.0);
                         sww.variables_set.swap(&mut variables_set);
                         sww.variables_rem.swap(&mut variables_rem);
                         sww.variables_output.swap(&mut variables_output);
                     }
 
-                    self.base.numWindows = self.base.numWindows.wrapping_add(1);
+                    self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
                     c_swindow = Some(sw);
                     l_swindow = Some(sw);
                 }
@@ -1056,15 +1121,16 @@ impl<'a> JsonlApplicator<'a> {
                 // "Failed to create cohort" branch is unreachable.
 
                 crate::single_window::append_cohort(
-                    &mut self.base.window,
-                    &mut self.base.store,
+                    &mut self.base.doc.store,
+                    &mut self.base.doc.cohorts,
+                    &mut self.base.doc.deps,
                     sw,
                     cc,
                 );
                 l_cohort = Some(cc);
 
                 let mut did_delim = false;
-                let cohorts_len = self.base.store.single_windows.get(sw.0).cohorts.len();
+                let cohorts_len = self.base.doc.store.single_windows.get(sw.0).cohorts.len();
                 let soft_hit = cohorts_len >= self.base.cfg.soft_limit as usize
                     && self.base.grammar.soft_delimiters.is_some()
                     && {
@@ -1076,7 +1142,7 @@ impl<'a> JsonlApplicator<'a> {
                     };
                 if soft_hit {
                     // verbose Info: deferred.
-                    let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+                    let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                     for r in rs {
                         self.add_endtag(r);
                     }
@@ -1097,10 +1163,10 @@ impl<'a> JsonlApplicator<'a> {
                             tracing::warn!(
                                 "Warning: Hard limit of {} cohorts reached at line {} - forcing break.",
                                 self.base.cfg.hard_limit,
-                                self.base.numLines
+                                self.base.doc.num_lines
                             );
                         }
-                        let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+                        let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
                             self.add_endtag(r);
                         }
@@ -1110,10 +1176,11 @@ impl<'a> JsonlApplicator<'a> {
                     }
                 }
 
-                if did_delim || self.base.window.next.len() > self.base.cfg.num_windows as usize {
+                if did_delim || self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize
+                {
                     self.base.shuffle_windows_down();
                     self.base.run_grammar_on_window_with(fmt, output);
-                    if self.base.numWindows.is_multiple_of(reset_after) {
+                    if self.base.doc.num_windows.is_multiple_of(reset_after) {
                         self.base.reset_indexes();
                     }
                     // verbose progress: deferred.
@@ -1125,9 +1192,9 @@ impl<'a> JsonlApplicator<'a> {
         // End of stream (skipped entirely on EXIT).
         if !exit_requested {
             if let Some(sw) = c_swindow {
-                let cohorts = self.base.store.single_windows.get(sw.0).cohorts.clone();
+                let cohorts = self.base.doc.store.single_windows.get(sw.0).cohorts.clone();
                 if let Some(&last) = cohorts.last() {
-                    let rs = self.base.store.cohorts.get(last.0).readings.clone();
+                    let rs = self.base.doc.store.cohorts.get(last.0).readings.clone();
                     for r in rs {
                         self.add_endtag(r);
                     }
@@ -1137,20 +1204,21 @@ impl<'a> JsonlApplicator<'a> {
             while self.base.rotate_next().is_some() {
                 self.base.run_grammar_on_window_with(fmt, output);
             }
-            if self.base.window.current.is_some() {
+            if self.base.doc.stream.current.is_some() {
                 self.base.run_grammar_on_window_with(fmt, output);
             }
 
             self.base.shuffle_windows_down();
-            while !self.base.window.previous.is_empty() {
-                let tmp = self.base.window.previous[0];
+            while !self.base.doc.stream.previous.is_empty() {
+                let tmp = self.base.doc.stream.previous[0];
                 fmt.print_single_window(self.base, tmp, output, false);
                 crate::single_window::free_swindow(
-                    &mut self.base.window,
-                    &mut self.base.store,
+                    &mut self.base.doc.store,
+                    &mut self.base.doc.cohorts,
+                    &mut self.base.doc.deps,
                     Some(tmp),
                 );
-                self.base.window.previous.remove(0);
+                self.base.doc.stream.previous.remove(0);
             }
 
             let _ = output.flush();

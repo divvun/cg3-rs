@@ -32,6 +32,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let mut section_did_something = false;
 
         let intersects = self
+            .doc
             .store
             .single_windows
             .get(current.0)
@@ -53,8 +54,9 @@ impl crate::grammar_applicator::GrammarApplicator {
         });
 
         // current.parent->cohort_map[0] = current.cohorts.front()
-        let front = self.store.single_windows.get(current.0).cohorts[0];
-        self.window
+        let front = self.doc.store.single_windows.get(current.0).cohorts[0];
+        self.doc
+            .cohorts
             .cohort_map
             .insert(crate::types::GlobalNumber(0), front);
 
@@ -79,13 +81,14 @@ impl crate::grammar_applicator::GrammarApplicator {
                     (
                         r.r#type,
                         r.flags,
-                        self.store.single_windows.get(current.0).has_enclosures,
+                        self.doc.store.single_windows.get(current.0).has_enclosures,
                     )
                 };
                 if rtype == K_IGNORE {
                     break 'repeat;
                 }
-                if !self.cfg.apply_mappings && (rtype == K_MAP || rtype == K_ADD || rtype == K_REPLACE)
+                if !self.cfg.apply_mappings
+                    && (rtype == K_MAP || rtype == K_ADD || rtype == K_REPLACE)
                 {
                     break 'repeat;
                 }
@@ -177,6 +180,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// store-aware `compare_Cohort`.
     fn rr_sort_all_cohortsets(&mut self, current: SwId) {
         let n = self
+            .doc
             .store
             .single_windows
             .get(current.0)
@@ -184,19 +188,25 @@ impl crate::grammar_applicator::GrammarApplicator {
             .len();
         for i in 0..n {
             // Extract, sort with the store-aware comparator, put back.
-            let mut v: Vec<CohortId> = self.store.single_windows.get(current.0).rule_to_cohorts[i]
+            let mut v: Vec<CohortId> = self.doc.store.single_windows.get(current.0).rule_to_cohorts
+                [i]
                 .as_slice()
                 .to_vec();
             v.sort_by(|&a, &b| {
-                if crate::single_window::less_cohort(&self.store, a, b) {
+                if crate::single_window::less_cohort(&self.doc.store, a, b) {
                     std::cmp::Ordering::Less
-                } else if crate::single_window::less_cohort(&self.store, b, a) {
+                } else if crate::single_window::less_cohort(&self.doc.store, b, a) {
                     std::cmp::Ordering::Greater
                 } else {
                     std::cmp::Ordering::Equal
                 }
             });
-            self.store.single_windows.get_mut(current.0).rule_to_cohorts[i].assign_sorted(&v);
+            self.doc
+                .store
+                .single_windows
+                .get_mut(current.0)
+                .rule_to_cohorts[i]
+                .assign_sorted(&v);
         }
     }
 
@@ -205,13 +215,12 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// `reindex(which)`: renumber a window's cohorts to their index, then
     /// `gWindow->rebuildCohortLinks()`.
     pub(crate) fn rr_reindex(&mut self, which: SwId) {
-        let n = self.store.single_windows.get(which.0).cohorts.len();
+        let n = self.doc.store.single_windows.get(which.0).cohorts.len();
         for i in 0..n {
-            let cid = self.store.single_windows.get(which.0).cohorts[i];
-            self.store.cohorts.get_mut(cid.0).local_number = ui32(i);
+            let cid = self.doc.store.single_windows.get(which.0).cohorts[i];
+            self.doc.store.cohorts.get_mut(cid.0).local_number = ui32(i);
         }
-        let gw = &self.window;
-        gw.rebuild_cohort_links(&mut self.store);
+        self.doc.stream.rebuild_cohort_links(&mut self.doc.store);
     }
 
     /// `collect_subtree(cs, head, cset)`.
@@ -223,11 +232,11 @@ impl crate::grammar_applicator::GrammarApplicator {
         cset: u32,
     ) {
         if cset != 0 {
-            let head_gn = self.store.cohorts.get(head.0).global_number;
-            let cohorts = self.store.single_windows.get(current.0).cohorts.clone();
+            let head_gn = self.doc.store.cohorts.get(head.0).global_number;
+            let cohorts = self.doc.store.single_windows.get(current.0).cohorts.clone();
             for iter in &cohorts {
                 let (gn, dp) = {
-                    let c = self.store.cohorts.get(iter.0);
+                    let c = self.doc.store.cohorts.get(iter.0);
                     (c.global_number, c.dep_parent)
                 };
                 if gn == head_gn
@@ -240,7 +249,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let cs_snapshot: Vec<CohortId> = cs.as_slice().to_vec();
             for iter in &cohorts {
                 for &cht in &cs_snapshot {
-                    if self.store.cohorts.get(cht.0).global_number == head_gn {
+                    if self.doc.store.cohorts.get(cht.0).global_number == head_gn {
                         continue;
                     }
                     if self.is_child_of(*iter, cht) {
@@ -268,7 +277,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// `add_relation_rtag(cohort, tag, id)`.
     pub(crate) fn rr_add_relation_rtag(&mut self, cohort: CohortId, tag: TagId, id: u32) {
         let nt = self.rr_make_relation_rtag(tag, id);
-        let rs = self.store.cohorts.get(cohort.0).readings.clone();
+        let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in rs {
             self.add_tag_to_reading(r, nt);
         }
@@ -279,9 +288,9 @@ impl crate::grammar_applicator::GrammarApplicator {
     pub(crate) fn rr_set_relation_rtag(&mut self, cohort: CohortId, tag: TagId, id: u32) {
         let nt = self.rr_make_relation_rtag(tag, id);
         let base = self.grammar.single_tags_list.get(tag.0).tag.clone();
-        let rs = self.store.cohorts.get(cohort.0).readings.clone();
+        let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in rs {
-            let list = self.store.readings.get(r.0).tags_list.clone();
+            let list = self.doc.store.readings.get(r.0).tags_list.clone();
             let mut new_list: Vec<u32> = Vec::with_capacity(list.len());
             for h in list {
                 let utag = self
@@ -295,7 +304,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     && utag.as_bytes().get(2 + base.len()) == Some(&b':')
                     && utag[2..2 + base.len()] == base;
                 if matches {
-                    let rr = self.store.readings.get_mut(r.0);
+                    let rr = self.doc.store.readings.get_mut(r.0);
                     rr.tags.erase(h);
                     rr.tags_textual.erase(h);
                     rr.tags_numerical.remove(&h);
@@ -304,7 +313,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     new_list.push(h);
                 }
             }
-            self.store.readings.get_mut(r.0).tags_list = new_list;
+            self.doc.store.readings.get_mut(r.0).tags_list = new_list;
             self.add_tag_to_reading(r, nt);
         }
     }
@@ -312,7 +321,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// `rem_relation_rtag(cohort, tag, id)`.
     pub(crate) fn rr_rem_relation_rtag(&mut self, cohort: CohortId, tag: TagId, id: u32) {
         let nt = self.rr_make_relation_rtag(tag, id);
-        let rs = self.store.cohorts.get(cohort.0).readings.clone();
+        let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in rs {
             self.del_tag_from_reading(r, nt);
         }
@@ -352,7 +361,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             if ttype.intersects(T_MAPPING) || first_char == Some(mapping_prefix) {
                 mappings.push(tag);
             } else {
-                self.store
+                self.doc
+                    .store
                     .readings
                     .get_mut(reading.0)
                     .tags_list
@@ -372,7 +382,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     ///
     /// RECONCILIATION (see `get_sub_reading` doc + report): the C++ `subs_any` is
     /// a `std::deque<Reading>` of amalgamated sub-readings; in the arena model the
-    /// amalgam is allocated in `self.store.readings` and only its `ReadingId` is
+    /// amalgam is allocated in `self.doc.store.readings` and only its `ReadingId` is
     /// tracked here, so `subs_any` must become `Vec<ReadingId>` (a NOTED mod.rs
     /// field change — currently `VecDeque<Reading>`). `clear(subs_any)` at each
     /// cohort frees these ids back to the readings arena.
@@ -387,7 +397,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         let ids: Vec<ReadingId> = self.subs_any.to_vec();
         for rid in ids {
             let opt = Some(rid);
-            crate::reading::free_reading(&mut self.store, opt);
+            crate::reading::free_reading(&mut self.doc.store, opt);
         }
         self.subs_any.clear();
     }

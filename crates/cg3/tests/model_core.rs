@@ -4,8 +4,9 @@
 //!
 //! Strategy: DIRECT library API tests against the arena/store model (a
 //! `RuntimeStore` owns the dynamic cohort/reading/single-window arenas; a
-//! `Grammar` owns the static tag/set/rule/context arenas; the `Window` is the
-//! engine-layer singleton threaded explicitly). One id
+//! `Grammar` owns the static tag/set/rule/context arenas; the C++ `Window` is
+//! dissolved Stage-B into the engine-layer `WindowStream`/`CohortRegistry`/
+//! `DepBookkeeping` views threaded explicitly). One id
 //! (`ContextualTest::markUsed`, ported as the PRIVATE `Grammar::context_mark_used`)
 //! is driven through a fixture run of the `vislcg3` binary instead, because the
 //! Rust port exposes no public entry point short of a full grammar load.
@@ -50,21 +51,33 @@ use cg3::tag::{
     compare_tag_vector, equal_tag, fill_tagvector, parse_tag_raw,
 };
 use cg3::types::{GlobalNumber, SetNumber};
-use cg3::window::Window;
+use cg3::window::{CohortRegistry, DepBookkeeping, WindowStream};
 
 // ---------------------------------------------------------------------------
-// Shared setup: a Window + RuntimeStore + one SingleWindow with `n` cohorts
-// (global numbers 1..=n) appended via the real append_cohort wiring.
+// Test-local bundle of the three views the C++ `Window` dissolved into
+// (Stage-B): the stream, the cohort registry, and the dep/relation bookkeeping.
+// Scaffolding only — the tests drive the three structs' real APIs directly.
 // ---------------------------------------------------------------------------
-fn setup_window(n: u32) -> (RuntimeStore, Window, SwId, Vec<CohortId>) {
+#[derive(Default)]
+struct Win {
+    stream: WindowStream,
+    cohorts: CohortRegistry,
+    deps: DepBookkeeping,
+}
+
+// ---------------------------------------------------------------------------
+// Shared setup: the window views + RuntimeStore + one SingleWindow with `n`
+// cohorts (global numbers 1..=n) appended via the real append_cohort wiring.
+// ---------------------------------------------------------------------------
+fn setup_window(n: u32) -> (RuntimeStore, Win, SwId, Vec<CohortId>) {
     let mut store = RuntimeStore::new();
-    let mut w = Window::default();
-    let sw = w.alloc_append_single_window(&mut store);
+    let mut w = Win::default();
+    let sw = w.stream.alloc_append_single_window(&mut store);
     let mut ids = Vec::new();
     for g in 1..=n {
         let c = alloc_cohort(&mut store, Some(sw));
         store.cohorts.get_mut(c.0).global_number = GlobalNumber(g);
-        append_cohort(&mut w, &mut store, sw, c);
+        append_cohort(&mut store, &mut w.cohorts, &mut w.deps, sw, c);
         ids.push(c);
     }
     (store, w, sw, ids)
@@ -109,13 +122,13 @@ fn cohort_alloc_detach_clear_dtor_free() {
     let ig = alloc_reading(&mut store, Some(c3));
     store.cohorts.get_mut(c3.0).ignored.push(ig);
     store.cohorts.get_mut(c3.0).dep_parent = Some(GlobalNumber(1));
-    assert!(w.cohort_map.contains_key(&GlobalNumber(3)));
-    cohort_clear(&mut store, Some(&mut w), c3);
+    assert!(w.cohorts.cohort_map.contains_key(&GlobalNumber(3)));
+    cohort_clear(&mut store, Some((&mut w.cohorts, &mut w.deps)), c3);
     assert!(
-        !w.cohort_map.contains_key(&GlobalNumber(3)),
+        !w.cohorts.cohort_map.contains_key(&GlobalNumber(3)),
         "clear erases from cohort_map"
     );
-    assert!(!w.dep_window.contains_key(&GlobalNumber(3)));
+    assert!(!w.deps.dep_window.contains_key(&GlobalNumber(3)));
     let c3r = store.cohorts.get(c3.0);
     assert_eq!(c3r.global_number, GlobalNumber(0));
     assert_eq!(c3r.dep_parent, None);
@@ -129,10 +142,10 @@ fn cohort_alloc_detach_clear_dtor_free() {
     );
 
     // dtor: erases from the window maps and detaches, but does NOT reset fields.
-    assert!(w.cohort_map.contains_key(&GlobalNumber(1)));
-    cohort_dtor(&mut store, Some(&mut w), c1);
-    assert!(!w.cohort_map.contains_key(&GlobalNumber(1)));
-    assert!(!w.dep_window.contains_key(&GlobalNumber(1)));
+    assert!(w.cohorts.cohort_map.contains_key(&GlobalNumber(1)));
+    cohort_dtor(&mut store, Some((&mut w.cohorts, &mut w.deps)), c1);
+    assert!(!w.cohorts.cohort_map.contains_key(&GlobalNumber(1)));
+    assert!(!w.deps.dep_window.contains_key(&GlobalNumber(1)));
     assert_eq!(
         store.cohorts.get(c1.0).global_number,
         GlobalNumber(1),
@@ -141,7 +154,7 @@ fn cohort_alloc_detach_clear_dtor_free() {
 
     // free_cohort: consumes the handle (wave 4 — the C++ Cohort*& null-out is
     // by-value ownership); the slot is recycled LIFO by the next alloc.
-    free_cohort(&mut store, Some(&mut w), Some(c2));
+    free_cohort(&mut store, Some((&mut w.cohorts, &mut w.deps)), Some(c2));
     let reused = alloc_cohort(&mut store, Some(sw));
     // Wave 4 (GenArena): the SLOT is recycled LIFO (pool semantics), but the
     // recycled id carries a bumped generation, so the stale c2 handle is now
@@ -341,13 +354,13 @@ fn cohort_iterator_base() {
 #[test]
 fn topology_iterators() {
     let mut store = RuntimeStore::new();
-    let mut w = Window::default();
-    let sw1 = w.alloc_append_single_window(&mut store);
-    let sw2 = w.alloc_append_single_window(&mut store); // linked sw1 <-> sw2
+    let mut w = Win::default();
+    let sw1 = w.stream.alloc_append_single_window(&mut store);
+    let sw2 = w.stream.alloc_append_single_window(&mut store); // linked sw1 <-> sw2
     let mut mk = |sw: SwId, gn: u32| {
         let c = alloc_cohort(&mut store, Some(sw));
         store.cohorts.get_mut(c.0).global_number = GlobalNumber(gn);
-        append_cohort(&mut w, &mut store, sw, c);
+        append_cohort(&mut store, &mut w.cohorts, &mut w.deps, sw, c);
         c
     };
     let c1 = mk(sw1, 1);
@@ -392,18 +405,18 @@ fn dep_parent_iterator() {
     let mut g = Grammar::default();
     let ctx = g.allocate_contextual_test();
 
-    let mut it = DepParentIter::new(Some(c3), Some(ctx), false, &store, &g, &w);
+    let mut it = DepParentIter::new(Some(c3), Some(ctx), false, &store, &g, &w.cohorts);
     assert_eq!(
         it.base.current(),
         Some(c2),
         "ctor pre-advances onto the parent"
     );
-    it.advance(&store, &g, &w);
+    it.advance(&store, &g, &w.cohorts);
     assert_eq!(it.base.current(), Some(c1));
-    it.advance(&store, &g, &w); // c1 has DEP_NO_PARENT
+    it.advance(&store, &g, &w.cohorts); // c1 has DEP_NO_PARENT
     assert_eq!(it.base.current(), None);
 
-    it.reset(Some(c3), Some(ctx), false, &store, &g, &w);
+    it.reset(Some(c3), Some(ctx), false, &store, &g, &w.cohorts);
     assert_eq!(
         it.base.current(),
         Some(c2),
@@ -412,16 +425,16 @@ fn dep_parent_iterator() {
 
     // Cycle guard: c1 -> c3 closes a loop; the duplicate m_seen hit ends it.
     store.cohorts.get_mut(c1.0).dep_parent = Some(GlobalNumber(3));
-    it.reset(Some(c3), Some(ctx), false, &store, &g, &w);
+    it.reset(Some(c3), Some(ctx), false, &store, &g, &w.cohorts);
     assert_eq!(it.base.current(), Some(c2));
-    it.advance(&store, &g, &w);
+    it.advance(&store, &g, &w.cohorts);
     assert_eq!(it.base.current(), Some(c1));
-    it.advance(&store, &g, &w);
+    it.advance(&store, &g, &w.cohorts);
     assert_eq!(it.base.current(), None, "cycle terminated by m_seen");
 
     // CT_REMOVED parent kills the walk outright.
     store.cohorts.get_mut(c2.0).r#type |= CT_REMOVED;
-    let it = DepParentIter::new(Some(c3), Some(ctx), false, &store, &g, &w);
+    let it = DepParentIter::new(Some(c3), Some(ctx), false, &store, &g, &w.cohorts);
     assert_eq!(it.base.current(), None);
 }
 
@@ -451,7 +464,7 @@ fn dep_descendent_and_ancestor_iterators() {
     let ctx_rr = g.allocate_contextual_test();
     g.contexts_arena[ctx_rr.0].pos = POS_RIGHTMOST;
 
-    let mut di = DepDescendentIter::new(Some(c1), Some(ctx), false, &store, &g, &w);
+    let mut di = DepDescendentIter::new(Some(c1), Some(ctx), false, &store, &g, &w.cohorts);
     assert_eq!(di.base.current(), Some(c2), "direct + transitive, sorted");
     di.advance();
     assert_eq!(di.base.current(), Some(c3));
@@ -460,10 +473,10 @@ fn dep_descendent_and_ancestor_iterators() {
     di.advance();
     assert_eq!(di.base.current(), None);
     // reset with POS_SELF: the origin joins the set (c1 sorts first).
-    di.reset(Some(c1), Some(ctx_self), false, &store, &g, &w);
+    di.reset(Some(c1), Some(ctx_self), false, &store, &g, &w.cohorts);
     assert_eq!(di.base.current(), Some(c1));
 
-    let mut ai = DepAncestorIter::new(Some(c4), Some(ctx), false, &store, &g, &w);
+    let mut ai = DepAncestorIter::new(Some(c4), Some(ctx), false, &store, &g, &w.cohorts);
     assert_eq!(
         ai.base.current(),
         Some(c1),
@@ -474,7 +487,7 @@ fn dep_descendent_and_ancestor_iterators() {
     ai.advance();
     assert_eq!(ai.base.current(), None);
     // reset with POS_RIGHTMOST reverses the chain.
-    ai.reset(Some(c4), Some(ctx_rr), false, &store, &g, &w);
+    ai.reset(Some(c4), Some(ctx_rr), false, &store, &g, &w.cohorts);
     assert_eq!(ai.base.current(), Some(c2));
 }
 
@@ -1142,7 +1155,7 @@ fn contextual_test_mark_used_via_fixture() {
 #[test]
 fn single_window_alloc_append_clear_destroy() {
     let mut store = RuntimeStore::new();
-    let mut w = Window::default();
+    let mut w = Win::default();
 
     // alloc_swindow: parent handle passed through, everything else blank.
     let sw = alloc_swindow(&mut store, Some(3));
@@ -1151,8 +1164,8 @@ fn single_window_alloc_append_clear_destroy() {
     store.single_windows.free_slot(sw.0);
 
     // appendCohort across two linked windows.
-    let s1 = w.alloc_append_single_window(&mut store);
-    let s2 = w.alloc_append_single_window(&mut store); // s1 <-> s2 siblings
+    let s1 = w.stream.alloc_append_single_window(&mut store);
+    let s2 = w.stream.alloc_append_single_window(&mut store); // s1 <-> s2 siblings
     let mk = |store: &mut RuntimeStore, sw: SwId, gn: u32| {
         let c = alloc_cohort(store, Some(sw));
         store.cohorts.get_mut(c.0).global_number = GlobalNumber(gn);
@@ -1160,9 +1173,9 @@ fn single_window_alloc_append_clear_destroy() {
     };
     // Append to s2 FIRST so appending into s1 exercises the forward-link branch.
     let cb = mk(&mut store, s2, 10);
-    append_cohort(&mut w, &mut store, s2, cb);
+    append_cohort(&mut store, &mut w.cohorts, &mut w.deps, s2, cb);
     let ca = mk(&mut store, s1, 5);
-    append_cohort(&mut w, &mut store, s1, ca);
+    append_cohort(&mut store, &mut w.cohorts, &mut w.deps, s1, ca);
     assert_eq!(store.cohorts.get(ca.0).local_number, 0);
     assert_eq!(store.cohorts.get(ca.0).parent, Some(s1));
     assert_eq!(
@@ -1171,15 +1184,15 @@ fn single_window_alloc_append_clear_destroy() {
         "forward cross-window link"
     );
     assert_eq!(store.cohorts.get(cb.0).prev, Some(ca));
-    assert_eq!(w.cohort_map.get(&GlobalNumber(5)), Some(&ca));
+    assert_eq!(w.cohorts.cohort_map.get(&GlobalNumber(5)), Some(&ca));
     assert_eq!(
-        w.cohort_map.get(&GlobalNumber(0)),
+        w.cohorts.cohort_map.get(&GlobalNumber(0)),
         Some(&ca),
         "local 0 aliased at key 0"
     );
-    assert_eq!(w.dep_window.get(&GlobalNumber(10)), Some(&cb));
+    assert_eq!(w.deps.dep_window.get(&GlobalNumber(10)), Some(&cb));
     let ca2 = mk(&mut store, s1, 6);
-    append_cohort(&mut w, &mut store, s1, ca2);
+    append_cohort(&mut store, &mut w.cohorts, &mut w.deps, s1, ca2);
     assert_eq!(store.cohorts.get(ca2.0).local_number, 1);
     assert_eq!(
         store.cohorts.get(ca.0).next,
@@ -1205,16 +1218,16 @@ fn single_window_alloc_append_clear_destroy() {
 
     // clear: relation_map pruned (values <= last cohort's global number),
     // cohorts freed, fields reset.
-    w.relation_map.insert((100, 6)); // <= threshold 6 -> pruned
-    w.relation_map.insert((200, 7)); // > threshold -> kept
-    single_window_clear(&mut w, &mut store, s1);
-    assert!(!w.relation_map.contains(100), "stale relation pruned");
-    assert!(w.relation_map.contains(200));
+    w.deps.relation_map.insert((100, 6)); // <= threshold 6 -> pruned
+    w.deps.relation_map.insert((200, 7)); // > threshold -> kept
+    single_window_clear(&mut store, &mut w.cohorts, &mut w.deps, s1);
+    assert!(!w.deps.relation_map.contains(100), "stale relation pruned");
+    assert!(w.deps.relation_map.contains(200));
     assert!(store.single_windows.get(s1.0).cohorts.is_empty());
     assert_eq!(store.single_windows.get(s1.0).parent, None);
     assert!(store.cohorts.try_get(ca.0).is_none(), "cohorts recycled");
     assert!(
-        !w.cohort_map.contains_key(&GlobalNumber(5)),
+        !w.cohorts.cohort_map.contains_key(&GlobalNumber(5)),
         "clear routed through free_cohort"
     );
 
@@ -1227,7 +1240,7 @@ fn single_window_alloc_append_clear_destroy() {
     store.single_windows.get_mut(b.0).previous = Some(a);
     store.single_windows.get_mut(b.0).next = Some(c);
     store.single_windows.get_mut(c.0).previous = Some(b);
-    single_window_destroy(&mut w, &mut store, b);
+    single_window_destroy(&mut store, &mut w.cohorts, &mut w.deps, b);
     assert_eq!(store.single_windows.get(a.0).next, Some(c), "spliced");
     assert_eq!(store.single_windows.get(c.0).previous, Some(a));
     assert!(
@@ -1236,9 +1249,9 @@ fn single_window_alloc_append_clear_destroy() {
     );
 
     // free_swindow: clear + recycle (handle consumed by value); None is a no-op.
-    free_swindow(&mut w, &mut store, Some(c));
+    free_swindow(&mut store, &mut w.cohorts, &mut w.deps, Some(c));
     assert!(store.single_windows.try_get(c.0).is_none());
-    free_swindow(&mut w, &mut store, None); // must not panic
+    free_swindow(&mut store, &mut w.cohorts, &mut w.deps, None); // must not panic
 }
 
 // ===========================================================================
@@ -1263,44 +1276,44 @@ fn single_window_alloc_append_clear_destroy() {
 #[test]
 fn window_alloc_shuffle_rebuild_destroy() {
     let mut store = RuntimeStore::new();
-    let mut w = Window::default();
-    assert_eq!(w.back(), None, "empty document");
+    let mut w = Win::default();
+    assert_eq!(w.stream.back(), None, "empty document");
 
     // allocSingleWindow: numbered but NOT inserted into any stream.
-    let s1 = w.alloc_single_window(&mut store);
+    let s1 = w.stream.alloc_single_window(&mut store);
     assert_eq!(store.single_windows.get(s1.0).number, 1);
-    assert!(w.next.is_empty() && w.current.is_none());
+    assert!(w.stream.next.is_empty() && w.stream.current.is_none());
 
     // allocPushSingleWindow with empty next and no current: no sibling links.
-    let s2 = w.alloc_push_single_window(&mut store);
+    let s2 = w.stream.alloc_push_single_window(&mut store);
     assert_eq!(store.single_windows.get(s2.0).number, 2);
-    assert_eq!(w.next, vec![s2]);
+    assert_eq!(w.stream.next, vec![s2]);
     assert_eq!(store.single_windows.get(s2.0).previous, None);
 
     // With current set and next non-empty: linked on both sides + front insert.
-    w.current = Some(s1);
-    let s3 = w.alloc_push_single_window(&mut store);
-    assert_eq!(w.next, vec![s3, s2]);
+    w.stream.current = Some(s1);
+    let s3 = w.stream.alloc_push_single_window(&mut store);
+    assert_eq!(w.stream.next, vec![s3, s2]);
     assert_eq!(store.single_windows.get(s3.0).next, Some(s2));
     assert_eq!(store.single_windows.get(s2.0).previous, Some(s3));
     assert_eq!(store.single_windows.get(s3.0).previous, Some(s1));
     assert_eq!(store.single_windows.get(s1.0).next, Some(s3));
 
     // allocAppendSingleWindow: linked to the old back, pushed at the end.
-    let s4 = w.alloc_append_single_window(&mut store);
-    assert_eq!(w.next, vec![s3, s2, s4]);
+    let s4 = w.stream.alloc_append_single_window(&mut store);
+    assert_eq!(w.stream.next, vec![s3, s2, s4]);
     assert_eq!(store.single_windows.get(s4.0).previous, Some(s2));
     assert_eq!(store.single_windows.get(s2.0).next, Some(s4));
-    assert_eq!(w.back(), Some(s4), "back() prefers next.back()");
+    assert_eq!(w.stream.back(), Some(s4), "back() prefers next.back()");
 
     // shuffleWindowsDown: current -> previous, next front -> current.
-    w.shuffle_windows_down(&mut store);
-    assert_eq!(w.previous, vec![s1]);
-    assert_eq!(w.current, Some(s3));
-    assert_eq!(w.next, vec![s2, s4]);
+    w.stream.shuffle_windows_down(&mut store);
+    assert_eq!(w.stream.previous, vec![s1]);
+    assert_eq!(w.stream.current, Some(s3));
+    assert_eq!(w.stream.next, vec![s2, s4]);
 
     // rebuildSingleWindowLinks: document order previous..current..next.
-    w.rebuild_single_window_links(&mut store);
+    w.stream.rebuild_single_window_links(&mut store);
     assert_eq!(store.single_windows.get(s1.0).previous, None);
     assert_eq!(store.single_windows.get(s1.0).next, Some(s3));
     assert_eq!(store.single_windows.get(s3.0).next, Some(s2));
@@ -1310,14 +1323,14 @@ fn window_alloc_shuffle_rebuild_destroy() {
     // rebuildCohortLinks: cohorts chained across window boundaries.
     let c1 = alloc_cohort(&mut store, Some(s1));
     store.cohorts.get_mut(c1.0).global_number = GlobalNumber(1);
-    append_cohort(&mut w, &mut store, s1, c1);
+    append_cohort(&mut store, &mut w.cohorts, &mut w.deps, s1, c1);
     let c2 = alloc_cohort(&mut store, Some(s3));
     store.cohorts.get_mut(c2.0).global_number = GlobalNumber(2);
-    append_cohort(&mut w, &mut store, s3, c2);
+    append_cohort(&mut store, &mut w.cohorts, &mut w.deps, s3, c2);
     // Scramble, then rebuild.
     store.cohorts.get_mut(c1.0).next = None;
     store.cohorts.get_mut(c2.0).prev = None;
-    w.rebuild_cohort_links(&mut store);
+    w.stream.rebuild_cohort_links(&mut store);
     assert_eq!(
         store.cohorts.get(c1.0).next,
         Some(c2),
@@ -1328,8 +1341,8 @@ fn window_alloc_shuffle_rebuild_destroy() {
     assert_eq!(store.cohorts.get(c2.0).next, None);
 
     // ~Window: recycles previous + current + next, nulling current.
-    w.destroy(&mut store);
-    assert_eq!(w.current, None);
+    w.stream.destroy(&mut store, &mut w.cohorts, &mut w.deps);
+    assert_eq!(w.stream.current, None);
     for s in [s1, s2, s3, s4] {
         assert!(store.single_windows.try_get(s.0).is_none(), "recycled");
     }

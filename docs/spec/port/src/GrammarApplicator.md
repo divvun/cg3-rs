@@ -12,7 +12,7 @@
 >   bool in_barrier = false;
 > }
 
-> [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+2]
+> [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+3]
 > class GrammarApplicator {
 >   bool always_span = false;
 >   bool apply_mappings = true;
@@ -166,6 +166,22 @@
 > (54 members). The run-mutable, document-lifetime, scratch, and diagnostics
 > members (e.g. `input_eof`, `variables`, `has_dep`, `numLines`, `match_single`,
 > `context_stack`) remain flat on `GrammarApplicator`.
+>
+> Stage-B re-homing (v3): the run-mutable, document-lifetime "doc" members are
+> extracted, unchanged in semantics, into a new `Document` value held as
+> `self.doc` (the member right after `cfg`). The re-homed members are: `store`
+> (the runtime arenas), `gWindow` — dissolved per the `Window` class rule
+> (`window.cg3.window`) into the `stream` (`WindowStream`) / `cohorts`
+> (`CohortRegistry`) / `deps` (`DepBookkeeping`) views held directly on
+> `Document` — `variables`, `input_eof`, `dep_has_spanned`, `externals`, and the
+> four per-run counters renamed to snake_case: `numLines` → `num_lines`,
+> `numWindows` → `num_windows` (the run COUNTER — distinct from the
+> `cfg.num_windows` LIMIT; they live on different structs), `numCohorts` →
+> `num_cohorts`, `numReadings` → `num_readings`. The dependency-flavoured doc
+> latches `has_dep`, `has_relations`, and `dep_highest_seen` land on
+> `doc.deps` (`DepBookkeeping`) beside the dep/relation maps they guard. The
+> scratch and diagnostics members (e.g. `seen_barrier`, `context_stack`,
+> `match_single`, `profiler`) remain flat on `GrammarApplicator`.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
 > void addProfilingExample(T& item)

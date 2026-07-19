@@ -6,7 +6,7 @@
 //! C++ `class NicelineApplicator : public virtual GrammarApplicator`. Rust has no
 //! inheritance, so the applicator OWNS a [`GrammarApplicator`] via `base` and
 //! forwards to its engine methods / arenas (`self.base.run_grammar_on_window`,
-//! `self.base.store`, `self.base.grammar`, `self.base.window`). The two virtual
+//! `self.base.doc.store`, `self.base.grammar`, `self.base.doc.stream`). The two virtual
 //! overrides (`printReading`, `printCohort`, `printSingleWindow`,
 //! `runGrammarOnText`) are reimplemented here; where the C++ base would be
 //! dispatched to (it never is for Niceline — every print path is overridden) the
@@ -149,7 +149,7 @@ impl<'a> NicelineApplicator<'a> {
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.window.window_span = self.base.cfg.num_windows;
+        self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
         ux_strip_bom(input);
 
@@ -191,7 +191,7 @@ impl<'a> NicelineApplicator<'a> {
 
                     // (a) Soft-limit lookback.
                     if let Some(sw) = c_swindow {
-                        let over_soft = self.base.store.single_windows.get(sw.0).cohorts.len()
+                        let over_soft = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.base.cfg.soft_limit as usize;
                         if over_soft
                             && self.base.grammar.soft_delimiters.is_some()
@@ -202,17 +202,20 @@ impl<'a> NicelineApplicator<'a> {
                                 [self.base.grammar.soft_delimiters.unwrap().0]
                                 .number
                                 .get();
-                            let cohorts = self.base.store.single_windows.get(sw.0).cohorts.clone();
+                            let cohorts =
+                                self.base.doc.store.single_windows.get(sw.0).cohorts.clone();
                             for &c in cohorts.iter().rev() {
                                 if self.base.does_set_match_cohort_normal(c, sd, None) {
                                     did_soft_lookback = false;
                                     let cohort = self.base.delimit_at(sw, c);
                                     // cSWindow = cohort->parent->next;
                                     let parent =
-                                        self.base.store.cohorts.get(cohort.0).parent.unwrap();
-                                    c_swindow = self.base.store.single_windows.get(parent.0).next;
+                                        self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
+                                    c_swindow =
+                                        self.base.doc.store.single_windows.get(parent.0).next;
                                     if let Some(cc) = c_cohort {
-                                        self.base.store.cohorts.get_mut(cc.0).parent = c_swindow;
+                                        self.base.doc.store.cohorts.get_mut(cc.0).parent =
+                                            c_swindow;
                                     }
                                     // verbose soft-limit warning: deferred.
                                     break;
@@ -223,7 +226,7 @@ impl<'a> NicelineApplicator<'a> {
 
                     // (b) Soft-delimiter on the current cohort.
                     if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
-                        let over_soft = self.base.store.single_windows.get(sw.0).cohorts.len()
+                        let over_soft = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.base.cfg.soft_limit as usize;
                         let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
                             let sd = self.base.grammar.sets_list
@@ -234,22 +237,23 @@ impl<'a> NicelineApplicator<'a> {
                         };
                         if over_soft && sd_hit {
                             // verbose soft-limit warning: deferred.
-                            let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+                            let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let te = self.base.cfg.endtag;
                                 let tid = tag_by_hash(&self.base.grammar, te);
                                 self.base.add_tag_to_reading(r, tid);
                             }
                             crate::single_window::append_cohort(
-                                &mut self.base.window,
-                                &mut self.base.store,
+                                &mut self.base.doc.store,
+                                &mut self.base.doc.cohorts,
+                                &mut self.base.doc.deps,
                                 sw,
                                 cc,
                             );
                             l_swindow = Some(sw);
                             c_swindow = None;
                             c_cohort = None;
-                            self.base.numCohorts += 1;
+                            self.base.doc.num_cohorts += 1;
                             did_soft_lookback = false;
                         }
                     }
@@ -257,7 +261,7 @@ impl<'a> NicelineApplicator<'a> {
                     // (c) Hard break.
                     if let Some(cc) = c_cohort {
                         let sw = c_swindow.unwrap();
-                        let over_hard = self.base.store.single_windows.get(sw.0).cohorts.len()
+                        let over_hard = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.base.cfg.hard_limit as usize;
                         let delim_hit = self.base.cfg.dep_delimit == 0
                             && self.base.grammar.delimiters.is_some()
@@ -270,22 +274,23 @@ impl<'a> NicelineApplicator<'a> {
                             };
                         if over_hard || delim_hit {
                             // (!is_conv && over_hard) "Hard limit ... forcing break": deferred.
-                            let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+                            let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let te = self.base.cfg.endtag;
                                 let tid = tag_by_hash(&self.base.grammar, te);
                                 self.base.add_tag_to_reading(r, tid);
                             }
                             crate::single_window::append_cohort(
-                                &mut self.base.window,
-                                &mut self.base.store,
+                                &mut self.base.doc.store,
+                                &mut self.base.doc.cohorts,
+                                &mut self.base.doc.deps,
                                 sw,
                                 cc,
                             );
                             l_swindow = Some(sw);
                             c_swindow = None;
                             c_cohort = None;
-                            self.base.numCohorts += 1;
+                            self.base.doc.num_cohorts += 1;
                             did_soft_lookback = false;
                         }
                     }
@@ -294,31 +299,33 @@ impl<'a> NicelineApplicator<'a> {
                     if c_swindow.is_none() {
                         let sw = self
                             .base
-                            .window
-                            .alloc_append_single_window(&mut self.base.store);
+                            .doc
+                            .stream
+                            .alloc_append_single_window(&mut self.base.doc.store);
                         self.base.init_empty_single_window(sw);
                         c_swindow = Some(sw);
                         l_swindow = Some(sw);
                         c_cohort = None;
-                        self.base.numWindows += 1;
+                        self.base.doc.num_windows += 1;
                         did_soft_lookback = false;
                     }
 
                     // Pending cCohort: append it.
                     if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                         crate::single_window::append_cohort(
-                            &mut self.base.window,
-                            &mut self.base.store,
+                            &mut self.base.doc.store,
+                            &mut self.base.doc.cohorts,
+                            &mut self.base.doc.deps,
                             sw,
                             cc,
                         );
                     }
 
                     // Drain a window if enough have queued up.
-                    if self.base.window.next.len() > self.base.cfg.num_windows as usize {
+                    if self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize {
                         self.base.shuffle_windows_down();
                         self.base.run_grammar_on_window_with(fmt, output);
-                        if self.base.numWindows.is_multiple_of(reset_after) {
+                        if self.base.doc.num_windows.is_multiple_of(reset_after) {
                             self.base.reset_indexes();
                         }
                         // verbose progress: deferred.
@@ -329,25 +336,25 @@ impl<'a> NicelineApplicator<'a> {
                     let inner: String = cleaned[0..space].to_string();
                     let wf_text = format!("\"<{inner}>\"");
 
-                    let cc = crate::cohort::alloc_cohort(&mut self.base.store, Some(sw));
-                    let gn = self.base.window.next_cohort_number();
+                    let cc = crate::cohort::alloc_cohort(&mut self.base.doc.store, Some(sw));
+                    let gn = self.base.doc.cohorts.next_cohort_number();
                     let wf = self.base.add_tag(&wf_text, crate::tag::TagType::empty());
                     {
-                        let c = self.base.store.cohorts.get_mut(cc.0);
+                        let c = self.base.doc.store.cohorts.get_mut(cc.0);
                         c.global_number = gn;
                         c.wordform = Some(wf);
                     }
                     c_cohort = Some(cc);
                     l_cohort = Some(cc);
-                    self.base.numCohorts += 1;
+                    self.base.doc.num_cohorts += 1;
 
                     // Reading loop: advance past the TAB.
                     space += 1;
                     while crate::inlines::char_at(&cleaned, space) != '\0' {
-                        let cr = crate::reading::alloc_reading(&mut self.base.store, Some(cc));
+                        let cr = crate::reading::alloc_reading(&mut self.base.doc.store, Some(cc));
                         c_reading = Some(cr);
                         crate::inlines::insert_if_exists(
-                            &mut self.base.store.cohorts.get_mut(cc.0).possible_sets,
+                            &mut self.base.doc.store.cohorts.get_mut(cc.0).possible_sets,
                             self.base.grammar.sets_any.as_ref(),
                         );
 
@@ -434,10 +441,11 @@ impl<'a> NicelineApplicator<'a> {
                             }
                         }
 
-                        if self.base.store.readings.get(cr.0).baseform.is_none() {
+                        if self.base.doc.store.readings.get(cr.0).baseform.is_none() {
                             let h = {
                                 let wfid = self
                                     .base
+                                    .doc
                                     .store
                                     .cohorts
                                     .get(cc.0)
@@ -445,14 +453,14 @@ impl<'a> NicelineApplicator<'a> {
                                     .expect("cohort wordform");
                                 self.base.grammar.single_tags_list[wfid.0].hash
                             };
-                            self.base.store.readings.get_mut(cr.0).baseform = Some(h);
+                            self.base.doc.store.readings.get_mut(cr.0).baseform = Some(h);
                             // "Line %u had no valid baseform." warning: deferred.
                         }
                         if !mappings.is_empty() {
                             self.base.split_mappings(&mut mappings, cc, cr, true);
                         }
-                        crate::cohort::append_reading(&mut self.base.store, cc, cr);
-                        self.base.numReadings += 1;
+                        crate::cohort::append_reading(&mut self.base.doc.store, cc, cr);
+                        self.base.doc.num_readings += 1;
 
                         if let Some(t) = tab {
                             space = t + 1;
@@ -460,7 +468,7 @@ impl<'a> NicelineApplicator<'a> {
                             break;
                         }
                     }
-                    if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+                    if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
                         self.base.init_empty_cohort(cc);
                     }
                 }
@@ -473,9 +481,16 @@ impl<'a> NicelineApplicator<'a> {
                 if !cleaned.is_empty() && !line.is_empty() {
                     let text: String = line.clone();
                     if let Some(lc) = l_cohort {
-                        self.base.store.cohorts.get_mut(lc.0).text.push_str(&text);
+                        self.base
+                            .doc
+                            .store
+                            .cohorts
+                            .get_mut(lc.0)
+                            .text
+                            .push_str(&text);
                     } else if let Some(ls) = l_swindow {
                         self.base
+                            .doc
                             .store
                             .single_windows
                             .get_mut(ls.0)
@@ -488,7 +503,7 @@ impl<'a> NicelineApplicator<'a> {
                 }
             }
 
-            self.base.numLines += 1;
+            self.base.doc.num_lines += 1;
             line.clear();
             cleaned.clear();
 
@@ -499,20 +514,21 @@ impl<'a> NicelineApplicator<'a> {
             }
         }
 
-        self.base.input_eof = true;
+        self.base.doc.input_eof = true;
 
         // Finalization.
         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
             crate::single_window::append_cohort(
-                &mut self.base.window,
-                &mut self.base.store,
+                &mut self.base.doc.store,
+                &mut self.base.doc.cohorts,
+                &mut self.base.doc.deps,
                 sw,
                 cc,
             );
-            if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+            if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
                 self.base.init_empty_cohort(cc);
             }
-            let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+            let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let te = self.base.cfg.endtag;
                 let tid = tag_by_hash(&self.base.grammar, te);
@@ -530,13 +546,18 @@ impl<'a> NicelineApplicator<'a> {
         }
 
         self.base.shuffle_windows_down();
-        while !self.base.window.previous.is_empty() {
-            let tmp = self.base.window.previous[0];
+        while !self.base.doc.stream.previous.is_empty() {
+            let tmp = self.base.doc.stream.previous[0];
             // C++ virtual printSingleWindow — the most-derived format decides.
             fmt.print_single_window(self.base, tmp, output, false);
             let t = Some(tmp);
-            crate::single_window::free_swindow(&mut self.base.window, &mut self.base.store, t);
-            self.base.window.previous.remove(0);
+            crate::single_window::free_swindow(
+                &mut self.base.doc.store,
+                &mut self.base.doc.cohorts,
+                &mut self.base.doc.deps,
+                t,
+            );
+            self.base.doc.stream.previous.remove(0);
         }
 
         u_fflush(output);
@@ -548,7 +569,7 @@ impl<'a> NicelineApplicator<'a> {
     /// std::ostream& output)`.
     pub fn print_reading<W: Write>(&mut self, reading: ReadingId, output: &mut W) {
         let (noprint, deleted, baseform, parent_cid, next) = {
-            let r = self.base.store.readings.get(reading.0);
+            let r = self.base.doc.store.readings.get(reading.0);
             (
                 r.noprint,
                 r.deleted,
@@ -574,16 +595,24 @@ impl<'a> NicelineApplicator<'a> {
 
         let parent_cid = parent_cid.expect("reading has no parent cohort");
         let wordform_hash = {
-            let wf = self.base.store.cohorts.get(parent_cid.0).wordform;
+            let wf = self.base.doc.store.cohorts.get(parent_cid.0).wordform;
             wf.map(|t| self.base.grammar.single_tags_list[t.0].hash)
                 .unwrap_or(TagHash(0))
         };
 
-        let tags_list: Vec<u32> = self.base.store.readings.get(reading.0).tags_list.clone();
+        let tags_list: Vec<u32> = self
+            .base
+            .doc
+            .store
+            .readings
+            .get(reading.0)
+            .tags_list
+            .clone();
         let mut unique: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         for tter in tags_list {
             let tter = TagHash(tter);
-            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag) || tter == self.base.cfg.begintag
+            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag)
+                || tter == self.base.cfg.begintag
             {
                 continue;
             }
@@ -598,10 +627,13 @@ impl<'a> NicelineApplicator<'a> {
             }
             let tid = tag_by_hash(&self.base.grammar, tter);
             let ttype = self.base.grammar.single_tags_list[tid.0].r#type;
-            if ttype.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.cfg.dep_original {
+            if ttype.intersects(T_DEPENDENCY)
+                && self.base.doc.deps.has_dep
+                && !self.base.cfg.dep_original
+            {
                 continue;
             }
-            if ttype.intersects(T_RELATION) && self.base.has_relations {
+            if ttype.intersects(T_RELATION) && self.base.doc.deps.has_relations {
                 continue;
             }
             let _ = write!(output, " {}", self.base.grammar.single_tags_list[tid.0].tag);
@@ -610,20 +642,21 @@ impl<'a> NicelineApplicator<'a> {
         // Dependency block.
         let parent_removed = self
             .base
+            .doc
             .store
             .cohorts
             .get(parent_cid.0)
             .r#type
             .intersects(CT_REMOVED);
-        if self.base.has_dep && !parent_removed {
+        if self.base.doc.deps.has_dep && !parent_removed {
             {
-                let c = self.base.store.cohorts.get_mut(parent_cid.0);
+                let c = self.base.doc.store.cohorts.get_mut(parent_cid.0);
                 if c.dep_self.is_none() {
                     c.dep_self = Some(c.global_number);
                 }
             }
             let (p_global, p_local, p_dep_parent, p_dep_self, p_sw) = {
-                let c = self.base.store.cohorts.get(parent_cid.0);
+                let c = self.base.doc.store.cohorts.get(parent_cid.0);
                 (
                     c.global_number,
                     c.local_number,
@@ -636,9 +669,9 @@ impl<'a> NicelineApplicator<'a> {
             if let Some(pdp) = p_dep_parent {
                 if pdp == crate::types::GlobalNumber(0) {
                     if let Some(sw) = p_sw {
-                        pr = self.base.store.single_windows.get(sw.0).cohorts[0];
+                        pr = self.base.doc.store.single_windows.get(sw.0).cohorts[0];
                     }
-                } else if let Some(&mapped) = self.base.window.cohort_map.get(&pdp) {
+                } else if let Some(&mapped) = self.base.doc.cohorts.cohort_map.get(&pdp) {
                     pr = mapped;
                 }
             }
@@ -648,10 +681,10 @@ impl<'a> NicelineApplicator<'a> {
                 "->"
             };
             if self.base.cfg.dep_absolute {
-                let pr_global = self.base.store.cohorts.get(pr.0).global_number;
+                let pr_global = self.base.doc.store.cohorts.get(pr.0).global_number;
                 let _ = write!(output, " #{p_global}{arrow}{pr_global}");
-            } else if !self.base.dep_has_spanned {
-                let pr_local = self.base.store.cohorts.get(pr.0).local_number;
+            } else if !self.base.doc.dep_has_spanned {
+                let pr_local = self.base.doc.store.cohorts.get(pr.0).local_number;
                 let _ = write!(output, " #{p_local}{arrow}{pr_local}");
             } else if let Some(pdp) = p_dep_parent {
                 let _ = write!(output, " #{p_dep_self}{arrow}{pdp}");
@@ -662,7 +695,7 @@ impl<'a> NicelineApplicator<'a> {
 
         // Relations block.
         let (p_related, p_global2, relations) = {
-            let c = self.base.store.cohorts.get(parent_cid.0);
+            let c = self.base.doc.store.cohorts.get(parent_cid.0);
             (
                 c.r#type.intersects(CT_RELATED),
                 c.global_number,
@@ -685,7 +718,7 @@ impl<'a> NicelineApplicator<'a> {
 
         // Trace block.
         if self.base.cfg.trace {
-            let hit_by: Vec<u32> = self.base.store.readings.get(reading.0).hit_by.clone();
+            let hit_by: Vec<u32> = self.base.doc.store.readings.get(reading.0).hit_by.clone();
             for hb in hit_by {
                 u_fputc(' ', output);
                 self.base.print_trace(output, hb);
@@ -704,9 +737,10 @@ impl<'a> NicelineApplicator<'a> {
     /// C++ `void NicelineApplicator::printCohort(Cohort* cohort,
     /// std::ostream& output, bool profiling = false)`.
     pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
-        let local_number = self.base.store.cohorts.get(cohort.0).local_number;
+        let local_number = self.base.doc.store.cohorts.get(cohort.0).local_number;
         let removed = self
             .base
+            .doc
             .store
             .cohorts
             .get(cohort.0)
@@ -715,7 +749,7 @@ impl<'a> NicelineApplicator<'a> {
 
         // `goto removed` from local_number == 0 or CT_REMOVED skips the body.
         if local_number != 0 && !removed {
-            let wblank = self.base.store.cohorts.get(cohort.0).wblank.clone();
+            let wblank = self.base.doc.store.cohorts.get(cohort.0).wblank.clone();
             if !wblank.is_empty() {
                 self.base.print_plain_text_line(&wblank, output);
                 if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
@@ -725,7 +759,7 @@ impl<'a> NicelineApplicator<'a> {
 
             // "%.*S" of wordform.data()+2 for size()-4 → strip "\"<" and ">\"".
             let (wf_inner, has_wread) = {
-                let c = self.base.store.cohorts.get(cohort.0);
+                let c = self.base.doc.store.cohorts.get(cohort.0);
                 let wf = c.wordform.expect("cohort wordform");
                 let tag = &self.base.grammar.single_tags_list[wf.0].tag;
                 (strip_wordform_brackets(tag), c.wread.is_some())
@@ -737,13 +771,14 @@ impl<'a> NicelineApplicator<'a> {
             }
 
             if !profiling {
-                unignore_all(&mut self.base.store, cohort);
+                unignore_all(&mut self.base.doc.store, cohort);
                 if !self.base.cfg.split_mappings {
                     self.base.merge_mappings(cohort);
                 }
             }
 
-            let readings: Vec<ReadingId> = self.base.store.cohorts.get(cohort.0).readings.clone();
+            let readings: Vec<ReadingId> =
+                self.base.doc.store.cohorts.get(cohort.0).readings.clone();
             if readings.is_empty() {
                 u_fputc('\t', output);
             }
@@ -754,7 +789,7 @@ impl<'a> NicelineApplicator<'a> {
 
         // removed:
         u_fputc('\n', output);
-        let text = self.base.store.cohorts.get(cohort.0).text.clone();
+        let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
         if !text.is_empty() && text.chars().any(|c| !is_ws(&self.base.cfg.ws, c)) {
             self.base.print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
@@ -769,7 +804,7 @@ impl<'a> NicelineApplicator<'a> {
     /// std::ostream& output, bool profiling = false)`.
     pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         let (all_cohorts, text, text_post) = {
-            let w = self.base.store.single_windows.get(window.0);
+            let w = self.base.doc.store.single_windows.get(window.0);
             (w.all_cohorts.clone(), w.text.clone(), w.text_post.clone())
         };
 

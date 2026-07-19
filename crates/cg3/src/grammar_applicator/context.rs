@@ -9,7 +9,7 @@
 //! ARENA MODEL: `Cohort*` → [`CohortId`], `Reading*` → [`ReadingId`], and the
 //! returned C++ `ReadingSpec` (a `{cohort, reading, subreading}` triple) is
 //! [`ReadingSpec`](super::ReadingSpec) (all three `Option<…Id>`). `set_attach_to`
-//! derives the cohort from `reading->parent`, so it reads `self.store`.
+//! derives the cohort from `reading->parent`, so it reads `self.doc.store`.
 //! `check_unif_tags` dereferences the frame's `unif_tags` raw pointer (which
 //! aliases an entry of `unif_tags_store`), matching the C++
 //! `*(context_stack.back().unif_tags)`; the pointer is a `const void*` compared
@@ -87,7 +87,7 @@ impl super::GrammarApplicator {
     pub fn set_attach_to(&mut self, reading: ReadingId, subreading: Option<ReadingId>) {
         if !self.context_stack.is_empty() {
             // spec.cohort = reading->parent (read before the mutable borrow below).
-            let parent = self.store.readings.get(reading.0).parent;
+            let parent = self.doc.store.readings.get(reading.0).parent;
             let spec = &mut self.context_stack.last_mut().unwrap().attach_to;
             spec.cohort = parent;
             spec.reading = Some(reading);

@@ -112,12 +112,12 @@ where
     /// prints first, joined by `sub_delims` (`"#"`). No trailing newline (the
     /// caller adds it).
     ///
-    /// `Reading*`/`Cohort*` resolve through `self.base.store`; the store is
+    /// `Reading*`/`Cohort*` resolve through `self.base.doc.store`; the store is
     /// threaded as a parameter so the caller can split the `&mut self.base` /
     /// `&mut store` borrows (matching the base print methods).
     pub fn print_reading<W: Write>(&self, reading: ReadingId, output: &mut W) {
         let (noprint, deleted, next, baseform, parent) = {
-            let r = self.base.store.readings.get(reading.0);
+            let r = self.base.doc.store.readings.get(reading.0);
             (r.noprint, r.deleted, r.next, r.baseform, r.parent)
         };
         if noprint {
@@ -147,17 +147,25 @@ where
         // parent->wordform->hash for the skip test.
         let parent_wf_hash = {
             let cid = parent.expect("reading has no parent cohort");
-            let wf = self.base.store.cohorts.get(cid.0).wordform;
+            let wf = self.base.doc.store.cohorts.get(cid.0).wordform;
             wf.map(|t| self.base.grammar.single_tags_list[t.0].hash)
                 .unwrap_or(TagHash(0))
         };
 
-        let tags_list: Vec<u32> = self.base.store.readings.get(reading.0).tags_list.clone();
+        let tags_list: Vec<u32> = self
+            .base
+            .doc
+            .store
+            .readings
+            .get(reading.0)
+            .tags_list
+            .clone();
         let mut unique: crate::sorted_vector::uint32SortedVector =
             crate::sorted_vector::uint32SortedVector::new();
         for tter in tags_list {
             let tter = TagHash(tter);
-            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag) || tter == self.base.cfg.begintag
+            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag)
+                || tter == self.base.cfg.begintag
             {
                 continue;
             }
@@ -172,10 +180,13 @@ where
             }
             let tid = tag_by_hash(&self.base.grammar, tter);
             let tag = &self.base.grammar.single_tags_list[tid.0];
-            if tag.r#type.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.cfg.dep_original {
+            if tag.r#type.intersects(T_DEPENDENCY)
+                && self.base.doc.deps.has_dep
+                && !self.base.cfg.dep_original
+            {
                 continue;
             }
-            if tag.r#type.intersects(T_RELATION) && self.base.has_relations {
+            if tag.r#type.intersects(T_RELATION) && self.base.doc.deps.has_relations {
                 continue;
             }
             let _ = write!(output, "+{}", tag.tag);
@@ -190,14 +201,14 @@ where
     /// otherwise dropped from FST output.
     pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
         let (local_number, ctype) = {
-            let c = self.base.store.cohorts.get(cohort.0);
+            let c = self.base.doc.store.cohorts.get(cohort.0);
             (c.local_number, c.r#type)
         };
         // if (local_number == 0 || (type & CT_REMOVED)) goto removed;
         let goto_removed = local_number == 0 || (ctype.intersects(CT_REMOVED));
 
         if !goto_removed {
-            let wblank = self.base.store.cohorts.get(cohort.0).wblank.clone();
+            let wblank = self.base.doc.store.cohorts.get(cohort.0).wblank.clone();
             if !wblank.is_empty() {
                 let _ = write!(output, "{wblank}");
                 if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
@@ -205,7 +216,9 @@ where
                 }
             }
 
-            if self.base.store.cohorts.get(cohort.0).wread.is_some() && !self.did_warn_statictags {
+            if self.base.doc.store.cohorts.get(cohort.0).wread.is_some()
+                && !self.did_warn_statictags
+            {
                 // u_fprintf(ux_stderr, "Warning: FST CG format cannot output
                 // static tags! You are losing information!\n"); ux_stderr is a
                 // placeholder — emission deferred; the one-shot flag is set.
@@ -213,7 +226,7 @@ where
             }
 
             if !profiling {
-                crate::cohort::unignore_all(&mut self.base.store, cohort);
+                crate::cohort::unignore_all(&mut self.base.doc.store, cohort);
                 if !self.base.cfg.split_mappings {
                     self.base.merge_mappings(cohort);
                 }
@@ -224,6 +237,7 @@ where
             let wform: Vec<char> = {
                 let wf = self
                     .base
+                    .doc
                     .store
                     .cohorts
                     .get(cohort.0)
@@ -240,9 +254,10 @@ where
                 String::new()
             };
 
-            let readings: Vec<ReadingId> = self.base.store.cohorts.get(cohort.0).readings.clone();
+            let readings: Vec<ReadingId> =
+                self.base.doc.store.cohorts.get(cohort.0).readings.clone();
             let only_noprint =
-                readings.len() == 1 && self.base.store.readings.get(readings[0].0).noprint;
+                readings.len() == 1 && self.base.doc.store.readings.get(readings[0].0).noprint;
             if readings.is_empty() || only_noprint {
                 // "<wordform>\t+?\n" — the FST "no analysis" marker.
                 let _ = writeln!(output, "{wform_inner}\t+?");
@@ -259,7 +274,7 @@ where
         }
 
         // removed:
-        let text = self.base.store.cohorts.get(cohort.0).text.clone();
+        let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
         if !text.is_empty() && text.chars().any(|c| !self.is_ws(c)) {
             let _ = write!(output, "{text}");
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
@@ -291,7 +306,7 @@ where
     /// forwarded to `printCohort` only.
     pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         let (text, all_cohorts, text_post) = {
-            let w = self.base.store.single_windows.get(window.0);
+            let w = self.base.doc.store.single_windows.get(window.0);
             (w.text.clone(), w.all_cohorts.clone(), w.text_post.clone())
         };
 
@@ -405,7 +420,7 @@ where
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.window.window_span = self.base.cfg.num_windows;
+        self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
         ux_strip_bom(input);
 
@@ -444,7 +459,7 @@ where
                         tracing::warn!(
                             "Warning: {} on line {} looked like a cohort but wasn't - treated as text.",
                             cleaned[..space].iter().collect::<String>(),
-                            self.base.numLines
+                            self.base.doc.num_lines
                         );
                     }
                     is_text = true;
@@ -462,25 +477,27 @@ where
                         if c_swindow.is_none() {
                             let sw = {
                                 let base = &mut *self.base;
-                                base.window.alloc_append_single_window(&mut base.store)
+                                base.doc
+                                    .stream
+                                    .alloc_append_single_window(&mut base.doc.store)
                             };
                             self.base.init_empty_single_window(sw);
                             c_swindow = Some(sw);
                             l_swindow = Some(sw);
-                            self.base.numWindows = self.base.numWindows.wrapping_add(1);
+                            self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
                             did_soft_lookback = false;
                         }
-                        let cc = alloc_cohort(&mut self.base.store, c_swindow);
-                        let gn = self.base.window.next_cohort_number();
+                        let cc = alloc_cohort(&mut self.base.doc.store, c_swindow);
+                        let gn = self.base.doc.cohorts.next_cohort_number();
                         let wf = self.base.add_tag(&tag, crate::tag::TagType::empty());
                         {
-                            let c = self.base.store.cohorts.get_mut(cc.0);
+                            let c = self.base.doc.store.cohorts.get_mut(cc.0);
                             c.global_number = gn;
                             c.wordform = Some(wf);
                         }
                         c_cohort = Some(cc);
                         l_cohort = Some(cc);
-                        self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
+                        self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
                     }
                     let cc = c_cohort.unwrap();
 
@@ -520,15 +537,15 @@ where
                         }
 
                         // Reading* cReading = alloc_reading(cCohort);
-                        let mut c_reading = alloc_reading(&mut self.base.store, Some(cc));
+                        let mut c_reading = alloc_reading(&mut self.base.doc.store, Some(cc));
                         {
                             let base = &mut *self.base;
                             insert_if_exists(
-                                &mut base.store.cohorts.get_mut(cc.0).possible_sets,
+                                &mut base.doc.store.cohorts.get_mut(cc.0).possible_sets,
                                 base.grammar.sets_any.as_ref(),
                             );
                         }
-                        let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                        let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                         self.base.add_tag_to_reading(c_reading, wf);
 
                         // const UChar* base = space; (index into cleaned). A quoted
@@ -664,7 +681,15 @@ where
 
                                 // if (cReading->baseform == 0) { tag = '"'+base+'"';
                                 //   base = tag.data(); }
-                                if self.base.store.readings.get(c_reading.0).baseform.is_none() {
+                                if self
+                                    .base
+                                    .doc
+                                    .store
+                                    .readings
+                                    .get(c_reading.0)
+                                    .baseform
+                                    .is_none()
+                                {
                                     let inner = cleaned_cstr(&cleaned, base_idx);
                                     tag.clear();
                                     tag.push('"');
@@ -681,7 +706,7 @@ where
                                     base_str = Some(String::from("_")); // notag {'_',0}
                                     tracing::warn!(
                                         "Warning: Line {} had empty tag.",
-                                        self.base.numLines
+                                        self.base.doc.num_lines
                                     );
                                 }
                                 // Tag* tag2 = addTag(base);
@@ -708,12 +733,14 @@ where
                                     if let Some(wt) = wtag_tag {
                                         self.base.add_tag_to_reading(c_reading, wt);
                                     }
-                                    let parent = self.base.store.readings.get(c_reading.0).parent;
+                                    let parent =
+                                        self.base.doc.store.readings.get(c_reading.0).parent;
                                     let nr = crate::reading::Reading::allocate_reading(
-                                        &mut self.base.store,
+                                        &mut self.base.doc.store,
                                         parent,
                                     );
-                                    self.base.store.readings.get_mut(nr.0).next = Some(c_reading);
+                                    self.base.doc.store.readings.get_mut(nr.0).next =
+                                        Some(c_reading);
                                     c_reading = nr; // cReading = nr;
                                     space += 1; // ++space;
                                 }
@@ -730,7 +757,15 @@ where
                             None => cleaned.get(base_idx).copied().unwrap_or('\0'),
                         };
                         if base_first != '\0' {
-                            if self.base.store.readings.get(c_reading.0).baseform.is_none() {
+                            if self
+                                .base
+                                .doc
+                                .store
+                                .readings
+                                .get(c_reading.0)
+                                .baseform
+                                .is_none()
+                            {
                                 let inner = match &base_str {
                                     Some(s) => s.clone(),
                                     None => cleaned_cstr(&cleaned, base_idx),
@@ -762,18 +797,28 @@ where
                             self.base.add_tag_to_reading(c_reading, wt);
                         }
                         // if (!cReading->baseform) { baseform = wordform->hash; warn }
-                        if self.base.store.readings.get(c_reading.0).baseform.is_none() {
-                            let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                        if self
+                            .base
+                            .doc
+                            .store
+                            .readings
+                            .get(c_reading.0)
+                            .baseform
+                            .is_none()
+                        {
+                            let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                             let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
-                            self.base.store.readings.get_mut(c_reading.0).baseform = Some(wf_hash);
+                            self.base.doc.store.readings.get_mut(c_reading.0).baseform =
+                                Some(wf_hash);
                             tracing::warn!(
                                 "Warning: Line {} had no valid baseform.",
-                                self.base.numLines
+                                self.base.doc.num_lines
                             );
                         }
                         // if (single_tags[baseform]->tag.size() == 2) { ... }
                         let bf_hash = self
                             .base
+                            .doc
                             .store
                             .readings
                             .get(c_reading.0)
@@ -791,21 +836,21 @@ where
                         };
                         if bf_size == 2 {
                             self.base.del_tag_from_reading_hash(c_reading, bf_hash);
-                            let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                            let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                             let base = self.base.make_base_from_word(wf);
                             let h = self.base.grammar.single_tags_list.get(base.0).hash;
-                            self.base.store.readings.get_mut(c_reading.0).baseform = Some(h);
+                            self.base.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
                         }
                         if !mappings.is_empty() {
                             self.base.split_mappings(&mut mappings, cc, c_reading, true);
                         }
                         if self.base.grammar.sub_readings_ltr
-                            && self.base.store.readings.get(c_reading.0).next.is_some()
+                            && self.base.doc.store.readings.get(c_reading.0).next.is_some()
                         {
-                            c_reading = reverse_reading(&mut self.base.store, c_reading);
+                            c_reading = reverse_reading(&mut self.base.doc.store, c_reading);
                         }
-                        append_reading(&mut self.base.store, cc, c_reading);
-                        self.base.numReadings = self.base.numReadings.wrapping_add(1);
+                        append_reading(&mut self.base.doc.store, cc, c_reading);
+                        self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
                     }
                 }
             }
@@ -826,7 +871,7 @@ where
                 );
             }
 
-            self.base.numLines = self.base.numLines.wrapping_add(1);
+            self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
             line[0] = '\0';
             cleaned[0] = '\0';
             // Loop termination: the C++ `while(!input.eof())` re-check at the
@@ -840,12 +885,18 @@ where
         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
             {
                 let base = &mut *self.base;
-                append_cohort(&mut base.window, &mut base.store, sw, cc);
+                append_cohort(
+                    &mut base.doc.store,
+                    &mut base.doc.cohorts,
+                    &mut base.doc.deps,
+                    sw,
+                    cc,
+                );
             }
-            if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+            if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
                 self.base.init_empty_cohort(cc);
             }
-            let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+            let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                 self.base.add_tag_to_reading(r, et);
@@ -857,15 +908,20 @@ where
             self.base.run_grammar_on_window_with(fmt, output);
         }
         self.base.shuffle_windows_down();
-        while !self.base.window.previous.is_empty() {
-            let tmp = self.base.window.previous[0];
+        while !self.base.doc.stream.previous.is_empty() {
+            let tmp = self.base.doc.stream.previous[0];
             fmt.print_single_window(&mut self.base, tmp, output, false);
             let t = Some(tmp);
             {
                 let base = &mut *self.base;
-                free_swindow(&mut base.window, &mut base.store, t);
+                free_swindow(
+                    &mut base.doc.store,
+                    &mut base.doc.cohorts,
+                    &mut base.doc.deps,
+                    t,
+                );
             }
-            self.base.window.previous.remove(0);
+            self.base.doc.stream.previous.remove(0);
         }
         let _ = output.flush();
     }
@@ -894,7 +950,7 @@ where
     {
         // if (cCohort && cCohort->readings.empty()) initEmptyCohort(*cCohort);
         if let Some(cc) = *c_cohort
-            && self.base.store.cohorts.get(cc.0).readings.is_empty()
+            && self.base.doc.store.cohorts.get(cc.0).readings.is_empty()
         {
             self.base.init_empty_cohort(cc);
         }
@@ -902,12 +958,16 @@ where
         // is_conv fast path.
         if self.base.cfg.is_conv {
             if let Some(cc) = *c_cohort {
-                self.base.store.cohorts.get_mut(cc.0).local_number = 1;
+                self.base.doc.store.cohorts.get_mut(cc.0).local_number = 1;
                 fmt.print_cohort(&mut self.base, cc, output, false);
                 let opt = Some(cc);
                 {
                     let base = &mut *self.base;
-                    free_cohort(&mut base.store, Some(&mut base.window), opt);
+                    free_cohort(
+                        &mut base.doc.store,
+                        Some((&mut base.doc.cohorts, &mut base.doc.deps)),
+                        opt,
+                    );
                 }
                 *c_cohort = None;
             }
@@ -920,23 +980,23 @@ where
 
         // Soft-limit lookback.
         if let Some(cs) = *c_swindow {
-            let over_soft = self.base.store.single_windows.get(cs.0).cohorts.len() as u32
+            let over_soft = self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32
                 >= self.base.cfg.soft_limit;
             if over_soft && self.base.grammar.soft_delimiters.is_some() && !*did_soft_lookback {
                 *did_soft_lookback = true;
                 let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
                     .number
                     .get();
-                let cohorts = self.base.store.single_windows.get(cs.0).cohorts.clone();
+                let cohorts = self.base.doc.store.single_windows.get(cs.0).cohorts.clone();
                 for &c in reversed(&cohorts) {
                     if self.base.does_set_match_cohort_normal(c, sd, None) {
                         *did_soft_lookback = false;
                         let cohort = self.base.delimit_at(cs, c);
                         // cSWindow = cohort->parent->next;
-                        let parent = self.base.store.cohorts.get(cohort.0).parent.unwrap();
-                        *c_swindow = self.base.store.single_windows.get(parent.0).next;
+                        let parent = self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
+                        *c_swindow = self.base.doc.store.single_windows.get(parent.0).next;
                         if let Some(cc) = *c_cohort {
-                            self.base.store.cohorts.get_mut(cc.0).parent = *c_swindow;
+                            self.base.doc.store.cohorts.get_mut(cc.0).parent = *c_swindow;
                         }
                         // verbose soft-limit warning: discard sink.
                         break;
@@ -947,7 +1007,7 @@ where
 
         // Soft-delimiter on the current cohort.
         if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
-            let over_soft = self.base.store.single_windows.get(cs.0).cohorts.len() as u32
+            let over_soft = self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32
                 >= self.base.cfg.soft_limit;
             let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
                 let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
@@ -956,14 +1016,20 @@ where
                 self.base.does_set_match_cohort_normal(cc, sd, None)
             };
             if over_soft && sd_hit {
-                let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+                let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
                     let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                     self.base.add_tag_to_reading(r, et);
                 }
                 {
                     let base = &mut *self.base;
-                    append_cohort(&mut base.window, &mut base.store, cs, cc);
+                    append_cohort(
+                        &mut base.doc.store,
+                        &mut base.doc.cohorts,
+                        &mut base.doc.deps,
+                        cs,
+                        cc,
+                    );
                 }
                 *l_swindow = Some(cs);
                 *l_cohort = Some(cc);
@@ -974,7 +1040,7 @@ where
 
         // Hard break.
         if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
-            let over_hard = self.base.store.single_windows.get(cs.0).cohorts.len() as u32
+            let over_hard = self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32
                 >= self.base.cfg.hard_limit;
             let delim_hit =
                 self.base.cfg.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
@@ -985,24 +1051,30 @@ where
                 };
             if over_hard || delim_hit {
                 if !self.base.cfg.is_conv && over_hard {
-                    let wf = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                    let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                     let wftag = self.base.grammar.single_tags_list.get(wf.0).tag.clone();
                     tracing::warn!(
                         "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
                         self.base.cfg.hard_limit,
                         wftag,
-                        self.base.numCohorts,
-                        self.base.numLines
+                        self.base.doc.num_cohorts,
+                        self.base.doc.num_lines
                     );
                 }
-                let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+                let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
                     let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                     self.base.add_tag_to_reading(r, et);
                 }
                 {
                     let base = &mut *self.base;
-                    append_cohort(&mut base.window, &mut base.store, cs, cc);
+                    append_cohort(
+                        &mut base.doc.store,
+                        &mut base.doc.cohorts,
+                        &mut base.doc.deps,
+                        cs,
+                        cc,
+                    );
                 }
                 *l_swindow = Some(cs);
                 *l_cohort = Some(cc);
@@ -1015,13 +1087,16 @@ where
         if c_swindow.is_none() {
             let sw = {
                 let base = &mut *self.base;
-                base.window.alloc_append_single_window(&mut base.store)
+                base.doc
+                    .stream
+                    .alloc_append_single_window(&mut base.doc.store)
             };
             self.base.init_empty_single_window(sw);
             *l_swindow = Some(sw);
             // lCohort = cSWindow->cohorts[0];
             *l_cohort = self
                 .base
+                .doc
                 .store
                 .single_windows
                 .get(sw.0)
@@ -1030,7 +1105,7 @@ where
                 .copied();
             *c_swindow = Some(sw);
             *c_cohort = None;
-            self.base.numWindows = self.base.numWindows.wrapping_add(1);
+            self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
             *did_soft_lookback = false;
         }
 
@@ -1038,16 +1113,22 @@ where
         if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
             {
                 let base = &mut *self.base;
-                append_cohort(&mut base.window, &mut base.store, cs, cc);
+                append_cohort(
+                    &mut base.doc.store,
+                    &mut base.doc.cohorts,
+                    &mut base.doc.deps,
+                    cs,
+                    cc,
+                );
             }
             *l_cohort = Some(cc);
         }
 
         // Drain a window if enough have queued up.
-        if self.base.window.next.len() as u32 > self.base.cfg.num_windows {
+        if self.base.doc.stream.next.len() as u32 > self.base.cfg.num_windows {
             self.base.shuffle_windows_down();
             self.base.run_grammar_on_window_with(fmt, output);
-            if self.base.numWindows.is_multiple_of(reset_after) {
+            if self.base.doc.num_windows.is_multiple_of(reset_after) {
                 self.base.reset_indexes();
             }
             // verbose progress: discard sink.
@@ -1061,6 +1142,7 @@ where
             let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
             if let Some(lc) = *l_cohort {
                 self.base
+                    .doc
                     .store
                     .cohorts
                     .get_mut(lc.0)
@@ -1068,6 +1150,7 @@ where
                     .push_str(&line_str);
             } else if let Some(ls) = *l_swindow {
                 self.base
+                    .doc
                     .store
                     .single_windows
                     .get_mut(ls.0)

@@ -43,7 +43,7 @@ use crate::process::Process;
 use crate::scoped_stack::ScopedStack;
 use crate::sorted_vector::{sorted_vector, uint32SortedVector};
 use crate::tag::TagList;
-use crate::types::{GlobalNumber, TagHash, UChar, UString, Uint32Vector};
+use crate::types::{TagHash, UChar, UString, Uint32Vector};
 
 pub mod context;
 pub mod core;
@@ -384,51 +384,105 @@ impl Default for EngineConfig {
     }
 }
 
+// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator]
+/// The run-mutable, document-lifetime state extracted from the C++
+/// `GrammarApplicator` members (the `doc` bucket of the field triage). This is a
+/// Stage-B re-homing: it has no C++ analog as a type; the members map 1:1 onto
+/// the doc-bucket fields of `GrammarApplicator`, keeping their names, types, and
+/// per-field C++ reference comments. Lifetime is the whole stream / window set:
+/// the runtime arenas, the [`WindowStream`](crate::window::WindowStream)
+/// (C++ `gWindow`) dissolved into stream / cohort-registry / dependency
+/// bookkeeping views, the run-phase latches, and the per-run counters.
+pub struct Document {
+    /// The runtime object arenas (pooled `Cohort`/`Reading`/`SingleWindow`).
+    ///
+    /// Every ported engine method resolves runtime objects through here
+    /// (`self.doc.store.cohorts` / `.readings` / `.single_windows`), and
+    /// `WindowStream`/`SingleWindow`/`Cohort` free fns are threaded
+    /// `&mut self.doc.store`.
+    pub store: crate::store::RuntimeStore,
+    /// C++ `std::unique_ptr<Window> gWindow` — the ordered document stream
+    /// (history / active / pending single-windows). Stream half of the dissolved
+    /// C++ `Window`.
+    pub stream: crate::window::WindowStream,
+    /// The global cohort numbering + `cohort_map` (cohort-registry half of the
+    /// dissolved C++ `Window`).
+    pub cohorts: crate::window::CohortRegistry,
+    /// The dependency / relation bookkeeping (dep-map / dep-window / relation-map
+    /// plus the `has_dep`/`has_relations`/`dep_highest_seen` doc latches) — the
+    /// dependency half of the dissolved C++ `Window`.
+    pub deps: crate::window::DepBookkeeping,
+
+    /// C++ `uint32FlatHashMap variables` — the run-time global variables.
+    pub variables: Uint32FlatHashMap,
+
+    pub input_eof: bool,
+    pub dep_has_spanned: bool,
+
+    pub externals: externals_t,
+
+    /// Per-run counter — number of input lines consumed (C++ `numLines`). NOT the
+    /// `cfg.num_windows` limit; see the `num_windows` counter below.
+    pub num_lines: u32,
+    /// Per-run counter — number of windows produced this run (C++ `numWindows`).
+    /// The COUNTER, distinct from `cfg.num_windows` (the reset-after LIMIT).
+    pub num_windows: u32,
+    /// Per-run counter — number of cohorts produced this run (C++ `numCohorts`).
+    pub num_cohorts: u32,
+    /// Per-run counter — number of readings produced this run (C++ `numReadings`).
+    pub num_readings: u32,
+}
+
+impl Document {
+    pub fn new() -> Self {
+        Document {
+            store: crate::store::RuntimeStore::new(),
+            stream: Default::default(),
+            cohorts: Default::default(),
+            deps: Default::default(),
+
+            variables: Default::default(),
+
+            input_eof: false,
+            dep_has_spanned: false,
+
+            externals: Default::default(),
+
+            num_lines: 0,
+            num_windows: 0,
+            num_cohorts: 0,
+            num_readings: 0,
+        }
+    }
+}
+
+impl Default for Document {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// C++ `class GrammarApplicator` — the constraint-grammar application engine.
 pub struct GrammarApplicator {
     /// The options-derived, setup-written configuration (Stage-B re-homing of the
     /// cfg-bucket members; see [`EngineConfig`]).
     pub cfg: EngineConfig,
 
-    pub input_eof: bool,
+    /// The run-mutable, document-lifetime state (Stage-B re-homing of the
+    /// doc-bucket members; see [`Document`]).
+    pub doc: Document,
+
     pub seen_barrier: bool,
-
-    pub dep_has_spanned: bool,
-
-    pub variables: Uint32FlatHashMap,
-
-    pub has_dep: bool,
-    pub dep_highest_seen: GlobalNumber,
-    /// C++ `std::unique_ptr<Window> gWindow` — the owned document window.
-    pub window: crate::window::Window,
-    pub has_relations: bool,
 
     /// C++ `const Grammar* grammar` — the applicator OWNS the loaded grammar.
     pub grammar: crate::grammar::Grammar,
-    /// The runtime object arenas (pooled `Cohort`/`Reading`/`SingleWindow`).
-    ///
-    /// REQUIRED FIELD ADDED BY THE `reflow` METHOD PASS. The mod.rs scaffold's
-    /// doc header already states the applicator "OWNS the runtime object arenas
-    /// via `store`", but the struct itself was missing the field, so no arena id
-    /// (`CohortId`/`ReadingId`/`SwId`) could be resolved. Every ported engine
-    /// method resolves runtime objects through here (`self.store.cohorts` /
-    /// `self.store.readings` / `self.store.single_windows`), and `Window`/
-    /// `SingleWindow`/`Cohort` free fns are threaded `&mut self.store`.
-    pub store: crate::store::RuntimeStore,
     /// C++ `Profiler* profiler` — the raw pointer to main's Profiler becomes
     /// OWNED `Option<Profiler>`: the driver (vislcg3) moves the profiler in
     /// before the run and takes it back out afterwards to write the database.
     pub profiler: Option<crate::profiler::Profiler>,
 
-    pub numLines: u32,
-    pub numWindows: u32,
-    pub numCohorts: u32,
-    pub numReadings: u32,
-
     /// C++ `sorted_vector<std::pair<uint32_t, uint32_t>> dep_deep_seen`.
     pub dep_deep_seen: sorted_vector<(u32, u32)>,
-
-    pub externals: externals_t,
 
     pub ci_depths: Uint32Vector,
     pub cohortIterators: BTreeMap<u32, CohortIterator>,
@@ -520,30 +574,14 @@ impl GrammarApplicator {
         GrammarApplicator {
             cfg: EngineConfig::new(),
 
-            input_eof: false,
+            doc: Document::new(),
+
             seen_barrier: false,
 
-            dep_has_spanned: false,
-
-            variables: Default::default(),
-
-            has_dep: false,
-            dep_highest_seen: GlobalNumber(0),
-            window: crate::window::Window::default(),
-            has_relations: false,
-
             grammar,
-            store: crate::store::RuntimeStore::new(),
             profiler: None,
 
-            numLines: 0,
-            numWindows: 0,
-            numCohorts: 0,
-            numReadings: 0,
-
             dep_deep_seen: Default::default(),
-
-            externals: Default::default(),
 
             ci_depths: vec![0u32; 6],
             cohortIterators: Default::default(),

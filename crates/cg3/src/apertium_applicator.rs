@@ -4,12 +4,12 @@
 //! COMPOSITION-OVER-INHERITANCE. C++ `class ApertiumApplicator : public virtual
 //! GrammarApplicator`. In Rust the wrapper either owns or borrows the base
 //! engine, and every engine/core call goes through `self.base.<method>` /
-//! `self.base.store` / `self.base.grammar` / `self.base.window`. Apertium-
+//! `self.base.doc.store` / `self.base.grammar` / `self.base.doc.stream`. Apertium-
 //! specific member flags live alongside.
 //!
 //! ARENA MODEL. C++ `Cohort*`/`Reading*`/`SingleWindow*`/`Tag*` become the arena
 //! ids `CohortId`/`ReadingId`/`SwId`/`TagId` resolved through
-//! `self.base.store` (`cohorts`/`readings`/`single_windows` arenas) and
+//! `self.base.doc.store` (`cohorts`/`readings`/`single_windows` arenas) and
 //! `self.base.grammar.single_tags_list` (the `Tag` arena). Nullable pointers →
 //! `Option<…Id>`. The char-by-char C++ state machines walk `UChar` (UTF-16 code
 //! units); here `UString = String` and the walks are over `Vec<char>` scratch
@@ -145,7 +145,7 @@ where
     pub fn merge_mappings(&mut self, cohort: CohortId) {
         use std::collections::BTreeMap;
         let trace = self.base.cfg.trace;
-        let store = &mut self.base.store;
+        let store = &mut self.base.doc.store;
 
         let readings: ReadingList = store.cohorts.get(cohort.0).readings.clone();
         let mut mlist: BTreeMap<u32, ReadingList> = BTreeMap::new();
@@ -255,7 +255,7 @@ where
                 variables_rem.erase(hash);
                 variables_output.insert(hash);
                 if c_swindow.is_none() {
-                    self.base.variables.insert((hash, tag_any));
+                    self.base.doc.variables.insert((hash, tag_any));
                 }
             } else {
                 // Case (b): comma/`=` list. Walk `s` re-computing `c`/`d`.
@@ -273,7 +273,7 @@ where
                                 // empty identifier before `=`
                                 tracing::warn!(
                                     "Warning: SETVAR on line {} had no identifier before the =! Defaulting to identifier *.",
-                                    self.base.numLines
+                                    self.base.doc.num_lines
                                 );
                                 a = tag_any;
                             } else {
@@ -291,7 +291,7 @@ where
                             if dd + 1 >= val_end {
                                 tracing::warn!(
                                     "Warning: SETVAR on line {} had no value after the =! Defaulting to value *.",
-                                    self.base.numLines
+                                    self.base.doc.num_lines
                                 );
                                 b = tag_any;
                             } else {
@@ -313,7 +313,7 @@ where
                             if ss >= cc {
                                 tracing::warn!(
                                     "Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.",
-                                    self.base.numLines
+                                    self.base.doc.num_lines
                                 );
                                 a = tag_any;
                             } else {
@@ -332,7 +332,7 @@ where
                         if ss >= cc {
                             tracing::warn!(
                                 "Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.",
-                                self.base.numLines
+                                self.base.doc.num_lines
                             );
                             a = tag_any;
                         } else {
@@ -439,7 +439,7 @@ where
                 if n >= len || p[n] != '>' {
                     tracing::warn!(
                         "Warning: Did not find matching > to close the tag on line {}.",
-                        self.base.numLines
+                        self.base.doc.num_lines
                     );
                     continue;
                 }
@@ -501,10 +501,18 @@ where
                     .intersects(T_BASEFORM)
                 {
                     // sub-reading if the current reading already has a baseform.
-                    if self.base.store.readings.get(reading.0).baseform.is_some() {
-                        let parent = self.base.store.readings.get(reading.0).parent;
-                        let nr = Reading::allocate_reading(&mut self.base.store, parent);
-                        self.base.store.readings.get_mut(reading.0).next = Some(nr);
+                    if self
+                        .base
+                        .doc
+                        .store
+                        .readings
+                        .get(reading.0)
+                        .baseform
+                        .is_some()
+                    {
+                        let parent = self.base.doc.store.readings.get(reading.0).parent;
+                        let nr = Reading::allocate_reading(&mut self.base.doc.store, parent);
+                        self.base.doc.store.readings.get_mut(reading.0).next = Some(nr);
                         reading = nr;
                         self.base.add_tag_to_reading(reading, wform);
                     }
@@ -525,7 +533,7 @@ where
                         }
                     }
                     if !mappings.is_empty() {
-                        let parent = self.base.store.readings.get(reading.0).parent.unwrap();
+                        let parent = self.base.doc.store.readings.get(reading.0).parent.unwrap();
                         self.base
                             .split_mappings(&mut mappings, parent, reading, true);
                     }
@@ -578,19 +586,19 @@ where
             "aux3<tag>+aux2<tag>+aux1<tag>+main<tag>",
         ];
         for text in texts {
-            let reading = alloc_reading(&mut self.base.store, None);
+            let reading = alloc_reading(&mut self.base.doc.store, None);
             let wform = tag_by_hash(&self.base.grammar, TagHash(self.base.grammar.tag_any));
             self.process_reading_str(reading, text, wform);
             let mut reading = reading;
             if self.base.grammar.sub_readings_ltr
-                && self.base.store.readings.get(reading.0).next.is_some()
+                && self.base.doc.store.readings.get(reading.0).next.is_some()
             {
-                reading = reverse_reading(&mut self.base.store, reading);
+                reading = reverse_reading(&mut self.base.doc.store, reading);
             }
             self.print_reading_2(reading, output);
             let _ = writeln!(output);
             let opt = Some(reading);
-            free_reading(&mut self.base.store, opt);
+            free_reading(&mut self.base.doc.store, opt);
         }
     }
 
@@ -606,7 +614,7 @@ where
         casing: ApertiumCasing,
         firstlower: i32,
     ) {
-        let store = &self.base.store;
+        let store = &self.base.doc.store;
         let grammar = &self.base.grammar;
         let r = store.readings.get(reading.0);
 
@@ -685,7 +693,10 @@ where
             } else if tag.r#type.intersects(T_MAPPING) {
                 multi = false;
             }
-            if tag.r#type.intersects(T_DEPENDENCY) && self.base.has_dep && !self.base.cfg.dep_original {
+            if tag.r#type.intersects(T_DEPENDENCY)
+                && self.base.doc.deps.has_dep
+                && !self.base.cfg.dep_original
+            {
                 continue;
             }
             if multi {
@@ -725,7 +736,7 @@ where
         }
 
         // Dependency output.
-        if self.base.has_dep
+        if self.base.doc.deps.has_dep
             && r.next.is_none()
             && let Some(pcid) = parent
         {
@@ -751,7 +762,7 @@ where
                         {
                             pr = first;
                         }
-                    } else if let Some(&cid) = self.base.window.cohort_map.get(&dp) {
+                    } else if let Some(&cid) = self.base.doc.cohorts.cohort_map.get(&dp) {
                         pr = cid;
                     }
                 }
@@ -774,7 +785,7 @@ where
     /// `casing`/`firstlower` and calls the 4-arg form.
     pub fn print_reading_2<W: Write>(&self, reading: ReadingId, output: &mut W) {
         let mut casing = ApertiumCasing::Nochange;
-        let store = &self.base.store;
+        let store = &self.base.doc.store;
         let grammar = &self.base.grammar;
 
         if self.wordform_case {
@@ -822,11 +833,11 @@ where
     /// output, bool profiling)`.
     pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
         let (local_number, ctype) = {
-            let c = self.base.store.cohorts.get(cohort.0);
+            let c = self.base.doc.store.cohorts.get(cohort.0);
             (c.local_number, c.r#type)
         };
         if local_number == 0 || (ctype.intersects(CT_REMOVED)) {
-            let text = self.base.store.cohorts.get(cohort.0).text.clone();
+            let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
             if !text.is_empty() {
                 let _ = write!(output, "{text}");
             }
@@ -834,13 +845,13 @@ where
         }
 
         if !profiling {
-            unignore_all(&mut self.base.store, cohort);
+            unignore_all(&mut self.base.doc.store, cohort);
             if !self.base.cfg.split_mappings {
                 self.merge_mappings(cohort);
             }
         }
 
-        let wblank = self.base.store.cohorts.get(cohort.0).wblank.clone();
+        let wblank = self.base.doc.store.cohorts.get(cohort.0).wblank.clone();
         if !wblank.is_empty() {
             let _ = write!(output, "{wblank}");
         }
@@ -851,7 +862,7 @@ where
 
         if self.print_word_forms {
             let (wf_tid, wread) = {
-                let c = self.base.store.cohorts.get(cohort.0);
+                let c = self.base.doc.store.cohorts.get(cohort.0);
                 (c.wordform, c.wread)
             };
             let wf_tid = wf_tid.expect("printCohort: cohort has no wordform");
@@ -888,7 +899,7 @@ where
             // Static reading tags.
             if let Some(wread) = wread {
                 let wf_hash = self.base.grammar.single_tags_list.get(wf_tid.0).hash;
-                let tags_list = self.base.store.readings.get(wread.0).tags_list.clone();
+                let tags_list = self.base.doc.store.readings.get(wread.0).tags_list.clone();
                 for tter in tags_list {
                     let tter = TagHash(tter);
                     if tter == wf_hash {
@@ -905,10 +916,10 @@ where
 
         // Sort readings by cmp_number.
         self.sort_readings_field(cohort, |c| &mut c.readings);
-        let readings = self.base.store.cohorts.get(cohort.0).readings.clone();
+        let readings = self.base.doc.store.cohorts.get(cohort.0).readings.clone();
         for reading in readings {
             let mut reading = reading;
-            if self.base.store.readings.get(reading.0).noprint {
+            if self.base.doc.store.readings.get(reading.0).noprint {
                 continue;
             }
             if need_slash {
@@ -916,9 +927,9 @@ where
             }
             need_slash = true;
             if self.base.grammar.sub_readings_ltr
-                && self.base.store.readings.get(reading.0).next.is_some()
+                && self.base.doc.store.readings.get(reading.0).next.is_some()
             {
-                reading = reverse_reading(&mut self.base.store, reading);
+                reading = reverse_reading(&mut self.base.doc.store, reading);
             }
             self.print_reading_2(reading, output);
             if self.print_only_first {
@@ -928,10 +939,10 @@ where
 
         if self.base.cfg.trace {
             self.sort_readings_field(cohort, |c| &mut c.delayed);
-            let delayed = self.base.store.cohorts.get(cohort.0).delayed.clone();
+            let delayed = self.base.doc.store.cohorts.get(cohort.0).delayed.clone();
             for reading in delayed {
                 let mut reading = reading;
-                if self.base.store.readings.get(reading.0).noprint {
+                if self.base.doc.store.readings.get(reading.0).noprint {
                     continue;
                 }
                 if need_slash {
@@ -939,17 +950,17 @@ where
                 }
                 need_slash = true;
                 if self.base.grammar.sub_readings_ltr
-                    && self.base.store.readings.get(reading.0).next.is_some()
+                    && self.base.doc.store.readings.get(reading.0).next.is_some()
                 {
-                    reading = reverse_reading(&mut self.base.store, reading);
+                    reading = reverse_reading(&mut self.base.doc.store, reading);
                 }
                 self.print_reading_2(reading, output);
             }
             self.sort_readings_field(cohort, |c| &mut c.deleted);
-            let deleted = self.base.store.cohorts.get(cohort.0).deleted.clone();
+            let deleted = self.base.doc.store.cohorts.get(cohort.0).deleted.clone();
             for reading in deleted {
                 let mut reading = reading;
-                if self.base.store.readings.get(reading.0).noprint {
+                if self.base.doc.store.readings.get(reading.0).noprint {
                     continue;
                 }
                 if need_slash {
@@ -957,9 +968,9 @@ where
                 }
                 need_slash = true;
                 if self.base.grammar.sub_readings_ltr
-                    && self.base.store.readings.get(reading.0).next.is_some()
+                    && self.base.doc.store.readings.get(reading.0).next.is_some()
                 {
-                    reading = reverse_reading(&mut self.base.store, reading);
+                    reading = reverse_reading(&mut self.base.doc.store, reading);
                 }
                 self.print_reading_2(reading, output);
             }
@@ -969,7 +980,7 @@ where
             let _ = write!(output, "$");
         }
 
-        let text = self.base.store.cohorts.get(cohort.0).text.clone();
+        let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
         if !text.is_empty() {
             let _ = write!(output, "{text}");
         }
@@ -982,8 +993,8 @@ where
         cohort: CohortId,
         pick: impl Fn(&mut crate::cohort::Cohort) -> &mut ReadingList,
     ) {
-        let mut list = pick(self.base.store.cohorts.get_mut(cohort.0)).clone();
-        let store = &self.base.store;
+        let mut list = pick(self.base.doc.store.cohorts.get_mut(cohort.0)).clone();
+        let store = &self.base.doc.store;
         list.sort_by(|&a, &b| {
             let ra = store.readings.get(a.0);
             let rb = store.readings.get(b.0);
@@ -995,7 +1006,7 @@ where
                 std::cmp::Ordering::Equal
             }
         });
-        *pick(self.base.store.cohorts.get_mut(cohort.0)) = list;
+        *pick(self.base.doc.store.cohorts.get_mut(cohort.0)) = list;
     }
 
     // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.print-single-window-fn]
@@ -1003,13 +1014,21 @@ where
     /// C++ `void ApertiumApplicator::printSingleWindow(SingleWindow* window,
     /// std::ostream& output, bool profiling)`.
     pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
-        let text = self.base.store.single_windows.get(window.0).text.clone();
+        let text = self
+            .base
+            .doc
+            .store
+            .single_windows
+            .get(window.0)
+            .text
+            .clone();
         if !text.is_empty() {
             let _ = write!(output, "{text}");
         }
 
         let all_cohorts = self
             .base
+            .doc
             .store
             .single_windows
             .get(window.0)
@@ -1022,6 +1041,7 @@ where
 
         let text_post = self
             .base
+            .doc
             .store
             .single_windows
             .get(window.0)
@@ -1032,7 +1052,7 @@ where
             u_fflush(output);
         }
 
-        if self.base.store.single_windows.get(window.0).flush_after {
+        if self.base.doc.store.single_windows.get(window.0).flush_after {
             u_fputc('\0', output);
         }
     }
@@ -1128,7 +1148,7 @@ where
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.window.window_span = self.base.cfg.num_windows;
+        self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::default();
         let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::default();
@@ -1144,7 +1164,7 @@ where
             }
 
             if c == '\n' {
-                self.base.numLines = self.base.numLines.wrapping_add(1);
+                self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
             }
 
             if c == '\\' {
@@ -1220,7 +1240,7 @@ where
                 if !in_cohort {
                     tracing::error!(
                         "Error: $ found without prior ^ on line {}.",
-                        self.base.numLines
+                        self.base.doc.num_lines
                     );
                     // CG3Quit(1) — abort in C++; keep going in the port.
                     return;
@@ -1247,7 +1267,7 @@ where
                     if wchars[n - 1] != ']' || (n < 2 || wchars[n - 2] != ']') {
                         tracing::error!(
                             "Error: Word-bound blank was not immediately prior to token on line {}",
-                            self.base.numLines
+                            self.base.doc.num_lines
                         );
                         return;
                     }
@@ -1255,14 +1275,21 @@ where
 
                 // Attach leftover blank to the nearest text sink.
                 if let Some(cc) = c_cohort {
-                    let t = &mut self.base.store.cohorts.get_mut(cc.0).text;
+                    let t = &mut self.base.doc.store.cohorts.get_mut(cc.0).text;
                     t.push_str(&blank);
                     blank.clear();
                 } else if let Some(lc) = l_cohort {
-                    self.base.store.cohorts.get_mut(lc.0).text.push_str(&blank);
+                    self.base
+                        .doc
+                        .store
+                        .cohorts
+                        .get_mut(lc.0)
+                        .text
+                        .push_str(&blank);
                     blank.clear();
                 } else if let Some(ls) = l_swindow {
                     self.base
+                        .doc
                         .store
                         .single_windows
                         .get_mut(ls.0)
@@ -1276,7 +1303,9 @@ where
                     self.ensure_endtag(l_swindow);
                     let sw = {
                         let base = &mut *self.base;
-                        base.window.alloc_append_single_window(&mut base.store)
+                        base.doc
+                            .stream
+                            .alloc_append_single_window(&mut base.doc.store)
                     };
                     self.base.init_empty_single_window(sw);
                     // Move the variable collections into the window (C++
@@ -1285,7 +1314,7 @@ where
                     let rem_items = collect_set(&variables_rem);
                     let out_items = variables_output.as_slice().to_vec();
                     {
-                        let sww = self.base.store.single_windows.get_mut(sw.0);
+                        let sww = self.base.doc.store.single_windows.get_mut(sw.0);
                         sww.variables_set.insert_range(set_pairs);
                         sww.variables_rem.insert_range(rem_items);
                         sww.variables_output.insert_range(&out_items);
@@ -1295,22 +1324,22 @@ where
                     variables_output.clear();
                     c_swindow = Some(sw);
                     l_swindow = Some(sw);
-                    self.base.store.single_windows.get_mut(sw.0).text = blank.clone();
+                    self.base.doc.store.single_windows.get_mut(sw.0).text = blank.clone();
                     blank.clear();
-                    self.base.numWindows = self.base.numWindows.wrapping_add(1);
+                    self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
                 }
                 let cs = c_swindow.unwrap();
 
                 // Allocate the cohort.
-                let cc = alloc_cohort(&mut self.base.store, Some(cs));
+                let cc = alloc_cohort(&mut self.base.doc.store, Some(cs));
                 l_cohort = Some(cc);
                 c_cohort = Some(cc);
-                let gn = self.base.window.next_cohort_number();
-                self.base.store.cohorts.get_mut(cc.0).global_number = gn;
-                self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
-                self.base.store.cohorts.get_mut(cc.0).text = blank.clone();
+                let gn = self.base.doc.cohorts.next_cohort_number();
+                self.base.doc.store.cohorts.get_mut(cc.0).global_number = gn;
+                self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
+                self.base.doc.store.cohorts.get_mut(cc.0).text = blank.clone();
                 blank.clear();
-                self.base.store.cohorts.get_mut(cc.0).wblank = wblank.clone();
+                self.base.doc.store.cohorts.get_mut(cc.0).wblank = wblank.clone();
                 wblank.clear();
 
                 // Parse the wordform.
@@ -1328,13 +1357,13 @@ where
                 }
                 wf.push_str(">\"");
                 let wf_tid = self.base.add_tag(&wf, crate::tag::TagType::empty());
-                self.base.store.cohorts.get_mut(cc.0).wordform = Some(wf_tid);
+                self.base.doc.store.cohorts.get_mut(cc.0).wordform = Some(wf_tid);
 
                 // Static reading.
                 if p < tchars.len() && tchars[p] == '<' {
                     p += 1;
-                    let wread = alloc_reading(&mut self.base.store, Some(cc));
-                    self.base.store.cohorts.get_mut(cc.0).wread = Some(wread);
+                    let wread = alloc_reading(&mut self.base.doc.store, Some(cc));
+                    self.base.doc.store.cohorts.get_mut(cc.0).wread = Some(wread);
                     let mut tagbuf = String::new();
                     while p < tchars.len() && tchars[p] != '/' && tchars[p] != '$' {
                         if tchars[p] == '\\' {
@@ -1379,31 +1408,40 @@ where
                             continue;
                         }
                         if tchars[p] == '/' || tchars[p] == '$' {
-                            let c_reading = alloc_reading(&mut self.base.store, Some(cc));
-                            let wf_tid2 = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                            let c_reading = alloc_reading(&mut self.base.doc.store, Some(cc));
+                            let wf_tid2 = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                             self.process_reading(c_reading, rbuf.clone(), wf_tid2);
                             let mut c_reading = c_reading;
                             if self.base.grammar.sub_readings_ltr
-                                && self.base.store.readings.get(c_reading.0).next.is_some()
+                                && self.base.doc.store.readings.get(c_reading.0).next.is_some()
                             {
-                                c_reading = reverse_reading(&mut self.base.store, c_reading);
+                                c_reading = reverse_reading(&mut self.base.doc.store, c_reading);
                             }
-                            if self.base.store.readings.get(c_reading.0).deleted {
+                            if self.base.doc.store.readings.get(c_reading.0).deleted {
                                 self.base
+                                    .doc
                                     .store
                                     .cohorts
                                     .get_mut(cc.0)
                                     .deleted
                                     .push(c_reading);
                             } else {
-                                append_reading(&mut self.base.store, cc, c_reading);
+                                append_reading(&mut self.base.doc.store, cc, c_reading);
                             }
-                            self.base.numReadings = self.base.numReadings.wrapping_add(1);
-                            if self.base.store.readings.get(c_reading.0).baseform.is_none() {
+                            self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
+                            if self
+                                .base
+                                .doc
+                                .store
+                                .readings
+                                .get(c_reading.0)
+                                .baseform
+                                .is_none()
+                            {
                                 tracing::warn!(
                                     "Warning: Cohort {} on line {} had no valid baseform.",
-                                    self.base.numCohorts,
-                                    self.base.numLines
+                                    self.base.doc.num_cohorts,
+                                    self.base.doc.num_lines
                                 );
                             }
                             rbuf.clear();
@@ -1416,20 +1454,26 @@ where
                 }
 
                 // Magic reading.
-                if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+                if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
                     self.base.init_empty_cohort(cc);
                 }
                 {
                     let base = &mut *self.base;
                     insert_if_exists(
-                        &mut base.store.cohorts.get_mut(cc.0).possible_sets,
+                        &mut base.doc.store.cohorts.get_mut(cc.0).possible_sets,
                         base.grammar.sets_any.as_ref(),
                     );
-                    append_cohort(&mut base.window, &mut base.store, cs, cc);
+                    append_cohort(
+                        &mut base.doc.store,
+                        &mut base.doc.cohorts,
+                        &mut base.doc.deps,
+                        cs,
+                        cc,
+                    );
                 }
                 // if (cCohort->wordform->tag[2] == '@')
                 {
-                    let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                    let wf_tid = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                     let wftag: Vec<char> = self
                         .base
                         .grammar
@@ -1439,13 +1483,14 @@ where
                         .chars()
                         .collect();
                     if wftag.get(2) == Some(&'@') {
-                        self.base.store.cohorts.get_mut(cc.0).r#type |= CT_AP_UNKNOWN;
+                        self.base.doc.store.cohorts.get_mut(cc.0).r#type |= CT_AP_UNKNOWN;
                     }
                 }
 
                 // Delimiter handling.
                 let mut did_delim = false;
-                let cohorts_size = self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
+                let cohorts_size =
+                    self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32;
                 if cohorts_size >= self.base.cfg.soft_limit
                     && self.base.grammar.soft_delimiters.is_some()
                 {
@@ -1454,7 +1499,7 @@ where
                         .number
                         .get();
                     if self.base.does_set_match_cohort_normal(cc, sd, None) {
-                        let readings = self.base.store.cohorts.get(cc.0).readings.clone();
+                        let readings = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
                             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                             self.base.add_tag_to_reading(r, et);
@@ -1467,7 +1512,7 @@ where
                 }
                 if c_cohort.is_some() {
                     let cohorts_size =
-                        self.base.store.single_windows.get(cs.0).cohorts.len() as u32;
+                        self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32;
                     let hard = cohorts_size >= self.base.cfg.hard_limit;
                     let delim_match = self.base.grammar.delimiters.is_some() && {
                         let d = self.base.grammar.sets_list
@@ -1478,18 +1523,18 @@ where
                     };
                     if hard || delim_match {
                         if !self.base.cfg.is_conv && cohorts_size >= self.base.cfg.hard_limit {
-                            let wf_tid = self.base.store.cohorts.get(cc.0).wordform.unwrap();
+                            let wf_tid = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                             let wftag =
                                 self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
                             tracing::warn!(
                                 "Warning: Hard limit of {} cohorts reached at cohort {} (#{}) on line {} - forcing break.",
                                 self.base.cfg.hard_limit,
                                 wftag,
-                                self.base.numCohorts,
-                                self.base.numLines
+                                self.base.doc.num_cohorts,
+                                self.base.doc.num_lines
                             );
                         }
-                        let readings = self.base.store.cohorts.get(cc.0).readings.clone();
+                        let readings = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
                             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                             self.base.add_tag_to_reading(r, et);
@@ -1501,10 +1546,10 @@ where
                     }
                 }
 
-                if did_delim && self.base.window.next.len() as u32 > self.base.cfg.num_windows {
+                if did_delim && self.base.doc.stream.next.len() as u32 > self.base.cfg.num_windows {
                     self.base.shuffle_windows_down();
                     self.base.run_grammar_on_window_with(fmt, output);
-                    if reset_after != 0 && self.base.numWindows.is_multiple_of(reset_after) {
+                    if reset_after != 0 && self.base.doc.num_windows.is_multiple_of(reset_after) {
                         self.base.reset_indexes();
                     }
                 }
@@ -1537,19 +1582,20 @@ where
     /// last cohort.
     fn ensure_endtag(&mut self, l_swindow: Option<SwId>) {
         let Some(ls) = l_swindow else { return };
-        let cohorts = self.base.store.single_windows.get(ls.0).cohorts.clone();
+        let cohorts = self.base.doc.store.single_windows.get(ls.0).cohorts.clone();
         let Some(&back) = cohorts.last() else { return };
-        let readings = self.base.store.cohorts.get(back.0).readings.clone();
+        let readings = self.base.doc.store.cohorts.get(back.0).readings.clone();
         // readings.front()->tags.count(endtag) == 0
         let front_lacks = match readings.first() {
             Some(&front) => {
                 self.base
+                    .doc
                     .store
                     .readings
                     .get(front.0)
                     .tags
                     .find(self.base.cfg.endtag.get())
-                    == self.base.store.readings.get(front.0).tags.end()
+                    == self.base.doc.store.readings.get(front.0).tags.end()
             }
             None => false,
         };
@@ -1588,17 +1634,24 @@ where
     {
         self.ensure_endtag(*l_swindow);
 
-        let back_swindow = if n { self.base.window.back() } else { None };
+        let back_swindow = if n { self.base.doc.stream.back() } else { None };
         if let Some(bs) = back_swindow {
-            self.base.store.single_windows.get_mut(bs.0).flush_after = true;
+            self.base.doc.store.single_windows.get_mut(bs.0).flush_after = true;
         }
 
         if !blank.is_empty() {
             if let Some(lc) = *l_cohort {
-                self.base.store.cohorts.get_mut(lc.0).text.push_str(blank);
+                self.base
+                    .doc
+                    .store
+                    .cohorts
+                    .get_mut(lc.0)
+                    .text
+                    .push_str(blank);
             } else if let Some(ls) = *l_swindow {
                 let last = self
                     .base
+                    .doc
                     .store
                     .single_windows
                     .get(ls.0)
@@ -1606,9 +1659,16 @@ where
                     .last()
                     .copied();
                 if let Some(back) = last {
-                    self.base.store.cohorts.get_mut(back.0).text.push_str(blank);
+                    self.base
+                        .doc
+                        .store
+                        .cohorts
+                        .get_mut(back.0)
+                        .text
+                        .push_str(blank);
                 } else {
                     self.base
+                        .doc
                         .store
                         .single_windows
                         .get_mut(ls.0)
@@ -1626,15 +1686,20 @@ where
             self.base.run_grammar_on_window_with(fmt, output);
         }
         self.base.shuffle_windows_down();
-        while !self.base.window.previous.is_empty() {
-            let tmp = self.base.window.previous[0];
+        while !self.base.doc.stream.previous.is_empty() {
+            let tmp = self.base.doc.stream.previous[0];
             fmt.print_single_window(&mut self.base, tmp, output, false);
             let opt = Some(tmp);
             {
                 let base = &mut *self.base;
-                crate::single_window::free_swindow(&mut base.window, &mut base.store, opt);
+                crate::single_window::free_swindow(
+                    &mut base.doc.store,
+                    &mut base.doc.cohorts,
+                    &mut base.doc.deps,
+                    opt,
+                );
             }
-            self.base.window.previous.remove(0);
+            self.base.doc.stream.previous.remove(0);
         }
 
         if c != '\0' && c != '\u{FFFF}' {
@@ -1657,7 +1722,7 @@ where
         variables_rem.clear(0);
         variables_set.clear(0);
         variables_output.clear();
-        self.base.variables.clear(0);
+        self.base.doc.variables.clear(0);
     }
 }
 

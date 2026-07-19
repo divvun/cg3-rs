@@ -7,7 +7,7 @@
 //! [`BinaryApplicator`] holding a [`GrammarApplicator`](crate::grammar_applicator::GrammarApplicator)
 //! `base` by value plus `header_done` and the reusable `text` member. Every
 //! engine/core call goes through `self.base.<method>` (or the core free fns
-//! threaded `&mut self.base.store` / `&mut self.base.window` /
+//! threaded `&mut self.base.doc.store` / `&mut self.base.doc.stream` /
 //! `&self.base.grammar`). No `src/*` module other than this file is edited.
 //!
 //! ## Wire format
@@ -224,8 +224,9 @@ impl<'a> BinaryApplicator<'a> {
 
         let c_swindow = self
             .base
-            .window
-            .alloc_append_single_window(&mut self.base.store);
+            .doc
+            .stream
+            .alloc_append_single_window(&mut self.base.doc.store);
         self.base.init_empty_single_window(c_swindow);
 
         let mut pos = 0usize;
@@ -258,7 +259,7 @@ impl<'a> BinaryApplicator<'a> {
         // 1. Window flags.
         let flags = read_u16!();
         if flags & (BFW_DEP_SPAN as u16) != 0 {
-            self.base.dep_has_spanned = true;
+            self.base.doc.dep_has_spanned = true;
         }
 
         // 2. Tag table.
@@ -288,7 +289,7 @@ impl<'a> BinaryApplicator<'a> {
             let hash1 = self.base.grammar.single_tags_list[window_tags[key].0]
                 .hash
                 .get();
-            let sw = self.base.store.single_windows.get_mut(c_swindow.0);
+            let sw = self.base.doc.store.single_windows.get_mut(c_swindow.0);
             if mode == BFV_SETVAR {
                 let vh = self.base.grammar.single_tags_list[window_tags[value].0]
                     .hash
@@ -311,9 +312,10 @@ impl<'a> BinaryApplicator<'a> {
         // 4. Window text / text_post.
         {
             let t = read_str!();
-            self.base.store.single_windows.get_mut(c_swindow.0).text = t;
+            self.base.doc.store.single_windows.get_mut(c_swindow.0).text = t;
             let tp = read_str!();
             self.base
+                .doc
                 .store
                 .single_windows
                 .get_mut(c_swindow.0)
@@ -323,25 +325,30 @@ impl<'a> BinaryApplicator<'a> {
         // 5. Cohorts.
         let cohort_count = read_u16!();
         for cn in 0..cohort_count {
-            let c_cohort = crate::cohort::alloc_cohort(&mut self.base.store, Some(c_swindow));
-            let gn = self.base.window.next_cohort_number();
-            self.base.store.cohorts.get_mut(c_cohort.0).global_number = gn;
-            self.base.numCohorts = self.base.numCohorts.wrapping_add(1);
+            let c_cohort = crate::cohort::alloc_cohort(&mut self.base.doc.store, Some(c_swindow));
+            let gn = self.base.doc.cohorts.next_cohort_number();
+            self.base
+                .doc
+                .store
+                .cohorts
+                .get_mut(c_cohort.0)
+                .global_number = gn;
+            self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
 
             let cflags = read_u16!();
             if cflags & (BFC_RELATED as u16) != 0 {
-                self.base.store.cohorts.get_mut(c_cohort.0).r#type |= CT_RELATED;
-                self.base.has_relations = true;
+                self.base.doc.store.cohorts.get_mut(c_cohort.0).r#type |= CT_RELATED;
+                self.base.doc.deps.has_relations = true;
             }
 
             let wf_idx = read_u16!() as usize;
-            self.base.store.cohorts.get_mut(c_cohort.0).wordform = Some(window_tags[wf_idx]);
+            self.base.doc.store.cohorts.get_mut(c_cohort.0).wordform = Some(window_tags[wf_idx]);
 
             // Static tags → wread.
             let stag_count = read_u16!();
             if stag_count != 0 {
-                let wread = crate::reading::alloc_reading(&mut self.base.store, Some(c_cohort));
-                self.base.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
+                let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
+                self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
                 let wf = window_tags[wf_idx];
                 self.base.add_tag_to_reading(wread, wf);
                 for tn in 0..stag_count {
@@ -366,13 +373,13 @@ impl<'a> BinaryApplicator<'a> {
                 Some(GlobalNumber(dep_parent))
             };
             {
-                let c = self.base.store.cohorts.get_mut(c_cohort.0);
+                let c = self.base.doc.store.cohorts.get_mut(c_cohort.0);
                 c.dep_self = dep_self_opt;
                 c.dep_parent = dep_parent;
             }
-            self.base.window.relation_map.insert((dep_self, gn.get()));
+            self.base.doc.deps.relation_map.insert((dep_self, gn.get()));
             if dep_parent.is_some() {
-                self.base.has_dep = true;
+                self.base.doc.deps.has_dep = true;
             }
 
             // Relations: [u16 tag-index][u32 head].
@@ -382,6 +389,7 @@ impl<'a> BinaryApplicator<'a> {
                 let head = read_u32!();
                 let rhash = self.base.grammar.single_tags_list[window_tags[ti].0].hash;
                 self.base
+                    .doc
                     .store
                     .cohorts
                     .get_mut(c_cohort.0)
@@ -391,17 +399,17 @@ impl<'a> BinaryApplicator<'a> {
                     .insert(head);
             }
             if rel_count != 0 {
-                self.base.has_relations = true;
-                self.base.window.relation_map.insert((dep_self, gn.get()));
-                self.base.store.cohorts.get_mut(c_cohort.0).r#type |= CT_RELATED;
+                self.base.doc.deps.has_relations = true;
+                self.base.doc.deps.relation_map.insert((dep_self, gn.get()));
+                self.base.doc.store.cohorts.get_mut(c_cohort.0).r#type |= CT_RELATED;
             }
 
             // Cohort text / wblank.
             {
                 let t = read_str!();
-                self.base.store.cohorts.get_mut(c_cohort.0).text = t;
+                self.base.doc.store.cohorts.get_mut(c_cohort.0).text = t;
                 let wb = read_str!();
-                self.base.store.cohorts.get_mut(c_cohort.0).wblank = wb;
+                self.base.doc.store.cohorts.get_mut(c_cohort.0).wblank = wb;
             }
 
             // Readings.
@@ -411,8 +419,16 @@ impl<'a> BinaryApplicator<'a> {
             }
             let mut prev: Option<crate::arena::ReadingId> = None;
             for _ in 0..reading_count {
-                let c_reading = crate::reading::alloc_reading(&mut self.base.store, Some(c_cohort));
-                let wf = self.base.store.cohorts.get(c_cohort.0).wordform.unwrap();
+                let c_reading =
+                    crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
+                let wf = self
+                    .base
+                    .doc
+                    .store
+                    .cohorts
+                    .get(c_cohort.0)
+                    .wordform
+                    .unwrap();
                 self.base.add_tag_to_reading(c_reading, wf);
 
                 let rflags = read_u16!();
@@ -443,19 +459,20 @@ impl<'a> BinaryApplicator<'a> {
                 if let Some(prev_reading) = prev
                     && (rflags & (BFR_SUBREADING as u16) != 0)
                 {
-                    self.base.store.readings.get_mut(prev_reading.0).next = Some(c_reading);
+                    self.base.doc.store.readings.get_mut(prev_reading.0).next = Some(c_reading);
                 } else if rflags & (BFR_DELETED as u16) != 0 {
                     self.base
+                        .doc
                         .store
                         .cohorts
                         .get_mut(c_cohort.0)
                         .deleted
                         .push(c_reading);
                 } else {
-                    crate::cohort::append_reading(&mut self.base.store, c_cohort, c_reading);
+                    crate::cohort::append_reading(&mut self.base.doc.store, c_cohort, c_reading);
                 }
                 prev = Some(c_reading);
-                self.base.numReadings = self.base.numReadings.wrapping_add(1);
+                self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
             }
 
             // Last cohort: ensure endtag on every reading. `endtag` is a tag
@@ -463,16 +480,17 @@ impl<'a> BinaryApplicator<'a> {
             // TagId is resolved via `single_tags[endtag]` for the Tag* overload.
             if cn + 1 == cohort_count {
                 let endtag_id = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                let readings = self.base.store.cohorts.get(c_cohort.0).readings.clone();
+                let readings = self.base.doc.store.cohorts.get(c_cohort.0).readings.clone();
                 for r in readings {
                     let has = self
                         .base
+                        .doc
                         .store
                         .readings
                         .get(r.0)
                         .tags
                         .find(self.base.cfg.endtag.get())
-                        != self.base.store.readings.get(r.0).tags.end();
+                        != self.base.doc.store.readings.get(r.0).tags.end();
                     if !has {
                         self.base.add_tag_to_reading(r, endtag_id);
                     }
@@ -480,12 +498,19 @@ impl<'a> BinaryApplicator<'a> {
             }
 
             crate::inlines::insert_if_exists(
-                &mut self.base.store.cohorts.get_mut(c_cohort.0).possible_sets,
+                &mut self
+                    .base
+                    .doc
+                    .store
+                    .cohorts
+                    .get_mut(c_cohort.0)
+                    .possible_sets,
                 self.base.grammar.sets_any.as_ref(),
             );
             crate::single_window::append_cohort(
-                &mut self.base.window,
-                &mut self.base.store,
+                &mut self.base.doc.store,
+                &mut self.base.doc.cohorts,
+                &mut self.base.doc.deps,
                 c_swindow,
                 c_cohort,
             );
@@ -605,6 +630,7 @@ impl BinaryFormat {
         let mut var_count: u16 = 0;
         let mut var_buffer: Vec<u8> = Vec::new();
         let vars_output: Vec<u32> = app
+            .doc
             .store
             .single_windows
             .get(window.0)
@@ -616,7 +642,7 @@ impl BinaryFormat {
             var_count += 1;
             let key = tag_by_hash(&app.grammar, TagHash(var));
             let value: Option<u32> = {
-                let sw = app.store.single_windows.get(window.0);
+                let sw = app.doc.store.single_windows.get(window.0);
                 let it = sw.variables_set.find(var);
                 if it != sw.variables_set.end() {
                     Some(it.get().1)
@@ -648,34 +674,41 @@ impl BinaryFormat {
         // Reflow removed-cohort text to the nearest prior non-removed cohort (or
         // the window). QUIRK: the inner loop has NO break — after clearing, later
         // iterations append the now-empty string (no-op).
-        let all_cohorts: Vec<CohortId> = app.store.single_windows.get(window.0).all_cohorts.clone();
+        let all_cohorts: Vec<CohortId> = app
+            .doc
+            .store
+            .single_windows
+            .get(window.0)
+            .all_cohorts
+            .clone();
         for i in 0..all_cohorts.len() {
             let cohort = all_cohorts[i];
             let (ln, ty, has_text) = {
-                let c = app.store.cohorts.get(cohort.0);
+                let c = app.doc.store.cohorts.get(cohort.0);
                 (c.local_number, c.r#type, !c.text.is_empty())
             };
             if (ln == 0 || (ty.intersects(CT_REMOVED))) && has_text {
                 for j in (1..=i).rev() {
                     let prior = all_cohorts[j - 1];
                     let (pln, pty) = {
-                        let c = app.store.cohorts.get(prior.0);
+                        let c = app.doc.store.cohorts.get(prior.0);
                         (c.local_number, c.r#type)
                     };
                     if pln == 0 || (pty.intersects(CT_REMOVED)) {
                         continue;
                     }
-                    let txt = app.store.cohorts.get(cohort.0).text.clone();
-                    app.store.cohorts.get_mut(prior.0).text.push_str(&txt);
-                    app.store.cohorts.get_mut(cohort.0).text.clear();
+                    let txt = app.doc.store.cohorts.get(cohort.0).text.clone();
+                    app.doc.store.cohorts.get_mut(prior.0).text.push_str(&txt);
+                    app.doc.store.cohorts.get_mut(cohort.0).text.clear();
                 }
-                let txt = app.store.cohorts.get(cohort.0).text.clone();
-                app.store
+                let txt = app.doc.store.cohorts.get(cohort.0).text.clone();
+                app.doc
+                    .store
                     .single_windows
                     .get_mut(window.0)
                     .text
                     .push_str(&txt);
-                app.store.cohorts.get_mut(cohort.0).text.clear();
+                app.doc.store.cohorts.get_mut(cohort.0).text.clear();
             }
         }
 
@@ -684,17 +717,18 @@ impl BinaryFormat {
         let mut cohort_count: u16 = 0;
         for cohort in all_cohorts {
             let (ln, ty) = {
-                let c = app.store.cohorts.get(cohort.0);
+                let c = app.doc.store.cohorts.get(cohort.0);
                 (c.local_number, c.r#type)
             };
             if ln == 0 || (ty.intersects(CT_REMOVED)) {
                 continue;
             }
-            crate::cohort::unignore_all(&mut app.store, cohort);
+            crate::cohort::unignore_all(&mut app.doc.store, cohort);
             cohort_count += 1;
 
             let mut cflags: u16 = 0;
             if app
+                .doc
                 .store
                 .cohorts
                 .get(cohort.0)
@@ -706,6 +740,7 @@ impl BinaryFormat {
             wu16(&mut cohort_buffer, cflags);
 
             let wf = app
+                .doc
                 .store
                 .cohorts
                 .get(cohort.0)
@@ -715,10 +750,10 @@ impl BinaryFormat {
             write_tag(&mut tags_to_write, &mut tag_index, &mut cohort_buffer, wf);
 
             // Static tags (wread), excluding the wordform hash.
-            if let Some(wr) = app.store.cohorts.get(cohort.0).wread {
+            if let Some(wr) = app.doc.store.cohorts.get(cohort.0).wread {
                 let mut tag_buf: Vec<u8> = Vec::new();
                 let mut stag_count: u16 = 0;
-                let tags: Vec<u32> = app.store.readings.get(wr.0).tags_list.clone();
+                let tags: Vec<u32> = app.doc.store.readings.get(wr.0).tags_list.clone();
                 for tter in tags {
                     let tter = TagHash(tter);
                     if tter == wf_hash {
@@ -736,7 +771,7 @@ impl BinaryFormat {
 
             // Dependency: self = global_number; parent per the cohort_map lookup.
             let (global_number, dep_parent) = {
-                let c = app.store.cohorts.get(cohort.0);
+                let c = app.doc.store.cohorts.get(cohort.0);
                 (c.global_number, c.dep_parent)
             };
             wu32(&mut cohort_buffer, global_number.get());
@@ -747,15 +782,15 @@ impl BinaryFormat {
                     dep_parent.map_or(crate::cohort::DEP_NO_PARENT, |g| g.get()),
                 );
             } else if let Some(dp) = dep_parent
-                && let Some(&pr) = app.window.cohort_map.get(&dp)
+                && let Some(&pr) = app.doc.cohorts.cohort_map.get(&dp)
             {
-                let pr_local = app.store.cohorts.get(pr.0).local_number;
+                let pr_local = app.doc.store.cohorts.get(pr.0).local_number;
                 if pr_local == 0 {
                     wu32(&mut cohort_buffer, 0);
                 } else {
                     wu32(
                         &mut cohort_buffer,
-                        app.store.cohorts.get(pr.0).global_number.get(),
+                        app.doc.store.cohorts.get(pr.0).global_number.get(),
                     );
                 }
             } else {
@@ -766,6 +801,7 @@ impl BinaryFormat {
             let mut rel_buffer: Vec<u8> = Vec::new();
             let mut rel_count: u16 = 0;
             let relations: Vec<(u32, Vec<u32>)> = app
+                .doc
                 .store
                 .cohorts
                 .get(cohort.0)
@@ -785,7 +821,7 @@ impl BinaryFormat {
             cohort_buffer.extend_from_slice(&rel_buffer);
 
             let (ctext, cwblank) = {
-                let c = app.store.cohorts.get(cohort.0);
+                let c = app.doc.store.cohorts.get(cohort.0);
                 (c.text.clone(), c.wblank.clone())
             };
             write_str(&mut cohort_buffer, &ctext);
@@ -796,10 +832,10 @@ impl BinaryFormat {
             let mut reading_buffer: Vec<u8> = Vec::new();
             let mut reading_count: u16 = 0;
             let mut readings: Vec<crate::arena::ReadingId> =
-                app.store.cohorts.get(cohort.0).readings.clone();
+                app.doc.store.cohorts.get(cohort.0).readings.clone();
             readings.sort_by(|&a, &b| {
-                let ra = app.store.readings.get(a.0);
-                let rb = app.store.readings.get(b.0);
+                let ra = app.doc.store.readings.get(a.0);
+                let rb = app.doc.store.readings.get(b.0);
                 if Reading::cmp_number(ra, rb) {
                     std::cmp::Ordering::Less
                 } else if Reading::cmp_number(rb, ra) {
@@ -808,9 +844,9 @@ impl BinaryFormat {
                     std::cmp::Ordering::Equal
                 }
             });
-            app.store.cohorts.get_mut(cohort.0).readings = readings.clone();
+            app.doc.store.cohorts.get_mut(cohort.0).readings = readings.clone();
             for top_reading in readings {
-                if app.store.readings.get(top_reading.0).noprint {
+                if app.doc.store.readings.get(top_reading.0).noprint {
                     continue;
                 }
                 let mut reading = Some(top_reading);
@@ -821,7 +857,13 @@ impl BinaryFormat {
                         rflags |= BFR_SUBREADING as u16;
                     }
                     wu16(&mut reading_buffer, rflags);
-                    let baseform = app.store.readings.get(rid.0).baseform.unwrap_or(TagHash(0));
+                    let baseform = app
+                        .doc
+                        .store
+                        .readings
+                        .get(rid.0)
+                        .baseform
+                        .unwrap_or(TagHash(0));
                     let btid = tag_by_hash(&app.grammar, baseform);
                     write_tag(
                         &mut tags_to_write,
@@ -834,10 +876,10 @@ impl BinaryFormat {
                     let mut tag_count: u16 = 0;
                     let mut unique: crate::sorted_vector::uint32SortedVector =
                         crate::sorted_vector::uint32SortedVector::new();
-                    let tags: Vec<u32> = app.store.readings.get(rid.0).tags_list.clone();
+                    let tags: Vec<u32> = app.doc.store.readings.get(rid.0).tags_list.clone();
                     let parent_wf_hash = {
-                        let cid = app.store.readings.get(rid.0).parent.unwrap();
-                        let w = app.store.cohorts.get(cid.0).wordform;
+                        let cid = app.doc.store.readings.get(rid.0).parent.unwrap();
+                        let w = app.doc.store.cohorts.get(cid.0).wordform;
                         w.map(|t| app.grammar.single_tags_list[t.0].hash)
                             .unwrap_or(TagHash(0))
                     };
@@ -862,7 +904,7 @@ impl BinaryFormat {
                     }
                     wu16(&mut reading_buffer, tag_count);
                     reading_buffer.extend_from_slice(&tag_buf);
-                    reading = app.store.readings.get(rid.0).next;
+                    reading = app.doc.store.readings.get(rid.0).next;
                 }
             }
             wu16(&mut cohort_buffer, reading_count);
@@ -873,7 +915,7 @@ impl BinaryFormat {
         // complete).
         let mut header_buffer: Vec<u8> = Vec::new();
         let mut wflags: u16 = 0;
-        if app.dep_has_spanned {
+        if app.doc.dep_has_spanned {
             wflags |= BFW_DEP_SPAN as u16;
         }
         wu16(&mut header_buffer, wflags);
@@ -885,7 +927,7 @@ impl BinaryFormat {
         wu16(&mut header_buffer, var_count);
         header_buffer.extend_from_slice(&var_buffer);
         let (wtext, wtext_post, flush_after) = {
-            let w = app.store.single_windows.get(window.0);
+            let w = app.doc.store.single_windows.get(window.0);
             (w.text.clone(), w.text_post.clone(), w.flush_after)
         };
         write_str(&mut header_buffer, &wtext);
@@ -1004,7 +1046,7 @@ impl<'x> BinaryApplicator<'x> {
 
         self.base.index();
         let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
-        self.base.window.window_span = self.base.cfg.num_windows;
+        self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
         // flush(flush_after) lambda: drain the pipeline + print buffered windows.
         // Reproduced inline at each call site (Rust closures can't borrow `self`
@@ -1023,11 +1065,11 @@ impl<'x> BinaryApplicator<'x> {
             let packet = self.read_packet(&mut input);
             match packet.r#type {
                 BinaryPacketType::BFP_WINDOW => {
-                    self.base.numWindows = self.base.numWindows.wrapping_add(1);
-                    if self.base.window.next.len() > self.base.cfg.num_windows as usize {
+                    self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
+                    if self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize {
                         self.base.shuffle_windows_down();
                         self.base.run_grammar_on_window_with(fmt, output);
-                        if self.base.numWindows.is_multiple_of(reset_after) {
+                        if self.base.doc.num_windows.is_multiple_of(reset_after) {
                             self.base.reset_indexes();
                         }
                     }
@@ -1067,21 +1109,31 @@ impl<'x> BinaryApplicator<'x> {
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: std::io::Write,
     {
-        let back = self.base.window.back();
+        let back = self.base.doc.stream.back();
         if let Some(bsw) = back {
-            self.base.store.single_windows.get_mut(bsw.0).flush_after = flush_after;
+            self.base
+                .doc
+                .store
+                .single_windows
+                .get_mut(bsw.0)
+                .flush_after = flush_after;
         }
         while self.base.rotate_next().is_some() {
             self.base.run_grammar_on_window_with(fmt, output);
         }
         self.base.shuffle_windows_down();
-        while !self.base.window.previous.is_empty() {
-            let tmp = self.base.window.previous[0];
+        while !self.base.doc.stream.previous.is_empty() {
+            let tmp = self.base.doc.stream.previous[0];
             // C++ virtual printSingleWindow — the most-derived format decides.
             fmt.print_single_window(self.base, tmp, output, false);
             let t = Some(tmp);
-            crate::single_window::free_swindow(&mut self.base.window, &mut self.base.store, t);
-            self.base.window.previous.remove(0);
+            crate::single_window::free_swindow(
+                &mut self.base.doc.store,
+                &mut self.base.doc.cohorts,
+                &mut self.base.doc.deps,
+                t,
+            );
+            self.base.doc.stream.previous.remove(0);
         }
         back
     }

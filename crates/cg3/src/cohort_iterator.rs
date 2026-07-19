@@ -17,10 +17,11 @@
 //!
 //! SIGNATURE CONVENTION: the C++ `operator++`/`operator*`/`reset`/ctors become
 //! methods (`advance`/`current`/`reset`/`new`) that take `store: &RuntimeStore`
-//! (+ `grammar: &Grammar` to resolve `m_test->pos`, + `window: &Window` to
-//! resolve `dep_parent`/`dep_children` global-numbers through `cohort_map`) — the
-//! iterator only holds ids, so `self` (iterator state) and the passed stores
-//! never alias.
+//! (+ `grammar: &Grammar` to resolve `m_test->pos`, + `cohorts: &CohortRegistry`
+//! to resolve `dep_parent`/`dep_children` global-numbers through `cohort_map`) —
+//! the iterator only holds ids, so `self` (iterator state) and the passed stores
+//! never alias. (Stage-B: the C++ `Window*` narrowed to the `CohortRegistry` view
+//! that owns `cohort_map`.)
 
 use crate::arena::{CohortId, CtxId, SwId};
 use crate::cohort::{CT_ENCLOSED, CT_REMOVED};
@@ -29,7 +30,7 @@ use crate::contextual_test::{
 };
 use crate::grammar::Grammar;
 use crate::store::RuntimeStore;
-use crate::window::Window;
+use crate::window::CohortRegistry;
 
 // [spec:cg3:def:cohort-iterator.cg3.cohort-iterator]
 /// C++ `class CohortIterator` — the base input-iterator over cohorts.
@@ -364,13 +365,13 @@ impl DepParentIter {
         span: bool,
         store: &RuntimeStore,
         grammar: &Grammar,
-        window: &Window,
+        cohorts: &CohortRegistry,
     ) -> Self {
         let mut it = DepParentIter {
             base: CohortIterator::new(cohort, test, span),
             m_seen: Vec::new(),
         };
-        it.advance(store, grammar, window);
+        it.advance(store, grammar, cohorts);
         it
     }
 
@@ -378,7 +379,7 @@ impl DepParentIter {
     // [spec:cg3:sem:cohort-iterator.cg3.dep-parent-iter.dep-parent-iter-fn]
     /// C++ `operator++`: one step up the dep tree. The cycle guard `m_seen`
     /// stores the chain of previously-CURRENT cohorts (the child, not `p`).
-    pub fn advance(&mut self, store: &RuntimeStore, grammar: &Grammar, window: &Window) {
+    pub fn advance(&mut self, store: &RuntimeStore, grammar: &Grammar, cohorts: &CohortRegistry) {
         if self.base.m_cohort.is_none() || self.base.m_test.is_none() {
             return;
         }
@@ -387,31 +388,32 @@ impl DepParentIter {
         let pos = grammar.contexts_arena[test_id.0].pos;
         let dep_parent = store.cohorts[cur_id.0].dep_parent;
         if dep_parent.is_some()
-            && let Some(&p_id) = window.cohort_map.get(&dep_parent.unwrap()) {
-                if store.cohorts[p_id.0].r#type.intersects(CT_REMOVED) {
-                    self.base.m_cohort = None;
-                    return;
-                }
-                if cs_find(store, &self.m_seen, p_id) == self.m_seen.len() {
-                    cs_insert(store, &mut self.m_seen, cur_id);
-                    let cur_parent = store.cohorts[cur_id.0].parent;
-                    let p_parent = store.cohorts[p_id.0].parent;
-                    if p_parent == cur_parent || pos.intersects(POS_SPAN_BOTH) || self.base.m_span {
+            && let Some(&p_id) = cohorts.cohort_map.get(&dep_parent.unwrap())
+        {
+            if store.cohorts[p_id.0].r#type.intersects(CT_REMOVED) {
+                self.base.m_cohort = None;
+                return;
+            }
+            if cs_find(store, &self.m_seen, p_id) == self.m_seen.len() {
+                cs_insert(store, &mut self.m_seen, cur_id);
+                let cur_parent = store.cohorts[cur_id.0].parent;
+                let p_parent = store.cohorts[p_id.0].parent;
+                if p_parent == cur_parent || pos.intersects(POS_SPAN_BOTH) || self.base.m_span {
+                    self.base.m_cohort = Some(p_id);
+                } else {
+                    let cur_win = store.single_windows[cur_parent.unwrap().0].number;
+                    let p_win = store.single_windows[p_parent.unwrap().0].number;
+                    if (p_win < cur_win && pos.intersects(POS_SPAN_LEFT))
+                        || (p_win > cur_win && pos.intersects(POS_SPAN_RIGHT))
+                    {
                         self.base.m_cohort = Some(p_id);
                     } else {
-                        let cur_win = store.single_windows[cur_parent.unwrap().0].number;
-                        let p_win = store.single_windows[p_parent.unwrap().0].number;
-                        if (p_win < cur_win && pos.intersects(POS_SPAN_LEFT))
-                            || (p_win > cur_win && pos.intersects(POS_SPAN_RIGHT))
-                        {
-                            self.base.m_cohort = Some(p_id);
-                        } else {
-                            self.base.m_cohort = None;
-                        }
+                        self.base.m_cohort = None;
                     }
-                    return;
                 }
+                return;
             }
+        }
         self.base.m_cohort = None;
     }
 
@@ -424,11 +426,11 @@ impl DepParentIter {
         span: bool,
         store: &RuntimeStore,
         grammar: &Grammar,
-        window: &Window,
+        cohorts: &CohortRegistry,
     ) {
         self.base.reset(cohort, test, span);
         self.m_seen.clear();
-        self.advance(store, grammar, window);
+        self.advance(store, grammar, cohorts);
     }
 }
 
@@ -441,14 +443,14 @@ impl DepDescendentIter {
         span: bool,
         store: &RuntimeStore,
         grammar: &Grammar,
-        window: &Window,
+        cohorts: &CohortRegistry,
     ) -> Self {
         let mut it = DepDescendentIter {
             base: CohortIterator::new(cohort, test, span),
             m_descendents: Vec::new(),
             m_ai: 0,
         };
-        it.reset(cohort, test, span, store, grammar, window);
+        it.reset(cohort, test, span, store, grammar, cohorts);
         it
     }
 
@@ -472,7 +474,7 @@ impl DepDescendentIter {
         span: bool,
         store: &RuntimeStore,
         grammar: &Grammar,
-        window: &Window,
+        cohorts: &CohortRegistry,
     ) {
         self.base.reset(cohort, test, span);
         self.m_descendents.clear();
@@ -486,7 +488,7 @@ impl DepDescendentIter {
             // Seed with the direct children.
             let dch0 = store.cohorts[cohort_id.0].dep_children.clone();
             for dter in dch0.as_slice() {
-                let current = match window.cohort_map.get(&crate::types::GlobalNumber(*dter)) {
+                let current = match cohorts.cohort_map.get(&crate::types::GlobalNumber(*dter)) {
                     None => continue,
                     Some(&c) => c,
                 };
@@ -510,10 +512,11 @@ impl DepDescendentIter {
                     cs_insert(store, &mut seen, cohort_inner);
                     let dch = store.cohorts[cohort_inner.0].dep_children.clone();
                     for dter in dch.as_slice() {
-                        let current = match window.cohort_map.get(&crate::types::GlobalNumber(*dter)) {
-                            None => continue,
-                            Some(&c) => c,
-                        };
+                        let current =
+                            match cohorts.cohort_map.get(&crate::types::GlobalNumber(*dter)) {
+                                None => continue,
+                                Some(&c) => c,
+                            };
                         // The span test is always measured against the ORIGINAL
                         // `cohort`'s window, not `cohort_inner`'s.
                         if span_good(store, pos, current, cohort_parent, cohort_win) {
@@ -563,14 +566,14 @@ impl DepAncestorIter {
         span: bool,
         store: &RuntimeStore,
         grammar: &Grammar,
-        window: &Window,
+        cohorts: &CohortRegistry,
     ) -> Self {
         let mut it = DepAncestorIter {
             base: CohortIterator::new(cohort, test, span),
             m_ancestors: Vec::new(),
             m_ai: 0,
         };
-        it.reset(cohort, test, span, store, grammar, window);
+        it.reset(cohort, test, span, store, grammar, cohorts);
         it
     }
 
@@ -598,7 +601,7 @@ impl DepAncestorIter {
         span: bool,
         store: &RuntimeStore,
         grammar: &Grammar,
-        window: &Window,
+        cohorts: &CohortRegistry,
     ) {
         self.base.reset(cohort, test, span);
         self.m_ancestors.clear();
@@ -614,7 +617,7 @@ impl DepAncestorIter {
                 let dep_parent = store.cohorts[current.0].dep_parent;
                 // C++ looks the raw value up unconditionally; DEP_NO_PARENT
                 // simply misses the map, exactly like None here.
-                current = match dep_parent.and_then(|dp| window.cohort_map.get(&dp)) {
+                current = match dep_parent.and_then(|dp| cohorts.cohort_map.get(&dp)) {
                     None => break,
                     Some(&c) => c,
                 };

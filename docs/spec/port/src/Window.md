@@ -3,7 +3,7 @@
 > [spec:cg3:def:window.cg3.single-window-cont]
 > typedef std::vector<SingleWindow*> SingleWindowCont
 
-> [spec:cg3:def:window.cg3.window]
+> [spec:cg3:def:window.cg3.window+1]
 > class Window {
 >   GrammarApplicator* parent = nullptr;
 >   uint32_t cohort_counter = 0;
@@ -17,6 +17,29 @@
 >   SingleWindow* current = nullptr;
 >   SingleWindowCont next;
 > }
+>
+> Stage-B dissolution (v1): the port dissolves the single `Window` class into
+> three cohesive views held side-by-side on the engine's `Document`
+> (`GrammarApplicator::doc`), with every member mapped 1:1 and semantics
+> unchanged:
+>
+> - `WindowStream` — `previous`, `current`, `next`, `window_counter`,
+>   `window_span`, plus every stream method (`allocSingleWindow`,
+>   `allocPushSingleWindow`, `allocAppendSingleWindow`, `back`,
+>   `shuffleWindowsDown`, `rebuildSingleWindowLinks`, `rebuildCohortLinks`, and
+>   the destructor as the explicit `destroy`). All `Window::` method rules below
+>   keep their ids; their ported receivers are now `WindowStream`.
+> - `CohortRegistry` — `cohort_counter` and `cohort_map` (plus the
+>   `cohort_counter++` post-increment idiom as `next_cohort_number()`).
+> - `DepBookkeeping` — `dep_map`, `dep_window`, `relation_map`, joined by the
+>   dependency-flavoured document latches re-homed from `GrammarApplicator`
+>   (`has_dep`, `has_relations`, `dep_highest_seen`).
+>
+> `GrammarApplicator* parent` remains unported (the engine owns the views and
+> threads them explicitly). Free functions that reached the owning `Window`
+> (`free_swindow`, `SingleWindow::clear`/dtor, `appendCohort`, the cohort
+> clear/dtor map-erases, the dep-iterator `cohort_map` lookups) now take the
+> narrowed view(s) they actually touch.
 
 > [spec:cg3:def:window.cg3.window.alloc-append-single-window-fn]
 > SingleWindow* Window::allocAppendSingleWindow()
@@ -103,7 +126,7 @@
 > [spec:cg3:def:window.cg3.window.window-fn]
 > Window::~Window()
 
-> [spec:cg3:sem:window.cg3.window.window-fn]
+> [spec:cg3:sem:window.cg3.window.window-fn+1]
 > Destructor. For each `SingleWindow*` in `previous`, call `free_swindow(iter)`
 > (which `clear()`s it and returns it to the shared thread-local pool). Then
 > `free_swindow(current)`. Then for each in `next`, `free_swindow`. Recycles all of
@@ -111,4 +134,9 @@
 > destroyed afterward by their own destructors. (The loops iterate by value, so the
 > pointers inside the vectors are not themselves nulled, but the vectors die
 > immediately after.)
+>
+> v1 (Stage-B): ported as the explicit `WindowStream::destroy`, which threads
+> `&mut RuntimeStore` plus the `&mut CohortRegistry` / `&mut DepBookkeeping`
+> views that `free_swindow`'s teardown prunes (the maps formerly reached through
+> the same `Window` object). Behavior identical.
 

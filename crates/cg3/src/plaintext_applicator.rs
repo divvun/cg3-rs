@@ -6,8 +6,8 @@
 //! ## Composition, not inheritance
 //! C++ `class PlaintextApplicator : public virtual GrammarApplicator`. The Rust
 //! applicator owns or borrows a [`GrammarApplicator`] via `base` and forwards to it
-//! (`self.base.run_grammar_on_window`, `self.base.store`, `self.base.grammar`,
-//! `self.base.window`). `printCohort`/`printSingleWindow`/`runGrammarOnText`
+//! (`self.base.run_grammar_on_window`, `self.base.doc.store`, `self.base.grammar`,
+//! `self.base.doc.stream`). `printCohort`/`printSingleWindow`/`runGrammarOnText`
 //! are reimplemented here.
 //!
 //! ## Reproduced quirk (DEAD-code / single-window)
@@ -158,7 +158,7 @@ where
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
-        self.base.window.window_span = self.base.cfg.num_windows;
+        self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
         ux_strip_bom(input);
 
@@ -186,14 +186,14 @@ where
             if !ignoreinput && !cleaned.is_empty() && !cleaned.starts_with('<') {
                 // cCohort empty-readings init (dead in practice: cCohort is null).
                 if let Some(cc) = c_cohort
-                    && self.base.store.cohorts.get(cc.0).readings.is_empty()
+                    && self.base.doc.store.cohorts.get(cc.0).readings.is_empty()
                 {
                     self.base.init_empty_cohort(cc);
                 }
 
                 // (a) Soft-limit lookback (the ONLY split path that can fire).
                 if let Some(sw) = c_swindow {
-                    let over_soft = self.base.store.single_windows.get(sw.0).cohorts.len()
+                    let over_soft = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                         >= self.base.cfg.soft_limit as usize;
                     if over_soft
                         && self.base.grammar.soft_delimiters.is_some()
@@ -204,15 +204,16 @@ where
                             [self.base.grammar.soft_delimiters.unwrap().0]
                             .number
                             .get();
-                        let cohorts = self.base.store.single_windows.get(sw.0).cohorts.clone();
+                        let cohorts = self.base.doc.store.single_windows.get(sw.0).cohorts.clone();
                         for &c in cohorts.iter().rev() {
                             if self.base.does_set_match_cohort_normal(c, sd, None) {
                                 did_soft_lookback = false;
                                 let cohort = self.base.delimit_at(sw, c);
-                                let parent = self.base.store.cohorts.get(cohort.0).parent.unwrap();
-                                c_swindow = self.base.store.single_windows.get(parent.0).next;
+                                let parent =
+                                    self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
+                                c_swindow = self.base.doc.store.single_windows.get(parent.0).next;
                                 if let Some(cc) = c_cohort {
-                                    self.base.store.cohorts.get_mut(cc.0).parent = c_swindow;
+                                    self.base.doc.store.cohorts.get_mut(cc.0).parent = c_swindow;
                                 }
                                 // verbose soft-limit warning: deferred.
                                 break;
@@ -223,7 +224,7 @@ where
 
                 // (b) Soft-delimiter break (DEAD: cCohort is null here).
                 if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
-                    let over_soft = self.base.store.single_windows.get(sw.0).cohorts.len()
+                    let over_soft = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                         >= self.base.cfg.soft_limit as usize;
                     let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
                         let sd = self.base.grammar.sets_list
@@ -233,7 +234,7 @@ where
                         self.base.does_set_match_cohort_normal(cc, sd, None)
                     };
                     if over_soft && sd_hit {
-                        let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+                        let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
                             let te = self.base.cfg.endtag;
                             let tid = tag_by_hash(&self.base.grammar, te);
@@ -242,8 +243,9 @@ where
                         {
                             let base = &mut *self.base;
                             crate::single_window::append_cohort(
-                                &mut base.window,
-                                &mut base.store,
+                                &mut base.doc.store,
+                                &mut base.doc.cohorts,
+                                &mut base.doc.deps,
                                 sw,
                                 cc,
                             );
@@ -252,7 +254,7 @@ where
                         l_cohort = Some(cc);
                         c_swindow = None;
                         c_cohort = None;
-                        self.base.numCohorts += 1;
+                        self.base.doc.num_cohorts += 1;
                         did_soft_lookback = false;
                     }
                 }
@@ -260,10 +262,11 @@ where
                 // (c) Hard break (DEAD: cCohort is null here).
                 if let Some(cc) = c_cohort {
                     let sw = c_swindow.unwrap();
-                    let over_hard = self.base.store.single_windows.get(sw.0).cohorts.len()
+                    let over_hard = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                         >= self.base.cfg.hard_limit as usize;
-                    let delim_hit =
-                        self.base.cfg.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
+                    let delim_hit = self.base.cfg.dep_delimit == 0
+                        && self.base.grammar.delimiters.is_some()
+                        && {
                             let d = self.base.grammar.sets_list
                                 [self.base.grammar.delimiters.unwrap().0]
                                 .number
@@ -271,7 +274,7 @@ where
                             self.base.does_set_match_cohort_normal(cc, d, None)
                         };
                     if over_hard || delim_hit {
-                        let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+                        let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
                             let te = self.base.cfg.endtag;
                             let tid = tag_by_hash(&self.base.grammar, te);
@@ -280,8 +283,9 @@ where
                         {
                             let base = &mut *self.base;
                             crate::single_window::append_cohort(
-                                &mut base.window,
-                                &mut base.store,
+                                &mut base.doc.store,
+                                &mut base.doc.cohorts,
+                                &mut base.doc.deps,
                                 sw,
                                 cc,
                             );
@@ -290,7 +294,7 @@ where
                         l_cohort = Some(cc);
                         c_swindow = None;
                         c_cohort = None;
-                        self.base.numCohorts += 1;
+                        self.base.doc.num_cohorts += 1;
                         did_soft_lookback = false;
                     }
                 }
@@ -299,23 +303,25 @@ where
                 if c_swindow.is_none() {
                     let sw = {
                         let base = &mut *self.base;
-                        base.window.alloc_append_single_window(&mut base.store)
+                        base.doc
+                            .stream
+                            .alloc_append_single_window(&mut base.doc.store)
                     };
                     self.base.init_empty_single_window(sw);
                     l_swindow = Some(sw);
                     // lCohort = cSWindow->cohorts[0] (the boundary cohort).
-                    l_cohort = Some(self.base.store.single_windows.get(sw.0).cohorts[0]);
+                    l_cohort = Some(self.base.doc.store.single_windows.get(sw.0).cohorts[0]);
                     c_swindow = Some(sw);
                     c_cohort = None;
-                    self.base.numWindows += 1;
+                    self.base.doc.num_windows += 1;
                     did_soft_lookback = false;
                 }
 
                 // Drain a window if enough queued (dead: next never grows here).
-                if self.base.window.next.len() > self.base.cfg.num_windows as usize {
+                if self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize {
                     self.base.shuffle_windows_down();
                     self.base.run_grammar_on_window_with(fmt, output);
-                    if self.base.numWindows.is_multiple_of(reset_after) {
+                    if self.base.doc.num_windows.is_multiple_of(reset_after) {
                         self.base.reset_indexes();
                     }
                     // verbose progress: deferred.
@@ -369,22 +375,22 @@ where
                     }
 
                     let sw = c_swindow.unwrap();
-                    let cc = crate::cohort::alloc_cohort(&mut self.base.store, Some(sw));
-                    let gn = self.base.window.next_cohort_number();
+                    let cc = crate::cohort::alloc_cohort(&mut self.base.doc.store, Some(sw));
+                    let gn = self.base.doc.cohorts.next_cohort_number();
                     let token_str: String = token.iter().collect();
                     let wf_text = format!("\"<{token_str}>\"");
                     let wf = self.base.add_tag(&wf_text, crate::tag::TagType::empty());
                     {
-                        let c = self.base.store.cohorts.get_mut(cc.0);
+                        let c = self.base.doc.store.cohorts.get_mut(cc.0);
                         c.global_number = gn;
                         c.wordform = Some(wf);
                     }
                     c_cohort = Some(cc);
                     l_cohort = Some(cc);
-                    self.base.numCohorts += 1;
+                    self.base.doc.num_cohorts += 1;
                     let cr = self.base.init_empty_cohort(cc);
                     c_reading = Some(cr);
-                    self.base.store.readings.get_mut(cr.0).noprint = !self.add_tags;
+                    self.base.doc.store.readings.get_mut(cr.0).noprint = !self.add_tags;
                     if self.add_tags {
                         let tag = self.base.add_tag("<cg-conv>", crate::tag::TagType::empty());
                         self.base.add_tag_to_reading(cr, tag);
@@ -392,6 +398,7 @@ where
                     if self.add_tags && (first_upper || all_upper || mixed_upper) {
                         let baseform = self
                             .base
+                            .doc
                             .store
                             .readings
                             .get(cr.0)
@@ -426,8 +433,9 @@ where
                     {
                         let base = &mut *self.base;
                         crate::single_window::append_cohort(
-                            &mut base.window,
-                            &mut base.store,
+                            &mut base.doc.store,
+                            &mut base.doc.cohorts,
+                            &mut base.doc.deps,
                             sw,
                             cc,
                         );
@@ -441,9 +449,16 @@ where
             if is_text && !cleaned.is_empty() && !line.is_empty() {
                 let text: String = line.clone();
                 if let Some(lc) = l_cohort {
-                    self.base.store.cohorts.get_mut(lc.0).text.push_str(&text);
+                    self.base
+                        .doc
+                        .store
+                        .cohorts
+                        .get_mut(lc.0)
+                        .text
+                        .push_str(&text);
                 } else if let Some(ls) = l_swindow {
                     self.base
+                        .doc
                         .store
                         .single_windows
                         .get_mut(ls.0)
@@ -454,7 +469,7 @@ where
                 }
             }
 
-            self.base.numLines += 1;
+            self.base.doc.num_lines += 1;
             line.clear();
             cleaned.clear();
 
@@ -465,18 +480,24 @@ where
             }
         }
 
-        self.base.input_eof = true;
+        self.base.doc.input_eof = true;
 
         // Finalization (in practice cCohort is null → this is unreached).
         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
             {
                 let base = &mut *self.base;
-                crate::single_window::append_cohort(&mut base.window, &mut base.store, sw, cc);
+                crate::single_window::append_cohort(
+                    &mut base.doc.store,
+                    &mut base.doc.cohorts,
+                    &mut base.doc.deps,
+                    sw,
+                    cc,
+                );
             }
-            if self.base.store.cohorts.get(cc.0).readings.is_empty() {
+            if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
                 self.base.init_empty_cohort(cc);
             }
-            let rs = self.base.store.cohorts.get(cc.0).readings.clone();
+            let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let te = self.base.cfg.endtag;
                 let tid = tag_by_hash(&self.base.grammar, te);
@@ -495,15 +516,20 @@ where
         }
 
         self.base.shuffle_windows_down();
-        while !self.base.window.previous.is_empty() {
-            let tmp = self.base.window.previous[0];
+        while !self.base.doc.stream.previous.is_empty() {
+            let tmp = self.base.doc.stream.previous[0];
             fmt.print_single_window(&mut self.base, tmp, output, false);
             let t = Some(tmp);
             {
                 let base = &mut *self.base;
-                crate::single_window::free_swindow(&mut base.window, &mut base.store, t);
+                crate::single_window::free_swindow(
+                    &mut base.doc.store,
+                    &mut base.doc.cohorts,
+                    &mut base.doc.deps,
+                    t,
+                );
             }
-            self.base.window.previous.remove(0);
+            self.base.doc.stream.previous.remove(0);
         }
 
         u_fflush(output);
@@ -516,7 +542,7 @@ where
     /// boundary cohort (local_number 0) and `CT_REMOVED` cohorts print nothing.
     pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, _profiling: bool) {
         let (local_number, removed, wf) = {
-            let c = self.base.store.cohorts.get(cohort.0);
+            let c = self.base.doc.store.cohorts.get(cohort.0);
             (c.local_number, c.r#type.intersects(CT_REMOVED), c.wordform)
         };
         if local_number == 0 {
@@ -541,6 +567,7 @@ where
     pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         let all_cohorts = self
             .base
+            .doc
             .store
             .single_windows
             .get(window.0)

@@ -207,6 +207,21 @@ children (
                         title "Document: store (arenas) + WindowStream (previous/current/next + rotation) + CohortRegistry (cohort_counter/cohort_map) + DepBookkeeping (dep_map/dep_window/relation_map) + variables + run counters (numLines/numWindows/numCohorts/numReadings, renamed) move to self.doc — the Window type dissolves into these three sub-structs here"
                         priority 0
                         deps (engine-decomp.rehome.config engine-decomp.window-api)
+                        log (
+                            {
+                                at 2026-07-18T15:51:30.574572Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Todo → Doing (nplan_start)"
+                            }
+
+                            {
+                                at 2026-07-19T15:58:52.706479Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Doing → Done (nplan_complete)"
+                            }
+                        )
                     }
 
                     {

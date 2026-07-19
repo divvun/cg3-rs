@@ -755,24 +755,30 @@ fn format_converter_print_dispatch() {
     // Hand-build one window with one cohort ("<word>" with reading "word" X).
     let (sw, cohort) = {
         let b = fc.base_mut();
-        let sw = b.window.alloc_append_single_window(&mut b.store);
+        let sw = b.doc.stream.alloc_append_single_window(&mut b.doc.store);
         b.init_empty_single_window(sw);
-        let c = cg3::cohort::alloc_cohort(&mut b.store, Some(sw));
+        let c = cg3::cohort::alloc_cohort(&mut b.doc.store, Some(sw));
         let wf = b.add_tag("\"<word>\"", cg3::tag::TagType::empty());
         {
-            let co = b.store.cohorts.get_mut(c.0);
+            let co = b.doc.store.cohorts.get_mut(c.0);
             co.wordform = Some(wf);
             co.global_number = cg3::types::GlobalNumber(1);
         }
-        let r = cg3::reading::alloc_reading(&mut b.store, Some(c));
+        let r = cg3::reading::alloc_reading(&mut b.doc.store, Some(c));
         b.add_tag_to_reading(r, wf);
         let bf = b.add_tag("\"word\"", cg3::tag::TagType::empty());
         b.add_tag_to_reading(r, bf);
         let t = b.add_tag("X", cg3::tag::TagType::empty());
         b.add_tag_to_reading(r, t);
-        cg3::cohort::append_reading(&mut b.store, c, r);
-        cg3::single_window::append_cohort(&mut b.window, &mut b.store, sw, c);
-        b.store.cohorts.get_mut(c.0).local_number = 1;
+        cg3::cohort::append_reading(&mut b.doc.store, c, r);
+        cg3::single_window::append_cohort(
+            &mut b.doc.store,
+            &mut b.doc.cohorts,
+            &mut b.doc.deps,
+            sw,
+            c,
+        );
+        b.doc.store.cohorts.get_mut(c.0).local_number = 1;
         (sw, c)
     };
 

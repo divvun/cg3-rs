@@ -29,7 +29,7 @@ use crate::reading::{Reading, ReadingList, alloc_reading, alloc_reading_copy, fr
 use crate::sorted_vector::{sorted_vector, uint32SortedVector};
 use crate::store::RuntimeStore;
 use crate::types::{GlobalNumber, UString, flags_t};
-use crate::window::Window;
+use crate::window::{CohortRegistry, DepBookkeeping};
 
 // Cohort `type` bit flags (C++ anonymous enum, OR'd into the `uint8_t type`
 // field — kept as `u8` constants to match that field's width). No spec def id.
@@ -200,15 +200,18 @@ impl Default for Cohort {
 //   needed) + `this: CohortId`, and destructure the store
 //   (`let RuntimeStore { cohorts, readings, .. } = store;`) to hold two arenas at
 //   once with short borrows.
-// * The owning `Window` is NOT an arena type and is not held by `RuntimeStore`
-//   (it belongs to the engine layer). CG-3 reaches it as `cohort->parent`
-//   (a `SingleWindow*`) `->parent` (a `Window*`) to erase the cohort's
-//   `global_number` from `cohort_map`/`dep_window`. Since neither the store nor
-//   the `u32` `SingleWindow::parent` handle can resolve a `Window`, the three fns
-//   that perform that erase (`cohort_clear`, `cohort_dtor`, `free_cohort`) take an
-//   extra `window: Option<&mut Window>` supplied by the engine layer — MY
-//   CONVENTION for "the Window/engine layer calls these". The map erase happens
-//   only when the C++ null-checks pass AND the caller supplied the `Window`.
+// * The owning document window is NOT an arena type and is not held by
+//   `RuntimeStore` (it belongs to the engine layer). CG-3 reaches it as
+//   `cohort->parent` (a `SingleWindow*`) `->parent` (a `Window*`) to erase the
+//   cohort's `global_number` from `cohort_map`/`dep_window`. Since neither the
+//   store nor the `u32` `SingleWindow::parent` handle can resolve the window, the
+//   three fns that perform that erase (`cohort_clear`, `cohort_dtor`,
+//   `free_cohort`) take an extra `window: Option<(&mut CohortRegistry, &mut
+//   DepBookkeeping)>` supplied by the engine layer (Stage-B: the C++ `Window` was
+//   dissolved into these views; `cohort_map` lives on `CohortRegistry`,
+//   `dep_window` on `DepBookkeeping`) — MY CONVENTION for "the window/engine
+//   layer calls these". The map erase happens only when the C++ null-checks pass
+//   AND the caller supplied the views.
 
 /// Frees every `Reading` id in `ids` back to the reading pool (each via
 /// [`free_reading`]). NOT a manifest symbol — the shared inner loop of the C++
@@ -254,7 +257,11 @@ pub fn alloc_cohort(store: &mut RuntimeStore, p: Option<SwId>) -> CohortId {
 /// from the Window maps and sibling chain) — then returns the arena slot to
 /// the free-list. (The C++ `Cohort*&` null-out is ownership by value here —
 /// wave 4; a caller keeping a long-lived handle sets it `None` itself.)
-pub fn free_cohort(store: &mut RuntimeStore, window: Option<&mut Window>, c: Option<CohortId>) {
+pub fn free_cohort(
+    store: &mut RuntimeStore,
+    window: Option<(&mut CohortRegistry, &mut DepBookkeeping)>,
+    c: Option<CohortId>,
+) {
     let Some(id) = c else { return };
     cohort_clear(store, window, id);
     store.cohorts.free_slot(id.0);
@@ -272,7 +279,11 @@ pub fn free_cohort(store: &mut RuntimeStore, window: Option<&mut Window>, c: Opt
 /// the erase is gated only on the cohort's own `parent`, not on the
 /// SingleWindow's `parent` handle). Finally detaches from the sibling chain. Does
 /// NOT reset the scalar fields (the object is being destroyed).
-pub fn cohort_dtor(store: &mut RuntimeStore, window: Option<&mut Window>, this: CohortId) {
+pub fn cohort_dtor(
+    store: &mut RuntimeStore,
+    window: Option<(&mut CohortRegistry, &mut DepBookkeeping)>,
+    this: CohortId,
+) {
     let (rd, del, dly, ign, wr) = {
         let c = store.cohorts.get(this.0);
         (
@@ -291,11 +302,12 @@ pub fn cohort_dtor(store: &mut RuntimeStore, window: Option<&mut Window>, this: 
     store.cohorts.get_mut(this.0).wread = None; // free_reading(wread) nulls the member
 
     if store.cohorts.get(this.0).parent.is_some()
-        && let Some(win) = window {
-            let gn = store.cohorts.get(this.0).global_number;
-            win.cohort_map.remove(&gn);
-            win.dep_window.remove(&gn);
-        }
+        && let Some((registry, deps)) = window
+    {
+        let gn = store.cohorts.get(this.0).global_number;
+        registry.cohort_map.remove(&gn);
+        deps.dep_window.remove(&gn);
+    }
     detach(store, this);
 }
 
@@ -316,19 +328,25 @@ pub fn cohort_dtor(store: &mut RuntimeStore, window: Option<&mut Window>, this: 
 /// QUIRK (reproduced, NOT fixed): the `ignored` list is NOT cleared after its
 /// readings are freed, so it is left holding dangling ids to freed/recycled
 /// readings.
-pub fn cohort_clear(store: &mut RuntimeStore, window: Option<&mut Window>, this: CohortId) {
+pub fn cohort_clear(
+    store: &mut RuntimeStore,
+    window: Option<(&mut CohortRegistry, &mut DepBookkeeping)>,
+    this: CohortId,
+) {
     // if (parent && parent->parent) { cohort_map.erase(gn); dep_window.erase(gn); }
     let sw = store.cohorts.get(this.0).parent;
     let sw_has_parent = match sw {
         Some(sw_id) => store.single_windows.get(sw_id.0).parent.is_some(),
         None => false,
     };
-    if sw.is_some() && sw_has_parent
-        && let Some(win) = window {
-            let gn = store.cohorts.get(this.0).global_number;
-            win.cohort_map.remove(&gn);
-            win.dep_window.remove(&gn);
-        }
+    if sw.is_some()
+        && sw_has_parent
+        && let Some((registry, deps)) = window
+    {
+        let gn = store.cohorts.get(this.0).global_number;
+        registry.cohort_map.remove(&gn);
+        deps.dep_window.remove(&gn);
+    }
     detach(store, this);
 
     {

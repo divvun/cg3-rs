@@ -6,8 +6,8 @@
 //! ============================================================================
 //! * REQUIRED mod.rs FIELD (missing from the current scaffold): the applicator
 //!   must own `pub store: RuntimeStore` (`crate::store::RuntimeStore`). The
-//!   cohort/reading matchers resolve `ReadingId`/`CohortId` via `self.store`
-//!   exactly as the task brief states (`self.store.readings[rid.0]`). Add:
+//!   cohort/reading matchers resolve `ReadingId`/`CohortId` via `self.doc.store`
+//!   exactly as the task brief states (`self.doc.store.readings[rid.0]`). Add:
 //!   pub store: crate::store::RuntimeStore,
 //!   (default `RuntimeStore::new()` in `GrammarApplicator::new`).
 //!
@@ -35,7 +35,7 @@
 //!     does_set_match_cohort_helper, does_set_match_cohort_test_linked,
 //!     get_tags_matching — all take `reading`/`cohort` as arena ids (ReadingId /
 //!     CohortId), never `&Reading`/`&Cohort` (the arena lives inside `self`, so a
-//!     `&Reading` borrowed from `self.store` cannot coexist with `&mut self`).
+//!     `&Reading` borrowed from `self.doc.store` cannot coexist with `&mut self`).
 //!
 //! REGEX MAPPING (ICU `uregex_find(-1)` == UNANCHORED search): a tag's
 //! `regexp: Option<regex::Regex>` was compiled at parse time (`/.../` unanchored,
@@ -418,7 +418,7 @@ impl super::GrammarApplicator {
         let gc = group_count(tag);
         let mut m: u32 = 0;
         let (tsh, ts) = {
-            let r = self.store.readings.get(reading.0);
+            let r = self.doc.store.readings.get(reading.0);
             (r.tags_string_hash, r.tags_string.clone())
         };
         let ih = make_64(tsh, tag.hash.get());
@@ -470,6 +470,7 @@ impl super::GrammarApplicator {
             return self.does_regexp_match_line(reading, tag, bypass_index);
         }
         let textual: Vec<u32> = self
+            .doc
             .store
             .readings
             .get(reading.0)
@@ -506,7 +507,7 @@ impl super::GrammarApplicator {
 
         if !tag.r#type.intersects(T_SPECIAL) || tag.r#type.intersects(T_FAILFAST) {
             // (1) plain / fail-fast tag
-            let r = self.store.readings.get(reading.0);
+            let r = self.doc.store.readings.get(reading.0);
             let mut raw_in = r.tags_plain_bloom.matches(tag.hash.get());
             if tag.r#type.intersects(T_FAILFAST) {
                 raw_in = r.tags_plain.find(tag.plain_hash.get()) != r.tags_plain.end();
@@ -533,9 +534,9 @@ impl super::GrammarApplicator {
             // (4) META regex against the cohort's parenthetical text
             if let Some(re) = tag.regexp.as_ref() {
                 let text = {
-                    let pc = self.store.readings.get(reading.0).parent;
+                    let pc = self.doc.store.readings.get(reading.0).parent;
                     match pc {
-                        Some(cid) => self.store.cohorts.get(cid.0).text.clone(),
+                        Some(cid) => self.doc.store.cohorts.get(cid.0).text.clone(),
                         None => UString::new(),
                     }
                 };
@@ -563,6 +564,7 @@ impl super::GrammarApplicator {
         } else if tag.r#type.intersects(T_CASE_INSENSITIVE) {
             // (6) case-insensitive
             let textual: Vec<u32> = self
+                .doc
                 .store
                 .readings
                 .get(reading.0)
@@ -579,6 +581,7 @@ impl super::GrammarApplicator {
             // (7) <.*>/".*" any-forms
             if tag.r#type.intersects(T_BASEFORM) {
                 let bf = self
+                    .doc
                     .store
                     .readings
                     .get(reading.0)
@@ -596,8 +599,8 @@ impl super::GrammarApplicator {
                 }
             } else if tag.r#type.intersects(T_WORDFORM) {
                 let wf_hash = {
-                    let cid = self.store.readings.get(reading.0).parent.unwrap();
-                    let wf = self.store.cohorts.get(cid.0).wordform.unwrap();
+                    let cid = self.doc.store.readings.get(reading.0).parent.unwrap();
+                    let wf = self.doc.store.cohorts.get(cid.0).wordform.unwrap();
                     self.grammar.single_tags_list[wf.0].hash
                 };
                 m = wf_hash.get();
@@ -612,6 +615,7 @@ impl super::GrammarApplicator {
                 }
             } else {
                 let textual: Vec<u32> = self
+                    .doc
                     .store
                     .readings
                     .get(reading.0)
@@ -645,6 +649,7 @@ impl super::GrammarApplicator {
         } else if tag.r#type.intersects(T_NUMERICAL) {
             // (8) numerical — LAST matching numerical tag wins (no break)
             let nums: Vec<TagId> = self
+                .doc
                 .store
                 .readings
                 .get(reading.0)
@@ -654,7 +659,8 @@ impl super::GrammarApplicator {
                 .collect();
             for tid in nums {
                 let itag = self.grammar.single_tags_list[tid.0].clone();
-                let rv = test_tag_numerical(&mut self.store, &self.grammar, reading, tag, &itag);
+                let rv =
+                    test_tag_numerical(&mut self.doc.store, &self.grammar, reading, tag, &itag);
                 if rv != TagHash(0) {
                     m = rv.get();
                 }
@@ -662,15 +668,16 @@ impl super::GrammarApplicator {
         } else if tag.r#type.intersects(T_VARIABLE | T_LOCAL_VARIABLE) {
             // (9) variable existence / value comparison
             m = 0;
-            let cid = self.store.readings.get(reading.0).parent.unwrap();
-            let sw_opt = self.store.cohorts.get(cid.0).parent;
+            let cid = self.doc.store.readings.get(reading.0).parent.unwrap();
+            let sw_opt = self.doc.store.cohorts.get(cid.0).parent;
             let use_global =
-                sw_opt == self.window.current || (!tag.r#type.intersects(T_LOCAL_VARIABLE));
+                sw_opt == self.doc.stream.current || (!tag.r#type.intersects(T_LOCAL_VARIABLE));
             let var_entries: Vec<(u32, u32)> = if use_global {
-                collect_fum(&self.variables)
+                collect_fum(&self.doc.variables)
             } else {
                 collect_fum(
                     &self
+                        .doc
                         .store
                         .single_windows
                         .get(sw_opt.unwrap().0)
@@ -741,10 +748,10 @@ impl super::GrammarApplicator {
             // (10)
             if self.par_left_tag != TagHash(0) {
                 let (ln, has) = {
-                    let r = self.store.readings.get(reading.0);
+                    let r = self.doc.store.readings.get(reading.0);
                     let cid = r.parent.unwrap();
                     let has = r.tags.find(self.par_left_tag.get()) != r.tags.end();
-                    (self.store.cohorts.get(cid.0).local_number, has)
+                    (self.doc.store.cohorts.get(cid.0).local_number, has)
                 };
                 if ln == self.par_left_pos && has {
                     m = self.grammar.tag_any;
@@ -754,10 +761,10 @@ impl super::GrammarApplicator {
             // (11)
             if self.par_right_tag != TagHash(0) {
                 let (ln, has) = {
-                    let r = self.store.readings.get(reading.0);
+                    let r = self.doc.store.readings.get(reading.0);
                     let cid = r.parent.unwrap();
                     let has = r.tags.find(self.par_right_tag.get()) != r.tags.end();
-                    (self.store.cohorts.get(cid.0).local_number, has)
+                    (self.doc.store.cohorts.get(cid.0).local_number, has)
                 };
                 if ln == self.par_right_pos && has {
                     m = self.grammar.tag_any;
@@ -765,42 +772,48 @@ impl super::GrammarApplicator {
             }
         } else if tag.r#type.intersects(T_ENCL) {
             // (12) enclosure: the cohort right after reading.parent is enclosed
-            let cid = self.store.readings.get(reading.0).parent.unwrap();
+            let cid = self.doc.store.readings.get(reading.0).parent.unwrap();
             let (sw_id, local_number) = {
-                let c = self.store.cohorts.get(cid.0);
+                let c = self.doc.store.cohorts.get(cid.0);
                 (c.parent.unwrap(), c.local_number as usize)
             };
-            let all = self.store.single_windows.get(sw_id.0).all_cohorts.clone();
+            let all = self
+                .doc
+                .store
+                .single_windows
+                .get(sw_id.0)
+                .all_cohorts
+                .clone();
             // std::find(begin + local_number, end, reading.parent), then ++c.
             let mut idx = local_number;
             while idx < all.len() && all[idx] != cid {
                 idx += 1;
             }
             let cpos = idx + 1;
-            if cpos < all.len() && self.store.cohorts.get(all[cpos].0).enclosed != 0 {
+            if cpos < all.len() && self.doc.store.cohorts.get(all[cpos].0).enclosed != 0 {
                 m = 1;
             }
         } else if tag.r#type.intersects(T_TARGET) {
             // (13)
-            let pc = self.store.readings.get(reading.0).parent;
+            let pc = self.doc.store.readings.get(reading.0).parent;
             if self.rule_target.is_some() && pc == self.rule_target {
                 m = self.grammar.tag_any;
             }
         } else if tag.r#type.intersects(T_MARK) {
             // (14)
-            let pc = self.store.readings.get(reading.0).parent;
+            let pc = self.doc.store.readings.get(reading.0).parent;
             if pc == self.get_mark() {
                 m = self.grammar.tag_any;
             }
         } else if tag.r#type.intersects(T_ATTACHTO) {
             // (15)
-            let pc = self.store.readings.get(reading.0).parent;
+            let pc = self.doc.store.readings.get(reading.0).parent;
             if pc == self.get_attach_to().cohort {
                 m = self.grammar.tag_any;
             }
         } else if tag.r#type.intersects(T_SAME_BASIC) {
             // (16)
-            let hp = self.store.readings.get(reading.0).hash_plain;
+            let hp = self.doc.store.readings.get(reading.0).hash_plain;
             if hp == self.same_basic {
                 m = self.grammar.tag_any;
             }
@@ -809,7 +822,7 @@ impl super::GrammarApplicator {
             if self.context_stack.len() > 1 {
                 let idx = self.context_stack.len() - 2;
                 let crp = tag.context_ref_pos();
-                let pc = self.store.readings.get(reading.0).parent;
+                let pc = self.doc.store.readings.get(reading.0).parent;
                 let list = &self.context_stack[idx].context;
                 if crp as usize <= list.len() && pc == list[(crp - 1) as usize] {
                     m = self.grammar.tag_any;
@@ -836,7 +849,7 @@ impl super::GrammarApplicator {
         the_tags: &TagList,
         rv_tags: &mut TagList,
     ) {
-        let tags_list: Vec<u32> = self.store.readings.get(reading.0).tags_list.clone();
+        let tags_list: Vec<u32> = self.doc.store.readings.get(reading.0).tags_list.clone();
         for &tid in the_tags {
             let tag = self.grammar.single_tags_list[tid.0].clone();
             for &tt in &tags_list {
@@ -857,6 +870,7 @@ impl super::GrammarApplicator {
                     if tag.r#type.intersects(T_BASEFORM) {
                         if itype.intersects(T_BASEFORM) {
                             m = self
+                                .doc
                                 .store
                                 .readings
                                 .get(reading.0)
@@ -865,8 +879,8 @@ impl super::GrammarApplicator {
                         }
                     } else if tag.r#type.intersects(T_WORDFORM) {
                         if itype.intersects(T_WORDFORM) {
-                            let cid = self.store.readings.get(reading.0).parent.unwrap();
-                            let wf = self.store.cohorts.get(cid.0).wordform.unwrap();
+                            let cid = self.doc.store.readings.get(reading.0).parent.unwrap();
+                            let wf = self.doc.store.cohorts.get(cid.0).wordform.unwrap();
                             m = self.grammar.single_tags_list[wf.0].hash.get();
                         }
                     } else if !itype.intersects(T_BASEFORM | T_WORDFORM) {
@@ -877,8 +891,14 @@ impl super::GrammarApplicator {
                     }
                 } else if (tag.r#type.intersects(T_NUMERICAL)) && (itype.intersects(T_NUMERICAL)) {
                     let itag = self.grammar.single_tags_list[itag_id.0].clone();
-                    m = test_tag_numerical(&mut self.store, &self.grammar, reading, &tag, &itag)
-                        .get();
+                    m = test_tag_numerical(
+                        &mut self.doc.store,
+                        &self.grammar,
+                        reading,
+                        &tag,
+                        &itag,
+                    )
+                    .get();
                 } else if tag.hash == ihash {
                     m = ihash.get();
                 }
@@ -968,6 +988,7 @@ impl super::GrammarApplicator {
         // Main fast path: merge-intersect the reading's plain tags with the trie's
         // first-level keys (both ascending by hash).
         let plain: Vec<u32> = self
+            .doc
             .store
             .readings
             .get(reading.0)
@@ -1041,7 +1062,7 @@ impl super::GrammarApplicator {
         unif_mode: bool,
     ) -> bool {
         if !bypass_index && !unif_mode {
-            let rhash = self.store.readings.get(reading.0).hash;
+            let rhash = self.doc.store.readings.get(reading.0).hash;
             if self.index_readingSet_no[set as usize].contains(rhash) {
                 return false;
             }
@@ -1217,10 +1238,10 @@ impl super::GrammarApplicator {
 
         // Cache the result.
         if retval {
-            let rhash = self.store.readings.get(reading.0).hash;
+            let rhash = self.doc.store.readings.get(reading.0).hash;
             self.index_readingSet_yes[set as usize].insert(rhash);
         } else if !stype.intersects(ST_TAG_UNIFY) && !unif_mode {
-            let rhash = self.store.readings.get(reading.0).hash;
+            let rhash = self.doc.store.readings.get(reading.0).hash;
             self.index_readingSet_no[set as usize].insert(rhash);
         }
         retval
@@ -1260,7 +1281,7 @@ impl super::GrammarApplicator {
             if !context.did_test {
                 let lpos = self.grammar.contexts_arena[l.0].pos;
                 let (cparent, clocal) = {
-                    let c = self.store.cohorts.get(cohort.0);
+                    let c = self.doc.store.cohorts.get(cohort.0);
                     (c.parent, c.local_number)
                 };
                 let res = if lpos.intersects(POS_NO_PASS_ORIGIN) {
@@ -1349,7 +1370,7 @@ impl super::GrammarApplicator {
             retval = true;
             if let Some(ctx) = context.as_deref_mut() {
                 if ctx.options.intersects(POS_ATTACH_TO) {
-                    self.store.readings.get_mut(reading.0).matched_target = true;
+                    self.doc.store.readings.get_mut(reading.0).matched_target = true;
                 }
                 ctx.matched_target = true;
             }
@@ -1377,7 +1398,7 @@ impl super::GrammarApplicator {
                     retval = self.does_set_match_cohort_test_linked(cohort, set, ctx);
                 }
                 if attach {
-                    self.store.readings.get_mut(reading.0).matched_tests = retval;
+                    self.doc.store.readings.get_mut(reading.0).matched_tests = retval;
                     if retval && !self.context_stack.is_empty() {
                         let f = self.context_stack.last_mut().unwrap();
                         f.attach_to.cohort = Some(cohort);
@@ -1438,14 +1459,14 @@ impl super::GrammarApplicator {
         let guard = !(context.is_none()
             || (opts.intersects(POS_LOOK_DELETED | POS_LOOK_DELAYED | POS_LOOK_IGNORED | POS_NOT)));
         if guard {
-            let ps = &self.store.cohorts.get(cohort.0).possible_sets;
+            let ps = &self.doc.store.cohorts.get(cohort.0).possible_sets;
             if set as usize >= ps.len() || !ps[set as usize] {
                 return retval;
             }
         }
 
         // wread pre-check.
-        let wread = self.store.cohorts.get(cohort.0).wread;
+        let wread = self.doc.store.cohorts.get(cohort.0).wread;
         if let Some(wr) = wread {
             let in_barrier = context.as_deref().map(|c| c.in_barrier).unwrap_or(false);
             if context.is_none() || !in_barrier {
@@ -1481,7 +1502,7 @@ impl super::GrammarApplicator {
                         None => continue,
                     }
                 }
-                let active = self.store.readings.get(reading.0).active;
+                let active = self.doc.store.readings.get(reading.0).active;
                 if let Some(ctx) = context.as_deref() {
                     if !active && ctx.options.intersects(POS_ACTIVE) {
                         continue;
@@ -1541,9 +1562,9 @@ impl super::GrammarApplicator {
                     .test
                     .map(|t| self.grammar.contexts_arena[t.0].offset_sub != 0)
                     .unwrap_or(false);
-                let ps_len = self.store.cohorts.get(cohort.0).possible_sets.len();
+                let ps_len = self.doc.store.cohorts.get(cohort.0).possible_sets.len();
                 if !was_sub && (set as usize) < ps_len {
-                    self.store.cohorts.get_mut(cohort.0).possible_sets[set as usize] = false;
+                    self.doc.store.cohorts.get_mut(cohort.0).possible_sets[set as usize] = false;
                 }
             }
         }
@@ -1568,7 +1589,7 @@ impl super::GrammarApplicator {
         let guard = !(context.is_none()
             || (opts.intersects(POS_LOOK_DELETED | POS_LOOK_DELAYED | POS_LOOK_IGNORED | POS_NOT)));
         if guard {
-            let ps = &self.store.cohorts.get(cohort.0).possible_sets;
+            let ps = &self.doc.store.cohorts.get(cohort.0).possible_sets;
             if set as usize >= ps.len() || !ps[set as usize] {
                 return retval;
             }
@@ -1592,7 +1613,7 @@ impl super::GrammarApplicator {
                         None => continue,
                     }
                 }
-                let active = self.store.readings.get(reading.0).active;
+                let active = self.doc.store.readings.get(reading.0).active;
                 if let Some(ctx) = context.as_deref() {
                     if !active && ctx.options.intersects(POS_ACTIVE) {
                         continue;
@@ -1634,7 +1655,7 @@ impl super::GrammarApplicator {
         cohort: CohortId,
         context: Option<&dSMC_Context>,
     ) -> [Option<Vec<ReadingId>>; 4] {
-        let c = self.store.cohorts.get(cohort.0);
+        let c = self.doc.store.cohorts.get(cohort.0);
         let mut lists: [Option<Vec<ReadingId>>; 4] = [Some(c.readings.clone()), None, None, None];
         if let Some(ctx) = context {
             if ctx.options.intersects(POS_LOOK_DELETED) {

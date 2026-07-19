@@ -2,10 +2,27 @@
 //! stream of single-windows: history in `previous`, the active `current`, and
 //! the pending `next`) plus its `SingleWindowCont` container typedef.
 //!
+//! STAGE-B DISSOLUTION. The single C++ `class Window` is split into three
+//! cohesive Rust views held side-by-side on
+//! [`Document`](crate::grammar_applicator::Document):
+//!
+//! * [`WindowStream`] — the ordered stream (`previous`/`current`/`next`) plus
+//!   the window numbering (`window_counter`/`window_span`) and every stream
+//!   method (`alloc_*`, `back`, `shuffle_windows_down`, `rebuild_*`, `destroy`).
+//! * [`CohortRegistry`] — the global cohort numbering (`cohort_counter`) and the
+//!   ordered `cohort_map`, plus `next_cohort_number()`.
+//! * [`DepBookkeeping`] — the dependency / relation maps (`dep_map`,
+//!   `dep_window`, `relation_map`) together with the doc-bucket dependency
+//!   latches (`has_dep`, `has_relations`, `dep_highest_seen`) that moved in from
+//!   `GrammarApplicator`.
+//!
+//! The members map 1:1 onto the former `Window` fields; the semantics are
+//! unchanged — the split is purely a re-homing so the god object decomposes.
+//!
 //! Arena model: every `SingleWindow*` becomes a [`SwId`] and every `Cohort*`
 //! becomes a [`CohortId`]. The C++ `GrammarApplicator* parent` back-reference is
-//! not ported: the engine owns the window (`GrammarApplicator::window`) and
-//! threads the store into the methods that need it.
+//! not ported: the engine owns the views (on `Document`) and threads the store
+//! into the methods that need it.
 
 use std::collections::BTreeMap;
 
@@ -21,26 +38,23 @@ use crate::types::GlobalNumber;
 pub type SingleWindowCont = Vec<SwId>;
 
 // [spec:cg3:def:window.cg3.window]
-/// C++ `class Window`: owns the ordered stream of single-windows for one
-/// document plus the cohort/dependency/relation bookkeeping maps.
+/// C++ `class Window` — DISSOLVED (Stage-B) into three cohesive views. The
+/// former single struct owned the ordered stream of single-windows for one
+/// document plus the cohort/dependency/relation bookkeeping maps; those members
+/// are now split 1:1 across [`WindowStream`] (the stream + numbering),
+/// [`CohortRegistry`] (`cohort_counter` + `cohort_map`), and [`DepBookkeeping`]
+/// (`dep_map`/`dep_window`/`relation_map` + the doc dependency latches). The
+/// three views live side-by-side on
+/// [`Document`](crate::grammar_applicator::Document); semantics are unchanged.
+///
+/// The stream half — C++ `SingleWindowCont previous`, `SingleWindow* current`,
+/// `SingleWindowCont next`, plus `window_counter`/`window_span`.
 #[derive(Default)]
-pub struct Window {
+pub struct WindowStream {
     // C++ `GrammarApplicator* parent` is not ported (dead back-pointer: the
-    // engine owns the window and passes itself/the store where needed).
-    pub cohort_counter: GlobalNumber,
+    // engine owns the views and passes the store/registry/deps where needed).
     pub window_counter: u32,
     pub window_span: u32,
-
-    /// C++ `std::map<uint32_t, Cohort*> cohort_map` — ordered (global cohort
-    /// number → cohort). `std::map` (a red-black tree) → `BTreeMap`.
-    pub cohort_map: BTreeMap<GlobalNumber, CohortId>,
-    /// C++ `uint32FlatHashMap dep_map` (u32 → u32).
-    pub dep_map: Uint32FlatHashMap,
-    /// C++ `std::map<uint32_t, Cohort*> dep_window` — ordered (global cohort
-    /// number → cohort). `std::map` → `BTreeMap`.
-    pub dep_window: BTreeMap<GlobalNumber, CohortId>,
-    /// C++ `uint32FlatHashMap relation_map` (u32 → u32).
-    pub relation_map: Uint32FlatHashMap,
 
     /// C++ `SingleWindowCont previous` — the history stream.
     pub previous: SingleWindowCont,
@@ -50,25 +64,44 @@ pub struct Window {
     pub next: SingleWindowCont,
 }
 
-// ---------------------------------------------------------------------------
-// Ported method bodies (Window.cpp).
-//
-// ARENA-MODEL NOTES
-// * `Window` is the per-applicator singleton (NOT in the store), so its methods
-//   are `&self`/`&mut self` and take `store: &mut RuntimeStore` to reach the
-//   pooled `SingleWindow`/`Cohort` arenas. `SingleWindow*` → [`SwId`],
-//   `Cohort*` → [`CohortId`].
-// * `++window_counter` is reproduced with `wrapping_add` (unsigned overflow
-//   wraps in C++). `next.front()`/`next.back()` → `next[0]`/`next.last()`;
-//   `next.insert(next.begin(), …)` → `next.insert(0, …)`;
-//   `next.erase(next.begin())` → `next.remove(0)`.
-// * `parent->variables` (in `shuffleWindowsDown`) is a `GrammarApplicator`
-//   member — the variable snapshot is not threaded (see task brief).
+// [spec:cg3:def:window.cg3.window]
+/// The cohort-registry half of the dissolved C++ `Window` — the global cohort
+/// numbering plus the ordered `cohort_map`.
+#[derive(Default)]
+pub struct CohortRegistry {
+    pub cohort_counter: GlobalNumber,
 
-impl Window {
-    // C++ `Window::Window(GrammarApplicator* p) : parent(p)` — the back-pointer
-    // is not ported, so construction is just `Window::default()`.
+    /// C++ `std::map<uint32_t, Cohort*> cohort_map` — ordered (global cohort
+    /// number → cohort). `std::map` (a red-black tree) → `BTreeMap`.
+    pub cohort_map: BTreeMap<GlobalNumber, CohortId>,
+}
 
+// [spec:cg3:def:window.cg3.window]
+/// The dependency / relation half of the dissolved C++ `Window` — the dep/
+/// relation maps plus the doc-bucket dependency latches that moved in from
+/// `GrammarApplicator` (`has_dep`, `has_relations`, `dep_highest_seen`).
+#[derive(Default)]
+pub struct DepBookkeeping {
+    /// C++ `uint32FlatHashMap dep_map` (u32 → u32).
+    pub dep_map: Uint32FlatHashMap,
+    /// C++ `std::map<uint32_t, Cohort*> dep_window` — ordered (global cohort
+    /// number → cohort). `std::map` → `BTreeMap`.
+    pub dep_window: BTreeMap<GlobalNumber, CohortId>,
+    /// C++ `uint32FlatHashMap relation_map` (u32 → u32).
+    pub relation_map: Uint32FlatHashMap,
+
+    /// Doc latch (moved from `GrammarApplicator`): the document acquired
+    /// dependency structure.
+    pub has_dep: bool,
+    /// Doc latch (moved from `GrammarApplicator`): the document acquired relation
+    /// structure.
+    pub has_relations: bool,
+    /// Doc latch (moved from `GrammarApplicator`): highest dependency number seen
+    /// so far (per-window reset).
+    pub dep_highest_seen: GlobalNumber,
+}
+
+impl CohortRegistry {
     /// C++ `gWindow->cohort_counter++` — the post-increment idiom every stream
     /// applicator uses to number a fresh cohort: returns the current number and
     /// advances the counter (unsigned wrap, as in C++).
@@ -77,6 +110,29 @@ impl Window {
         self.cohort_counter = self.cohort_counter.wrapping_add(1);
         n
     }
+}
+
+// ---------------------------------------------------------------------------
+// Ported method bodies (Window.cpp).
+//
+// ARENA-MODEL NOTES
+// * The dissolved `Window` views are per-applicator singletons (NOT in the
+//   store), so the stream methods are `&self`/`&mut self` on [`WindowStream`]
+//   and take `store: &mut RuntimeStore` to reach the pooled `SingleWindow`/
+//   `Cohort` arenas. `SingleWindow*` → [`SwId`], `Cohort*` → [`CohortId`]. The
+//   `free_swindow`-flavoured methods (`destroy`) additionally thread the
+//   `&mut CohortRegistry` + `&mut DepBookkeeping` views that `free_swindow`
+//   prunes.
+// * `++window_counter` is reproduced with `wrapping_add` (unsigned overflow
+//   wraps in C++). `next.front()`/`next.back()` → `next[0]`/`next.last()`;
+//   `next.insert(next.begin(), …)` → `next.insert(0, …)`;
+//   `next.erase(next.begin())` → `next.remove(0)`.
+// * `parent->variables` (in `shuffleWindowsDown`) is a `GrammarApplicator`
+//   member — the variable snapshot is not threaded (see task brief).
+
+impl WindowStream {
+    // C++ `Window::Window(GrammarApplicator* p) : parent(p)` — the back-pointer
+    // is not ported, so construction is just `WindowStream::default()`.
 
     // [spec:cg3:def:window.cg3.window.window-fn]
     // [spec:cg3:sem:window.cg3.window.window-fn]
@@ -84,21 +140,31 @@ impl Window {
     /// `free_swindow` on each of `previous`, then `current`, then `next`. The
     /// loops iterate by value, so the (now-stale) ids inside `previous`/`next`
     /// are left in place (mirroring C++, where the vectors die right after);
-    /// `current` is passed by reference and nulled. STORE + `&mut self` free
-    /// fn — Rust `Drop` cannot take the store, so this is invoked explicitly.
-    pub fn destroy(&mut self, store: &mut RuntimeStore) {
-        // Index loops: `free_swindow` needs `&mut self` (it prunes the maps) but
+    /// `current` is passed by reference and nulled. STORE + REGISTRY + DEPS free
+    /// fn — Rust `Drop` cannot take those, so this is invoked explicitly.
+    ///
+    /// V-NOTE (Stage-B): the receiver is now [`WindowStream`], not `Window`; the
+    /// `free_swindow` map-pruning targets (`cohort_map`/`dep_window`/
+    /// `relation_map`) are threaded as the `cohorts`/`deps` view params. Behavior
+    /// unchanged.
+    pub fn destroy(
+        &mut self,
+        store: &mut RuntimeStore,
+        cohorts: &mut CohortRegistry,
+        deps: &mut DepBookkeeping,
+    ) {
+        // Index loops: `free_swindow` prunes the maps (via `cohorts`/`deps`) but
         // never touches the `previous`/`next` lists themselves.
         for i in 0..self.previous.len() {
             let iter = self.previous[i];
-            free_swindow(self, store, Some(iter));
+            free_swindow(store, cohorts, deps, Some(iter));
         }
         let current = self.current;
-        free_swindow(self, store, current);
+        free_swindow(store, cohorts, deps, current);
         self.current = None; // C++ passes `current` by reference: nulled.
         for i in 0..self.next.len() {
             let iter = self.next[i];
-            free_swindow(self, store, Some(iter));
+            free_swindow(store, cohorts, deps, Some(iter));
         }
     }
 
@@ -107,6 +173,8 @@ impl Window {
     /// C++ `SingleWindow* Window::allocSingleWindow()`. A bare allocation:
     /// `alloc_swindow(this)`, `++window_counter`, `swindow->number = counter`;
     /// no stream insertion or sibling links.
+    ///
+    /// V-NOTE (Stage-B): receiver is [`WindowStream`], not `Window`.
     pub fn alloc_single_window(&mut self, store: &mut RuntimeStore) -> SwId {
         let swindow = alloc_swindow(store, Some(0));
         self.window_counter = self.window_counter.wrapping_add(1);
@@ -120,6 +188,8 @@ impl Window {
     /// counter, then links to the FRONT of `next`: if `next` is non-empty, splice
     /// before its front; if `current` is set, link after it. Inserts at the
     /// front of `next`.
+    ///
+    /// V-NOTE (Stage-B): receiver is [`WindowStream`], not `Window`.
     pub fn alloc_push_single_window(&mut self, store: &mut RuntimeStore) -> SwId {
         let swindow = alloc_swindow(store, Some(0));
         self.window_counter = self.window_counter.wrapping_add(1);
@@ -143,6 +213,8 @@ impl Window {
     /// the counter, then links to the BACK of `next`. QUIRK (faithful): if `next`
     /// is empty, NO sibling links are set at all — it is not linked to `current`,
     /// so its `previous` stays null (unlike `allocPushSingleWindow`).
+    ///
+    /// V-NOTE (Stage-B): receiver is [`WindowStream`], not `Window`.
     pub fn alloc_append_single_window(&mut self, store: &mut RuntimeStore) -> SwId {
         let swindow = alloc_swindow(store, Some(0));
         self.window_counter = self.window_counter.wrapping_add(1);
@@ -161,6 +233,8 @@ impl Window {
     /// C++ `SingleWindow* Window::back()`. The last single-window of the
     /// document: `next.back()`, else `current`, else `previous.back()`, else
     /// null. Touches only `self` → `&self`.
+    ///
+    /// V-NOTE (Stage-B): receiver is [`WindowStream`], not `Window`.
     pub fn back(&self) -> Option<SwId> {
         if !self.next.is_empty() {
             Some(*self.next.last().unwrap())
@@ -185,8 +259,10 @@ impl Window {
     /// NOTE: engine code must go through
     /// `GrammarApplicator::shuffle_windows_down` / `rotate_next`, which perform
     /// the C++ `current->variables_set = parent->variables` snapshot first —
-    /// `Window` has no back-pointer to the applicator, so calling this raw
+    /// `WindowStream` has no back-pointer to the applicator, so calling this raw
     /// method directly skips that snapshot.
+    ///
+    /// V-NOTE (Stage-B): receiver is [`WindowStream`], not `Window`.
     pub fn shuffle_windows_down(&mut self, store: &mut RuntimeStore) {
         if let Some(current) = self.current {
             // current->variables_set = parent->variables; — GrammarApplicator
@@ -211,6 +287,8 @@ impl Window {
     /// `previous`/`next` sibling chain across all single-windows in document
     /// order (`previous`, then `current`, then `next`), keeping a running
     /// predecessor `s_window`, and nulls the last window's `next`.
+    ///
+    /// V-NOTE (Stage-B): receiver is [`WindowStream`], not `Window`.
     pub fn rebuild_single_window_links(&mut self, store: &mut RuntimeStore) {
         let mut s_window: Option<SwId> = None;
         for &iter in &self.previous {
@@ -247,6 +325,8 @@ impl Window {
     /// windows via their `->next`, linking each window's `cohorts` in order with
     /// a running `prev` cohort — spanning window boundaries. Relies on the
     /// single-window `->next` chain already being correct.
+    ///
+    /// V-NOTE (Stage-B): receiver is [`WindowStream`], not `Window`.
     pub fn rebuild_cohort_links(&self, store: &mut RuntimeStore) {
         let mut s_window: Option<SwId> = if !self.previous.is_empty() {
             Some(self.previous[0])

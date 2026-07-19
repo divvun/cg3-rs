@@ -251,7 +251,7 @@ pub fn main_conv(args: &[String]) -> i32 {
     }
     if occ(&options_conv, OPTIONS::PARSE_DEP) {
         applicator.base_mut().cfg.parse_dep = true;
-        applicator.base_mut().has_dep = true;
+        applicator.base_mut().doc.deps.has_dep = true;
     }
     if occ(&options_conv, OPTIONS::DEP_DELIMIT) {
         // std::stoul(value) — throws (→ terminates) on non-numeric; unwrap.
