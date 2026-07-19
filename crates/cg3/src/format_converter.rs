@@ -30,9 +30,9 @@ use crate::arena::{CohortId, SwId};
 use crate::fst_applicator::{FSTApplicator, FstFormat};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::stream_format::StreamFormat;
-use crate::grammar_applicator::{GrammarApplicator, cg3_sformat};
-use crate::jsonl_applicator::JsonlApplicator;
-use crate::niceline_applicator::NicelineApplicator;
+use crate::grammar_applicator::{Engine, GrammarApplicator, cg3_sformat};
+use crate::jsonl_applicator::{JsonlApplicator, JsonlFormat};
+use crate::niceline_applicator::{NicelineApplicator, NicelineFormat};
 use crate::plaintext_applicator::{PlaintextApplicator, PlaintextFormat};
 use crate::streambuf::bstreambuf;
 use crate::types::UStringView;
@@ -314,7 +314,7 @@ impl FormatConverter {
     /// `CG3Quit()`.
     pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
         self.fmt
-            .print_cohort(&mut self.base, cohort, output, profiling);
+            .print_cohort(&mut self.base.engine(), cohort, output, profiling);
     }
 
     // [spec:cg3:def:format-converter.cg3.format-converter.print-single-window-fn]
@@ -325,7 +325,7 @@ impl FormatConverter {
     /// `CG3Quit()`.
     pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
         self.fmt
-            .print_single_window(&mut self.base, window, output, profiling);
+            .print_single_window(&mut self.base.engine(), window, output, profiling);
     }
 
     // [spec:cg3:def:format-converter.cg3.format-converter.print-stream-command-fn]
@@ -334,7 +334,8 @@ impl FormatConverter {
     /// output)`. JSONL/BINARY need special encoding; every other format (CG,
     /// APERTIUM, FST, NICELINE, PLAIN, default) uses the base implementation.
     pub fn print_stream_command<W: Write>(&mut self, cmd: UStringView, output: &mut W) {
-        self.fmt.print_stream_command(&mut self.base, cmd, output);
+        self.fmt
+            .print_stream_command(&mut self.base.engine(), cmd, output);
     }
 
     // [spec:cg3:def:format-converter.cg3.format-converter.print-plain-text-line-fn]
@@ -343,7 +344,8 @@ impl FormatConverter {
     /// output)`. JSONL/BINARY need special handling; every other format uses the
     /// base implementation.
     pub fn print_plain_text_line<W: Write>(&mut self, line: UStringView, output: &mut W) {
-        self.fmt.print_plain_text_line(&mut self.base, line, output);
+        self.fmt
+            .print_plain_text_line(&mut self.base.engine(), line, output);
     }
 }
 
@@ -364,51 +366,32 @@ pub struct ConvFormat {
     plaintext_add_tags: bool,
     /// The binary print vtable (C++ `BinaryApplicator::header_done` et al).
     binary: crate::binary_applicator::BinaryFormat,
-    /// `NicelineApplicator::did_warn_statictags`, persisted across prints.
-    niceline_did_warn_statictags: bool,
-    /// `NicelineApplicator::did_warn_subreadings`, persisted across prints.
-    niceline_did_warn_subreadings: bool,
-}
-
-impl ConvFormat {
-    /// Run `f` on a transient borrowing [`NicelineApplicator`], persisting the
-    /// one-shot warn latches across calls.
-    fn with_niceline<'b, T>(
-        &mut self,
-        app: &'b mut GrammarApplicator,
-        f: impl FnOnce(&mut NicelineApplicator<'b>) -> T,
-    ) -> T {
-        let mut a = NicelineApplicator::new(app);
-        a.did_warn_statictags = self.niceline_did_warn_statictags;
-        a.did_warn_subreadings = self.niceline_did_warn_subreadings;
-        let r = f(&mut a);
-        self.niceline_did_warn_statictags = a.did_warn_statictags;
-        self.niceline_did_warn_subreadings = a.did_warn_subreadings;
-        r
-    }
+    /// The Niceline print vtable, owning the one-shot warn latches
+    /// (`did_warn_statictags`/`did_warn_subreadings`) that persist across prints.
+    niceline: NicelineFormat,
+    /// The JSONL print vtable (stateless).
+    jsonl: JsonlFormat,
 }
 
 impl StreamFormat for ConvFormat {
     fn print_cohort<W: Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
     ) {
         use cg3_sformat::*;
-        match app.cfg.fmt_output {
+        match e.cfg.fmt_output {
             CG3SF_CG => {
-                let trace = app.cfg.trace;
-                app.engine().print_cohort(cohort, output, profiling, trace)
+                let trace = e.cfg.trace;
+                e.print_cohort(cohort, output, profiling, trace)
             }
-            CG3SF_APERTIUM => self.apertium.print_cohort(app, cohort, output, profiling),
-            CG3SF_FST => self.fst.print_cohort(app, cohort, output, profiling),
-            CG3SF_NICELINE => {
-                self.with_niceline(app, |a| a.print_cohort(cohort, output, profiling))
-            }
-            CG3SF_PLAIN => self.plaintext.print_cohort(app, cohort, output, profiling),
-            CG3SF_JSONL => JsonlApplicator::new(app).print_cohort(cohort, output, profiling),
+            CG3SF_APERTIUM => self.apertium.print_cohort_e(e, cohort, output, profiling),
+            CG3SF_FST => self.fst.print_cohort_e(e, cohort, output, profiling),
+            CG3SF_NICELINE => self.niceline.print_cohort_e(e, cohort, output, profiling),
+            CG3SF_PLAIN => self.plaintext.print_cohort_e(e, cohort, output, profiling),
+            CG3SF_JSONL => self.jsonl.print_cohort_e(e, cohort, output, profiling),
             CG3SF_BINARY => {}
             _ => cg3_quit(),
         }
@@ -416,67 +399,59 @@ impl StreamFormat for ConvFormat {
 
     fn print_single_window<W: Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         window: SwId,
         output: &mut W,
         profiling: bool,
     ) {
         use cg3_sformat::*;
-        match app.cfg.fmt_output {
+        match e.cfg.fmt_output {
             CG3SF_CG => {
-                let trace = app.cfg.trace;
-                app.engine().print_single_window(window, output, profiling, trace);
+                let trace = e.cfg.trace;
+                e.print_single_window(window, output, profiling, trace);
             }
             CG3SF_APERTIUM => self
                 .apertium
-                .print_single_window(app, window, output, profiling),
-            CG3SF_FST => self.fst.print_single_window(app, window, output, profiling),
-            CG3SF_NICELINE => {
-                self.with_niceline(app, |a| a.print_single_window(window, output, profiling))
-            }
+                .print_single_window_e(e, window, output, profiling),
+            CG3SF_FST => self.fst.print_single_window_e(e, window, output, profiling),
+            CG3SF_NICELINE => self
+                .niceline
+                .print_single_window_e(e, window, output, profiling),
             CG3SF_PLAIN => self
                 .plaintext
-                .print_single_window(app, window, output, profiling),
-            CG3SF_JSONL => JsonlApplicator::new(app).print_single_window(window, output, profiling),
+                .print_single_window_e(e, window, output, profiling),
+            CG3SF_JSONL => self
+                .jsonl
+                .print_single_window_e(e, window, output, profiling),
             // BinaryApplicator::printSingleWindow.
             CG3SF_BINARY => self
                 .binary
-                .print_single_window(app, window, output, profiling),
+                .bin_print_single_window(e, window, output, profiling),
             // MATXIN has no C++ converter case; invalid values share its
             // default branch.
             _ => cg3_quit(),
         }
     }
 
-    fn print_stream_command<W: Write>(
-        &mut self,
-        app: &mut GrammarApplicator,
-        cmd: &str,
-        output: &mut W,
-    ) {
+    fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W) {
         use cg3_sformat::*;
-        match app.cfg.fmt_output {
-            CG3SF_JSONL => JsonlApplicator::new(app).print_stream_command(cmd, output),
+        match e.cfg.fmt_output {
+            CG3SF_JSONL => self.jsonl.print_stream_command_e(cmd, output),
             // BinaryApplicator::printStreamCommand.
             CG3SF_BINARY => self.binary.bin_print_stream_command(cmd, output),
             // CG / APERTIUM / FST / NICELINE / PLAIN / default → base.
-            _ => app.engine().print_stream_command(cmd, output),
+            _ => e.print_stream_command(cmd, output),
         }
     }
 
-    fn print_plain_text_line<W: Write>(
-        &mut self,
-        app: &mut GrammarApplicator,
-        line: &str,
-        output: &mut W,
-    ) {
+    fn print_plain_text_line<W: Write>(&mut self, e: &mut Engine<'_>, line: &str, output: &mut W) {
         use cg3_sformat::*;
-        match app.cfg.fmt_output {
-            CG3SF_JSONL => JsonlApplicator::new(app).print_plain_text_line(line, output),
+        match e.cfg.fmt_output {
+            CG3SF_JSONL => self.jsonl.print_plain_text_line_e(line, output),
             // BinaryApplicator::printPlainTextLine.
             CG3SF_BINARY => self.binary.bin_print_plain_text_line(line, output),
             // CG / APERTIUM / FST / NICELINE / PLAIN / default → base.
-            _ => app.engine().print_plain_text_line(line, output),
+            _ => e.print_plain_text_line(line, output),
         }
     }
 }

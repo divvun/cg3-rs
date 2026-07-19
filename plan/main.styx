@@ -323,6 +323,21 @@ children (
                         title "Top of the graph: run_grammar drivers (run_grammar_on_text/window pump), the StreamFormat trait signatures, and the 8 stream applicators onto the view; the Box<GrammarApplicator> reborrow dances disappear with &mut self"
                         priority 1
                         deps (engine-decomp.peel.rules)
+                        log (
+                            {
+                                at 2026-07-19T17:24:31.287659Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Todo → Doing (nplan_start)"
+                            }
+
+                            {
+                                at 2026-07-19T18:18:24.800908Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Doing → Done (nplan_complete)"
+                            }
+                        )
                     }
                 )
             }

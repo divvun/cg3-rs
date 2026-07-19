@@ -18,7 +18,7 @@
 use super::{Engine, ReadingSpec, unif_tags_t};
 use crate::arena::{CohortId, ReadingId};
 
-impl super::GrammarApplicator {
+impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.set-attach-to-fn]
     // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.set-attach-to-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.set-attach-to-fn]
@@ -39,9 +39,7 @@ impl super::GrammarApplicator {
             spec.subreading = subreading;
         }
     }
-}
 
-impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.get-apply-to-fn]
     // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.get-apply-to-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-apply-to-fn]

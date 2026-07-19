@@ -41,7 +41,7 @@ use std::io::Write;
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
-use crate::grammar_applicator::GrammarApplicator;
+use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{isnl, ui32};
 use crate::tag::T_WORDFORM;
 use crate::types::TagHash;
@@ -135,51 +135,51 @@ pub struct MweSplitFormat;
 impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
     fn print_cohort<W: std::io::Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         cohort: crate::arena::CohortId,
         output: &mut W,
         profiling: bool,
     ) {
-        let trace = app.cfg.trace;
-        app.engine().print_cohort(cohort, output, profiling, trace);
+        let trace = e.cfg.trace;
+        e.print_cohort(cohort, output, profiling, trace);
     }
 
     fn print_single_window<W: std::io::Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         window: crate::arena::SwId,
         output: &mut W,
         profiling: bool,
     ) {
-        app.mwe_print_single_window(window, output, profiling);
+        e.mwe_print_single_window(window, output, profiling);
     }
 
     fn print_stream_command<W: std::io::Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         cmd: &str,
         output: &mut W,
     ) {
-        app.engine().print_stream_command(cmd, output);
+        e.print_stream_command(cmd, output);
     }
 
     fn print_plain_text_line<W: std::io::Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         line: &str,
         output: &mut W,
     ) {
-        app.engine().print_plain_text_line(line, output);
+        e.print_plain_text_line(line, output);
     }
 }
 
 // ===========================================================================
-// The overridden virtuals, as inherent methods on the BASE type so the base
-// driver's print path can dispatch to them (Rust stand-in for the C++ vtable;
-// see module docs). They live in this file because they ARE
+// The overridden virtuals, as inherent methods on the split-borrow `Engine<'_>`
+// view so the base driver's print path can dispatch to them (Rust stand-in for
+// the C++ vtable; see module docs). They live in this file because they ARE
 // `MweSplitApplicator::{maybeWfTag, splitMwe, printSingleWindow}`.
 // ===========================================================================
-impl GrammarApplicator {
+impl Engine<'_> {
     // [spec:cg3:def:mwe-split-applicator.cg3.mwe-split-applicator.maybe-wf-tag-fn]
     // [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.maybe-wf-tag-fn]
     /// C++ `const Tag* MweSplitApplicator::maybeWfTag(const Reading* r)`. Returns
@@ -206,7 +206,7 @@ impl GrammarApplicator {
             if tter == baseform || tter == wordform_hash {
                 continue;
             }
-            let tid = tag_by_hash(&self.grammar, tter);
+            let tid = tag_by_hash(self.grammar, tter);
             if self.grammar.single_tags_list[tid.0]
                 .r#type
                 .intersects(T_WORDFORM)
@@ -426,7 +426,7 @@ impl GrammarApplicator {
             .collect();
         for var in vars_output {
             let key_tag = {
-                let tid = tag_by_hash(&self.grammar, TagHash(var));
+                let tid = tag_by_hash(self.grammar, TagHash(var));
                 self.grammar.single_tags_list[tid.0].tag.clone()
             };
             let value_hash: Option<u32> = {
@@ -441,7 +441,7 @@ impl GrammarApplicator {
             match value_hash {
                 Some(vh) => {
                     if vh != self.grammar.tag_any {
-                        let vtid = tag_by_hash(&self.grammar, TagHash(vh));
+                        let vtid = tag_by_hash(self.grammar, TagHash(vh));
                         let _ = writeln!(
                             output,
                             "{STR_CMD_SETVAR}{}={}>",
@@ -463,7 +463,7 @@ impl GrammarApplicator {
         };
 
         if !text.is_empty() {
-            self.engine().print_plain_text_line(&text, output);
+            self.print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }
@@ -478,12 +478,12 @@ impl GrammarApplicator {
             for iter in split {
                 // Inherited GrammarApplicator::printCohort.
                 let trace = self.cfg.trace;
-                self.engine().print_cohort(iter, output, profiling, trace);
+                self.print_cohort(iter, output, profiling, trace);
             }
         }
 
         if !text_post.is_empty() {
-            self.engine().print_plain_text_line(&text_post, output);
+            self.print_plain_text_line(&text_post, output);
             if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }

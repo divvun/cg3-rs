@@ -33,7 +33,7 @@ use std::io::{Read, Seek, Write};
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::{CT_RELATED, CT_REMOVED, unignore_all};
 use crate::grammar::Grammar;
-use crate::grammar_applicator::GrammarApplicator;
+use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{isnl, skipto_nospan};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION};
 use crate::types::TagHash;
@@ -302,7 +302,7 @@ impl<'a> NicelineApplicator<'a> {
                             .doc
                             .stream
                             .alloc_append_single_window(&mut self.base.doc.store);
-                        self.base.init_empty_single_window(sw);
+                        self.base.engine().init_empty_single_window(sw);
                         c_swindow = Some(sw);
                         l_swindow = Some(sw);
                         c_cohort = None;
@@ -323,8 +323,8 @@ impl<'a> NicelineApplicator<'a> {
 
                     // Drain a window if enough have queued up.
                     if self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize {
-                        self.base.shuffle_windows_down();
-                        self.base.run_grammar_on_window_with(fmt, output);
+                        self.base.engine().shuffle_windows_down();
+                        self.base.engine().run_grammar_on_window_with(fmt, output);
                         if self.base.doc.num_windows.is_multiple_of(reset_after) {
                             self.base.reset_indexes();
                         }
@@ -498,7 +498,7 @@ impl<'a> NicelineApplicator<'a> {
                             .push_str(&text);
                     } else {
                         // C++ virtual printPlainTextLine.
-                        fmt.print_plain_text_line(self.base, &text, output);
+                        fmt.print_plain_text_line(&mut self.base.engine(), &text, output);
                     }
                 }
             }
@@ -541,15 +541,15 @@ impl<'a> NicelineApplicator<'a> {
                 c_swindow = None;
             }
         }
-        while self.base.rotate_next().is_some() {
-            self.base.run_grammar_on_window_with(fmt, output);
+        while self.base.engine().rotate_next().is_some() {
+            self.base.engine().run_grammar_on_window_with(fmt, output);
         }
 
-        self.base.shuffle_windows_down();
+        self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
             let tmp = self.base.doc.stream.previous[0];
             // C++ virtual printSingleWindow — the most-derived format decides.
-            fmt.print_single_window(self.base, tmp, output, false);
+            fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
             let t = Some(tmp);
             crate::single_window::free_swindow(
                 &mut self.base.doc.store,
@@ -563,13 +563,38 @@ impl<'a> NicelineApplicator<'a> {
         u_fflush(output);
     }
 
+}
+
+/// Niceline print-vtable strategy carrying the two one-shot warn latches.
+///
+/// The C++ `NicelineApplicator` print overrides (`printReading`, `printCohort`,
+/// `printSingleWindow`) dispatch off the shared `GrammarApplicator` subobject;
+/// wave-4 peels them onto this standalone strategy so `format_converter`'s
+/// `ConvFormat` can drive them with an [`Engine`] split-borrow view while the
+/// one-shot `did_warn_*` latch STATE lives on the strategy value.
+#[derive(Default)]
+pub struct NicelineFormat {
+    /// C++ `bool did_warn_statictags = false` — one-shot "cannot output static
+    /// tags" warning latch.
+    pub did_warn_statictags: bool,
+    /// C++ `bool did_warn_subreadings = false` — one-shot "cannot output
+    /// sub-readings" warning latch.
+    pub did_warn_subreadings: bool,
+}
+
+impl NicelineFormat {
     // [spec:cg3:def:niceline-applicator.cg3.niceline-applicator.print-reading-fn]
     // [spec:cg3:sem:niceline-applicator.cg3.niceline-applicator.print-reading-fn]
     /// C++ `void NicelineApplicator::printReading(const Reading* reading,
     /// std::ostream& output)`.
-    pub fn print_reading<W: Write>(&mut self, reading: ReadingId, output: &mut W) {
+    pub fn print_reading_e<W: Write>(
+        &mut self,
+        e: &mut Engine<'_>,
+        reading: ReadingId,
+        output: &mut W,
+    ) {
         let (noprint, deleted, baseform, parent_cid, next) = {
-            let r = self.base.doc.store.readings.get(reading.0);
+            let r = e.doc.store.readings.get(reading.0);
             (
                 r.noprint,
                 r.deleted,
@@ -587,76 +612,63 @@ impl<'a> NicelineApplicator<'a> {
         u_fputc('\t', output);
         if baseform != TagHash(0) {
             // "[%.*S]" of tag.data()+1 for tag.size()-2 → strip both quotes, wrap [].
-            let tid = tag_by_hash(&self.base.grammar, baseform);
-            let tag = &self.base.grammar.single_tags_list[tid.0].tag;
+            let tid = tag_by_hash(e.grammar, baseform);
+            let tag = &e.grammar.single_tags_list[tid.0].tag;
             let inner = strip_surrounding_one(tag);
             let _ = write!(output, "[{inner}]");
         }
 
         let parent_cid = parent_cid.expect("reading has no parent cohort");
         let wordform_hash = {
-            let wf = self.base.doc.store.cohorts.get(parent_cid.0).wordform;
-            wf.map(|t| self.base.grammar.single_tags_list[t.0].hash)
+            let wf = e.doc.store.cohorts.get(parent_cid.0).wordform;
+            wf.map(|t| e.grammar.single_tags_list[t.0].hash)
                 .unwrap_or(TagHash(0))
         };
 
-        let tags_list: Vec<u32> = self
-            .base
-            .doc
-            .store
-            .readings
-            .get(reading.0)
-            .tags_list
-            .clone();
+        let tags_list: Vec<u32> = e.doc.store.readings.get(reading.0).tags_list.clone();
         let mut unique: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         for tter in tags_list {
             let tter = TagHash(tter);
-            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag)
-                || tter == self.base.cfg.begintag
-            {
+            if (!e.cfg.show_end_tags && tter == e.cfg.endtag) || tter == e.cfg.begintag {
                 continue;
             }
             if tter == baseform || tter == wordform_hash {
                 continue;
             }
-            if self.base.cfg.unique_tags {
+            if e.cfg.unique_tags {
                 if unique.contains(&tter.get()) {
                     continue;
                 }
                 unique.insert(tter.get());
             }
-            let tid = tag_by_hash(&self.base.grammar, tter);
-            let ttype = self.base.grammar.single_tags_list[tid.0].r#type;
-            if ttype.intersects(T_DEPENDENCY)
-                && self.base.doc.deps.has_dep
-                && !self.base.cfg.dep_original
-            {
+            let tid = tag_by_hash(e.grammar, tter);
+            let ttype = e.grammar.single_tags_list[tid.0].r#type;
+            if ttype.intersects(T_DEPENDENCY) && e.doc.deps.has_dep && !e.cfg.dep_original {
                 continue;
             }
-            if ttype.intersects(T_RELATION) && self.base.doc.deps.has_relations {
+            if ttype.intersects(T_RELATION) && e.doc.deps.has_relations {
                 continue;
             }
-            let _ = write!(output, " {}", self.base.grammar.single_tags_list[tid.0].tag);
+            let _ = write!(output, " {}", e.grammar.single_tags_list[tid.0].tag);
         }
 
         // Dependency block.
-        let parent_removed = self
-            .base
+        let parent_removed = e
             .doc
             .store
             .cohorts
             .get(parent_cid.0)
             .r#type
             .intersects(CT_REMOVED);
-        if self.base.doc.deps.has_dep && !parent_removed {
+        if e.doc.deps.has_dep && !parent_removed {
             {
-                let c = self.base.doc.store.cohorts.get_mut(parent_cid.0);
+                let c = e.doc.store.cohorts.get_mut(parent_cid.0);
                 if c.dep_self.is_none() {
                     c.dep_self = Some(c.global_number);
                 }
             }
             let (p_global, p_local, p_dep_parent, p_dep_self, p_sw) = {
-                let c = self.base.doc.store.cohorts.get(parent_cid.0);
+                let c = e.doc.store.cohorts.get(parent_cid.0);
                 (
                     c.global_number,
                     c.local_number,
@@ -669,22 +681,22 @@ impl<'a> NicelineApplicator<'a> {
             if let Some(pdp) = p_dep_parent {
                 if pdp == crate::types::GlobalNumber(0) {
                     if let Some(sw) = p_sw {
-                        pr = self.base.doc.store.single_windows.get(sw.0).cohorts[0];
+                        pr = e.doc.store.single_windows.get(sw.0).cohorts[0];
                     }
-                } else if let Some(&mapped) = self.base.doc.cohorts.cohort_map.get(&pdp) {
+                } else if let Some(&mapped) = e.doc.cohorts.cohort_map.get(&pdp) {
                     pr = mapped;
                 }
             }
-            let arrow = if self.base.cfg.unicode_tags {
+            let arrow = if e.cfg.unicode_tags {
                 "\u{2192}"
             } else {
                 "->"
             };
-            if self.base.cfg.dep_absolute {
-                let pr_global = self.base.doc.store.cohorts.get(pr.0).global_number;
+            if e.cfg.dep_absolute {
+                let pr_global = e.doc.store.cohorts.get(pr.0).global_number;
                 let _ = write!(output, " #{p_global}{arrow}{pr_global}");
-            } else if !self.base.doc.dep_has_spanned {
-                let pr_local = self.base.doc.store.cohorts.get(pr.0).local_number;
+            } else if !e.doc.dep_has_spanned {
+                let pr_local = e.doc.store.cohorts.get(pr.0).local_number;
                 let _ = write!(output, " #{p_local}{arrow}{pr_local}");
             } else if let Some(pdp) = p_dep_parent {
                 let _ = write!(output, " #{p_dep_self}{arrow}{pdp}");
@@ -695,7 +707,7 @@ impl<'a> NicelineApplicator<'a> {
 
         // Relations block.
         let (p_related, p_global2, relations) = {
-            let c = self.base.doc.store.cohorts.get(parent_cid.0);
+            let c = e.doc.store.cohorts.get(parent_cid.0);
             (
                 c.r#type.intersects(CT_RELATED),
                 c.global_number,
@@ -706,22 +718,18 @@ impl<'a> NicelineApplicator<'a> {
             let _ = write!(output, " ID:{p_global2}");
             for (rel_hash, targets) in relations.iter() {
                 for siter in targets.iter() {
-                    let tid = tag_by_hash(&self.base.grammar, TagHash(*rel_hash));
-                    let _ = write!(
-                        output,
-                        " R:{}:{siter}",
-                        self.base.grammar.single_tags_list[tid.0].tag
-                    );
+                    let tid = tag_by_hash(e.grammar, TagHash(*rel_hash));
+                    let _ = write!(output, " R:{}:{siter}", e.grammar.single_tags_list[tid.0].tag);
                 }
             }
         }
 
         // Trace block.
-        if self.base.cfg.trace {
-            let hit_by: Vec<u32> = self.base.doc.store.readings.get(reading.0).hit_by.clone();
+        if e.cfg.trace {
+            let hit_by: Vec<u32> = e.doc.store.readings.get(reading.0).hit_by.clone();
             for hb in hit_by {
                 u_fputc(' ', output);
-                self.base.engine().print_trace(output, hb);
+                e.print_trace(output, hb);
             }
         }
 
@@ -736,10 +744,15 @@ impl<'a> NicelineApplicator<'a> {
     // [spec:cg3:sem:niceline-applicator.cg3.niceline-applicator.print-cohort-fn]
     /// C++ `void NicelineApplicator::printCohort(Cohort* cohort,
     /// std::ostream& output, bool profiling = false)`.
-    pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
-        let local_number = self.base.doc.store.cohorts.get(cohort.0).local_number;
-        let removed = self
-            .base
+    pub fn print_cohort_e<W: Write>(
+        &mut self,
+        e: &mut Engine<'_>,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let local_number = e.doc.store.cohorts.get(cohort.0).local_number;
+        let removed = e
             .doc
             .store
             .cohorts
@@ -749,9 +762,9 @@ impl<'a> NicelineApplicator<'a> {
 
         // `goto removed` from local_number == 0 or CT_REMOVED skips the body.
         if local_number != 0 && !removed {
-            let wblank = self.base.doc.store.cohorts.get(cohort.0).wblank.clone();
+            let wblank = e.doc.store.cohorts.get(cohort.0).wblank.clone();
             if !wblank.is_empty() {
-                self.base.engine().print_plain_text_line(&wblank, output);
+                e.print_plain_text_line(&wblank, output);
                 if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
                     u_fputc('\n', output);
                 }
@@ -759,9 +772,9 @@ impl<'a> NicelineApplicator<'a> {
 
             // "%.*S" of wordform.data()+2 for size()-4 → strip "\"<" and ">\"".
             let (wf_inner, has_wread) = {
-                let c = self.base.doc.store.cohorts.get(cohort.0);
+                let c = e.doc.store.cohorts.get(cohort.0);
                 let wf = c.wordform.expect("cohort wordform");
-                let tag = &self.base.grammar.single_tags_list[wf.0].tag;
+                let tag = &e.grammar.single_tags_list[wf.0].tag;
                 (strip_wordform_brackets(tag), c.wread.is_some())
             };
             let _ = write!(output, "{wf_inner}");
@@ -771,27 +784,26 @@ impl<'a> NicelineApplicator<'a> {
             }
 
             if !profiling {
-                unignore_all(&mut self.base.doc.store, cohort);
-                if !self.base.cfg.split_mappings {
-                    self.base.engine().merge_mappings(cohort);
+                unignore_all(&mut e.doc.store, cohort);
+                if !e.cfg.split_mappings {
+                    e.merge_mappings(cohort);
                 }
             }
 
-            let readings: Vec<ReadingId> =
-                self.base.doc.store.cohorts.get(cohort.0).readings.clone();
+            let readings: Vec<ReadingId> = e.doc.store.cohorts.get(cohort.0).readings.clone();
             if readings.is_empty() {
                 u_fputc('\t', output);
             }
             for r in readings {
-                self.print_reading(r, output);
+                self.print_reading_e(e, r, output);
             }
         }
 
         // removed:
         u_fputc('\n', output);
-        let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
-        if !text.is_empty() && text.chars().any(|c| !is_ws(&self.base.cfg.ws, c)) {
-            self.base.engine().print_plain_text_line(&text, output);
+        let text = e.doc.store.cohorts.get(cohort.0).text.clone();
+        if !text.is_empty() && text.chars().any(|c| !is_ws(&e.cfg.ws, c)) {
+            e.print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }
@@ -802,25 +814,31 @@ impl<'a> NicelineApplicator<'a> {
     // [spec:cg3:sem:niceline-applicator.cg3.niceline-applicator.print-single-window-fn]
     /// C++ `void NicelineApplicator::printSingleWindow(SingleWindow* window,
     /// std::ostream& output, bool profiling = false)`.
-    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
+    pub fn print_single_window_e<W: Write>(
+        &mut self,
+        e: &mut Engine<'_>,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
         let (all_cohorts, text, text_post) = {
-            let w = self.base.doc.store.single_windows.get(window.0);
+            let w = e.doc.store.single_windows.get(window.0);
             (w.all_cohorts.clone(), w.text.clone(), w.text_post.clone())
         };
 
         if !text.is_empty() {
-            self.base.engine().print_plain_text_line(&text, output);
+            e.print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }
         }
 
         for cohort in all_cohorts {
-            self.print_cohort(cohort, output, profiling);
+            self.print_cohort_e(e, cohort, output, profiling);
         }
 
         if !text_post.is_empty() {
-            self.base.engine().print_plain_text_line(&text_post, output);
+            e.print_plain_text_line(&text_post, output);
             if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
                 u_fputc('\n', output);
             }

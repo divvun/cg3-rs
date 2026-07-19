@@ -32,7 +32,7 @@ use std::ops::DerefMut;
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::{CT_AP_UNKNOWN, CT_REMOVED, alloc_cohort, append_reading, unignore_all};
-use crate::grammar_applicator::GrammarApplicator;
+use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{hash_value, insert_if_exists};
 use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
 use crate::single_window::{SingleWindow, append_cohort};
@@ -133,74 +133,6 @@ where
             print_only_first: false,
             delimit_lexical_units: true,
             surface_readings: false,
-        }
-    }
-
-    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.merge-mappings-fn]
-    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.merge-mappings-fn]
-    /// C++ `void ApertiumApplicator::mergeMappings(Cohort& cohort)`. Collapses
-    /// byte-for-byte-identical readings (incl. mapping tags), keeping the FIRST of
-    /// each hash group and `free_reading`-ing the rest, then re-sorting by
-    /// `cmp_number`. Iteration over the group map is by ascending key (BTreeMap).
-    pub fn merge_mappings(&mut self, cohort: CohortId) {
-        use std::collections::BTreeMap;
-        let trace = self.base.cfg.trace;
-        let store = &mut self.base.doc.store;
-
-        let readings: ReadingList = store.cohorts.get(cohort.0).readings.clone();
-        let mut mlist: BTreeMap<u32, ReadingList> = BTreeMap::new();
-        for &r in &readings {
-            let mut hp = store.readings.get(r.0).hash;
-            if trace {
-                let hb = store.readings.get(r.0).hit_by.clone();
-                for iter_hb in hb {
-                    hp = hash_value(iter_hb, hp);
-                }
-            }
-            let mut sub = store.readings.get(r.0).next;
-            while let Some(s) = sub {
-                hp = hash_value(store.readings.get(s.0).hash, hp);
-                if trace {
-                    let hb = store.readings.get(s.0).hit_by.clone();
-                    for iter_hb in hb {
-                        hp = hash_value(iter_hb, hp);
-                    }
-                }
-                sub = store.readings.get(s.0).next;
-            }
-            mlist.entry(hp).or_default().push(r);
-        }
-
-        if mlist.len() == readings.len() {
-            return;
-        }
-
-        store.cohorts.get_mut(cohort.0).readings.clear();
-        let mut order: Vec<ReadingId> = Vec::new();
-
-        for (_k, clist) in mlist.into_iter() {
-            // Keep the first reading of the group, free the rest.
-            order.push(clist[0]);
-            for &cit in &clist[1..] {
-                let opt = Some(cit);
-                free_reading(store, opt);
-            }
-        }
-
-        order.sort_by(|&a, &b| {
-            let ra = store.readings.get(a.0);
-            let rb = store.readings.get(b.0);
-            if Reading::cmp_number(ra, rb) {
-                std::cmp::Ordering::Less
-            } else if Reading::cmp_number(rb, ra) {
-                std::cmp::Ordering::Greater
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        });
-        let c = store.cohorts.get_mut(cohort.0);
-        for (i, r) in order.into_iter().enumerate() {
-            c.readings.insert(i, r);
         }
     }
 
@@ -595,470 +527,17 @@ where
             {
                 reading = reverse_reading(&mut self.base.doc.store, reading);
             }
-            self.print_reading_2(reading, output);
+            // Print through the ApertiumFormat (the print cluster now lives on
+            // it); split `self.base` into the engine view for the read-only
+            // print, then drop `e` before the `free_reading` mutation below.
+            let fmt = ApertiumFormat::from_app(self);
+            {
+                let e = self.base.engine();
+                fmt.print_reading_2_e(&e, reading, output);
+            }
             let _ = writeln!(output);
             let opt = Some(reading);
             free_reading(&mut self.base.doc.store, opt);
-        }
-    }
-
-    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.print-reading-fn]
-    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-reading-fn]
-    /// C++ `void ApertiumApplicator::printReading(const Reading* reading,
-    /// std::ostream& output, ApertiumCasing casing, int32_t firstlower)`. The
-    /// 4-arg core: prints one reading (and its `next` sub-reading chain).
-    pub fn print_reading<W: Write>(
-        &self,
-        reading: ReadingId,
-        output: &mut W,
-        casing: ApertiumCasing,
-        firstlower: i32,
-    ) {
-        let store = &self.base.doc.store;
-        let grammar = &self.base.grammar;
-        let r = store.readings.get(reading.0);
-
-        if let Some(next) = r.next {
-            self.print_reading(next, output, casing, firstlower);
-            u_fputc('+', output);
-        }
-
-        let baseform = r.baseform.unwrap_or(TagHash(0));
-        let parent = r.parent;
-
-        if baseform != TagHash(0) {
-            // Lop off the surrounding '"' quotes.
-            let tid = tag_by_hash(grammar, baseform);
-            let tagtext = &grammar.single_tags_list.get(tid.0).tag;
-            let inner: Vec<char> = tagtext.chars().collect();
-            // data()+1, length size-2
-            let mut bf: Vec<char> = if inner.len() >= 2 {
-                inner[1..inner.len() - 1].to_vec()
-            } else {
-                Vec::new()
-            };
-
-            let parent_type = parent
-                .map(|c| store.cohorts.get(c.0).r#type)
-                .unwrap_or_default();
-
-            if self.wordform_case {
-                if casing == ApertiumCasing::Upper {
-                    bf = bf.iter().flat_map(|c| c.to_uppercase()).collect();
-                } else if casing == ApertiumCasing::Title && r.next.is_none() {
-                    let fl = firstlower as usize;
-                    if fl < bf.len() {
-                        let up: Vec<char> = bf[fl].to_uppercase().collect();
-                        if let Some(&first_up) = up.first() {
-                            bf[fl] = first_up;
-                        }
-                    }
-                }
-            }
-
-            let mut bf_escaped: Vec<char> = Vec::new();
-            for &ch in &bf {
-                if matches!(
-                    ch,
-                    '^' | '\\' | '/' | '$' | '[' | ']' | '{' | '}' | '<' | '>'
-                ) {
-                    bf_escaped.push('\\');
-                }
-                if (parent_type.intersects(CT_AP_UNKNOWN)) && ch == '@' {
-                    bf_escaped.push('\\');
-                }
-                bf_escaped.push(ch);
-            }
-            if self.surface_readings && !bf.is_empty() && bf_escaped.first() == Some(&'@') {
-                bf_escaped[0] = '#';
-            }
-            let bf_str: String = bf_escaped.iter().collect();
-            let _ = write!(output, "{bf_str}");
-        }
-
-        if self.surface_readings && !self.base.cfg.trace {
-            return;
-        }
-
-        // Reorder: MAPPING tags before the multiword join.
-        let mut tags_list: Vec<u32> = Vec::new();
-        let mut multitags_list: Vec<u32> = Vec::new();
-        let mut multi = false;
-        for &tter in r.tags_list.iter() {
-            let tag = grammar
-                .single_tags_list
-                .get(tag_by_hash(grammar, TagHash(tter)).0);
-            if tag.tag.starts_with('+') {
-                multi = true;
-            } else if tag.r#type.intersects(T_MAPPING) {
-                multi = false;
-            }
-            if tag.r#type.intersects(T_DEPENDENCY)
-                && self.base.doc.deps.has_dep
-                && !self.base.cfg.dep_original
-            {
-                continue;
-            }
-            if multi {
-                multitags_list.push(tter);
-            } else {
-                tags_list.push(tter);
-            }
-        }
-        tags_list.extend(multitags_list);
-
-        let mut used_tags = crate::sorted_vector::uint32SortedVector::new();
-        let escape = if self.surface_readings { "\\" } else { "" };
-        for tter in tags_list {
-            if self.base.cfg.unique_tags {
-                if used_tags.find(tter) != used_tags.end() {
-                    continue;
-                }
-                used_tags.insert(tter);
-            }
-            if tter == self.base.cfg.endtag.get() || tter == self.base.cfg.begintag.get() {
-                continue;
-            }
-            let tag = grammar
-                .single_tags_list
-                .get(tag_by_hash(grammar, TagHash(tter)).0);
-            if !tag.r#type.intersects(T_BASEFORM) && !tag.r#type.intersects(T_WORDFORM) {
-                let first = tag.tag.chars().next();
-                if first == Some('+') {
-                    let _ = write!(output, "{}", tag.tag);
-                } else if first == Some('&') {
-                    let inner = substr_from(&tag.tag, 2);
-                    let _ = write!(output, "{escape}<{inner}{escape}>");
-                } else {
-                    let _ = write!(output, "{escape}<{}{escape}>", tag.tag);
-                }
-            }
-        }
-
-        // Dependency output.
-        if self.base.doc.deps.has_dep
-            && r.next.is_none()
-            && let Some(pcid) = parent
-        {
-            let parent_removed = store.cohorts.get(pcid.0).r#type.intersects(CT_REMOVED);
-            if !parent_removed {
-                let (local_number, dep_self, dep_parent, sw_parent, global_number) = {
-                    let pc = store.cohorts.get(pcid.0);
-                    (
-                        pc.local_number,
-                        pc.dep_self,
-                        pc.dep_parent,
-                        pc.parent,
-                        pc.global_number,
-                    )
-                };
-                let _ = dep_self; // C++ sets it below (read-only path here).
-                // Determine parent cohort `pr`.
-                let mut pr = pcid;
-                if let Some(dp) = dep_parent {
-                    if dp == crate::types::GlobalNumber(0) {
-                        if let Some(sw) = sw_parent
-                            && let Some(&first) = store.single_windows.get(sw.0).cohorts.first()
-                        {
-                            pr = first;
-                        }
-                    } else if let Some(&cid) = self.base.doc.cohorts.cohort_map.get(&dp) {
-                        pr = cid;
-                    }
-                }
-                let pr_local = store.cohorts.get(pr.0).local_number;
-                let _ = global_number;
-                let _ = write!(output, "<#{}\u{2192}{}>", local_number, pr_local);
-            }
-        }
-
-        if self.base.cfg.trace {
-            for &iter_hb in r.hit_by.iter() {
-                u_fputc('<', output);
-                crate::grammar_applicator::core::print_trace(
-                    &self.base.grammar,
-                    &self.base.cfg,
-                    output,
-                    iter_hb,
-                );
-                u_fputc('>', output);
-            }
-        }
-    }
-
-    /// C++ 2-arg overload `printReading(const Reading*, std::ostream&)` — derives
-    /// `casing`/`firstlower` and calls the 4-arg form.
-    pub fn print_reading_2<W: Write>(&self, reading: ReadingId, output: &mut W) {
-        let mut casing = ApertiumCasing::Nochange;
-        let store = &self.base.doc.store;
-        let grammar = &self.base.grammar;
-
-        if self.wordform_case {
-            // Walk to the last sub-reading that has a baseform.
-            let mut last = reading;
-            loop {
-                let r = store.readings.get(last.0);
-                match r.next {
-                    Some(next) if store.readings.get(next.0).baseform.is_some() => last = next,
-                    _ => break,
-                }
-            }
-            if store.readings.get(last.0).baseform.is_some()
-                && let Some(pcid) = store.readings.get(reading.0).parent
-                && let Some(wf) = store.cohorts.get(pcid.0).wordform
-            {
-                let wftag: Vec<char> = grammar.single_tags_list.get(wf.0).tag.chars().collect();
-                // wf_length = size - 4; walk indices [0, wf_length),
-                // reading char at index i+2 (skip the leading `"<`).
-                let wf_length = wftag.len().saturating_sub(4);
-                let mut uppercaseseen = 0i32;
-                let mut alphabeticsseen = 0i32;
-                for i in 0..wf_length {
-                    let c = wftag[i + 2];
-                    if c.is_alphabetic() {
-                        alphabeticsseen += 1;
-                        if c.is_uppercase() {
-                            uppercaseseen += 1;
-                        }
-                    }
-                }
-                if uppercaseseen == alphabeticsseen && uppercaseseen >= 2 {
-                    casing = ApertiumCasing::Upper;
-                } else if wftag.len() > 2 && wftag[2].is_uppercase() && uppercaseseen == 1 {
-                    casing = ApertiumCasing::Title;
-                }
-            }
-        }
-        self.print_reading(reading, output, casing, 0);
-    }
-
-    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.print-cohort-fn]
-    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-cohort-fn]
-    /// C++ `void ApertiumApplicator::printCohort(Cohort* cohort, std::ostream&
-    /// output, bool profiling)`.
-    pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
-        let (local_number, ctype) = {
-            let c = self.base.doc.store.cohorts.get(cohort.0);
-            (c.local_number, c.r#type)
-        };
-        if local_number == 0 || (ctype.intersects(CT_REMOVED)) {
-            let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
-            if !text.is_empty() {
-                let _ = write!(output, "{text}");
-            }
-            return;
-        }
-
-        if !profiling {
-            unignore_all(&mut self.base.doc.store, cohort);
-            if !self.base.cfg.split_mappings {
-                self.merge_mappings(cohort);
-            }
-        }
-
-        let wblank = self.base.doc.store.cohorts.get(cohort.0).wblank.clone();
-        if !wblank.is_empty() {
-            let _ = write!(output, "{wblank}");
-        }
-
-        if self.delimit_lexical_units {
-            let _ = write!(output, "^");
-        }
-
-        if self.print_word_forms {
-            let (wf_tid, wread) = {
-                let c = self.base.doc.store.cohorts.get(cohort.0);
-                (c.wordform, c.wread)
-            };
-            let wf_tid = wf_tid.expect("printCohort: cohort has no wordform");
-            let wf_chars: Vec<char> = self
-                .base
-                .grammar
-                .single_tags_list
-                .get(wf_tid.0)
-                .tag
-                .chars()
-                .collect();
-            // data()+2, length size-4 (drop the wrapping `"<` and `>"`).
-            let wf: Vec<char> = if wf_chars.len() >= 4 {
-                wf_chars[2..wf_chars.len() - 2].to_vec()
-            } else {
-                Vec::new()
-            };
-            let mut wf_escaped: Vec<char> = Vec::new();
-            for &ch in &wf {
-                if matches!(
-                    ch,
-                    '^' | '\\' | '/' | '$' | '[' | ']' | '{' | '}' | '<' | '>'
-                ) {
-                    wf_escaped.push('\\');
-                }
-                if (ctype.intersects(CT_AP_UNKNOWN)) && ch == '@' {
-                    wf_escaped.push('\\');
-                }
-                wf_escaped.push(ch);
-            }
-            let wf_str: String = wf_escaped.iter().collect();
-            let _ = write!(output, "{wf_str}");
-
-            // Static reading tags.
-            if let Some(wread) = wread {
-                let wf_hash = self.base.grammar.single_tags_list.get(wf_tid.0).hash;
-                let tags_list = self.base.doc.store.readings.get(wread.0).tags_list.clone();
-                for tter in tags_list {
-                    let tter = TagHash(tter);
-                    if tter == wf_hash {
-                        continue;
-                    }
-                    let tid = tag_by_hash(&self.base.grammar, tter);
-                    let tagtext = &self.base.grammar.single_tags_list.get(tid.0).tag;
-                    let _ = write!(output, "<{tagtext}>");
-                }
-            }
-        }
-
-        let mut need_slash = self.print_word_forms;
-
-        // Sort readings by cmp_number.
-        self.sort_readings_field(cohort, |c| &mut c.readings);
-        let readings = self.base.doc.store.cohorts.get(cohort.0).readings.clone();
-        for reading in readings {
-            let mut reading = reading;
-            if self.base.doc.store.readings.get(reading.0).noprint {
-                continue;
-            }
-            if need_slash {
-                let _ = write!(output, "/");
-            }
-            need_slash = true;
-            if self.base.grammar.sub_readings_ltr
-                && self.base.doc.store.readings.get(reading.0).next.is_some()
-            {
-                reading = reverse_reading(&mut self.base.doc.store, reading);
-            }
-            self.print_reading_2(reading, output);
-            if self.print_only_first {
-                break;
-            }
-        }
-
-        if self.base.cfg.trace {
-            self.sort_readings_field(cohort, |c| &mut c.delayed);
-            let delayed = self.base.doc.store.cohorts.get(cohort.0).delayed.clone();
-            for reading in delayed {
-                let mut reading = reading;
-                if self.base.doc.store.readings.get(reading.0).noprint {
-                    continue;
-                }
-                if need_slash {
-                    let _ = write!(output, "/{NOT_SIGN}");
-                }
-                need_slash = true;
-                if self.base.grammar.sub_readings_ltr
-                    && self.base.doc.store.readings.get(reading.0).next.is_some()
-                {
-                    reading = reverse_reading(&mut self.base.doc.store, reading);
-                }
-                self.print_reading_2(reading, output);
-            }
-            self.sort_readings_field(cohort, |c| &mut c.deleted);
-            let deleted = self.base.doc.store.cohorts.get(cohort.0).deleted.clone();
-            for reading in deleted {
-                let mut reading = reading;
-                if self.base.doc.store.readings.get(reading.0).noprint {
-                    continue;
-                }
-                if need_slash {
-                    let _ = write!(output, "/{NOT_SIGN}");
-                }
-                need_slash = true;
-                if self.base.grammar.sub_readings_ltr
-                    && self.base.doc.store.readings.get(reading.0).next.is_some()
-                {
-                    reading = reverse_reading(&mut self.base.doc.store, reading);
-                }
-                self.print_reading_2(reading, output);
-            }
-        }
-
-        if self.delimit_lexical_units {
-            let _ = write!(output, "$");
-        }
-
-        let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
-        if !text.is_empty() {
-            let _ = write!(output, "{text}");
-        }
-    }
-
-    /// Sort a cohort's chosen reading list (`readings`/`delayed`/`deleted`) by
-    /// `Reading::cmp_number` — factors the repeated `std::sort(..., cmp_number)`.
-    fn sort_readings_field(
-        &mut self,
-        cohort: CohortId,
-        pick: impl Fn(&mut crate::cohort::Cohort) -> &mut ReadingList,
-    ) {
-        let mut list = pick(self.base.doc.store.cohorts.get_mut(cohort.0)).clone();
-        let store = &self.base.doc.store;
-        list.sort_by(|&a, &b| {
-            let ra = store.readings.get(a.0);
-            let rb = store.readings.get(b.0);
-            if Reading::cmp_number(ra, rb) {
-                std::cmp::Ordering::Less
-            } else if Reading::cmp_number(rb, ra) {
-                std::cmp::Ordering::Greater
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        });
-        *pick(self.base.doc.store.cohorts.get_mut(cohort.0)) = list;
-    }
-
-    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.print-single-window-fn]
-    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-single-window-fn]
-    /// C++ `void ApertiumApplicator::printSingleWindow(SingleWindow* window,
-    /// std::ostream& output, bool profiling)`.
-    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
-        let text = self
-            .base
-            .doc
-            .store
-            .single_windows
-            .get(window.0)
-            .text
-            .clone();
-        if !text.is_empty() {
-            let _ = write!(output, "{text}");
-        }
-
-        let all_cohorts = self
-            .base
-            .doc
-            .store
-            .single_windows
-            .get(window.0)
-            .all_cohorts
-            .clone();
-        for cohort in all_cohorts {
-            self.print_cohort(cohort, output, profiling);
-            u_fflush(output);
-        }
-
-        let text_post = self
-            .base
-            .doc
-            .store
-            .single_windows
-            .get(window.0)
-            .text_post
-            .clone();
-        if !text_post.is_empty() {
-            let _ = write!(output, "{text_post}");
-            u_fflush(output);
-        }
-
-        if self.base.doc.store.single_windows.get(window.0).flush_after {
-            u_fputc('\0', output);
         }
     }
 
@@ -1312,7 +791,7 @@ where
                             .stream
                             .alloc_append_single_window(&mut base.doc.store)
                     };
-                    self.base.init_empty_single_window(sw);
+                    self.base.engine().init_empty_single_window(sw);
                     // Move the variable collections into the window (C++
                     // `cSWindow->variables_set = variables_set; ...clear()`).
                     let set_pairs = collect_map(&variables_set);
@@ -1552,10 +1031,10 @@ where
                 }
 
                 if did_delim && self.base.doc.stream.next.len() as u32 > self.base.cfg.num_windows {
-                    self.base.shuffle_windows_down();
-                    self.base.run_grammar_on_window_with(fmt, output);
+                    self.base.engine().shuffle_windows_down();
+                    self.base.engine().run_grammar_on_window_with(fmt, output);
                     if reset_after != 0 && self.base.doc.num_windows.is_multiple_of(reset_after) {
-                        self.base.reset_indexes();
+                        self.base.engine().reset_indexes();
                     }
                 }
                 token.clear();
@@ -1681,19 +1160,19 @@ where
                         .push_str(blank);
                 }
             } else {
-                fmt.print_plain_text_line(&mut self.base, blank, output);
+                fmt.print_plain_text_line(&mut self.base.engine(), blank, output);
             }
             blank.clear();
         }
 
         // Run the grammar & print results.
-        while self.base.rotate_next().is_some() {
-            self.base.run_grammar_on_window_with(fmt, output);
+        while self.base.engine().rotate_next().is_some() {
+            self.base.engine().run_grammar_on_window_with(fmt, output);
         }
-        self.base.shuffle_windows_down();
+        self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
             let tmp = self.base.doc.stream.previous[0];
-            fmt.print_single_window(&mut self.base, tmp, output, false);
+            fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
             let opt = Some(tmp);
             {
                 let base = &mut *self.base;
@@ -1708,7 +1187,7 @@ where
         }
 
         if c != '\0' && c != '\u{FFFF}' {
-            fmt.print_plain_text_line(&mut self.base, &c.to_string(), output);
+            fmt.print_plain_text_line(&mut self.base.engine(), &c.to_string(), output);
         }
 
         if n && back_swindow.is_none() {
@@ -1768,58 +1247,560 @@ impl ApertiumFormat {
         }
     }
 
-    fn with_app<T>(
+    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.merge-mappings-fn]
+    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.merge-mappings-fn]
+    /// C++ `void ApertiumApplicator::mergeMappings(Cohort& cohort)`. Collapses
+    /// byte-for-byte-identical readings (incl. mapping tags), keeping the FIRST of
+    /// each hash group and `free_reading`-ing the rest, then re-sorting by
+    /// `cmp_number`. Iteration over the group map is by ascending key (BTreeMap).
+    fn merge_mappings_e(&self, e: &mut Engine<'_>, cohort: CohortId) {
+        use std::collections::BTreeMap;
+        let trace = e.cfg.trace;
+        let store = &mut e.doc.store;
+
+        let readings: ReadingList = store.cohorts.get(cohort.0).readings.clone();
+        let mut mlist: BTreeMap<u32, ReadingList> = BTreeMap::new();
+        for &r in &readings {
+            let mut hp = store.readings.get(r.0).hash;
+            if trace {
+                let hb = store.readings.get(r.0).hit_by.clone();
+                for iter_hb in hb {
+                    hp = hash_value(iter_hb, hp);
+                }
+            }
+            let mut sub = store.readings.get(r.0).next;
+            while let Some(s) = sub {
+                hp = hash_value(store.readings.get(s.0).hash, hp);
+                if trace {
+                    let hb = store.readings.get(s.0).hit_by.clone();
+                    for iter_hb in hb {
+                        hp = hash_value(iter_hb, hp);
+                    }
+                }
+                sub = store.readings.get(s.0).next;
+            }
+            mlist.entry(hp).or_default().push(r);
+        }
+
+        if mlist.len() == readings.len() {
+            return;
+        }
+
+        store.cohorts.get_mut(cohort.0).readings.clear();
+        let mut order: Vec<ReadingId> = Vec::new();
+
+        for (_k, clist) in mlist.into_iter() {
+            // Keep the first reading of the group, free the rest.
+            order.push(clist[0]);
+            for &cit in &clist[1..] {
+                let opt = Some(cit);
+                free_reading(store, opt);
+            }
+        }
+
+        order.sort_by(|&a, &b| {
+            let ra = store.readings.get(a.0);
+            let rb = store.readings.get(b.0);
+            if Reading::cmp_number(ra, rb) {
+                std::cmp::Ordering::Less
+            } else if Reading::cmp_number(rb, ra) {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+        let c = store.cohorts.get_mut(cohort.0);
+        for (i, r) in order.into_iter().enumerate() {
+            c.readings.insert(i, r);
+        }
+    }
+
+    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.print-reading-fn]
+    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-reading-fn]
+    /// C++ `void ApertiumApplicator::printReading(const Reading* reading,
+    /// std::ostream& output, ApertiumCasing casing, int32_t firstlower)`. The
+    /// 4-arg core: prints one reading (and its `next` sub-reading chain).
+    fn print_reading_e<W: Write>(
+        &self,
+        e: &Engine<'_>,
+        reading: ReadingId,
+        output: &mut W,
+        casing: ApertiumCasing,
+        firstlower: i32,
+    ) {
+        let store = &e.doc.store;
+        let grammar = &e.grammar;
+        let r = store.readings.get(reading.0);
+
+        if let Some(next) = r.next {
+            self.print_reading_e(e, next, output, casing, firstlower);
+            u_fputc('+', output);
+        }
+
+        let baseform = r.baseform.unwrap_or(TagHash(0));
+        let parent = r.parent;
+
+        if baseform != TagHash(0) {
+            // Lop off the surrounding '"' quotes.
+            let tid = tag_by_hash(grammar, baseform);
+            let tagtext = &grammar.single_tags_list.get(tid.0).tag;
+            let inner: Vec<char> = tagtext.chars().collect();
+            // data()+1, length size-2
+            let mut bf: Vec<char> = if inner.len() >= 2 {
+                inner[1..inner.len() - 1].to_vec()
+            } else {
+                Vec::new()
+            };
+
+            let parent_type = parent
+                .map(|c| store.cohorts.get(c.0).r#type)
+                .unwrap_or_default();
+
+            if self.wordform_case {
+                if casing == ApertiumCasing::Upper {
+                    bf = bf.iter().flat_map(|c| c.to_uppercase()).collect();
+                } else if casing == ApertiumCasing::Title && r.next.is_none() {
+                    let fl = firstlower as usize;
+                    if fl < bf.len() {
+                        let up: Vec<char> = bf[fl].to_uppercase().collect();
+                        if let Some(&first_up) = up.first() {
+                            bf[fl] = first_up;
+                        }
+                    }
+                }
+            }
+
+            let mut bf_escaped: Vec<char> = Vec::new();
+            for &ch in &bf {
+                if matches!(
+                    ch,
+                    '^' | '\\' | '/' | '$' | '[' | ']' | '{' | '}' | '<' | '>'
+                ) {
+                    bf_escaped.push('\\');
+                }
+                if (parent_type.intersects(CT_AP_UNKNOWN)) && ch == '@' {
+                    bf_escaped.push('\\');
+                }
+                bf_escaped.push(ch);
+            }
+            if self.surface_readings && !bf.is_empty() && bf_escaped.first() == Some(&'@') {
+                bf_escaped[0] = '#';
+            }
+            let bf_str: String = bf_escaped.iter().collect();
+            let _ = write!(output, "{bf_str}");
+        }
+
+        if self.surface_readings && !e.cfg.trace {
+            return;
+        }
+
+        // Reorder: MAPPING tags before the multiword join.
+        let mut tags_list: Vec<u32> = Vec::new();
+        let mut multitags_list: Vec<u32> = Vec::new();
+        let mut multi = false;
+        for &tter in r.tags_list.iter() {
+            let tag = grammar
+                .single_tags_list
+                .get(tag_by_hash(grammar, TagHash(tter)).0);
+            if tag.tag.starts_with('+') {
+                multi = true;
+            } else if tag.r#type.intersects(T_MAPPING) {
+                multi = false;
+            }
+            if tag.r#type.intersects(T_DEPENDENCY)
+                && e.doc.deps.has_dep
+                && !e.cfg.dep_original
+            {
+                continue;
+            }
+            if multi {
+                multitags_list.push(tter);
+            } else {
+                tags_list.push(tter);
+            }
+        }
+        tags_list.extend(multitags_list);
+
+        let mut used_tags = crate::sorted_vector::uint32SortedVector::new();
+        let escape = if self.surface_readings { "\\" } else { "" };
+        for tter in tags_list {
+            if e.cfg.unique_tags {
+                if used_tags.find(tter) != used_tags.end() {
+                    continue;
+                }
+                used_tags.insert(tter);
+            }
+            if tter == e.cfg.endtag.get() || tter == e.cfg.begintag.get() {
+                continue;
+            }
+            let tag = grammar
+                .single_tags_list
+                .get(tag_by_hash(grammar, TagHash(tter)).0);
+            if !tag.r#type.intersects(T_BASEFORM) && !tag.r#type.intersects(T_WORDFORM) {
+                let first = tag.tag.chars().next();
+                if first == Some('+') {
+                    let _ = write!(output, "{}", tag.tag);
+                } else if first == Some('&') {
+                    let inner = substr_from(&tag.tag, 2);
+                    let _ = write!(output, "{escape}<{inner}{escape}>");
+                } else {
+                    let _ = write!(output, "{escape}<{}{escape}>", tag.tag);
+                }
+            }
+        }
+
+        // Dependency output.
+        if e.doc.deps.has_dep
+            && r.next.is_none()
+            && let Some(pcid) = parent
+        {
+            let parent_removed = store.cohorts.get(pcid.0).r#type.intersects(CT_REMOVED);
+            if !parent_removed {
+                let (local_number, dep_self, dep_parent, sw_parent, global_number) = {
+                    let pc = store.cohorts.get(pcid.0);
+                    (
+                        pc.local_number,
+                        pc.dep_self,
+                        pc.dep_parent,
+                        pc.parent,
+                        pc.global_number,
+                    )
+                };
+                let _ = dep_self; // C++ sets it below (read-only path here).
+                // Determine parent cohort `pr`.
+                let mut pr = pcid;
+                if let Some(dp) = dep_parent {
+                    if dp == crate::types::GlobalNumber(0) {
+                        if let Some(sw) = sw_parent
+                            && let Some(&first) = store.single_windows.get(sw.0).cohorts.first()
+                        {
+                            pr = first;
+                        }
+                    } else if let Some(&cid) = e.doc.cohorts.cohort_map.get(&dp) {
+                        pr = cid;
+                    }
+                }
+                let pr_local = store.cohorts.get(pr.0).local_number;
+                let _ = global_number;
+                let _ = write!(output, "<#{}\u{2192}{}>", local_number, pr_local);
+            }
+        }
+
+        if e.cfg.trace {
+            for &iter_hb in r.hit_by.iter() {
+                u_fputc('<', output);
+                crate::grammar_applicator::core::print_trace(
+                    e.grammar,
+                    e.cfg,
+                    output,
+                    iter_hb,
+                );
+                u_fputc('>', output);
+            }
+        }
+    }
+
+    /// C++ 2-arg overload `printReading(const Reading*, std::ostream&)` — derives
+    /// `casing`/`firstlower` and calls the 4-arg form.
+    fn print_reading_2_e<W: Write>(&self, e: &Engine<'_>, reading: ReadingId, output: &mut W) {
+        let mut casing = ApertiumCasing::Nochange;
+        let store = &e.doc.store;
+        let grammar = &e.grammar;
+
+        if self.wordform_case {
+            // Walk to the last sub-reading that has a baseform.
+            let mut last = reading;
+            loop {
+                let r = store.readings.get(last.0);
+                match r.next {
+                    Some(next) if store.readings.get(next.0).baseform.is_some() => last = next,
+                    _ => break,
+                }
+            }
+            if store.readings.get(last.0).baseform.is_some()
+                && let Some(pcid) = store.readings.get(reading.0).parent
+                && let Some(wf) = store.cohorts.get(pcid.0).wordform
+            {
+                let wftag: Vec<char> = grammar.single_tags_list.get(wf.0).tag.chars().collect();
+                // wf_length = size - 4; walk indices [0, wf_length),
+                // reading char at index i+2 (skip the leading `"<`).
+                let wf_length = wftag.len().saturating_sub(4);
+                let mut uppercaseseen = 0i32;
+                let mut alphabeticsseen = 0i32;
+                for i in 0..wf_length {
+                    let c = wftag[i + 2];
+                    if c.is_alphabetic() {
+                        alphabeticsseen += 1;
+                        if c.is_uppercase() {
+                            uppercaseseen += 1;
+                        }
+                    }
+                }
+                if uppercaseseen == alphabeticsseen && uppercaseseen >= 2 {
+                    casing = ApertiumCasing::Upper;
+                } else if wftag.len() > 2 && wftag[2].is_uppercase() && uppercaseseen == 1 {
+                    casing = ApertiumCasing::Title;
+                }
+            }
+        }
+        self.print_reading_e(e, reading, output, casing, 0);
+    }
+
+    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.print-cohort-fn]
+    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-cohort-fn]
+    /// C++ `void ApertiumApplicator::printCohort(Cohort* cohort, std::ostream&
+    /// output, bool profiling)`.
+    pub(crate) fn print_cohort_e<W: Write>(
         &mut self,
-        app: &mut GrammarApplicator,
-        f: impl FnOnce(&mut ApertiumApplicator<&mut GrammarApplicator>) -> T,
-    ) -> T {
-        let mut apertium = ApertiumApplicator::borrowing(app);
-        apertium.wordform_case = self.wordform_case;
-        apertium.print_word_forms = self.print_word_forms;
-        apertium.print_only_first = self.print_only_first;
-        apertium.delimit_lexical_units = self.delimit_lexical_units;
-        apertium.surface_readings = self.surface_readings;
-        f(&mut apertium)
+        e: &mut Engine<'_>,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let (local_number, ctype) = {
+            let c = e.doc.store.cohorts.get(cohort.0);
+            (c.local_number, c.r#type)
+        };
+        if local_number == 0 || (ctype.intersects(CT_REMOVED)) {
+            let text = e.doc.store.cohorts.get(cohort.0).text.clone();
+            if !text.is_empty() {
+                let _ = write!(output, "{text}");
+            }
+            return;
+        }
+
+        if !profiling {
+            unignore_all(&mut e.doc.store, cohort);
+            if !e.cfg.split_mappings {
+                self.merge_mappings_e(e, cohort);
+            }
+        }
+
+        let wblank = e.doc.store.cohorts.get(cohort.0).wblank.clone();
+        if !wblank.is_empty() {
+            let _ = write!(output, "{wblank}");
+        }
+
+        if self.delimit_lexical_units {
+            let _ = write!(output, "^");
+        }
+
+        if self.print_word_forms {
+            let (wf_tid, wread) = {
+                let c = e.doc.store.cohorts.get(cohort.0);
+                (c.wordform, c.wread)
+            };
+            let wf_tid = wf_tid.expect("printCohort: cohort has no wordform");
+            let wf_chars: Vec<char> = e
+                .grammar
+                .single_tags_list
+                .get(wf_tid.0)
+                .tag
+                .chars()
+                .collect();
+            // data()+2, length size-4 (drop the wrapping `"<` and `>"`).
+            let wf: Vec<char> = if wf_chars.len() >= 4 {
+                wf_chars[2..wf_chars.len() - 2].to_vec()
+            } else {
+                Vec::new()
+            };
+            let mut wf_escaped: Vec<char> = Vec::new();
+            for &ch in &wf {
+                if matches!(
+                    ch,
+                    '^' | '\\' | '/' | '$' | '[' | ']' | '{' | '}' | '<' | '>'
+                ) {
+                    wf_escaped.push('\\');
+                }
+                if (ctype.intersects(CT_AP_UNKNOWN)) && ch == '@' {
+                    wf_escaped.push('\\');
+                }
+                wf_escaped.push(ch);
+            }
+            let wf_str: String = wf_escaped.iter().collect();
+            let _ = write!(output, "{wf_str}");
+
+            // Static reading tags.
+            if let Some(wread) = wread {
+                let wf_hash = e.grammar.single_tags_list.get(wf_tid.0).hash;
+                let tags_list = e.doc.store.readings.get(wread.0).tags_list.clone();
+                for tter in tags_list {
+                    let tter = TagHash(tter);
+                    if tter == wf_hash {
+                        continue;
+                    }
+                    let tid = tag_by_hash(e.grammar, tter);
+                    let tagtext = &e.grammar.single_tags_list.get(tid.0).tag;
+                    let _ = write!(output, "<{tagtext}>");
+                }
+            }
+        }
+
+        let mut need_slash = self.print_word_forms;
+
+        // Sort readings by cmp_number.
+        self.sort_readings_field_e(e, cohort, |c| &mut c.readings);
+        let readings = e.doc.store.cohorts.get(cohort.0).readings.clone();
+        for reading in readings {
+            let mut reading = reading;
+            if e.doc.store.readings.get(reading.0).noprint {
+                continue;
+            }
+            if need_slash {
+                let _ = write!(output, "/");
+            }
+            need_slash = true;
+            if e.grammar.sub_readings_ltr
+                && e.doc.store.readings.get(reading.0).next.is_some()
+            {
+                reading = reverse_reading(&mut e.doc.store, reading);
+            }
+            self.print_reading_2_e(e, reading, output);
+            if self.print_only_first {
+                break;
+            }
+        }
+
+        if e.cfg.trace {
+            self.sort_readings_field_e(e, cohort, |c| &mut c.delayed);
+            let delayed = e.doc.store.cohorts.get(cohort.0).delayed.clone();
+            for reading in delayed {
+                let mut reading = reading;
+                if e.doc.store.readings.get(reading.0).noprint {
+                    continue;
+                }
+                if need_slash {
+                    let _ = write!(output, "/{NOT_SIGN}");
+                }
+                need_slash = true;
+                if e.grammar.sub_readings_ltr
+                    && e.doc.store.readings.get(reading.0).next.is_some()
+                {
+                    reading = reverse_reading(&mut e.doc.store, reading);
+                }
+                self.print_reading_2_e(e, reading, output);
+            }
+            self.sort_readings_field_e(e, cohort, |c| &mut c.deleted);
+            let deleted = e.doc.store.cohorts.get(cohort.0).deleted.clone();
+            for reading in deleted {
+                let mut reading = reading;
+                if e.doc.store.readings.get(reading.0).noprint {
+                    continue;
+                }
+                if need_slash {
+                    let _ = write!(output, "/{NOT_SIGN}");
+                }
+                need_slash = true;
+                if e.grammar.sub_readings_ltr
+                    && e.doc.store.readings.get(reading.0).next.is_some()
+                {
+                    reading = reverse_reading(&mut e.doc.store, reading);
+                }
+                self.print_reading_2_e(e, reading, output);
+            }
+        }
+
+        if self.delimit_lexical_units {
+            let _ = write!(output, "$");
+        }
+
+        let text = e.doc.store.cohorts.get(cohort.0).text.clone();
+        if !text.is_empty() {
+            let _ = write!(output, "{text}");
+        }
+    }
+
+    /// Sort a cohort's chosen reading list (`readings`/`delayed`/`deleted`) by
+    /// `Reading::cmp_number` — factors the repeated `std::sort(..., cmp_number)`.
+    fn sort_readings_field_e(
+        &self,
+        e: &mut Engine<'_>,
+        cohort: CohortId,
+        pick: impl Fn(&mut crate::cohort::Cohort) -> &mut ReadingList,
+    ) {
+        let mut list = pick(e.doc.store.cohorts.get_mut(cohort.0)).clone();
+        let store = &e.doc.store;
+        list.sort_by(|&a, &b| {
+            let ra = store.readings.get(a.0);
+            let rb = store.readings.get(b.0);
+            if Reading::cmp_number(ra, rb) {
+                std::cmp::Ordering::Less
+            } else if Reading::cmp_number(rb, ra) {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+        *pick(e.doc.store.cohorts.get_mut(cohort.0)) = list;
+    }
+
+    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.print-single-window-fn]
+    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-single-window-fn]
+    /// C++ `void ApertiumApplicator::printSingleWindow(SingleWindow* window,
+    /// std::ostream& output, bool profiling)`.
+    pub(crate) fn print_single_window_e<W: Write>(
+        &mut self,
+        e: &mut Engine<'_>,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let text = e.doc.store.single_windows.get(window.0).text.clone();
+        if !text.is_empty() {
+            let _ = write!(output, "{text}");
+        }
+
+        let all_cohorts = e
+            .doc
+            .store
+            .single_windows
+            .get(window.0)
+            .all_cohorts
+            .clone();
+        for cohort in all_cohorts {
+            self.print_cohort_e(e, cohort, output, profiling);
+            u_fflush(output);
+        }
+
+        let text_post = e.doc.store.single_windows.get(window.0).text_post.clone();
+        if !text_post.is_empty() {
+            let _ = write!(output, "{text_post}");
+            u_fflush(output);
+        }
+
+        if e.doc.store.single_windows.get(window.0).flush_after {
+            u_fputc('\0', output);
+        }
     }
 }
 
 impl crate::grammar_applicator::stream_format::StreamFormat for ApertiumFormat {
     fn print_cohort<W: Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
     ) {
-        self.with_app(app, |a| a.print_cohort(cohort, output, profiling));
+        self.print_cohort_e(e, cohort, output, profiling);
     }
 
     fn print_single_window<W: Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         window: SwId,
         output: &mut W,
         profiling: bool,
     ) {
-        self.with_app(app, |a| a.print_single_window(window, output, profiling));
+        self.print_single_window_e(e, window, output, profiling);
     }
 
-    fn print_stream_command<W: Write>(
-        &mut self,
-        app: &mut GrammarApplicator,
-        cmd: &str,
-        output: &mut W,
-    ) {
-        app.engine().print_stream_command(cmd, output);
+    fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W) {
+        e.print_stream_command(cmd, output);
     }
 
-    fn print_plain_text_line<W: Write>(
-        &mut self,
-        app: &mut GrammarApplicator,
-        line: &str,
-        output: &mut W,
-    ) {
-        app.engine().print_plain_text_line(line, output);
+    fn print_plain_text_line<W: Write>(&mut self, e: &mut Engine<'_>, line: &str, output: &mut W) {
+        e.print_plain_text_line(line, output);
     }
 }
 

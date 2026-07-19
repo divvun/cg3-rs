@@ -756,7 +756,7 @@ fn format_converter_print_dispatch() {
     let (sw, cohort) = {
         let b = fc.base_mut();
         let sw = b.doc.stream.alloc_append_single_window(&mut b.doc.store);
-        b.init_empty_single_window(sw);
+        b.engine().init_empty_single_window(sw);
         let c = cg3::cohort::alloc_cohort(&mut b.doc.store, Some(sw));
         let wf = b.add_tag("\"<word>\"", cg3::tag::TagType::empty());
         {

@@ -962,8 +962,8 @@ impl MatxinApplicator {
                 );
             }
             if self.base.doc.stream.next.len() as u32 > self.base.cfg.num_windows {
-                self.base.shuffle_windows_down();
-                self.base.run_grammar_on_window(output);
+                self.base.engine().shuffle_windows_down();
+                self.base.engine().run_grammar_on_window(output);
                 if reset_after != 0 && self.base.doc.num_windows.is_multiple_of(reset_after) {
                     self.base.reset_indexes();
                 }
@@ -1117,10 +1117,10 @@ impl MatxinApplicator {
 
         // Run the grammar & print results.
         let _ = writeln!(output, "<corpus>");
-        while self.base.rotate_next().is_some() {
-            self.base.run_grammar_on_window(output);
+        while self.base.engine().rotate_next().is_some() {
+            self.base.engine().run_grammar_on_window(output);
         }
-        self.base.shuffle_windows_down();
+        self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
             let tmp = self.base.doc.stream.previous[0];
             self.print_single_window(tmp, output, false);

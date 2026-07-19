@@ -31,7 +31,7 @@ use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::append_reading;
 use crate::cohort::{CT_REMOVED, alloc_cohort, free_cohort};
 use crate::grammar::Grammar;
-use crate::grammar_applicator::GrammarApplicator;
+use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{
     NUMERIC_MAX, insert_if_exists, isnl, isspace, reversed, skipto_nospan_raw_chars,
 };
@@ -102,234 +102,6 @@ where
             wtag: "W".to_string(),
             sub_delims: "#".to_string(),
         }
-    }
-
-    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.print-reading-fn]
-    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-reading-fn]
-    /// C++ `void FSTApplicator::printReading(const Reading* reading,
-    /// std::ostream& output)`. Serialises one reading in FST-lookup syntax
-    /// (`+`-joined baseform + tags), recursing into subreadings so the innermost
-    /// prints first, joined by `sub_delims` (`"#"`). No trailing newline (the
-    /// caller adds it).
-    ///
-    /// `Reading*`/`Cohort*` resolve through `self.base.doc.store`; the store is
-    /// threaded as a parameter so the caller can split the `&mut self.base` /
-    /// `&mut store` borrows (matching the base print methods).
-    pub fn print_reading<W: Write>(&self, reading: ReadingId, output: &mut W) {
-        let (noprint, deleted, next, baseform, parent) = {
-            let r = self.base.doc.store.readings.get(reading.0);
-            (r.noprint, r.deleted, r.next, r.baseform, r.parent)
-        };
-        if noprint {
-            return;
-        }
-        if deleted {
-            return;
-        }
-
-        if let Some(next_id) = next {
-            self.print_reading(next_id, output);
-            let _ = write!(output, "{}", self.sub_delims);
-        }
-
-        if let Some(baseform) = baseform {
-            // grammar->single_tags[baseform]->tag, stripped of the surrounding
-            // quotes: print `tag.size() - 2` chars starting at `tag.data() + 1`.
-            let tid = tag_by_hash(&self.base.grammar, baseform);
-            let tag = &self.base.grammar.single_tags_list[tid.0].tag;
-            let chars: Vec<char> = tag.chars().collect();
-            if chars.len() >= 2 {
-                let inner: String = chars[1..chars.len() - 1].iter().collect();
-                let _ = write!(output, "{inner}");
-            }
-        }
-
-        // parent->wordform->hash for the skip test.
-        let parent_wf_hash = {
-            let cid = parent.expect("reading has no parent cohort");
-            let wf = self.base.doc.store.cohorts.get(cid.0).wordform;
-            wf.map(|t| self.base.grammar.single_tags_list[t.0].hash)
-                .unwrap_or(TagHash(0))
-        };
-
-        let tags_list: Vec<u32> = self
-            .base
-            .doc
-            .store
-            .readings
-            .get(reading.0)
-            .tags_list
-            .clone();
-        let mut unique: crate::sorted_vector::uint32SortedVector =
-            crate::sorted_vector::uint32SortedVector::new();
-        for tter in tags_list {
-            let tter = TagHash(tter);
-            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag)
-                || tter == self.base.cfg.begintag
-            {
-                continue;
-            }
-            if baseform == Some(tter) || tter == parent_wf_hash {
-                continue;
-            }
-            if self.base.cfg.unique_tags {
-                if unique.find(tter.get()) != unique.end() {
-                    continue;
-                }
-                unique.insert(tter.get());
-            }
-            let tid = tag_by_hash(&self.base.grammar, tter);
-            let tag = &self.base.grammar.single_tags_list[tid.0];
-            if tag.r#type.intersects(T_DEPENDENCY)
-                && self.base.doc.deps.has_dep
-                && !self.base.cfg.dep_original
-            {
-                continue;
-            }
-            if tag.r#type.intersects(T_RELATION) && self.base.doc.deps.has_relations {
-                continue;
-            }
-            let _ = write!(output, "+{}", tag.tag);
-        }
-    }
-
-    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.print-cohort-fn]
-    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-cohort-fn]
-    /// C++ `void FSTApplicator::printCohort(Cohort* cohort, std::ostream& output,
-    /// bool profiling)`. Uses a `removed:` label so removed cohorts still print
-    /// their trailing text. Static tags trigger a one-shot stderr warning and are
-    /// otherwise dropped from FST output.
-    pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
-        let (local_number, ctype) = {
-            let c = self.base.doc.store.cohorts.get(cohort.0);
-            (c.local_number, c.r#type)
-        };
-        // if (local_number == 0 || (type & CT_REMOVED)) goto removed;
-        let goto_removed = local_number == 0 || (ctype.intersects(CT_REMOVED));
-
-        if !goto_removed {
-            let wblank = self.base.doc.store.cohorts.get(cohort.0).wblank.clone();
-            if !wblank.is_empty() {
-                let _ = write!(output, "{wblank}");
-                if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
-                    u_fputc('\n', output);
-                }
-            }
-
-            if self.base.doc.store.cohorts.get(cohort.0).wread.is_some()
-                && !self.did_warn_statictags
-            {
-                // u_fprintf(ux_stderr, "Warning: FST CG format cannot output
-                // static tags! You are losing information!\n"); ux_stderr is a
-                // placeholder — emission deferred; the one-shot flag is set.
-                self.did_warn_statictags = true;
-            }
-
-            if !profiling {
-                crate::cohort::unignore_all(&mut self.base.doc.store, cohort);
-                if !self.base.cfg.split_mappings {
-                    self.base.engine().merge_mappings(cohort);
-                }
-            }
-
-            // wform = cohort->wordform->tag; print stripped of `"<` and `>"`:
-            // wform.size() - 4 chars starting at wform.data() + 2.
-            let wform: Vec<char> = {
-                let wf = self
-                    .base
-                    .doc
-                    .store
-                    .cohorts
-                    .get(cohort.0)
-                    .wordform
-                    .expect("cohort wordform");
-                self.base.grammar.single_tags_list[wf.0]
-                    .tag
-                    .chars()
-                    .collect()
-            };
-            let wform_inner: String = if wform.len() >= 4 {
-                wform[2..wform.len() - 2].iter().collect()
-            } else {
-                String::new()
-            };
-
-            let readings: Vec<ReadingId> =
-                self.base.doc.store.cohorts.get(cohort.0).readings.clone();
-            let only_noprint =
-                readings.len() == 1 && self.base.doc.store.readings.get(readings[0].0).noprint;
-            if readings.is_empty() || only_noprint {
-                // "<wordform>\t+?\n" — the FST "no analysis" marker.
-                let _ = writeln!(output, "{wform_inner}\t+?");
-            } else {
-                // NOTE: printCohort does NOT sort readings (unlike the base CG
-                // applicator) — iterate the current vector order verbatim.
-                for rter in readings {
-                    let _ = write!(output, "{wform_inner}\t");
-                    self.print_reading(rter, output);
-                    u_fputc('\n', output);
-                }
-            }
-            u_fputc('\n', output);
-        }
-
-        // removed:
-        let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
-        if !text.is_empty() && text.chars().any(|c| !self.is_ws(c)) {
-            let _ = write!(output, "{text}");
-            if !isnl(text.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
-            }
-        }
-    }
-
-    /// C++ `UString::find_first_not_of(ws)` membership over the base's `ws`
-    /// whitespace set (space, tab, [newline], NUL). Mirrors the base's private
-    /// `is_ws`.
-    fn is_ws(&self, c: char) -> bool {
-        for &w in &self.base.cfg.ws {
-            if w == '\0' {
-                break;
-            }
-            if w == c {
-                return true;
-            }
-        }
-        false
-    }
-
-    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.print-single-window-fn]
-    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-single-window-fn]
-    /// C++ `void FSTApplicator::printSingleWindow(SingleWindow* window,
-    /// std::ostream& output, bool profiling)`. Pre-window text, then each cohort,
-    /// then post-window text, then one blank line, then flush. `profiling` is
-    /// forwarded to `printCohort` only.
-    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
-        let (text, all_cohorts, text_post) = {
-            let w = self.base.doc.store.single_windows.get(window.0);
-            (w.text.clone(), w.all_cohorts.clone(), w.text_post.clone())
-        };
-
-        if !text.is_empty() {
-            let _ = write!(output, "{text}");
-            if !isnl(text.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
-            }
-        }
-
-        for cohort in all_cohorts {
-            self.print_cohort(cohort, output, profiling);
-        }
-
-        if !text_post.is_empty() {
-            let _ = write!(output, "{text_post}");
-            if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
-            }
-        }
-
-        u_fputc('\n', output);
-        let _ = output.flush();
     }
 }
 
@@ -481,7 +253,7 @@ where
                                     .stream
                                     .alloc_append_single_window(&mut base.doc.store)
                             };
-                            self.base.init_empty_single_window(sw);
+                            self.base.engine().init_empty_single_window(sw);
                             c_swindow = Some(sw);
                             l_swindow = Some(sw);
                             self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
@@ -904,13 +676,13 @@ where
         }
 
         // Drain buffered windows.
-        while self.base.rotate_next().is_some() {
-            self.base.run_grammar_on_window_with(fmt, output);
+        while self.base.engine().rotate_next().is_some() {
+            self.base.engine().run_grammar_on_window_with(fmt, output);
         }
-        self.base.shuffle_windows_down();
+        self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
             let tmp = self.base.doc.stream.previous[0];
-            fmt.print_single_window(&mut self.base, tmp, output, false);
+            fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
             let t = Some(tmp);
             {
                 let base = &mut *self.base;
@@ -959,7 +731,7 @@ where
         if self.base.cfg.is_conv {
             if let Some(cc) = *c_cohort {
                 self.base.doc.store.cohorts.get_mut(cc.0).local_number = 1;
-                fmt.print_cohort(&mut self.base, cc, output, false);
+                fmt.print_cohort(&mut self.base.engine(), cc, output, false);
                 let opt = Some(cc);
                 {
                     let base = &mut *self.base;
@@ -973,7 +745,7 @@ where
             }
             if cleaned[0] != '\0' && line[0] != '\0' {
                 let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
-                fmt.print_plain_text_line(&mut self.base, &line_str, output);
+                fmt.print_plain_text_line(&mut self.base.engine(), &line_str, output);
             }
             return;
         }
@@ -1091,7 +863,7 @@ where
                     .stream
                     .alloc_append_single_window(&mut base.doc.store)
             };
-            self.base.init_empty_single_window(sw);
+            self.base.engine().init_empty_single_window(sw);
             *l_swindow = Some(sw);
             // lCohort = cSWindow->cohorts[0];
             *l_cohort = self
@@ -1126,10 +898,10 @@ where
 
         // Drain a window if enough have queued up.
         if self.base.doc.stream.next.len() as u32 > self.base.cfg.num_windows {
-            self.base.shuffle_windows_down();
-            self.base.run_grammar_on_window_with(fmt, output);
+            self.base.engine().shuffle_windows_down();
+            self.base.engine().run_grammar_on_window_with(fmt, output);
             if self.base.doc.num_windows.is_multiple_of(reset_after) {
-                self.base.reset_indexes();
+                self.base.engine().reset_indexes();
             }
             // verbose progress: discard sink.
             let _ = lines;
@@ -1157,7 +929,7 @@ where
                     .text
                     .push_str(&line_str);
             } else {
-                fmt.print_plain_text_line(&mut self.base, &line_str, output);
+                fmt.print_plain_text_line(&mut self.base.engine(), &line_str, output);
             }
         }
     }
@@ -1196,59 +968,255 @@ impl FstFormat {
         }
     }
 
-    fn with_app<T>(
+    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.print-reading-fn]
+    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-reading-fn]
+    /// C++ `void FSTApplicator::printReading(const Reading* reading,
+    /// std::ostream& output)`. Serialises one reading in FST-lookup syntax
+    /// (`+`-joined baseform + tags), recursing into subreadings so the innermost
+    /// prints first, joined by `sub_delims` (`"#"`). No trailing newline (the
+    /// caller adds it).
+    ///
+    /// `Reading*`/`Cohort*` resolve through `e.doc.store`; the store is
+    /// threaded as a parameter so the caller can split the `&mut store` borrows
+    /// (matching the base print methods).
+    fn print_reading_e<W: Write>(&self, e: &Engine<'_>, reading: ReadingId, output: &mut W) {
+        let (noprint, deleted, next, baseform, parent) = {
+            let r = e.doc.store.readings.get(reading.0);
+            (r.noprint, r.deleted, r.next, r.baseform, r.parent)
+        };
+        if noprint {
+            return;
+        }
+        if deleted {
+            return;
+        }
+
+        if let Some(next_id) = next {
+            self.print_reading_e(e, next_id, output);
+            let _ = write!(output, "{}", self.sub_delims);
+        }
+
+        if let Some(baseform) = baseform {
+            // grammar->single_tags[baseform]->tag, stripped of the surrounding
+            // quotes: print `tag.size() - 2` chars starting at `tag.data() + 1`.
+            let tid = tag_by_hash(e.grammar, baseform);
+            let tag = &e.grammar.single_tags_list[tid.0].tag;
+            let chars: Vec<char> = tag.chars().collect();
+            if chars.len() >= 2 {
+                let inner: String = chars[1..chars.len() - 1].iter().collect();
+                let _ = write!(output, "{inner}");
+            }
+        }
+
+        // parent->wordform->hash for the skip test.
+        let parent_wf_hash = {
+            let cid = parent.expect("reading has no parent cohort");
+            let wf = e.doc.store.cohorts.get(cid.0).wordform;
+            wf.map(|t| e.grammar.single_tags_list[t.0].hash)
+                .unwrap_or(TagHash(0))
+        };
+
+        let tags_list: Vec<u32> = e.doc.store.readings.get(reading.0).tags_list.clone();
+        let mut unique: crate::sorted_vector::uint32SortedVector =
+            crate::sorted_vector::uint32SortedVector::new();
+        for tter in tags_list {
+            let tter = TagHash(tter);
+            if (!e.cfg.show_end_tags && tter == e.cfg.endtag) || tter == e.cfg.begintag {
+                continue;
+            }
+            if baseform == Some(tter) || tter == parent_wf_hash {
+                continue;
+            }
+            if e.cfg.unique_tags {
+                if unique.find(tter.get()) != unique.end() {
+                    continue;
+                }
+                unique.insert(tter.get());
+            }
+            let tid = tag_by_hash(e.grammar, tter);
+            let tag = &e.grammar.single_tags_list[tid.0];
+            if tag.r#type.intersects(T_DEPENDENCY) && e.doc.deps.has_dep && !e.cfg.dep_original {
+                continue;
+            }
+            if tag.r#type.intersects(T_RELATION) && e.doc.deps.has_relations {
+                continue;
+            }
+            let _ = write!(output, "+{}", tag.tag);
+        }
+    }
+
+    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.print-cohort-fn]
+    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-cohort-fn]
+    /// C++ `void FSTApplicator::printCohort(Cohort* cohort, std::ostream& output,
+    /// bool profiling)`. Uses a `removed:` label so removed cohorts still print
+    /// their trailing text. Static tags trigger a one-shot stderr warning and are
+    /// otherwise dropped from FST output.
+    pub(crate) fn print_cohort_e<W: Write>(
         &mut self,
-        app: &mut GrammarApplicator,
-        f: impl FnOnce(&mut FSTApplicator<&mut GrammarApplicator>) -> T,
-    ) -> T {
-        let mut fst = FSTApplicator::borrowing(app);
-        fst.did_warn_statictags = self.did_warn_statictags;
-        fst.wfactor = self.wfactor;
-        fst.wtag.clone_from(&self.wtag);
-        fst.sub_delims.clone_from(&self.sub_delims);
-        let result = f(&mut fst);
-        self.did_warn_statictags = fst.did_warn_statictags;
-        result
+        e: &mut Engine<'_>,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let (local_number, ctype) = {
+            let c = e.doc.store.cohorts.get(cohort.0);
+            (c.local_number, c.r#type)
+        };
+        // if (local_number == 0 || (type & CT_REMOVED)) goto removed;
+        let goto_removed = local_number == 0 || (ctype.intersects(CT_REMOVED));
+
+        if !goto_removed {
+            let wblank = e.doc.store.cohorts.get(cohort.0).wblank.clone();
+            if !wblank.is_empty() {
+                let _ = write!(output, "{wblank}");
+                if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
+                    u_fputc('\n', output);
+                }
+            }
+
+            if e.doc.store.cohorts.get(cohort.0).wread.is_some() && !self.did_warn_statictags {
+                // u_fprintf(ux_stderr, "Warning: FST CG format cannot output
+                // static tags! You are losing information!\n"); ux_stderr is a
+                // placeholder — emission deferred; the one-shot flag is set.
+                self.did_warn_statictags = true;
+            }
+
+            if !profiling {
+                crate::cohort::unignore_all(&mut e.doc.store, cohort);
+                if !e.cfg.split_mappings {
+                    e.merge_mappings(cohort);
+                }
+            }
+
+            // wform = cohort->wordform->tag; print stripped of `"<` and `>"`:
+            // wform.size() - 4 chars starting at wform.data() + 2.
+            let wform: Vec<char> = {
+                let wf = e
+                    .doc
+                    .store
+                    .cohorts
+                    .get(cohort.0)
+                    .wordform
+                    .expect("cohort wordform");
+                e.grammar.single_tags_list[wf.0].tag.chars().collect()
+            };
+            let wform_inner: String = if wform.len() >= 4 {
+                wform[2..wform.len() - 2].iter().collect()
+            } else {
+                String::new()
+            };
+
+            let readings: Vec<ReadingId> = e.doc.store.cohorts.get(cohort.0).readings.clone();
+            let only_noprint =
+                readings.len() == 1 && e.doc.store.readings.get(readings[0].0).noprint;
+            if readings.is_empty() || only_noprint {
+                // "<wordform>\t+?\n" — the FST "no analysis" marker.
+                let _ = writeln!(output, "{wform_inner}\t+?");
+            } else {
+                // NOTE: printCohort does NOT sort readings (unlike the base CG
+                // applicator) — iterate the current vector order verbatim.
+                for rter in readings {
+                    let _ = write!(output, "{wform_inner}\t");
+                    self.print_reading_e(e, rter, output);
+                    u_fputc('\n', output);
+                }
+            }
+            u_fputc('\n', output);
+        }
+
+        // removed:
+        let text = e.doc.store.cohorts.get(cohort.0).text.clone();
+        if !text.is_empty() && text.chars().any(|c| !self.is_ws_e(e, c)) {
+            let _ = write!(output, "{text}");
+            if !isnl(text.chars().next_back().unwrap_or('\0')) {
+                u_fputc('\n', output);
+            }
+        }
+    }
+
+    /// C++ `UString::find_first_not_of(ws)` membership over the base's `ws`
+    /// whitespace set (space, tab, [newline], NUL). Mirrors the base's private
+    /// `is_ws`.
+    fn is_ws_e(&self, e: &Engine<'_>, c: char) -> bool {
+        for &w in &e.cfg.ws {
+            if w == '\0' {
+                break;
+            }
+            if w == c {
+                return true;
+            }
+        }
+        false
+    }
+
+    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.print-single-window-fn]
+    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-single-window-fn]
+    /// C++ `void FSTApplicator::printSingleWindow(SingleWindow* window,
+    /// std::ostream& output, bool profiling)`. Pre-window text, then each cohort,
+    /// then post-window text, then one blank line, then flush. `profiling` is
+    /// forwarded to `printCohort` only.
+    pub(crate) fn print_single_window_e<W: Write>(
+        &mut self,
+        e: &mut Engine<'_>,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let (text, all_cohorts, text_post) = {
+            let w = e.doc.store.single_windows.get(window.0);
+            (w.text.clone(), w.all_cohorts.clone(), w.text_post.clone())
+        };
+
+        if !text.is_empty() {
+            let _ = write!(output, "{text}");
+            if !isnl(text.chars().next_back().unwrap_or('\0')) {
+                u_fputc('\n', output);
+            }
+        }
+
+        for cohort in all_cohorts {
+            self.print_cohort_e(e, cohort, output, profiling);
+        }
+
+        if !text_post.is_empty() {
+            let _ = write!(output, "{text_post}");
+            if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
+                u_fputc('\n', output);
+            }
+        }
+
+        u_fputc('\n', output);
+        let _ = output.flush();
     }
 }
 
 impl crate::grammar_applicator::stream_format::StreamFormat for FstFormat {
     fn print_cohort<W: Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
     ) {
-        self.with_app(app, |a| a.print_cohort(cohort, output, profiling));
+        self.print_cohort_e(e, cohort, output, profiling);
     }
 
     fn print_single_window<W: Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         window: SwId,
         output: &mut W,
         profiling: bool,
     ) {
-        self.with_app(app, |a| a.print_single_window(window, output, profiling));
+        self.print_single_window_e(e, window, output, profiling);
     }
 
-    fn print_stream_command<W: Write>(
-        &mut self,
-        app: &mut GrammarApplicator,
-        cmd: &str,
-        output: &mut W,
-    ) {
-        app.engine().print_stream_command(cmd, output);
+    fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W) {
+        e.print_stream_command(cmd, output);
     }
 
-    fn print_plain_text_line<W: Write>(
-        &mut self,
-        app: &mut GrammarApplicator,
-        line: &str,
-        output: &mut W,
-    ) {
-        app.engine().print_plain_text_line(line, output);
+    fn print_plain_text_line<W: Write>(&mut self, e: &mut Engine<'_>, line: &str, output: &mut W) {
+        e.print_plain_text_line(line, output);
     }
 }
 

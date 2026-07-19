@@ -566,7 +566,7 @@ impl Engine<'_> {
 
 }
 
-impl super::GrammarApplicator {
+impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn]
     // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn]
@@ -663,9 +663,6 @@ impl super::GrammarApplicator {
         }
     }
 
-}
-
-impl Engine<'_> {
     // =======================================================================
     // reflowReading
     // =======================================================================
@@ -1135,7 +1132,7 @@ impl Engine<'_> {
 
 }
 
-impl super::GrammarApplicator {
+impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.split-all-mappings-fn]
     // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.split-all-mappings-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.split-all-mappings-fn]
@@ -1157,7 +1154,7 @@ impl super::GrammarApplicator {
                 Some(m) => m,
                 None => continue,
             };
-            self.engine().split_mappings(&mut mlist, cohort, reading, mapped);
+            self.split_mappings(&mut mlist, cohort, reading, mapped);
         }
         // std::sort(cohort.readings, Reading::cmp_number).
         self.sort_cohort_readings(cohort);
@@ -1192,9 +1189,7 @@ impl super::GrammarApplicator {
         });
         self.doc.store.cohorts.get_mut(cohort.0).readings = v;
     }
-}
 
-impl Engine<'_> {
     // =======================================================================
     // mergeReadings / mergeMappings
     // =======================================================================

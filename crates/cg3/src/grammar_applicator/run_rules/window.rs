@@ -623,7 +623,7 @@ impl crate::grammar_applicator::Engine<'_> {
     }
 }
 
-impl crate::grammar_applicator::GrammarApplicator {
+impl crate::grammar_applicator::Engine<'_> {
     // [spec:cg3:def:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-single-window-fn]
     // [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-single-window-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-single-window-fn]
@@ -632,7 +632,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     pub fn run_grammar_on_single_window(&mut self, current: SwId) -> u32 {
         if !self.grammar.before_sections.is_empty() && !self.cfg.no_before_sections {
             let rules = self.cfg.runsections.get(&-1).cloned().unwrap_or_default();
-            let rv = self.engine().run_rules_on_single_window(current, &rules);
+            let rv = self.run_rules_on_single_window(current, &rules);
             if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
                 return rv;
             }
@@ -658,7 +658,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     continue;
                 }
                 let rules = self.cfg.runsections.get(&key).cloned().unwrap();
-                let rv = self.engine().run_rules_on_single_window(current, &rules);
+                let rv = self.run_rules_on_single_window(current, &rules);
                 *counter.entry(key).or_insert(0) += 1;
                 if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
                     return rv;
@@ -678,7 +678,7 @@ impl crate::grammar_applicator::GrammarApplicator {
 
         if !self.grammar.after_sections.is_empty() && !self.cfg.no_after_sections {
             let rules = self.cfg.runsections.get(&-2).cloned().unwrap_or_default();
-            let rv = self.engine().run_rules_on_single_window(current, &rules);
+            let rv = self.run_rules_on_single_window(current, &rules);
             if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
                 return rv;
             }
@@ -964,7 +964,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         self.scratch.rule_hits.clear();
         self.scratch.index_ruleCohort_no.clear(0);
         let current = self.doc.stream.current.unwrap();
-        self.engine().index_single_window(current);
+        self.index_single_window(current);
         self.doc
             .store
             .single_windows
@@ -1055,7 +1055,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let cid = self.doc.store.single_windows.get(current.0).cohorts[k];
                 self.doc.store.cohorts.get_mut(cid.0).local_number = ui32(k);
             }
-            self.engine().reflow_dependency_window(0);
+            self.reflow_dependency_window(0);
         }
         std::ops::ControlFlow::Break(())
     }
@@ -1116,7 +1116,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         *self.doc.variables.index_or_insert(mk.get()) = mv.get();
 
         if self.doc.deps.has_dep {
-            self.engine().reflow_dependency_window(0);
+            self.reflow_dependency_window(0);
             if !self.doc.input_eof
                 && !self.doc.stream.next.is_empty()
                 && self

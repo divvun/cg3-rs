@@ -36,7 +36,7 @@ use std::ops::DerefMut;
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::CT_REMOVED;
 use crate::grammar::Grammar;
-use crate::grammar_applicator::GrammarApplicator;
+use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::types::TagHash;
 use crate::uextras::{get_line_clean, u_fflush, u_fputc, ux_strip_bom};
 
@@ -307,7 +307,7 @@ where
                             .stream
                             .alloc_append_single_window(&mut base.doc.store)
                     };
-                    self.base.init_empty_single_window(sw);
+                    self.base.engine().init_empty_single_window(sw);
                     l_swindow = Some(sw);
                     // lCohort = cSWindow->cohorts[0] (the boundary cohort).
                     l_cohort = Some(self.base.doc.store.single_windows.get(sw.0).cohorts[0]);
@@ -319,10 +319,10 @@ where
 
                 // Drain a window if enough queued (dead: next never grows here).
                 if self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize {
-                    self.base.shuffle_windows_down();
-                    self.base.run_grammar_on_window_with(fmt, output);
+                    self.base.engine().shuffle_windows_down();
+                    self.base.engine().run_grammar_on_window_with(fmt, output);
                     if self.base.doc.num_windows.is_multiple_of(reset_after) {
-                        self.base.reset_indexes();
+                        self.base.engine().reset_indexes();
                     }
                     // verbose progress: deferred.
                 }
@@ -465,7 +465,7 @@ where
                         .text
                         .push_str(&text);
                 } else {
-                    fmt.print_plain_text_line(&mut self.base, &text, output);
+                    fmt.print_plain_text_line(&mut self.base.engine(), &text, output);
                 }
             }
 
@@ -511,14 +511,14 @@ where
             }
         }
 
-        while self.base.rotate_next().is_some() {
-            self.base.run_grammar_on_window_with(fmt, output);
+        while self.base.engine().rotate_next().is_some() {
+            self.base.engine().run_grammar_on_window_with(fmt, output);
         }
 
-        self.base.shuffle_windows_down();
+        self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
             let tmp = self.base.doc.stream.previous[0];
-            fmt.print_single_window(&mut self.base, tmp, output, false);
+            fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
             let t = Some(tmp);
             {
                 let base = &mut *self.base;
@@ -534,15 +534,28 @@ where
 
         u_fflush(output);
     }
+}
 
+/// Plaintext's print-vtable strategy. The input-only `add_tags` option remains
+/// on the parser wrapper.
+#[derive(Default)]
+pub struct PlaintextFormat;
+
+impl PlaintextFormat {
     // [spec:cg3:def:plaintext-applicator.cg3.plaintext-applicator.print-cohort-fn]
     // [spec:cg3:sem:plaintext-applicator.cg3.plaintext-applicator.print-cohort-fn]
     /// C++ `void PlaintextApplicator::printCohort(Cohort* cohort,
     /// std::ostream& output, bool)`. Prints the bare wordform + trailing space;
     /// boundary cohort (local_number 0) and `CT_REMOVED` cohorts print nothing.
-    pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, _profiling: bool) {
+    pub(crate) fn print_cohort_e<W: Write>(
+        &mut self,
+        e: &mut Engine<'_>,
+        cohort: CohortId,
+        output: &mut W,
+        _profiling: bool,
+    ) {
         let (local_number, removed, wf) = {
-            let c = self.base.doc.store.cohorts.get(cohort.0);
+            let c = e.doc.store.cohorts.get(cohort.0);
             (c.local_number, c.r#type.intersects(CT_REMOVED), c.wordform)
         };
         if local_number == 0 {
@@ -553,7 +566,7 @@ where
         }
         // "%.*S " of wordform.data()+2 for size()-4 → strip "\"<" and ">\"", plus a space.
         let inner = {
-            let tag = &self.base.grammar.single_tags_list[wf.expect("cohort wordform").0].tag;
+            let tag = &e.grammar.single_tags_list[wf.expect("cohort wordform").0].tag;
             strip_wordform_brackets(tag)
         };
         let _ = write!(output, "{inner} ");
@@ -564,9 +577,14 @@ where
     /// C++ `void PlaintextApplicator::printSingleWindow(SingleWindow* window,
     /// std::ostream& output, bool profiling = false)`. One line of
     /// space-separated wordforms; `window->text`/`text_post` are NOT emitted.
-    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
-        let all_cohorts = self
-            .base
+    pub(crate) fn print_single_window_e<W: Write>(
+        &mut self,
+        e: &mut Engine<'_>,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let all_cohorts = e
             .doc
             .store
             .single_windows
@@ -574,55 +592,40 @@ where
             .all_cohorts
             .clone();
         for cohort in all_cohorts {
-            self.print_cohort(cohort, output, profiling);
+            self.print_cohort_e(e, cohort, output, profiling);
         }
         u_fputc('\n', output);
         u_fflush(output);
     }
 }
 
-/// Plaintext's print-vtable strategy. The input-only `add_tags` option remains
-/// on the parser wrapper.
-#[derive(Default)]
-pub struct PlaintextFormat;
-
 impl crate::grammar_applicator::stream_format::StreamFormat for PlaintextFormat {
     fn print_cohort<W: Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
     ) {
-        PlaintextApplicator::borrowing(app).print_cohort(cohort, output, profiling);
+        self.print_cohort_e(e, cohort, output, profiling);
     }
 
     fn print_single_window<W: Write>(
         &mut self,
-        app: &mut GrammarApplicator,
+        e: &mut Engine<'_>,
         window: SwId,
         output: &mut W,
         profiling: bool,
     ) {
-        PlaintextApplicator::borrowing(app).print_single_window(window, output, profiling);
+        self.print_single_window_e(e, window, output, profiling);
     }
 
-    fn print_stream_command<W: Write>(
-        &mut self,
-        app: &mut GrammarApplicator,
-        cmd: &str,
-        output: &mut W,
-    ) {
-        app.engine().print_stream_command(cmd, output);
+    fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W) {
+        e.print_stream_command(cmd, output);
     }
 
-    fn print_plain_text_line<W: Write>(
-        &mut self,
-        app: &mut GrammarApplicator,
-        line: &str,
-        output: &mut W,
-    ) {
-        app.engine().print_plain_text_line(line, output);
+    fn print_plain_text_line<W: Write>(&mut self, e: &mut Engine<'_>, line: &str, output: &mut W) {
+        e.print_plain_text_line(line, output);
     }
 }
 

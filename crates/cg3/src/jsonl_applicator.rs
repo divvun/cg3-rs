@@ -33,7 +33,7 @@ use serde_json::{Map, Value, json};
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
-use crate::grammar_applicator::GrammarApplicator;
+use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::sorted_vector::uint32SortedVector;
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
 use crate::types::{TagHash, UString, UStringView};
@@ -108,137 +108,6 @@ impl<'a> JsonlApplicator<'a> {
     /// only to anchor the vtable and has no Rust analog.)
     pub fn new(base: &'a mut GrammarApplicator) -> Self {
         JsonlApplicator { base }
-    }
-
-    // =======================================================================
-    // buildJsonTags / buildJsonReading — serialisation helpers
-    // =======================================================================
-
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn]
-    /// C++ `void buildJsonTags(const Reading* reading, json::Value& tags_json,
-    /// json::Document::AllocatorType& allocator)`. Fills a JSON array with the
-    /// reading's printable tags (as UTF-8 strings), in `tags_list` order, applying
-    /// the skip rules (`endtag`/`begintag`/baseform/wordform, `unique_tags`
-    /// dedup, dependency/relation suppression). Returns the array of tag strings.
-    fn build_json_tags(&self, reading: ReadingId) -> Vec<Value> {
-        let mut tags_json: Vec<Value> = Vec::new();
-
-        let (tags_list, baseform, parent_wf_hash) = {
-            let r = self.base.doc.store.readings.get(reading.0);
-            let parent_wf_hash = r.parent.and_then(|cid| {
-                self.base
-                    .doc
-                    .store
-                    .cohorts
-                    .get(cid.0)
-                    .wordform
-                    .map(|wf| self.base.grammar.single_tags_list.get(wf.0).hash)
-            });
-            (
-                r.tags_list.clone(),
-                r.baseform.unwrap_or(TagHash(0)),
-                parent_wf_hash,
-            )
-        };
-
-        let mut unique = uint32SortedVector::new();
-        for tter in tags_list {
-            let tter = TagHash(tter);
-            if (!self.base.cfg.show_end_tags && tter == self.base.cfg.endtag)
-                || tter == self.base.cfg.begintag
-            {
-                continue;
-            }
-            if tter == baseform || parent_wf_hash == Some(tter) {
-                continue;
-            }
-
-            if self.base.cfg.unique_tags {
-                if unique.find(tter.get()) != unique.end() {
-                    continue;
-                }
-                unique.insert(tter.get());
-            }
-
-            let tag = tag_by_hash(&self.base.grammar, tter);
-            let (ttype, ttag) = {
-                let t = self.base.grammar.single_tags_list.get(tag.0);
-                (t.r#type, t.tag.clone())
-            };
-
-            if ttype.intersects(T_DEPENDENCY)
-                && self.base.doc.deps.has_dep
-                && !self.base.cfg.dep_original
-            {
-                continue;
-            }
-            if ttype.intersects(T_RELATION) && self.base.doc.deps.has_relations {
-                continue;
-            }
-
-            // DIVERGENCE(NUL): RapidJSON truncates `tag->tag` at an embedded NUL;
-            // this keeps the whole string.
-            tags_json.push(Value::String(ustring_to_utf8(&ttag)));
-        }
-        tags_json
-    }
-
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn]
-    /// C++ `void buildJsonReading(const Reading* reading, json::Value&
-    /// reading_json, json::Document::AllocatorType& allocator)`. Builds the object
-    /// `{"l": <baseform>, "ts": [<tags>], "s": {<subreading>}}` — `"l"` always
-    /// present (empty string when no baseform); `"ts"`/`"s"` only when non-empty.
-    /// Recurses on `reading->next`. The returned `Map` preserves insertion order
-    /// (l, ts, s).
-    fn build_json_reading(&self, reading: ReadingId) -> Map<String, Value> {
-        let mut reading_json = Map::new();
-
-        // Baseform ("l").
-        let baseform = self
-            .base
-            .doc
-            .store
-            .readings
-            .get(reading.0)
-            .baseform
-            .unwrap_or(TagHash(0));
-        let mut baseform_utf8 = String::new();
-        if baseform != TagHash(0) {
-            let it = self.base.grammar.single_tags.find(baseform.get());
-            if it != self.base.grammar.single_tags.end() {
-                let tid = it.get().1;
-                let tag = &self.base.grammar.single_tags_list.get(tid.0).tag;
-                // tag.size() >= 2 && tag.front()=='"' && tag.back()=='"'
-                let chars: Vec<char> = tag.chars().collect();
-                if chars.len() >= 2 && chars[0] == '"' && chars[chars.len() - 1] == '"' {
-                    let inner: String = chars[1..chars.len() - 1].iter().collect();
-                    baseform_utf8 = ustring_to_utf8(&inner);
-                } else {
-                    baseform_utf8 = ustring_to_utf8(tag);
-                }
-            }
-        }
-        // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
-        reading_json.insert("l".to_string(), Value::String(baseform_utf8));
-
-        // Tags ("ts").
-        let tags_json = self.build_json_tags(reading);
-        if !tags_json.is_empty() {
-            reading_json.insert("ts".to_string(), Value::Array(tags_json));
-        }
-
-        // Subreading ("s").
-        let next = self.base.doc.store.readings.get(reading.0).next;
-        if let Some(next) = next {
-            let sub = self.build_json_reading(next);
-            if !sub.is_empty() {
-                reading_json.insert("s".to_string(), Value::Object(sub));
-            }
-        }
-
-        reading_json
     }
 
     // =======================================================================
@@ -534,284 +403,6 @@ impl<'a> JsonlApplicator<'a> {
     }
 
     // =======================================================================
-    // printStreamCommand / printPlainTextLine — single-object JSONL lines
-    // =======================================================================
-
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
-    /// C++ `void printStreamCommand(UStringView cmd, std::ostream& output)`. Emits
-    /// `{"cmd": <cmd>}` + `"\n"`. Does NOT flush.
-    pub fn print_stream_command<W: Write>(&self, cmd: UStringView, output: &mut W) {
-        // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
-        let doc = json!({ "cmd": ustring_to_utf8(cmd) });
-        let s = serde_json::to_string(&doc).unwrap();
-        let _ = writeln!(output, "{s}");
-    }
-
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
-    /// C++ `void printPlainTextLine(UStringView line, std::ostream& output)`.
-    /// Emits `{"t": <line>}` + `"\n"`. Does NOT flush. Newlines embedded in
-    /// `line` are JSON-escaped by the writer, so the output stays one physical
-    /// line.
-    pub fn print_plain_text_line<W: Write>(&self, line: UStringView, output: &mut W) {
-        // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
-        let doc = json!({ "t": ustring_to_utf8(line) });
-        let s = serde_json::to_string(&doc).unwrap();
-        let _ = writeln!(output, "{s}");
-    }
-
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn]
-    /// C++ `void printCohort(Cohort* cohort, std::ostream& output, bool
-    /// profiling)`. Serialises one cohort as one JSON object per line, in
-    /// insertion order `w, sts, z, ds, dp, rs, drs`.
-    ///
-    /// DIVERGENCE(ORDER): RapidJSON emits members in insertion order. serde_json's
-    /// [`Map`] is a `BTreeMap` unless the `preserve_order` feature is enabled
-    /// (this crate does NOT enable it), so [`Value::Object`] serialises members in
-    /// LEXICOGRAPHIC key order (`ds, dp, drs, rs, sts, w, z`) rather than
-    /// insertion order. Flagged; a Wave-4 concern (enable `preserve_order` for
-    /// byte-exact parity).
-    pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
-        let (local_number, ctype) = {
-            let c = self.base.doc.store.cohorts.get(cohort.0);
-            (c.local_number, c.r#type)
-        };
-        if local_number == 0 || (ctype.intersects(CT_REMOVED)) {
-            return;
-        }
-
-        if !profiling {
-            crate::cohort::unignore_all(&mut self.base.doc.store, cohort);
-        }
-
-        let mut doc = Map::new();
-
-        // Wordform ("w").
-        let wform_tag = {
-            let wf = self
-                .base
-                .doc
-                .store
-                .cohorts
-                .get(cohort.0)
-                .wordform
-                .expect("printCohort: cohort has no wordform");
-            self.base.grammar.single_tags_list.get(wf.0).tag.clone()
-        };
-        let wform_utf8 = {
-            let chars: Vec<char> = wform_tag.chars().collect();
-            // size() >= 4 && substr(0,2)=="\"<" && substr(size-2)==">\""
-            if chars.len() >= 4
-                && chars[0] == '"'
-                && chars[1] == '<'
-                && chars[chars.len() - 2] == '>'
-                && chars[chars.len() - 1] == '"'
-            {
-                let inner: String = chars[2..chars.len() - 2].iter().collect();
-                ustring_to_utf8(&inner)
-            } else {
-                ustring_to_utf8(&wform_tag)
-            }
-        };
-        // DIVERGENCE(NUL).
-        doc.insert("w".to_string(), Value::String(wform_utf8));
-
-        // Static tags ("sts").
-        let wread = self.base.doc.store.cohorts.get(cohort.0).wread;
-        if let Some(wread) = wread {
-            let (tags_list, wf_hash) = {
-                let tl = self.base.doc.store.readings.get(wread.0).tags_list.clone();
-                let wf_hash = self
-                    .base
-                    .doc
-                    .store
-                    .cohorts
-                    .get(cohort.0)
-                    .wordform
-                    .map(|wf| self.base.grammar.single_tags_list.get(wf.0).hash);
-                (tl, wf_hash)
-            };
-            if !tags_list.is_empty() {
-                let mut static_tags_json: Vec<Value> = Vec::new();
-                let mut unique_sts = uint32SortedVector::new();
-                for tag_hash in tags_list {
-                    if wf_hash == Some(TagHash(tag_hash)) {
-                        continue;
-                    }
-                    if self.base.cfg.unique_tags {
-                        if unique_sts.find(tag_hash) != unique_sts.end() {
-                            continue;
-                        }
-                        unique_sts.insert(tag_hash);
-                    }
-                    let it = self.base.grammar.single_tags.find(tag_hash);
-                    if it != self.base.grammar.single_tags.end() {
-                        let tid = it.get().1;
-                        let ttag = self.base.grammar.single_tags_list.get(tid.0).tag.clone();
-                        // DIVERGENCE(NUL).
-                        static_tags_json.push(Value::String(ustring_to_utf8(&ttag)));
-                    }
-                }
-                if !static_tags_json.is_empty() {
-                    doc.insert("sts".to_string(), Value::Array(static_tags_json));
-                }
-            }
-        }
-
-        // Text ("z").
-        let text = self.base.doc.store.cohorts.get(cohort.0).text.clone();
-        if !text.is_empty() {
-            let mut z_text = text;
-            if z_text.ends_with('\n') {
-                z_text.pop();
-            }
-            if !z_text.is_empty() {
-                // DIVERGENCE(NUL).
-                doc.insert("z".to_string(), Value::String(ustring_to_utf8(&z_text)));
-            }
-        }
-
-        // Dependency ("ds" / "dp").
-        if self.base.doc.deps.has_dep && (!ctype.intersects(CT_REMOVED)) {
-            let (dep_self, global_number, dep_parent) = {
-                let c = self.base.doc.store.cohorts.get(cohort.0);
-                (c.dep_self, c.global_number, c.dep_parent)
-            };
-            let self_id = dep_self.unwrap_or(global_number);
-            doc.insert("ds".to_string(), json!(self_id.get()));
-            if let Some(dp) = dep_parent {
-                doc.insert("dp".to_string(), json!(dp.get()));
-            }
-        }
-
-        // Readings ("rs").
-        let mut readings = self.base.doc.store.cohorts.get(cohort.0).readings.clone();
-        sort_readings(&self.base.doc.store, &mut readings);
-        self.base.doc.store.cohorts.get_mut(cohort.0).readings = readings.clone();
-        let mut readings_json: Vec<Value> = Vec::new();
-        for reading in readings {
-            if self.base.doc.store.readings.get(reading.0).noprint {
-                continue;
-            }
-            let reading_json = self.build_json_reading(reading);
-            if !reading_json.is_empty() {
-                readings_json.push(Value::Object(reading_json));
-            }
-            // (Quirk: the `break` for single-best-reading is commented out in
-            // C++, so ALL non-noprint readings are emitted.)
-        }
-        if !readings_json.is_empty() {
-            doc.insert("rs".to_string(), Value::Array(readings_json));
-        }
-
-        // Deleted readings ("drs").
-        let deleted = self.base.doc.store.cohorts.get(cohort.0).deleted.clone();
-        if !deleted.is_empty() {
-            let mut deleted_readings_json: Vec<Value> = Vec::new();
-            let mut deleted_sorted = deleted;
-            sort_readings(&self.base.doc.store, &mut deleted_sorted);
-            self.base.doc.store.cohorts.get_mut(cohort.0).deleted = deleted_sorted.clone();
-            for reading in deleted_sorted {
-                // noprint flag NOT checked here (faithful).
-                let reading_json = self.build_json_reading(reading);
-                if !reading_json.is_empty() {
-                    deleted_readings_json.push(Value::Object(reading_json));
-                }
-            }
-            if !deleted_readings_json.is_empty() {
-                doc.insert("drs".to_string(), Value::Array(deleted_readings_json));
-            }
-        }
-
-        let s = serde_json::to_string(&Value::Object(doc)).unwrap();
-        let _ = writeln!(output, "{s}");
-        let _ = output.flush();
-    }
-
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn]
-    /// C++ `void printSingleWindow(SingleWindow* window, std::ostream& output,
-    /// bool profiling)`. Emits: (1) SETVAR/REMVAR commands for `variables_output`;
-    /// (2) pre-text; (3) each cohort; (4) post-text; (5) FLUSH if `flush_after`.
-    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
-        let (vars_output, text, all_cohorts, text_post, flush_after) = {
-            let w = self.base.doc.store.single_windows.get(window.0);
-            (
-                w.variables_output.iter().copied().collect::<Vec<u32>>(),
-                w.text.clone(),
-                w.all_cohorts.clone(),
-                w.text_post.clone(),
-                w.flush_after,
-            )
-        };
-
-        // (1) Variables as commands.
-        for var in vars_output {
-            let key_tag = {
-                let key = tag_by_hash(&self.base.grammar, TagHash(var));
-                self.base.grammar.single_tags_list.get(key.0).tag.clone()
-            };
-            let value_hash: Option<u32> = {
-                let w = self.base.doc.store.single_windows.get(window.0);
-                let it = w.variables_set.find(var);
-                if it != w.variables_set.end() {
-                    Some(it.get().1)
-                } else {
-                    None
-                }
-            };
-            let mut cmd_buf = UString::new();
-            match value_hash {
-                Some(vh) => {
-                    if vh != self.base.grammar.tag_any {
-                        let value_tag = {
-                            let value = tag_by_hash(&self.base.grammar, TagHash(vh));
-                            self.base.grammar.single_tags_list.get(value.0).tag.clone()
-                        };
-                        cmd_buf.push_str(STR_CMD_SETVAR);
-                        cmd_buf.push_str(&key_tag);
-                        cmd_buf.push('=');
-                        cmd_buf.push_str(&value_tag);
-                        cmd_buf.push('>');
-                    } else {
-                        cmd_buf.push_str(STR_CMD_SETVAR);
-                        cmd_buf.push_str(&key_tag);
-                        cmd_buf.push('>');
-                    }
-                }
-                None => {
-                    cmd_buf.push_str(STR_CMD_REMVAR);
-                    cmd_buf.push_str(&key_tag);
-                    cmd_buf.push('>');
-                }
-            }
-            self.print_stream_command(&cmd_buf, output);
-        }
-
-        // (2) Pre-text.
-        if !text.is_empty() {
-            self.print_plain_text_line(&text, output);
-        }
-
-        // (3) Cohorts.
-        for cohort in all_cohorts {
-            self.print_cohort(cohort, output, profiling);
-        }
-
-        // (4) Post-text.
-        if !text_post.is_empty() {
-            self.print_plain_text_line(&text_post, output);
-        }
-
-        // (5) Flush command.
-        if flush_after {
-            self.print_stream_command(STR_CMD_FLUSH, output);
-        }
-    }
-
-    // =======================================================================
     // runGrammarOnText — the JSONL stream driver
     // =======================================================================
 
@@ -969,17 +560,17 @@ impl<'a> JsonlApplicator<'a> {
                         l_swindow = None;
 
                         // Drain buffered windows.
-                        while self.base.rotate_next().is_some() {
-                            self.base.run_grammar_on_window_with(fmt, output);
+                        while self.base.engine().rotate_next().is_some() {
+                            self.base.engine().run_grammar_on_window_with(fmt, output);
                             if self.base.doc.num_windows.is_multiple_of(reset_after) {
                                 self.base.reset_indexes();
                             }
                             // verbose progress: deferred.
                         }
-                        self.base.shuffle_windows_down();
+                        self.base.engine().shuffle_windows_down();
                         while !self.base.doc.stream.previous.is_empty() {
                             let tmp = self.base.doc.stream.previous[0];
-                            fmt.print_single_window(self.base, tmp, output, false);
+                            fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
                             crate::single_window::free_swindow(
                                 &mut self.base.doc.store,
                                 &mut self.base.doc.cohorts,
@@ -990,7 +581,7 @@ impl<'a> JsonlApplicator<'a> {
                         }
 
                         if back_swindow.is_none() {
-                            fmt.print_stream_command(self.base, &cmd_ustr, output);
+                            fmt.print_stream_command(&mut self.base.engine(), &cmd_ustr, output);
                         }
 
                         self.base.doc.variables.clear(0);
@@ -998,12 +589,12 @@ impl<'a> JsonlApplicator<'a> {
                         // u_fflush(*ux_stderr): deferred.
                     } else if cmd_ustr == STR_CMD_IGNORE {
                         ignoreinput = true;
-                        fmt.print_stream_command(self.base, &cmd_ustr, output);
+                        fmt.print_stream_command(&mut self.base.engine(), &cmd_ustr, output);
                     } else if cmd_ustr == STR_CMD_RESUME {
                         ignoreinput = false;
-                        fmt.print_stream_command(self.base, &cmd_ustr, output);
+                        fmt.print_stream_command(&mut self.base.engine(), &cmd_ustr, output);
                     } else if cmd_ustr == STR_CMD_EXIT {
-                        fmt.print_stream_command(self.base, &cmd_ustr, output);
+                        fmt.print_stream_command(&mut self.base.engine(), &cmd_ustr, output);
                         exit_requested = true;
                         break 'mainloop; // goto CGCMD_EXIT_JSONL
                     } else if cmd_ustr.starts_with(STR_CMD_SETVAR) {
@@ -1048,7 +639,7 @@ impl<'a> JsonlApplicator<'a> {
                 if let Some(t_v) = obj.get("t") {
                     let t_ustr = json_to_ustring(t_v);
                     if !t_ustr.is_empty() {
-                        fmt.print_plain_text_line(self.base, &t_ustr, output);
+                        fmt.print_plain_text_line(&mut self.base.engine(), &t_ustr, output);
                     }
                 }
                 continue;
@@ -1076,7 +667,7 @@ impl<'a> JsonlApplicator<'a> {
                             .text
                             .push_str(&t_ustr);
                     } else {
-                        fmt.print_plain_text_line(self.base, &t_ustr, output);
+                        fmt.print_plain_text_line(&mut self.base.engine(), &t_ustr, output);
                     }
                 } else {
                     tracing::warn!(
@@ -1093,7 +684,7 @@ impl<'a> JsonlApplicator<'a> {
                         .doc
                         .stream
                         .alloc_append_single_window(&mut self.base.doc.store);
-                    self.base.init_empty_single_window(sw);
+                    self.base.engine().init_empty_single_window(sw);
 
                     // Transfer local variable state into the window, then clear
                     // locals. C++: `cSWindow->variables_set = variables_set;
@@ -1178,8 +769,8 @@ impl<'a> JsonlApplicator<'a> {
 
                 if did_delim || self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize
                 {
-                    self.base.shuffle_windows_down();
-                    self.base.run_grammar_on_window_with(fmt, output);
+                    self.base.engine().shuffle_windows_down();
+                    self.base.engine().run_grammar_on_window_with(fmt, output);
                     if self.base.doc.num_windows.is_multiple_of(reset_after) {
                         self.base.reset_indexes();
                     }
@@ -1201,17 +792,17 @@ impl<'a> JsonlApplicator<'a> {
                 }
             }
 
-            while self.base.rotate_next().is_some() {
-                self.base.run_grammar_on_window_with(fmt, output);
+            while self.base.engine().rotate_next().is_some() {
+                self.base.engine().run_grammar_on_window_with(fmt, output);
             }
             if self.base.doc.stream.current.is_some() {
-                self.base.run_grammar_on_window_with(fmt, output);
+                self.base.engine().run_grammar_on_window_with(fmt, output);
             }
 
-            self.base.shuffle_windows_down();
+            self.base.engine().shuffle_windows_down();
             while !self.base.doc.stream.previous.is_empty() {
                 let tmp = self.base.doc.stream.previous[0];
-                fmt.print_single_window(self.base, tmp, output, false);
+                fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
                 crate::single_window::free_swindow(
                     &mut self.base.doc.store,
                     &mut self.base.doc.cohorts,
@@ -1258,7 +849,7 @@ impl<'a> JsonlApplicator<'a> {
                     cmd_buf.push_str(&key);
                     cmd_buf.push('>');
                 }
-                fmt.print_stream_command(self.base, &cmd_buf, output);
+                fmt.print_stream_command(&mut self.base.engine(), &cmd_buf, output);
             }
         }
 
@@ -1271,6 +862,454 @@ impl<'a> JsonlApplicator<'a> {
     fn add_endtag(&mut self, reading: ReadingId) {
         let endtag_id = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
         self.base.engine().add_tag_to_reading(reading, endtag_id);
+    }
+}
+
+/// Jsonl print-vtable strategy (no persistent state).
+#[derive(Default)]
+pub struct JsonlFormat;
+
+impl JsonlFormat {
+    // =======================================================================
+    // buildJsonTags / buildJsonReading — serialisation helpers
+    // =======================================================================
+
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn]
+    /// C++ `void buildJsonTags(const Reading* reading, json::Value& tags_json,
+    /// json::Document::AllocatorType& allocator)`. Fills a JSON array with the
+    /// reading's printable tags (as UTF-8 strings), in `tags_list` order, applying
+    /// the skip rules (`endtag`/`begintag`/baseform/wordform, `unique_tags`
+    /// dedup, dependency/relation suppression). Returns the array of tag strings.
+    fn build_json_tags_e(&self, e: &Engine<'_>, reading: ReadingId) -> Vec<Value> {
+        let mut tags_json: Vec<Value> = Vec::new();
+
+        let (tags_list, baseform, parent_wf_hash) = {
+            let r = e.doc.store.readings.get(reading.0);
+            let parent_wf_hash = r.parent.and_then(|cid| {
+                e.doc
+                    .store
+                    .cohorts
+                    .get(cid.0)
+                    .wordform
+                    .map(|wf| e.grammar.single_tags_list.get(wf.0).hash)
+            });
+            (
+                r.tags_list.clone(),
+                r.baseform.unwrap_or(TagHash(0)),
+                parent_wf_hash,
+            )
+        };
+
+        let mut unique = uint32SortedVector::new();
+        for tter in tags_list {
+            let tter = TagHash(tter);
+            if (!e.cfg.show_end_tags && tter == e.cfg.endtag) || tter == e.cfg.begintag {
+                continue;
+            }
+            if tter == baseform || parent_wf_hash == Some(tter) {
+                continue;
+            }
+
+            if e.cfg.unique_tags {
+                if unique.find(tter.get()) != unique.end() {
+                    continue;
+                }
+                unique.insert(tter.get());
+            }
+
+            let tag = tag_by_hash(e.grammar, tter);
+            let (ttype, ttag) = {
+                let t = e.grammar.single_tags_list.get(tag.0);
+                (t.r#type, t.tag.clone())
+            };
+
+            if ttype.intersects(T_DEPENDENCY) && e.doc.deps.has_dep && !e.cfg.dep_original {
+                continue;
+            }
+            if ttype.intersects(T_RELATION) && e.doc.deps.has_relations {
+                continue;
+            }
+
+            // DIVERGENCE(NUL): RapidJSON truncates `tag->tag` at an embedded NUL;
+            // this keeps the whole string.
+            tags_json.push(Value::String(ustring_to_utf8(&ttag)));
+        }
+        tags_json
+    }
+
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn]
+    /// C++ `void buildJsonReading(const Reading* reading, json::Value&
+    /// reading_json, json::Document::AllocatorType& allocator)`. Builds the object
+    /// `{"l": <baseform>, "ts": [<tags>], "s": {<subreading>}}` — `"l"` always
+    /// present (empty string when no baseform); `"ts"`/`"s"` only when non-empty.
+    /// Recurses on `reading->next`. The returned `Map` preserves insertion order
+    /// (l, ts, s).
+    fn build_json_reading_e(&self, e: &Engine<'_>, reading: ReadingId) -> Map<String, Value> {
+        let mut reading_json = Map::new();
+
+        // Baseform ("l").
+        let baseform = e
+            .doc
+            .store
+            .readings
+            .get(reading.0)
+            .baseform
+            .unwrap_or(TagHash(0));
+        let mut baseform_utf8 = String::new();
+        if baseform != TagHash(0) {
+            let it = e.grammar.single_tags.find(baseform.get());
+            if it != e.grammar.single_tags.end() {
+                let tid = it.get().1;
+                let tag = &e.grammar.single_tags_list.get(tid.0).tag;
+                // tag.size() >= 2 && tag.front()=='"' && tag.back()=='"'
+                let chars: Vec<char> = tag.chars().collect();
+                if chars.len() >= 2 && chars[0] == '"' && chars[chars.len() - 1] == '"' {
+                    let inner: String = chars[1..chars.len() - 1].iter().collect();
+                    baseform_utf8 = ustring_to_utf8(&inner);
+                } else {
+                    baseform_utf8 = ustring_to_utf8(tag);
+                }
+            }
+        }
+        // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
+        reading_json.insert("l".to_string(), Value::String(baseform_utf8));
+
+        // Tags ("ts").
+        let tags_json = self.build_json_tags_e(e, reading);
+        if !tags_json.is_empty() {
+            reading_json.insert("ts".to_string(), Value::Array(tags_json));
+        }
+
+        // Subreading ("s").
+        let next = e.doc.store.readings.get(reading.0).next;
+        if let Some(next) = next {
+            let sub = self.build_json_reading_e(e, next);
+            if !sub.is_empty() {
+                reading_json.insert("s".to_string(), Value::Object(sub));
+            }
+        }
+
+        reading_json
+    }
+
+    // =======================================================================
+    // printStreamCommand / printPlainTextLine — single-object JSONL lines
+    // =======================================================================
+
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
+    /// C++ `void printStreamCommand(UStringView cmd, std::ostream& output)`. Emits
+    /// `{"cmd": <cmd>}` + `"\n"`. Does NOT flush.
+    pub(crate) fn print_stream_command_e<W: Write>(&self, cmd: UStringView, output: &mut W) {
+        // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
+        let doc = json!({ "cmd": ustring_to_utf8(cmd) });
+        let s = serde_json::to_string(&doc).unwrap();
+        let _ = writeln!(output, "{s}");
+    }
+
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
+    /// C++ `void printPlainTextLine(UStringView line, std::ostream& output)`.
+    /// Emits `{"t": <line>}` + `"\n"`. Does NOT flush. Newlines embedded in
+    /// `line` are JSON-escaped by the writer, so the output stays one physical
+    /// line.
+    pub(crate) fn print_plain_text_line_e<W: Write>(&self, line: UStringView, output: &mut W) {
+        // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
+        let doc = json!({ "t": ustring_to_utf8(line) });
+        let s = serde_json::to_string(&doc).unwrap();
+        let _ = writeln!(output, "{s}");
+    }
+
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn]
+    /// C++ `void printCohort(Cohort* cohort, std::ostream& output, bool
+    /// profiling)`. Serialises one cohort as one JSON object per line, in
+    /// insertion order `w, sts, z, ds, dp, rs, drs`.
+    ///
+    /// DIVERGENCE(ORDER): RapidJSON emits members in insertion order. serde_json's
+    /// [`Map`] is a `BTreeMap` unless the `preserve_order` feature is enabled
+    /// (this crate does NOT enable it), so [`Value::Object`] serialises members in
+    /// LEXICOGRAPHIC key order (`ds, dp, drs, rs, sts, w, z`) rather than
+    /// insertion order. Flagged; a Wave-4 concern (enable `preserve_order` for
+    /// byte-exact parity).
+    pub(crate) fn print_cohort_e<W: Write>(
+        &self,
+        e: &mut Engine<'_>,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let (local_number, ctype) = {
+            let c = e.doc.store.cohorts.get(cohort.0);
+            (c.local_number, c.r#type)
+        };
+        if local_number == 0 || (ctype.intersects(CT_REMOVED)) {
+            return;
+        }
+
+        if !profiling {
+            crate::cohort::unignore_all(&mut e.doc.store, cohort);
+        }
+
+        let mut doc = Map::new();
+
+        // Wordform ("w").
+        let wform_tag = {
+            let wf = e
+                .doc
+                .store
+                .cohorts
+                .get(cohort.0)
+                .wordform
+                .expect("printCohort: cohort has no wordform");
+            e.grammar.single_tags_list.get(wf.0).tag.clone()
+        };
+        let wform_utf8 = {
+            let chars: Vec<char> = wform_tag.chars().collect();
+            // size() >= 4 && substr(0,2)=="\"<" && substr(size-2)==">\""
+            if chars.len() >= 4
+                && chars[0] == '"'
+                && chars[1] == '<'
+                && chars[chars.len() - 2] == '>'
+                && chars[chars.len() - 1] == '"'
+            {
+                let inner: String = chars[2..chars.len() - 2].iter().collect();
+                ustring_to_utf8(&inner)
+            } else {
+                ustring_to_utf8(&wform_tag)
+            }
+        };
+        // DIVERGENCE(NUL).
+        doc.insert("w".to_string(), Value::String(wform_utf8));
+
+        // Static tags ("sts").
+        let wread = e.doc.store.cohorts.get(cohort.0).wread;
+        if let Some(wread) = wread {
+            let (tags_list, wf_hash) = {
+                let tl = e.doc.store.readings.get(wread.0).tags_list.clone();
+                let wf_hash = e
+                    .doc
+                    .store
+                    .cohorts
+                    .get(cohort.0)
+                    .wordform
+                    .map(|wf| e.grammar.single_tags_list.get(wf.0).hash);
+                (tl, wf_hash)
+            };
+            if !tags_list.is_empty() {
+                let mut static_tags_json: Vec<Value> = Vec::new();
+                let mut unique_sts = uint32SortedVector::new();
+                for tag_hash in tags_list {
+                    if wf_hash == Some(TagHash(tag_hash)) {
+                        continue;
+                    }
+                    if e.cfg.unique_tags {
+                        if unique_sts.find(tag_hash) != unique_sts.end() {
+                            continue;
+                        }
+                        unique_sts.insert(tag_hash);
+                    }
+                    let it = e.grammar.single_tags.find(tag_hash);
+                    if it != e.grammar.single_tags.end() {
+                        let tid = it.get().1;
+                        let ttag = e.grammar.single_tags_list.get(tid.0).tag.clone();
+                        // DIVERGENCE(NUL).
+                        static_tags_json.push(Value::String(ustring_to_utf8(&ttag)));
+                    }
+                }
+                if !static_tags_json.is_empty() {
+                    doc.insert("sts".to_string(), Value::Array(static_tags_json));
+                }
+            }
+        }
+
+        // Text ("z").
+        let text = e.doc.store.cohorts.get(cohort.0).text.clone();
+        if !text.is_empty() {
+            let mut z_text = text;
+            if z_text.ends_with('\n') {
+                z_text.pop();
+            }
+            if !z_text.is_empty() {
+                // DIVERGENCE(NUL).
+                doc.insert("z".to_string(), Value::String(ustring_to_utf8(&z_text)));
+            }
+        }
+
+        // Dependency ("ds" / "dp").
+        if e.doc.deps.has_dep && (!ctype.intersects(CT_REMOVED)) {
+            let (dep_self, global_number, dep_parent) = {
+                let c = e.doc.store.cohorts.get(cohort.0);
+                (c.dep_self, c.global_number, c.dep_parent)
+            };
+            let self_id = dep_self.unwrap_or(global_number);
+            doc.insert("ds".to_string(), json!(self_id.get()));
+            if let Some(dp) = dep_parent {
+                doc.insert("dp".to_string(), json!(dp.get()));
+            }
+        }
+
+        // Readings ("rs").
+        let mut readings = e.doc.store.cohorts.get(cohort.0).readings.clone();
+        sort_readings(&e.doc.store, &mut readings);
+        e.doc.store.cohorts.get_mut(cohort.0).readings = readings.clone();
+        let mut readings_json: Vec<Value> = Vec::new();
+        for reading in readings {
+            if e.doc.store.readings.get(reading.0).noprint {
+                continue;
+            }
+            let reading_json = self.build_json_reading_e(e, reading);
+            if !reading_json.is_empty() {
+                readings_json.push(Value::Object(reading_json));
+            }
+            // (Quirk: the `break` for single-best-reading is commented out in
+            // C++, so ALL non-noprint readings are emitted.)
+        }
+        if !readings_json.is_empty() {
+            doc.insert("rs".to_string(), Value::Array(readings_json));
+        }
+
+        // Deleted readings ("drs").
+        let deleted = e.doc.store.cohorts.get(cohort.0).deleted.clone();
+        if !deleted.is_empty() {
+            let mut deleted_readings_json: Vec<Value> = Vec::new();
+            let mut deleted_sorted = deleted;
+            sort_readings(&e.doc.store, &mut deleted_sorted);
+            e.doc.store.cohorts.get_mut(cohort.0).deleted = deleted_sorted.clone();
+            for reading in deleted_sorted {
+                // noprint flag NOT checked here (faithful).
+                let reading_json = self.build_json_reading_e(e, reading);
+                if !reading_json.is_empty() {
+                    deleted_readings_json.push(Value::Object(reading_json));
+                }
+            }
+            if !deleted_readings_json.is_empty() {
+                doc.insert("drs".to_string(), Value::Array(deleted_readings_json));
+            }
+        }
+
+        let s = serde_json::to_string(&Value::Object(doc)).unwrap();
+        let _ = writeln!(output, "{s}");
+        let _ = output.flush();
+    }
+
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn]
+    /// C++ `void printSingleWindow(SingleWindow* window, std::ostream& output,
+    /// bool profiling)`. Emits: (1) SETVAR/REMVAR commands for `variables_output`;
+    /// (2) pre-text; (3) each cohort; (4) post-text; (5) FLUSH if `flush_after`.
+    pub(crate) fn print_single_window_e<W: Write>(
+        &self,
+        e: &mut Engine<'_>,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        let (vars_output, text, all_cohorts, text_post, flush_after) = {
+            let w = e.doc.store.single_windows.get(window.0);
+            (
+                w.variables_output.iter().copied().collect::<Vec<u32>>(),
+                w.text.clone(),
+                w.all_cohorts.clone(),
+                w.text_post.clone(),
+                w.flush_after,
+            )
+        };
+
+        // (1) Variables as commands.
+        for var in vars_output {
+            let key_tag = {
+                let key = tag_by_hash(e.grammar, TagHash(var));
+                e.grammar.single_tags_list.get(key.0).tag.clone()
+            };
+            let value_hash: Option<u32> = {
+                let w = e.doc.store.single_windows.get(window.0);
+                let it = w.variables_set.find(var);
+                if it != w.variables_set.end() {
+                    Some(it.get().1)
+                } else {
+                    None
+                }
+            };
+            let mut cmd_buf = UString::new();
+            match value_hash {
+                Some(vh) => {
+                    if vh != e.grammar.tag_any {
+                        let value_tag = {
+                            let value = tag_by_hash(e.grammar, TagHash(vh));
+                            e.grammar.single_tags_list.get(value.0).tag.clone()
+                        };
+                        cmd_buf.push_str(STR_CMD_SETVAR);
+                        cmd_buf.push_str(&key_tag);
+                        cmd_buf.push('=');
+                        cmd_buf.push_str(&value_tag);
+                        cmd_buf.push('>');
+                    } else {
+                        cmd_buf.push_str(STR_CMD_SETVAR);
+                        cmd_buf.push_str(&key_tag);
+                        cmd_buf.push('>');
+                    }
+                }
+                None => {
+                    cmd_buf.push_str(STR_CMD_REMVAR);
+                    cmd_buf.push_str(&key_tag);
+                    cmd_buf.push('>');
+                }
+            }
+            self.print_stream_command_e(&cmd_buf, output);
+        }
+
+        // (2) Pre-text.
+        if !text.is_empty() {
+            self.print_plain_text_line_e(&text, output);
+        }
+
+        // (3) Cohorts.
+        for cohort in all_cohorts {
+            self.print_cohort_e(e, cohort, output, profiling);
+        }
+
+        // (4) Post-text.
+        if !text_post.is_empty() {
+            self.print_plain_text_line_e(&text_post, output);
+        }
+
+        // (5) Flush command.
+        if flush_after {
+            self.print_stream_command_e(STR_CMD_FLUSH, output);
+        }
+    }
+}
+
+impl crate::grammar_applicator::stream_format::StreamFormat for JsonlFormat {
+    fn print_cohort<W: Write>(
+        &mut self,
+        e: &mut Engine<'_>,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        self.print_cohort_e(e, cohort, output, profiling);
+    }
+
+    fn print_single_window<W: Write>(
+        &mut self,
+        e: &mut Engine<'_>,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) {
+        self.print_single_window_e(e, window, output, profiling);
+    }
+
+    fn print_stream_command<W: Write>(&mut self, _e: &mut Engine<'_>, cmd: &str, output: &mut W) {
+        self.print_stream_command_e(cmd, output);
+    }
+
+    fn print_plain_text_line<W: Write>(&mut self, _e: &mut Engine<'_>, line: &str, output: &mut W) {
+        self.print_plain_text_line_e(line, output);
     }
 }
 

@@ -357,17 +357,14 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reset-indexes-fn]
     /// C++ `void resetIndexes()` — clears the per-reading/regex/icase match
     /// caches (the per-set `yes`/`no` vectors keep their length).
+    ///
+    /// Public-API entry retained on `GrammarApplicator` (the format applicators
+    /// call it through `self.base` between window drains); the body lives on
+    /// [`Engine`](super::Engine) because the CG-text driver
+    /// ([`Engine::run_grammar_on_text_with_impl`](super::Engine)) calls it
+    /// mid-run. This thin split-borrow forwarder is the Stage-C boundary.
     pub fn reset_indexes(&mut self) {
-        for sv in &mut self.scratch.index_readingSet_yes {
-            sv.clear(0);
-        }
-        for sv in &mut self.scratch.index_readingSet_no {
-            sv.clear(0);
-        }
-        self.scratch.index_regexp_yes.clear(0);
-        self.scratch.index_regexp_no.clear(0);
-        self.scratch.index_icase_yes.clear(0);
-        self.scratch.index_icase_no.clear(0);
+        self.engine().reset_indexes();
     }
 
     // =======================================================================
@@ -618,6 +615,26 @@ impl super::GrammarApplicator {
 }
 
 impl Engine<'_> {
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.reset-indexes-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reset-indexes-fn]
+    /// C++ `void resetIndexes()` — clears the per-reading/regex/icase match
+    /// caches (the per-set `yes`/`no` vectors keep their length). Touches only
+    /// `scratch`, so it peels cleanly onto the view; the CG-text driver calls it
+    /// mid-run and `GrammarApplicator::reset_indexes` forwards here for setup
+    /// callers.
+    pub fn reset_indexes(&mut self) {
+        for sv in &mut self.scratch.index_readingSet_yes {
+            sv.clear(0);
+        }
+        for sv in &mut self.scratch.index_readingSet_no {
+            sv.clear(0);
+        }
+        self.scratch.index_regexp_yes.clear(0);
+        self.scratch.index_regexp_no.clear(0);
+        self.scratch.index_icase_yes.clear(0);
+        self.scratch.index_icase_no.clear(0);
+    }
+
     /// Dependency span zero-pad width — `floor(log10(hard_limit)) + 1`, matching
     /// the digit baked into `span_pattern_*` by [`index`].
     fn dep_span_width(&self) -> usize {

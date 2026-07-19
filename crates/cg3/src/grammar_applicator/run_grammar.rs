@@ -1,9 +1,10 @@
 //! `src/GrammarApplicator_runGrammar.cpp` impl of `GrammarApplicator`.
 //!
-//! The top-level CG stream driver ([`run_grammar_on_text`](super::GrammarApplicator::run_grammar_on_text))
-//! plus the two window-boundary builders
-//! ([`init_empty_single_window`](super::GrammarApplicator::init_empty_single_window),
-//! [`init_empty_cohort`](super::GrammarApplicator::init_empty_cohort)) and the free
+//! The top-level CG stream driver ([`run_grammar_on_text`](super::GrammarApplicator::run_grammar_on_text)
+//! forwarder + the [`Engine`](super::Engine)-hosted driver body) plus the two
+//! window-boundary builders
+//! ([`init_empty_single_window`](super::Engine::init_empty_single_window),
+//! [`init_empty_cohort`](super::Engine::init_empty_cohort)) and the free
 //! helper [`test_string_against`].
 //!
 //! ## I/O model
@@ -28,28 +29,29 @@
 /// C++ free fn `inline bool testStringAgainst(const UString& str,
 /// std::vector<URegularExpression*>& rxs)`.
 ///
-/// Tests whether `str` matches any of the pre-compiled regexes in `rxs`, with a
-/// move-to-front (MRU) reordering side effect. The ICU `uregex_find(rx, -1,
-/// &status)` (start index -1 = "whole region", UNANCHORED) maps to the `regex`
-/// crate's [`Regex::is_match`], which is likewise unanchored. On the first hit,
-/// if it was not already at index 0, the matching regex is swapped to the front
-/// so it is tried first next time. The ICU `CG3Quit(1)`-on-error branches have no
-/// analog (`is_match` is infallible), so they are dropped. Used by
-/// `run_grammar_on_text` to detect text-delimiter lines via `text_delimiters`.
-pub fn test_string_against(str: &str, rxs: &mut [regex::Regex]) -> bool {
-    let mut rv = false;
-    for i in 0..rxs.len() {
+/// Tests whether `str` matches any of the pre-compiled regexes in `rxs`. The ICU
+/// `uregex_find(rx, -1, &status)` (start index -1 = "whole region", UNANCHORED)
+/// maps to the `regex` crate's [`Regex::is_match`], which is likewise unanchored.
+/// The ICU `CG3Quit(1)`-on-error branches have no analog (`is_match` is
+/// infallible), so they are dropped. Used by `run_grammar_on_text` to detect
+/// text-delimiter lines via `text_delimiters`.
+///
+/// DECOMP DIVERGENCE (peel.drivers): the C++ `testStringAgainst` has a
+/// move-to-front (MRU) side effect — on the first hit it swaps the matching
+/// regex to index 0 so it is tried first next time. That is a pure performance
+/// heuristic with NO observable effect (the boolean result is order-independent,
+/// and no output depends on the internal order of `text_delimiters`). Because
+/// this fn is now reached from the `Engine<'_>` driver — whose `cfg` borrow is
+/// read-only (`&EngineConfig`) — the MRU swap (which needed `&mut [Regex]`) is
+/// dropped and the parameter is `&[Regex]`. See the peel.drivers report.
+pub fn test_string_against(str: &str, rxs: &[regex::Regex]) -> bool {
+    for rx in rxs {
         // uregex_setText + uregex_find(-1) — unanchored whole-string search.
-        if rxs[i].is_match(str) {
-            rv = true;
-            if i != 0 {
-                // Move the matching regex up front for faster future hits.
-                rxs.swap(0, i);
-            }
-            break;
+        if rx.is_match(str) {
+            return true;
         }
     }
-    rv
+    false
 }
 
 /// C++ `u_strchr(s, needle)` over a `Vec<char>` scratch buffer: return the index
@@ -87,7 +89,7 @@ fn live_set_values(s: &mut crate::flat_unordered_set::Uint32FlatHashSet) -> Vec<
         .collect()
 }
 
-/// Control-flow result returned by [`got_reading`](super::GrammarApplicator::got_reading)
+/// Control-flow result returned by [`got_reading`](super::Engine::got_reading)
 /// reproducing the C++ `got_reading:` block's non-local exits: a plain fall-through,
 /// a `continue` (sub-reading-with-existing-next skip), or a `goto istext` (the
 /// "looked like a reading but wasn't" fallback).
@@ -100,7 +102,7 @@ enum GotReading {
     Istext,
 }
 
-impl super::GrammarApplicator {
+impl super::Engine<'_> {
     // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.init-empty-single-window-fn]
     // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.init-empty-single-window-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.init-empty-single-window-fn]
@@ -130,8 +132,8 @@ impl super::GrammarApplicator {
         );
         // addTagToReading(*cReading, begintag);  [uint32_t overload —
         // resolves the hash via grammar->single_tags[hash], then the Tag* form]
-        let begin_tag_id = super::core::tag_by_hash(&self.grammar, self.cfg.begintag);
-        self.engine().add_tag_to_reading(c_reading, begin_tag_id);
+        let begin_tag_id = super::core::tag_by_hash(self.grammar, self.cfg.begintag);
+        self.add_tag_to_reading(c_reading, begin_tag_id);
         // cCohort->appendReading(cReading);
         crate::cohort::append_reading(&mut self.doc.store, c_cohort, c_reading);
         // cSWindow->appendCohort(cCohort);
@@ -151,9 +153,6 @@ impl super::GrammarApplicator {
         }
     }
 
-}
-
-impl super::Engine<'_> {
     // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.init-empty-cohort-fn]
     // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.init-empty-cohort-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.init-empty-cohort-fn]
@@ -198,9 +197,7 @@ impl super::Engine<'_> {
         self.doc.num_readings = self.doc.num_readings.wrapping_add(1);
         c_reading
     }
-}
 
-impl super::GrammarApplicator {
     /// The C++ `got_reading:` GOTO LABEL body from `runGrammarOnText` (the block
     /// entered by both the ` "` reading line — falling through — and the `; "`
     /// deleted-reading line — via `goto got_reading`). Restructured into a helper
@@ -259,7 +256,7 @@ impl super::GrammarApplicator {
             self.grammar.sets_any.as_ref(),
         );
         let wordform = self.doc.store.cohorts.get(c_cohort.0).wordform.unwrap();
-        self.engine().add_tag_to_reading(c_reading, wordform);
+        self.add_tag_to_reading(c_reading, wordform);
 
         // UChar* space = &cleaned[1]; UChar* base = space;
         let mut space = 1usize;
@@ -334,7 +331,7 @@ impl super::GrammarApplicator {
                             self.grammar.single_tags_list[tag.0].r#type |= crate::tag::T_MAPPING;
                             all_mappings.entry(c_reading).or_default().push(tag);
                         } else {
-                            self.engine().add_tag_to_reading(c_reading, tag);
+                            self.add_tag_to_reading(c_reading, tag);
                         }
                     }
                     base = space;
@@ -357,7 +354,7 @@ impl super::GrammarApplicator {
                 self.grammar.single_tags_list[tag.0].r#type |= crate::tag::T_MAPPING;
                 all_mappings.entry(c_reading).or_default().push(tag);
             } else {
-                self.engine().add_tag_to_reading(c_reading, tag);
+                self.add_tag_to_reading(c_reading, tag);
             }
         }
         if self.doc.store.readings.get(c_reading.0).baseform.is_none() {
@@ -377,7 +374,7 @@ impl super::GrammarApplicator {
                     mlist.pop();
                 }
                 let mut ml = all_mappings.remove(&c_reading).unwrap();
-                self.engine().split_mappings(&mut ml, c_cohort, c_reading, true);
+                self.split_mappings(&mut ml, c_cohort, c_reading, true);
             }
             // readings->back()->rehash();
             let list_back = if is_deleted {
@@ -398,9 +395,10 @@ impl super::GrammarApplicator {
                     .copied()
             };
             if let Some(b) = list_back {
-                let grammar = std::mem::take(&mut self.grammar);
-                crate::reading::reading_rehash(&mut self.doc.store, &grammar, b);
-                self.grammar = grammar;
+                // In the split-borrow view `grammar` and `doc.store` are already
+                // disjoint `&mut`s, so the C++-era `mem::take` borrow dance the
+                // monolithic `&mut self` needed is gone.
+                crate::reading::reading_rehash(&mut self.doc.store, self.grammar, b);
             }
         }
         indents.push((indent, c_reading));
@@ -422,7 +420,7 @@ impl super::GrammarApplicator {
                     > self.cfg.dep_delimit)
         {
             let gn = self.doc.store.cohorts.get(c_cohort.0).global_number.get();
-            self.engine().reflow_dependency_window(gn);
+            self.reflow_dependency_window(gn);
 
             let cur = *c_swindow;
             if let Some(sw) = cur {
@@ -436,8 +434,8 @@ impl super::GrammarApplicator {
                     .unwrap();
                 let rs = self.doc.store.cohorts.get(last_cohort.0).readings.clone();
                 for r in rs {
-                    let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                    self.engine().add_tag_to_reading(r, tid);
+                    let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
+                    self.add_tag_to_reading(r, tid);
                 }
             }
 
@@ -484,7 +482,7 @@ impl super::GrammarApplicator {
                 self.doc.store.cohorts.get_mut(c_cohort.0).parent = *c_swindow;
                 let rs = self.doc.store.cohorts.get(c_cohort.0).readings.clone();
                 for rit in rs {
-                    self.engine().reflow_reading(rit);
+                    self.reflow_reading(rit);
                 }
             }
         }
@@ -514,56 +512,6 @@ impl super::GrammarApplicator {
         cohort.r#type &= !crate::cohort::CT_NUM_CURRENT;
     }
 
-    // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn]
-    // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-text-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-text-fn]
-    /// C++ `void GrammarApplicator::runGrammarOnText(std::istream& input,
-    /// std::ostream& output)`. The main CG stream driver: reads the "VISL CG-3"
-    /// text format line by line, builds Windows -> Cohorts -> Readings, runs the
-    /// grammar window-by-window as enough windows accumulate, and writes results.
-    ///
-    /// See the module header for the I/O model and the deferred-diagnostic list.
-    // `c_reading`/`l_reading` mirror the C++ `cReading`/`lReading` locals — kept
-    // for a faithful 1:1 port though their reads are limited in this driver.
-    pub fn run_grammar_on_text<R, W>(
-        &mut self,
-        input: &mut R,
-        output: &mut W,
-    ) -> Result<(), crate::error::Cg3Error>
-    where
-        R: std::io::Read + std::io::Seek,
-        W: std::io::Write,
-    {
-        self.run_grammar_on_text_with(&mut super::stream_format::CgFormat, input, output)
-    }
-
-    /// [`run_grammar_on_text`](Self::run_grammar_on_text) with an explicit
-    /// [`StreamFormat`](super::stream_format::StreamFormat) strategy — the C++
-    /// virtual print dispatch for a derived most-derived object
-    /// (MweSplitApplicator, FormatConverter, ...).
-    ///
-    /// Wave 4: the deep engine fatals (mid-stream input errors — external-process
-    /// start/write, mapping-tag conflicts, invalid-format arms) still raise a
-    /// `Cg3Exit` unwind from the hot run loop (79-caller `add_tag_to_reading`,
-    /// the externals dispatch, ...). This boundary captures them via
-    /// [`crate::error::catch_fatal`] and returns `Err(Cg3Error)` carrying the
-    /// exact exit code, so embedders get a real error at the run entry without
-    /// the unwind escaping.
-    pub fn run_grammar_on_text_with<F, R, W>(
-        &mut self,
-        fmt: &mut F,
-        input: &mut R,
-        output: &mut W,
-    ) -> Result<(), crate::error::Cg3Error>
-    where
-        F: super::stream_format::StreamFormat,
-        R: std::io::Read + std::io::Seek,
-        W: std::io::Write,
-    {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_with_impl(fmt, input, output))
-    }
-
     #[allow(unused_assignments, unused_variables)]
     fn run_grammar_on_text_with_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
@@ -582,7 +530,10 @@ impl super::GrammarApplicator {
         let mut did_soft_lookback = false;
         let mut is_deleted;
 
-        self.index();
+        // C++ `index()` runs here; hoisted to the `run_grammar_on_text[_with]`
+        // forwarders on `GrammarApplicator` (it writes `cfg`, which the split
+        // view holds read-only). It is idempotent (`did_index` guard) and has no
+        // I/O, so running it just before the `engine()` split is identical.
 
         let reset_after: u32 = (self.cfg.num_windows + 4) * 2 + 1;
         let mut lines: u32 = 0;
@@ -664,7 +615,7 @@ impl super::GrammarApplicator {
                     if let Some(cc) = c_cohort
                         && self.doc.store.cohorts.get(cc.0).readings.is_empty()
                     {
-                        self.engine().init_empty_cohort(cc);
+                        self.init_empty_cohort(cc);
                     }
 
                     // (a) Soft-limit lookback.
@@ -680,9 +631,9 @@ impl super::GrammarApplicator {
                                 .get();
                             let cohorts = self.doc.store.single_windows.get(sw.0).cohorts.clone();
                             for &c in cohorts.iter().rev() {
-                                if self.engine().does_set_match_cohort_normal(c, sd, None) {
+                                if self.does_set_match_cohort_normal(c, sd, None) {
                                     did_soft_lookback = false;
-                                    let cohort = self.engine().delimit_at(sw, c);
+                                    let cohort = self.delimit_at(sw, c);
                                     // cSWindow = cohort->parent->next;
                                     let parent =
                                         self.doc.store.cohorts.get(cohort.0).parent.unwrap();
@@ -706,14 +657,14 @@ impl super::GrammarApplicator {
                                 [self.grammar.soft_delimiters.unwrap().0]
                                 .number
                                 .get();
-                            self.engine().does_set_match_cohort_normal(cc, sd, None)
+                            self.does_set_match_cohort_normal(cc, sd, None)
                         };
                         if sd_hit {
                             // verbose soft-limit warning: deferred.
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
-                                let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                                self.engine().add_tag_to_reading(r, tid);
+                                let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
+                                self.add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             crate::single_window::append_cohort(
@@ -749,14 +700,14 @@ impl super::GrammarApplicator {
                                 let d = self.grammar.sets_list[self.grammar.delimiters.unwrap().0]
                                     .number
                                     .get();
-                                self.engine().does_set_match_cohort_normal(cc, d, None)
+                                self.does_set_match_cohort_normal(cc, d, None)
                             };
                         if over_hard || delim_hit {
                             // (!is_conv && over_hard) "Hard limit ... forcing break": deferred.
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
-                                let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                                self.engine().add_tag_to_reading(r, tid);
+                                let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
+                                self.add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             crate::single_window::append_cohort(
@@ -860,7 +811,7 @@ impl super::GrammarApplicator {
                     if cleaned[space] != '\0' {
                         let wread = crate::reading::alloc_reading(&mut self.doc.store, Some(cc));
                         self.doc.store.cohorts.get_mut(cc.0).wread = Some(wread);
-                        self.engine().add_tag_to_reading(wread, wf);
+                        self.add_tag_to_reading(wread, wf);
                         while cleaned[space] != '\0' {
                             crate::inlines::skipws_chars(&cleaned, &mut space, '\0', '\0', true);
                             let mut n = space;
@@ -875,7 +826,7 @@ impl super::GrammarApplicator {
                                 .take_while(|&&c| c != '\0')
                                 .collect();
                             let tag = self.add_tag(&tag_text, crate::tag::TagType::empty());
-                            self.engine().add_tag_to_reading(wread, tag);
+                            self.add_tag_to_reading(wread, tag);
                             space = n + 1;
                         }
                     }
@@ -956,12 +907,12 @@ impl super::GrammarApplicator {
                                 }
                             }
                             if self.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                                self.engine().init_empty_cohort(cc);
+                                self.init_empty_cohort(cc);
                             }
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
-                                let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                                self.engine().add_tag_to_reading(r, tid);
+                                let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
+                                self.add_tag_to_reading(r, tid);
                             }
                             c_reading = None;
                             l_reading = None;
@@ -1157,7 +1108,7 @@ impl super::GrammarApplicator {
                         let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
                         if l_swindow.is_some()
                             && l_cohort.is_some()
-                            && test_string_against(&line_str, &mut self.cfg.text_delimiters)
+                            && test_string_against(&line_str, &self.cfg.text_delimiters)
                         {
                             // Text-delimiter line.
                             let lsw = l_swindow.unwrap();
@@ -1170,8 +1121,8 @@ impl super::GrammarApplicator {
                             let cc = c_cohort.unwrap();
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
-                                let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                                self.engine().add_tag_to_reading(r, tid);
+                                let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
+                                self.add_tag_to_reading(r, tid);
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true);
                             let sw = c_swindow.unwrap();
@@ -1248,12 +1199,12 @@ impl super::GrammarApplicator {
                 }
             }
             if self.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                self.engine().init_empty_cohort(cc);
+                self.init_empty_cohort(cc);
             }
             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
-                let tid = super::core::tag_by_hash(&self.grammar, self.cfg.endtag);
-                self.engine().add_tag_to_reading(r, tid);
+                let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
+                self.add_tag_to_reading(r, tid);
             }
             c_reading = None;
             c_cohort = None;
@@ -1305,7 +1256,7 @@ impl super::GrammarApplicator {
         // Emit final SETVAR/REMVAR stream commands for each output variable.
         for &var in variables_output.as_slice() {
             let key = {
-                let tid = super::core::tag_by_hash(&self.grammar, crate::types::TagHash(var));
+                let tid = super::core::tag_by_hash(self.grammar, crate::types::TagHash(var));
                 self.grammar.single_tags_list.get(tid.0).tag.clone()
             };
             let mut cmd_buf = String::new();
@@ -1315,7 +1266,7 @@ impl super::GrammarApplicator {
                 if val != self.grammar.tag_any {
                     let value = {
                         let tid =
-                            super::core::tag_by_hash(&self.grammar, crate::types::TagHash(val));
+                            super::core::tag_by_hash(self.grammar, crate::types::TagHash(val));
                         self.grammar.single_tags_list.get(tid.0).tag.clone()
                     };
                     cmd_buf.push_str(crate::strings::STR_CMD_SETVAR);
@@ -1410,5 +1361,65 @@ impl super::GrammarApplicator {
         variables_set.clear(0);
         variables_rem.clear(0);
         variables_output.clear();
+    }
+}
+
+// Public run entry points. These stay inherent on `GrammarApplicator`: they are
+// the API the tools/applicators call, and they run `index()` (which writes the
+// setup-owned `cfg` the split view holds read-only) BEFORE splitting into the
+// `Engine<'_>` view that runs the driver body.
+impl super::GrammarApplicator {
+    // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn]
+    // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-text-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-text-fn]
+    /// C++ `void GrammarApplicator::runGrammarOnText(std::istream& input,
+    /// std::ostream& output)`. The main CG stream driver: reads the "VISL CG-3"
+    /// text format line by line, builds Windows -> Cohorts -> Readings, runs the
+    /// grammar window-by-window as enough windows accumulate, and writes results.
+    ///
+    /// See the module header for the I/O model and the deferred-diagnostic list.
+    pub fn run_grammar_on_text<R, W>(
+        &mut self,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
+    where
+        R: std::io::Read + std::io::Seek,
+        W: std::io::Write,
+    {
+        self.run_grammar_on_text_with(&mut super::stream_format::CgFormat, input, output)
+    }
+
+    /// [`run_grammar_on_text`](Self::run_grammar_on_text) with an explicit
+    /// [`StreamFormat`](super::stream_format::StreamFormat) strategy — the C++
+    /// virtual print dispatch for a derived most-derived object
+    /// (MweSplitApplicator, FormatConverter, ...).
+    ///
+    /// The deep engine fatals (mid-stream input errors — external-process
+    /// start/write, mapping-tag conflicts, invalid-format arms) raise a
+    /// `Cg3Exit` unwind from the hot run loop (79-caller `add_tag_to_reading`,
+    /// the externals dispatch, ...). This boundary captures them via
+    /// [`crate::error::catch_fatal`] and returns `Err(Cg3Error)` carrying the
+    /// exact exit code, so embedders get a real error at the run entry without
+    /// the unwind escaping.
+    pub fn run_grammar_on_text_with<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error>
+    where
+        F: super::stream_format::StreamFormat,
+        R: std::io::Read + std::io::Seek,
+        W: std::io::Write,
+    {
+        // C++ `runGrammarOnText` runs `index()` first; done here (needs `&mut
+        // cfg`) before the read-only split view is taken for the driver body.
+        self.index();
+        crate::error::catch_fatal(|| {
+            self.engine()
+                .run_grammar_on_text_with_impl(fmt, input, output)
+        })
     }
 }
