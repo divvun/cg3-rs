@@ -466,7 +466,8 @@ where
                     }
                     if !mappings.is_empty() {
                         let parent = self.base.doc.store.readings.get(reading.0).parent.unwrap();
-                        self.base.engine()
+                        self.base
+                            .engine()
                             .split_mappings(&mut mappings, parent, reading, true);
                     }
                     // Pop trailing non-baseform tags, then the baseform.
@@ -982,7 +983,11 @@ where
                         [self.base.grammar.soft_delimiters.unwrap().0]
                         .number
                         .get();
-                    if self.base.engine().does_set_match_cohort_normal(cc, sd, None) {
+                    if self
+                        .base
+                        .engine()
+                        .does_set_match_cohort_normal(cc, sd, None)
+                    {
                         let readings = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
                             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
@@ -1407,10 +1412,7 @@ impl ApertiumFormat {
             } else if tag.r#type.intersects(T_MAPPING) {
                 multi = false;
             }
-            if tag.r#type.intersects(T_DEPENDENCY)
-                && e.doc.deps.has_dep
-                && !e.cfg.dep_original
-            {
+            if tag.r#type.intersects(T_DEPENDENCY) && e.doc.deps.has_dep && !e.cfg.dep_original {
                 continue;
             }
             if multi {
@@ -1489,12 +1491,7 @@ impl ApertiumFormat {
         if e.cfg.trace {
             for &iter_hb in r.hit_by.iter() {
                 u_fputc('<', output);
-                crate::grammar_applicator::core::print_trace(
-                    e.grammar,
-                    e.cfg,
-                    output,
-                    iter_hb,
-                );
+                crate::grammar_applicator::core::print_trace(e.grammar, e.cfg, output, iter_hb);
                 u_fputc('>', output);
             }
         }
@@ -1650,9 +1647,7 @@ impl ApertiumFormat {
                 let _ = write!(output, "/");
             }
             need_slash = true;
-            if e.grammar.sub_readings_ltr
-                && e.doc.store.readings.get(reading.0).next.is_some()
-            {
+            if e.grammar.sub_readings_ltr && e.doc.store.readings.get(reading.0).next.is_some() {
                 reading = reverse_reading(&mut e.doc.store, reading);
             }
             self.print_reading_2_e(e, reading, output);
@@ -1673,8 +1668,7 @@ impl ApertiumFormat {
                     let _ = write!(output, "/{NOT_SIGN}");
                 }
                 need_slash = true;
-                if e.grammar.sub_readings_ltr
-                    && e.doc.store.readings.get(reading.0).next.is_some()
+                if e.grammar.sub_readings_ltr && e.doc.store.readings.get(reading.0).next.is_some()
                 {
                     reading = reverse_reading(&mut e.doc.store, reading);
                 }
@@ -1691,8 +1685,7 @@ impl ApertiumFormat {
                     let _ = write!(output, "/{NOT_SIGN}");
                 }
                 need_slash = true;
-                if e.grammar.sub_readings_ltr
-                    && e.doc.store.readings.get(reading.0).next.is_some()
+                if e.grammar.sub_readings_ltr && e.doc.store.readings.get(reading.0).next.is_some()
                 {
                     reading = reverse_reading(&mut e.doc.store, reading);
                 }
@@ -1750,13 +1743,7 @@ impl ApertiumFormat {
             let _ = write!(output, "{text}");
         }
 
-        let all_cohorts = e
-            .doc
-            .store
-            .single_windows
-            .get(window.0)
-            .all_cohorts
-            .clone();
+        let all_cohorts = e.doc.store.single_windows.get(window.0).all_cohorts.clone();
         for cohort in all_cohorts {
             self.print_cohort_e(e, cohort, output, profiling);
             u_fflush(output);

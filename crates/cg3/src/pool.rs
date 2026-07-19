@@ -43,7 +43,7 @@ impl<T> Pool<T> {
     pub fn get(&mut self) -> Option<Box<T>> {
         // C++: var = nullptr; if (!p.empty()) { var = p.back(); p.pop_back(); }
         // `Vec::pop` removes and returns the last (LIFO) element, or `None`.
-        
+
         self.p.pop()
     }
 

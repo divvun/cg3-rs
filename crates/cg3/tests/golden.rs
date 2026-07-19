@@ -217,13 +217,15 @@ fn golden_binary_stream() {
         // can live in a temp dir while grammar.cg3 stays dir-local.
         let grammar_abs = dir.join("grammar.cg3");
         let bsf = tmp(&name, "bsf", "cg3");
-        std::fs::write(&bsf, format!("Include Static {} ;\n", grammar_abs.display()))
-            .map_err(|e| format!("write bsf grammar: {e}"))?;
+        std::fs::write(
+            &bsf,
+            format!("Include Static {} ;\n", grammar_abs.display()),
+        )
+        .map_err(|e| format!("write bsf grammar: {e}"))?;
         let bsf_s = bsf.to_str().unwrap();
 
         let base = read_args(dir);
-        let input =
-            std::fs::read(dir.join("input.txt")).map_err(|e| format!("read input: {e}"))?;
+        let input = std::fs::read(dir.join("input.txt")).map_err(|e| format!("read input: {e}"))?;
 
         let (b1, ok1) = run_capture(
             vislcg3(),
@@ -248,8 +250,7 @@ fn golden_binary_stream() {
             return Err("a binary-stream stage exited non-zero".to_string());
         }
         let prefix = mapping_prefix(dir);
-        let got =
-            stabilize_relations(&cg_sort(&untrace(&String::from_utf8_lossy(&b3)), &prefix));
+        let got = stabilize_relations(&cg_sort(&untrace(&String::from_utf8_lossy(&b3)), &prefix));
         let want = stabilize_relations(&cg_sort(&untrace(&expected(dir)), &prefix));
         if diff_b_equal(&want, &got) {
             Ok(())

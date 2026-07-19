@@ -9,16 +9,17 @@ use std::panic::{self, AssertUnwindSafe};
 
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::ast::{ASTHelper, ASTType};
-use crate::types::SetNumber;
 use crate::contextual_test::{POS_CAREFUL, POS_NUMERIC_BRANCH, copy_cntx};
 use crate::grammar::Grammar;
 use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::{
-    cg3_quit, hash_value_ustring, isspace, skipln_chars, skipto_chars, skiptows_chars, skipws_chars, ui32,
+    cg3_quit, hash_value_ustring, isspace, skipln_chars, skipto_chars, skiptows_chars,
+    skipws_chars, ui32,
 };
 use crate::set::{ST_TAG_UNIFY, Set};
 use crate::strings::KEYWORDS;
 use crate::tag::{T_REGEXP_LINE, T_SPECIAL, T_VARSTRING};
+use crate::types::SetNumber;
 
 use super::*;
 
@@ -757,9 +758,10 @@ impl TextualParser {
 fn shell_expand(s: &str) -> String {
     let mut out = s.to_string();
     if (out == "~" || out.starts_with("~/"))
-        && let Ok(home) = std::env::var("HOME") {
-            out = out.replacen('~', &home, 1);
-        }
+        && let Ok(home) = std::env::var("HOME")
+    {
+        out = out.replacen('~', &home, 1);
+    }
     out
 }
 

@@ -880,7 +880,10 @@ mod tests {
         let n = get_line_clean(&mut line, &mut cleaned, &mut input, false);
         assert_eq!(cleaned, "a b c");
         assert_eq!(n, cleaned.len());
-        assert!(line.starts_with("a  \t b\tc"), "raw line keeps original spacing");
+        assert!(
+            line.starts_with("a  \t b\tc"),
+            "raw line keeps original spacing"
+        );
 
         // keep_tabs: a run containing a tab collapses to the tab.
         let mut input = Cursor::new("x \t y\n".as_bytes().to_vec());

@@ -435,7 +435,8 @@ impl<'a> BinaryApplicator<'a> {
                 let rflags = read_u16!();
 
                 let base_idx = read_u16!() as usize;
-                self.base.engine()
+                self.base
+                    .engine()
                     .add_tag_to_reading(c_reading, window_tags[base_idx]);
 
                 let rtag_count = read_u16!();
@@ -453,7 +454,8 @@ impl<'a> BinaryApplicator<'a> {
                     }
                 }
                 if !mappings.is_empty() {
-                    self.base.engine()
+                    self.base
+                        .engine()
                         .split_mappings(&mut mappings, c_cohort, c_reading, true);
                 }
 
@@ -675,13 +677,8 @@ impl BinaryFormat {
         // Reflow removed-cohort text to the nearest prior non-removed cohort (or
         // the window). QUIRK: the inner loop has NO break — after clearing, later
         // iterations append the now-empty string (no-op).
-        let all_cohorts: Vec<CohortId> = e
-            .doc
-            .store
-            .single_windows
-            .get(window.0)
-            .all_cohorts
-            .clone();
+        let all_cohorts: Vec<CohortId> =
+            e.doc.store.single_windows.get(window.0).all_cohorts.clone();
         for i in 0..all_cohorts.len() {
             let cohort = all_cohorts[i];
             let (ln, ty, has_text) = {
@@ -728,8 +725,7 @@ impl BinaryFormat {
             cohort_count += 1;
 
             let mut cflags: u16 = 0;
-            if e
-                .doc
+            if e.doc
                 .store
                 .cohorts
                 .get(cohort.0)
@@ -971,21 +967,11 @@ impl crate::grammar_applicator::stream_format::StreamFormat for BinaryFormat {
         self.bin_print_single_window(e, window, output, profiling);
     }
 
-    fn print_stream_command<W: Write>(
-        &mut self,
-        _e: &mut Engine<'_>,
-        cmd: &str,
-        output: &mut W,
-    ) {
+    fn print_stream_command<W: Write>(&mut self, _e: &mut Engine<'_>, cmd: &str, output: &mut W) {
         self.bin_print_stream_command(cmd, output);
     }
 
-    fn print_plain_text_line<W: Write>(
-        &mut self,
-        _e: &mut Engine<'_>,
-        line: &str,
-        output: &mut W,
-    ) {
+    fn print_plain_text_line<W: Write>(&mut self, _e: &mut Engine<'_>, line: &str, output: &mut W) {
         self.bin_print_plain_text_line(line, output);
     }
 }
@@ -1080,7 +1066,11 @@ impl<'x> BinaryApplicator<'x> {
                     if cmd == BFC_FLUSH {
                         let back = self.flush(fmt, output, true);
                         if back.is_none() {
-                            fmt.print_stream_command(&mut self.base.engine(), STR_CMD_FLUSH, output);
+                            fmt.print_stream_command(
+                                &mut self.base.engine(),
+                                STR_CMD_FLUSH,
+                                output,
+                            );
                         }
                     } else if cmd == BFC_EXIT {
                         fmt.print_stream_command(&mut self.base.engine(), STR_CMD_EXIT, output);

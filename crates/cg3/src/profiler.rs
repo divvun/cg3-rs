@@ -195,14 +195,14 @@ impl Profiler {
             id: c,
         };
         self.entries.entry(k).or_insert(Entry {
-                    r#type: ET_CONTEXT,
-                    grammar: g,
-                    b,
-                    e,
-                    num_match: 0,
-                    num_fail: 0,
-                    example_window: 0,
-                });
+            r#type: ET_CONTEXT,
+            grammar: g,
+            b,
+            e,
+            num_match: 0,
+            num_fail: 0,
+            example_window: 0,
+        });
     }
 
     // [spec:cg3:def:profiler.cg3.profiler.write-fn]

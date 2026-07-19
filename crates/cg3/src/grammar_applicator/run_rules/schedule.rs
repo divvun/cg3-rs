@@ -377,7 +377,6 @@ impl crate::grammar_applicator::Engine<'_> {
         }
         self.reflow_reading(reading);
     }
-
 }
 
 impl crate::grammar_applicator::Engine<'_> {

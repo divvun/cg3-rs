@@ -611,7 +611,6 @@ impl super::GrammarApplicator {
 
         self.cfg.did_index = true;
     }
-
 }
 
 impl Engine<'_> {
@@ -1414,7 +1413,6 @@ impl Engine<'_> {
     // error (4 C++ overloads -> 3 Rust fns; two UChar*/char* single-arg
     // overloads collapse to &str)
     // =======================================================================
-
 }
 
 impl super::GrammarApplicator {
@@ -1675,7 +1673,6 @@ impl super::GrammarApplicator {
     // =======================================================================
     // printDebugRule / addProfilingExample / profileRuleContext (inline .hpp)
     // =======================================================================
-
 }
 
 impl Engine<'_> {

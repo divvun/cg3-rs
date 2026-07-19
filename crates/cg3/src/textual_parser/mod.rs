@@ -43,7 +43,6 @@ use regex::Regex;
 
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::ast::{ASTHelper, ASTType, Ast};
-use crate::types::SetNumber;
 use crate::contextual_test::{
     GSR_SPECIALS, MASK_POS_SCAN, POS_64BIT, POS_ABSOLUTE, POS_ACTIVE, POS_ALL, POS_ATTACH_TO,
     POS_BAG_OF_TAGS, POS_CAREFUL, POS_DEP_CHILD, POS_DEP_DEEP, POS_DEP_GLOB, POS_DEP_PARENT,
@@ -71,6 +70,7 @@ use crate::tag::{
     TagVectorSet, compare_tag_vector,
 };
 use crate::tag_trie::{trie_get_tags, trie_insert};
+use crate::types::SetNumber;
 mod driver;
 mod rules;
 use crate::uextras::{S_IGNORE, basename, ux_bufcpy, ux_dirname, ux_is_empty, ux_is_set_op};
@@ -1508,7 +1508,8 @@ impl TextualParser {
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             let s = self.parse_set_inline_wrapper(buf, pos);
             self.grammar.contexts_arena[t_cur.0].offset = 1;
-            self.grammar.contexts_arena[t_cur.0].target = SetNumber(self.grammar.sets_list[s.0].hash);
+            self.grammar.contexts_arena[t_cur.0].target =
+                SetNumber(self.grammar.sets_list[s.0].hash);
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             while buf[*pos] == ',' {
                 *pos += 1;
@@ -1648,9 +1649,10 @@ impl TextualParser {
             prof.add_context(th, self.cur_grammar_n, ast_ctx_b - 4, *pos - 4);
         }
         if self.grammar.contexts_arena[t.0].tmpl.is_some()
-            && let Some(td) = tmpl_data {
-                self.deferred_tmpls.insert(t, td);
-            }
+            && let Some(td) = tmpl_data
+        {
+            self.deferred_tmpls.insert(t, td);
+        }
 
         // C++ `AST_CLOSE_ID(p, t->hash)`.
         let t_hash = self.grammar.contexts_arena[t.0].hash;

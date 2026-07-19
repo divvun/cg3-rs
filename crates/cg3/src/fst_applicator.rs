@@ -607,14 +607,18 @@ where
                                 .count()
                         };
                         if bf_size == 2 {
-                            self.base.engine().del_tag_from_reading_hash(c_reading, bf_hash);
+                            self.base
+                                .engine()
+                                .del_tag_from_reading_hash(c_reading, bf_hash);
                             let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                             let base = self.base.engine().make_base_from_word(wf);
                             let h = self.base.grammar.single_tags_list.get(base.0).hash;
                             self.base.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
                         }
                         if !mappings.is_empty() {
-                            self.base.engine().split_mappings(&mut mappings, cc, c_reading, true);
+                            self.base
+                                .engine()
+                                .split_mappings(&mut mappings, cc, c_reading, true);
                         }
                         if self.base.grammar.sub_readings_ltr
                             && self.base.doc.store.readings.get(c_reading.0).next.is_some()
@@ -785,7 +789,9 @@ where
                 let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
                     .number
                     .get();
-                self.base.engine().does_set_match_cohort_normal(cc, sd, None)
+                self.base
+                    .engine()
+                    .does_set_match_cohort_normal(cc, sd, None)
             };
             if over_soft && sd_hit {
                 let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();

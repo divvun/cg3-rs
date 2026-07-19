@@ -193,7 +193,8 @@ impl<'a> JsonlApplicator<'a> {
                 }
             }
             if !mappings.is_empty() {
-                self.base.engine()
+                self.base
+                    .engine()
                     .split_mappings(&mut mappings, parent_cohort, c_reading, true);
             }
         }
@@ -729,7 +730,9 @@ impl<'a> JsonlApplicator<'a> {
                             [self.base.grammar.soft_delimiters.unwrap().0]
                             .number
                             .get();
-                        self.base.engine().does_set_match_cohort_normal(cc, sd, None)
+                        self.base
+                            .engine()
+                            .does_set_match_cohort_normal(cc, sd, None)
                     };
                 if soft_hit {
                     // verbose Info: deferred.

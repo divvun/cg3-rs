@@ -1394,7 +1394,8 @@ impl crate::grammar_applicator::Engine<'_> {
                         let c = self.doc.store.cohorts.get(attach.0);
                         (c.parent, c.local_number)
                     };
-                    let tg = self.run_contextual_test(aparent, alocal, it, None, None)
+                    let tg = self
+                        .run_contextual_test(aparent, alocal, it, None, None)
                         .is_some();
                     self.profile_rule_context(tg, rule, it);
                     if !tg {

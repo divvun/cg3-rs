@@ -243,9 +243,10 @@ pub fn trie_has_type(trie: &trie_t, type_: crate::tag::TagType, grammar: &Gramma
             return true;
         }
         if let Some(sub) = &node.trie
-            && trie_has_type(sub, type_, grammar) {
-                return true;
-            }
+            && trie_has_type(sub, type_, grammar)
+        {
+            return true;
+        }
     }
     false
 }
@@ -288,9 +289,10 @@ pub fn trie_get_tag_list_find(
             return true;
         }
         if let Some(sub) = &n.trie
-            && trie_get_tag_list_find(sub, the_tags, node, grammar) {
-                return true;
-            }
+            && trie_get_tag_list_find(sub, the_tags, node, grammar)
+        {
+            return true;
+        }
         the_tags.pop(); // theTags.pop_back()
     }
     false

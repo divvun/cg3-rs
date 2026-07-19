@@ -387,7 +387,8 @@ impl MatxinApplicator {
                     }
                     if !mappings.is_empty() {
                         let parent = self.base.doc.store.readings.get(reading.0).parent.unwrap();
-                        self.base.engine()
+                        self.base
+                            .engine()
                             .split_mappings(&mut mappings, parent, reading, true);
                     }
                     while let Some(&last) = taglist.last() {
@@ -861,7 +862,11 @@ impl MatxinApplicator {
                         [self.base.grammar.soft_delimiters.unwrap().0]
                         .number
                         .get();
-                    if self.base.engine().does_set_match_cohort_normal(cc, sd, None) {
+                    if self
+                        .base
+                        .engine()
+                        .does_set_match_cohort_normal(cc, sd, None)
+                    {
                         self.add_endtag_all(cc);
                         append_cohort(
                             &mut self.base.doc.store,

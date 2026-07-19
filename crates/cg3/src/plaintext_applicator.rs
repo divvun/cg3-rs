@@ -231,7 +231,9 @@ where
                             [self.base.grammar.soft_delimiters.unwrap().0]
                             .number
                             .get();
-                        self.base.engine().does_set_match_cohort_normal(cc, sd, None)
+                        self.base
+                            .engine()
+                            .does_set_match_cohort_normal(cc, sd, None)
                     };
                     if over_soft && sd_hit {
                         let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
@@ -584,13 +586,7 @@ impl PlaintextFormat {
         output: &mut W,
         profiling: bool,
     ) {
-        let all_cohorts = e
-            .doc
-            .store
-            .single_windows
-            .get(window.0)
-            .all_cohorts
-            .clone();
+        let all_cohorts = e.doc.store.single_windows.get(window.0).all_cohorts.clone();
         for cohort in all_cohorts {
             self.print_cohort_e(e, cohort, output, profiling);
         }

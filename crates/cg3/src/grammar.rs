@@ -1818,7 +1818,10 @@ impl Grammar {
                 };
                 self.index_set_to_rule(number, set);
                 let rtarget = self.rule_by_number[rid.0].target;
-                self.rules_by_set.entry(rtarget.get()).or_default().insert(number);
+                self.rules_by_set
+                    .entry(rtarget.get())
+                    .or_default()
+                    .insert(number);
             } else {
                 // "Warning: Rule on line ... had no target": deferred I/O.
             }
@@ -1837,13 +1840,15 @@ impl Grammar {
             };
             let mut cap = false;
             if let Some(m) = maplist
-                && self.sets_list[m.0].r#type.intersects(ST_CHILD_UNIFY) {
-                    cap = true;
-                }
+                && self.sets_list[m.0].r#type.intersects(ST_CHILD_UNIFY)
+            {
+                cap = true;
+            }
             if let Some(sl) = sublist
-                && self.sets_list[sl.0].r#type.intersects(ST_CHILD_UNIFY) {
-                    cap = true;
-                }
+                && self.sets_list[sl.0].r#type.intersects(ST_CHILD_UNIFY)
+            {
+                cap = true;
+            }
             if cap {
                 self.rule_by_number.get_mut(rid.0).flags |= RF_CAPTURE_UNIF;
             }
@@ -1919,7 +1924,8 @@ impl Grammar {
                         while seed < 1000 {
                             if !self.sets_by_name.contains(nhash.wrapping_add(seed)) {
                                 self.set_name_seeds.insert(nm.clone(), seed);
-                                self.sets_by_name.insert((nhash.wrapping_add(seed), cnum.get()));
+                                self.sets_by_name
+                                    .insert((nhash.wrapping_add(seed), cnum.get()));
                                 break;
                             }
                             seed += 1;
@@ -1978,20 +1984,23 @@ impl Grammar {
                     (ct.tmpl, ct.linked, ct.target, ct.barrier, ct.cbarrier)
                 };
                 if let Some(tm) = tmpl
-                    && nk.contains(&tm) {
-                        if nk.insert(t) {
-                            did = true;
-                        }
-                        continue;
+                    && nk.contains(&tm)
+                {
+                    if nk.insert(t) {
+                        did = true;
                     }
+                    continue;
+                }
                 if let Some(l) = linked
-                    && nk.contains(&l) {
-                        if nk.insert(t) {
-                            did = true;
-                        }
-                        continue;
+                    && nk.contains(&l)
+                {
+                    if nk.insert(t) {
+                        did = true;
                     }
-                if target.get() != 0 && self.set_by_number(target).r#type.intersects(MASK_ST_UNIFY) {
+                    continue;
+                }
+                if target.get() != 0 && self.set_by_number(target).r#type.intersects(MASK_ST_UNIFY)
+                {
                     if nk.insert(t) {
                         did = true;
                     }
@@ -2003,7 +2012,8 @@ impl Grammar {
                     }
                     continue;
                 }
-                if barrier.get() != 0 && self.set_by_number(barrier).r#type.intersects(MASK_ST_UNIFY)
+                if barrier.get() != 0
+                    && self.set_by_number(barrier).r#type.intersects(MASK_ST_UNIFY)
                 {
                     if nk.insert(t) {
                         did = true;
@@ -2054,17 +2064,20 @@ impl Grammar {
             }
             let mut needs = false;
             if let Some(sl) = sublist
-                && sets_vstr[self.sets_list[sl.0].number.get() as usize] {
-                    needs = true;
-                }
+                && sets_vstr[self.sets_list[sl.0].number.get() as usize]
+            {
+                needs = true;
+            }
             if let Some(m) = maplist
-                && sets_vstr[self.sets_list[m.0].number.get() as usize] {
-                    needs = true;
-                }
+                && sets_vstr[self.sets_list[m.0].number.get() as usize]
+            {
+                needs = true;
+            }
             if let Some(dt) = dep_target
-                && nk.contains(&dt) {
-                    needs = true;
-                }
+                && nk.contains(&dt)
+            {
+                needs = true;
+            }
             for cntx in &tests {
                 if nk.contains(cntx) {
                     needs = true;

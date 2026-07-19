@@ -227,20 +227,14 @@ impl BinaryGrammar {
     /// C++ `int parse_grammar(const char* buffer, size_t length)`: writes the
     /// bytes into a stringstream, seeks to 0, and calls the istream overload.
     /// The port wraps the slice in a `Cursor`.
-    pub fn parse_grammar_buffer(
-        &mut self,
-        buffer: &[u8],
-    ) -> Result<i32, crate::error::Cg3Error> {
+    pub fn parse_grammar_buffer(&mut self, buffer: &[u8]) -> Result<i32, crate::error::Cg3Error> {
         let mut cur = std::io::Cursor::new(buffer);
         self.parse_grammar_reader(&mut cur)
     }
 
     /// C++ `int parse_grammar(const std::string& buffer)` → `(buffer.data(),
     /// buffer.size())`.
-    pub fn parse_grammar_string(
-        &mut self,
-        buffer: &str,
-    ) -> Result<i32, crate::error::Cg3Error> {
+    pub fn parse_grammar_string(&mut self, buffer: &str) -> Result<i32, crate::error::Cg3Error> {
         self.parse_grammar_buffer(buffer.as_bytes())
     }
 
@@ -739,13 +733,15 @@ impl BinaryGrammar {
 
             // --nrules / --nrules-inv name filters (K_IGNORE the rule).
             if let Some(re) = &self.nrules
-                && !re.is_match(&r.name) {
-                    r.r#type = KEYWORDS::K_IGNORE;
-                }
+                && !re.is_match(&r.name)
+            {
+                r.r#type = KEYWORDS::K_IGNORE;
+            }
             if let Some(re) = &self.nrules_inv
-                && re.is_match(&r.name) {
-                    r.r#type = KEYWORDS::K_IGNORE;
-                }
+                && re.is_match(&r.name)
+            {
+                r.r#type = KEYWORDS::K_IGNORE;
+            }
 
             let number = r.number;
             self.grammar.rule_by_number[number] = r; // rule_by_number[r->number] = r

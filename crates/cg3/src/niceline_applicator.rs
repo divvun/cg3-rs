@@ -233,7 +233,9 @@ impl<'a> NicelineApplicator<'a> {
                                 [self.base.grammar.soft_delimiters.unwrap().0]
                                 .number
                                 .get();
-                            self.base.engine().does_set_match_cohort_normal(cc, sd, None)
+                            self.base
+                                .engine()
+                                .does_set_match_cohort_normal(cc, sd, None)
                         };
                         if over_soft && sd_hit {
                             // verbose soft-limit warning: deferred.
@@ -457,7 +459,9 @@ impl<'a> NicelineApplicator<'a> {
                             // "Line %u had no valid baseform." warning: deferred.
                         }
                         if !mappings.is_empty() {
-                            self.base.engine().split_mappings(&mut mappings, cc, cr, true);
+                            self.base
+                                .engine()
+                                .split_mappings(&mut mappings, cc, cr, true);
                         }
                         crate::cohort::append_reading(&mut self.base.doc.store, cc, cr);
                         self.base.doc.num_readings += 1;
@@ -562,7 +566,6 @@ impl<'a> NicelineApplicator<'a> {
 
         u_fflush(output);
     }
-
 }
 
 /// Niceline print-vtable strategy carrying the two one-shot warn latches.
@@ -687,11 +690,7 @@ impl NicelineFormat {
                     pr = mapped;
                 }
             }
-            let arrow = if e.cfg.unicode_tags {
-                "\u{2192}"
-            } else {
-                "->"
-            };
+            let arrow = if e.cfg.unicode_tags { "\u{2192}" } else { "->" };
             if e.cfg.dep_absolute {
                 let pr_global = e.doc.store.cohorts.get(pr.0).global_number;
                 let _ = write!(output, " #{p_global}{arrow}{pr_global}");
@@ -719,7 +718,11 @@ impl NicelineFormat {
             for (rel_hash, targets) in relations.iter() {
                 for siter in targets.iter() {
                     let tid = tag_by_hash(e.grammar, TagHash(*rel_hash));
-                    let _ = write!(output, " R:{}:{siter}", e.grammar.single_tags_list[tid.0].tag);
+                    let _ = write!(
+                        output,
+                        " R:{}:{siter}",
+                        e.grammar.single_tags_list[tid.0].tag
+                    );
                 }
             }
         }

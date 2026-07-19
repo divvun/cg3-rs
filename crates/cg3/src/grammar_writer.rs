@@ -58,12 +58,12 @@ use crate::contextual_test::{
 use crate::flat_unordered_set::Uint32FlatHashSet;
 use crate::grammar::Grammar;
 use crate::inlines::{is_internal, si32};
-use crate::types::SetNumber;
 use crate::rule::{FLAGS_COUNT, RF_AFTER, RF_BEFORE, RF_WITHCHILD, Rule};
 use crate::set::ST_ORDERED;
 use crate::strings::KEYWORDS;
 use crate::tag::Tag;
 use crate::tag_trie::trie_get_tags_ordered;
+use crate::types::SetNumber;
 
 // ---------------------------------------------------------------------------
 // Local `Strings.hpp` stand-ins (see module note).
@@ -328,7 +328,11 @@ impl GrammarWriter {
                 w!(output, "O");
             }
             w!(output, "SET {} = ", name);
-            w!(output, "{} ", grammar.set_by_number(SetNumber(sets[0])).name);
+            w!(
+                output,
+                "{} ",
+                grammar.set_by_number(SetNumber(sets[0])).name
+            );
             let set_ops = grammar.sets_list[id.0].set_ops.clone();
             for i in 0..sets.len() - 1 {
                 w!(

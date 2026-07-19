@@ -98,10 +98,21 @@ fn read_window<R: Read>(r: &mut R) -> Option<Window> {
             let baseform = (rflags & R_FLAG_BASEFORM != 0).then(|| read_string(r));
             let tlen = read_u32(r);
             let tags = (0..tlen).map(|_| read_string(r)).collect();
-            readings.push(Reading { flags: rflags, baseform, tags });
+            readings.push(Reading {
+                flags: rflags,
+                baseform,
+                tags,
+            });
         }
         let text = (cflags & C_FLAG_TEXT != 0).then(|| read_string(r));
-        cohorts.push(Cohort { num: cnum, flags: cflags, parent, wordform, readings, text });
+        cohorts.push(Cohort {
+            num: cnum,
+            flags: cflags,
+            parent,
+            wordform,
+            readings,
+            text,
+        });
     }
     Some(Window { num, cohorts })
 }

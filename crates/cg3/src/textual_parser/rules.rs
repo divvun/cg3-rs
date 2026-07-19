@@ -6,7 +6,6 @@
 
 use crate::arena::RuleId;
 use crate::ast::{ASTHelper, ASTType};
-use crate::types::SetNumber;
 use crate::contextual_test::{GSR_SPECIALS, POS_JUMP, POS_JUMP_POS};
 use crate::inlines::{backtonl_chars, isnl, isspace, skiptows_chars, skipws_chars};
 use crate::rule::{
@@ -17,6 +16,7 @@ use crate::set::Set;
 use crate::sorted_vector::uint32SortedVector;
 use crate::strings::KEYWORDS;
 use crate::tag::T_REGEXP;
+use crate::types::SetNumber;
 
 use super::*;
 
@@ -518,9 +518,10 @@ impl TextualParser {
             }
         }
         if let Some(re) = &self.nrules_inv
-            && re.is_match(&rule.name) {
-                destroy = true;
-            }
+            && re.is_match(&rule.name)
+        {
+            destroy = true;
+        }
 
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {

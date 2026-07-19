@@ -78,9 +78,10 @@ fn set_tag_vectors(g: &Grammar, s: SetId) -> Vec<Vec<String>> {
 fn tag_hash_by_text(g: &Grammar, text: &str) -> Option<u32> {
     for i in 0..g.single_tags_list.capacity() {
         if let Some(t) = g.single_tags_list.try_get(i)
-            && t.tag == text {
-                return Some(t.hash.get());
-            }
+            && t.tag == text
+        {
+            return Some(t.hash.get());
+        }
     }
     None
 }
@@ -284,9 +285,11 @@ fn setops_fixture_eager_operators() {
     let mut leaf_contents: Vec<BTreeSet<String>> = Vec::new();
     for i in 0..g.sets_list.capacity() {
         if let Some(s) = g.sets_list.try_get(i)
-            && s.sets.is_empty() && !(s.trie.is_empty() && s.trie_special.is_empty()) {
-                leaf_contents.push(set_tag_texts(g, SetId(i)));
-            }
+            && s.sets.is_empty()
+            && !(s.trie.is_empty() && s.trie_special.is_empty())
+        {
+            leaf_contents.push(set_tag_texts(g, SetId(i)));
+        }
     }
     let want =
         |items: &[&str]| -> BTreeSet<String> { items.iter().map(|s| s.to_string()).collect() };

@@ -513,8 +513,7 @@ impl Engine<'_> {
                 .collect();
             for tid in nums {
                 let itag = self.grammar.single_tags_list[tid.0].clone();
-                let rv =
-                    test_tag_numerical(&mut self.doc.store, self.grammar, reading, tag, &itag);
+                let rv = test_tag_numerical(&mut self.doc.store, self.grammar, reading, tag, &itag);
                 if rv != TagHash(0) {
                     m = rv.get();
                 }
@@ -585,15 +584,11 @@ impl Engine<'_> {
                         };
                         let comp_tag = self.grammar.single_tags_list[comp_tid.0].clone();
                         if comp_tag.r#type.intersects(T_REGEXP) {
-                            if self.does_tag_match_regexp(itval, &comp_tag, bypass_index)
-                                != 0
-                            {
+                            if self.does_tag_match_regexp(itval, &comp_tag, bypass_index) != 0 {
                                 m = tag.hash.get();
                             }
                         } else if comp_tag.r#type.intersects(T_CASE_INSENSITIVE) {
-                            if self.does_tag_match_icase(itval, &comp_tag, bypass_index)
-                                != 0
-                            {
+                            if self.does_tag_match_icase(itval, &comp_tag, bypass_index) != 0 {
                                 m = tag.hash.get();
                             }
                         } else if comp_tag.hash.get() == itval {
@@ -1729,14 +1724,8 @@ impl Engine<'_> {
                     }
                 } else if (tag.r#type.intersects(T_NUMERICAL)) && (itype.intersects(T_NUMERICAL)) {
                     let itag = self.grammar.single_tags_list[itag_id.0].clone();
-                    m = test_tag_numerical(
-                        &mut self.doc.store,
-                        self.grammar,
-                        reading,
-                        &tag,
-                        &itag,
-                    )
-                    .get();
+                    m = test_tag_numerical(&mut self.doc.store, self.grammar, reading, &tag, &itag)
+                        .get();
                 } else if tag.hash == ihash {
                     m = ihash.get();
                 }

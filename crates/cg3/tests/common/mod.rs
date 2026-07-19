@@ -58,7 +58,9 @@ pub fn run_capture(exe: &str, args: &[&str], cwd: &Path, input: &[u8]) -> (Vec<u
         let _ = stdin.write_all(&owned);
         // `stdin` drops here -> EOF for the child.
     });
-    let out = child.wait_with_output().unwrap_or_else(|e| panic!("wait {exe}: {e}"));
+    let out = child
+        .wait_with_output()
+        .unwrap_or_else(|e| panic!("wait {exe}: {e}"));
     let _ = writer.join();
     (out.stdout, out.status.success())
 }
@@ -161,7 +163,13 @@ pub fn cg_sort(s: &str, mapping_prefix: &str) -> String {
     for line in s.split_inclusive('\n') {
         // Cohort header: `"<...>"`.
         if line.starts_with("\"<") {
-            flush(&mut out, &mut readings, &mut deleted, &mut trail, &mut in_cohort);
+            flush(
+                &mut out,
+                &mut readings,
+                &mut deleted,
+                &mut trail,
+                &mut in_cohort,
+            );
             in_cohort = true;
             seen_readings.clear();
             seen_deleted.clear();
@@ -184,16 +192,19 @@ pub fn cg_sort(s: &str, mapping_prefix: &str) -> String {
         }
         out.push_str(line);
     }
-    flush(&mut out, &mut readings, &mut deleted, &mut trail, &mut in_cohort);
+    flush(
+        &mut out,
+        &mut readings,
+        &mut deleted,
+        &mut trail,
+        &mut in_cohort,
+    );
     out
 }
 
 fn push_sorted(out: &mut String, lines: &mut [String], map_tag: &Regex, map_run: &Regex) {
     for l in lines.iter_mut() {
-        let mut tags: Vec<String> = map_tag
-            .captures_iter(l)
-            .map(|c| c[1].to_string())
-            .collect();
+        let mut tags: Vec<String> = map_tag.captures_iter(l).map(|c| c[1].to_string()).collect();
         if !tags.is_empty() {
             tags.sort();
             let joined = format!(" {}", tags.join(" "));
