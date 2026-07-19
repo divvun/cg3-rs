@@ -229,6 +229,21 @@ children (
                         title "RuleScratch + Diagnostics: context_stack, regexgrps_c/z, unification state, current_rule/rule_target/merge_with/in_nested, cohortsets/rocits, rule_hits + index_ruleCohort_no/index_readingSet_* caches, the six cohort-iterator pools → self.scratch; profiler + trace emission → self.diag. GrammarApplicator = 5 named fields after this lands"
                         priority 0
                         deps (engine-decomp.rehome.document)
+                        log (
+                            {
+                                at 2026-07-19T16:04:09.905468Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Todo → Doing (nplan_start)"
+                            }
+
+                            {
+                                at 2026-07-19T16:18:27.326815Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Doing → Done (nplan_complete)"
+                            }
+                        )
                     }
                 )
             }

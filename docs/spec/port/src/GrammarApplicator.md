@@ -12,7 +12,7 @@
 >   bool in_barrier = false;
 > }
 
-> [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+3]
+> [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+4]
 > class GrammarApplicator {
 >   bool always_span = false;
 >   bool apply_mappings = true;
@@ -182,6 +182,32 @@
 > `doc.deps` (`DepBookkeeping`) beside the dep/relation maps they guard. The
 > scratch and diagnostics members (e.g. `seen_barrier`, `context_stack`,
 > `match_single`, `profiler`) remain flat on `GrammarApplicator`.
+>
+> Stage-B re-homing (v4, final): the remaining flat members are extracted,
+> unchanged in semantics, into the last two view structs — `RuleScratch`
+> (`self.scratch`) and `Diagnostics` (`self.diag`) — completing the
+> decomposition. Neither has a C++ analog as a type; the members map 1:1 (same
+> names, types, defaults, and per-field C++ reference comments). Into
+> `RuleScratch` (the per-rule / per-window / per-cohort transient state cleared
+> or reset inside the rule-application loops): `seen_barrier`, `dep_deep_seen`,
+> `ci_depths`, `cohortIterators`, `topologyLeftIters`, `topologyRightIters`,
+> `depParentIters`, `depDescendentIters`, `depAncestorIters`, `par_left_tag`,
+> `par_right_tag`, `par_left_pos`, `par_right_pos`, `did_final_enclosure`,
+> `tmpl_cntx`, `regexgrps_store`, `regexgrps_z`, `regexgrps_c`, `same_basic`,
+> `rule_target`, `merge_with`, `current_rule`, `context_stack`, `cohortsets`,
+> `rocits`, `readings_plain`, `unif_tags_rs`, `unif_tags_store`, `unif_sets_rs`,
+> `unif_sets_store`, `unif_last_wordform`, `unif_last_baseform`,
+> `unif_last_textual`, `rule_hits`, `ss_utags`, `ss_usets`, `ss_u32sv`,
+> `index_regexp_yes`, `index_regexp_no`, `index_icase_yes`, `index_icase_no`,
+> `index_readingSet_yes`, `index_readingSet_no`, `index_ruleCohort_no`,
+> `reset_cohorts_for_loop`, `finish_reading_loop`, `finish_cohort_loop`,
+> `in_nested`, `used_regex`, and `subs_any` (50 members). Into `Diagnostics`
+> (the profiler / statistics state): `profiler`, `match_single`, `match_comp`,
+> and `match_sub` (4 members; `match_single`/`match_sub`/`match_comp` are kept
+> as unwired stats counters per operator decision). After v4 the applicator is
+> exactly five named fields — the five subsystems `cfg` (`EngineConfig`), `doc`
+> (`Document`), `scratch` (`RuleScratch`), `diag` (`Diagnostics`), and the
+> owned `grammar` (`Grammar`) — and holds no other flat state.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
 > void addProfilingExample(T& item)

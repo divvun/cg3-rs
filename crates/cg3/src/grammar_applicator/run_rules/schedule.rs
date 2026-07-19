@@ -74,7 +74,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 if !self.cfg.valid_rules.empty() && !self.cfg.valid_rules.contains(j) {
                     break 'repeat;
                 }
-                self.current_rule = Some(RuleId(j));
+                self.scratch.current_rule = Some(RuleId(j));
                 st.rule = RuleId(j);
                 let (rtype, rflags, has_enclosures) = {
                     let r = self.grammar.rule_by_number.get(j);
@@ -96,10 +96,10 @@ impl crate::grammar_applicator::GrammarApplicator {
                     break 'repeat;
                 }
                 if has_enclosures {
-                    if (rflags.intersects(RF_ENCL_FINAL)) && !self.did_final_enclosure {
+                    if (rflags.intersects(RF_ENCL_FINAL)) && !self.scratch.did_final_enclosure {
                         break 'repeat;
                     }
-                    if self.did_final_enclosure && (!rflags.intersects(RF_ENCL_FINAL)) {
+                    if self.scratch.did_final_enclosure && (!rflags.intersects(RF_ENCL_FINAL)) {
                         break 'repeat;
                     }
                 }
@@ -123,8 +123,8 @@ impl crate::grammar_applicator::GrammarApplicator {
 
                 if st.should_bail {
                     // bailout: rule_hits[rule->number] = 0; index_ruleCohort_no.clear();
-                    self.rule_hits.insert(j, 0);
-                    self.index_ruleCohort_no.clear(0);
+                    self.scratch.rule_hits.insert(j, 0);
+                    self.scratch.index_ruleCohort_no.clear(0);
                     if retval & RV_TRACERULE != 0 {
                         brk_outer = true;
                     }
@@ -147,7 +147,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     break 'repeat;
                 }
                 if rule_did_something && (rflags.intersects(RF_REPEAT)) {
-                    self.index_ruleCohort_no.clear(0);
+                    self.scratch.index_ruleCohort_no.clear(0);
                     cur = j;
                     continue 'repeat;
                 }
@@ -387,18 +387,18 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// field change — currently `VecDeque<Reading>`). `clear(subs_any)` at each
     /// cohort frees these ids back to the readings arena.
     pub(crate) fn subs_any_push(&mut self, rid: ReadingId) {
-        self.subs_any.push(rid);
+        self.scratch.subs_any.push(rid);
     }
 
     /// `clear(subs_any)` — free every amalgamated sub-reading back to the readings
     /// arena and empty the tracking vector. RECONCILIATION: matches the required
     /// `Vec<ReadingId>` shape of `subs_any` (see [`Self::subs_any_push`]).
     pub(crate) fn subs_any_clear(&mut self) {
-        let ids: Vec<ReadingId> = self.subs_any.to_vec();
+        let ids: Vec<ReadingId> = self.scratch.subs_any.to_vec();
         for rid in ids {
             let opt = Some(rid);
             crate::reading::free_reading(&mut self.doc.store, opt);
         }
-        self.subs_any.clear();
+        self.scratch.subs_any.clear();
     }
 }

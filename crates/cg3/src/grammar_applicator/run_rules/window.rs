@@ -171,8 +171,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             rule: rsit,
         };
         let mut csi: Vec<usize> = Vec::new();
-        for i in 0..self.cohortsets.len() {
-            if self.cohortsets[i] != r_ref {
+        for i in 0..self.scratch.cohortsets.len() {
+            if self.scratch.cohortsets[i] != r_ref {
                 continue;
             }
             csi.push(i);
@@ -185,7 +185,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             let mut ends: Vec<usize> = Vec::new();
             let mut chs: Vec<(usize, CohortId)> = Vec::new();
             for &i in &csi {
-                let pos = self.rocits[i];
+                let pos = self.scratch.rocits[i];
                 let size = self.cs_ref(r_ref).size();
                 if pos >= size {
                     ends.push(i);
@@ -197,11 +197,11 @@ impl crate::grammar_applicator::GrammarApplicator {
             self.cohortset_insert_at(r_ref, c);
             let new_size = self.cs_ref(r_ref).size();
             for i in ends {
-                self.rocits[i] = new_size;
+                self.scratch.rocits[i] = new_size;
             }
             if cap != self.cs_ref(r_ref).capacity() {
                 for (i, cohort) in chs {
-                    self.rocits[i] = self.cohortset_find_n_at(r_ref, cohort);
+                    self.scratch.rocits[i] = self.cohortset_find_n_at(r_ref, cohort);
                 }
             }
         } else {
@@ -411,8 +411,14 @@ impl crate::grammar_applicator::GrammarApplicator {
     pub fn get_tag_list(&self, the_set: &Set, the_tags: &mut TagList, unif_mode: bool) {
         if the_set.r#type.intersects(ST_SET_UNIFY) {
             // usets = (*context_stack.back().unif_sets)[theSet.number]
-            let unif_sets = self.context_stack.last().unwrap().unif_sets.unwrap();
-            let usets = self.unif_sets_store[unif_sets].get(&the_set.number.get());
+            let unif_sets = self
+                .scratch
+                .context_stack
+                .last()
+                .unwrap()
+                .unif_sets
+                .unwrap();
+            let usets = self.scratch.unif_sets_store[unif_sets].get(&the_set.number.get());
             let p_set = self.grammar.set_by_number(SetNumber(the_set.sets[0]));
             for &iter in &p_set.sets {
                 let present = usets.map(|s| s.count(iter) != 0).unwrap_or(false);
@@ -433,8 +439,14 @@ impl crate::grammar_applicator::GrammarApplicator {
                 );
             }
         } else if unif_mode {
-            let unif_tags = self.context_stack.last().unwrap().unif_tags.unwrap();
-            let val = self.unif_tags_store[unif_tags]
+            let unif_tags = self
+                .scratch
+                .context_stack
+                .last()
+                .unwrap()
+                .unif_tags
+                .unwrap();
+            let val = self.scratch.unif_tags_store[unif_tags]
                 .get(&the_set.number.get())
                 .copied();
             if let Some(node) = val {
@@ -862,18 +874,18 @@ impl crate::grammar_applicator::GrammarApplicator {
                                 i += 1;
                             }
                         }
-                        self.par_left_tag = {
+                        self.scratch.par_left_tag = {
                             let ac =
                                 self.doc.store.single_windows.get(current.0).all_cohorts[la + 1];
                             TagHash(self.doc.store.cohorts.get(ac.0).is_pleft)
                         };
-                        self.par_right_tag = {
+                        self.scratch.par_right_tag = {
                             let ac =
                                 self.doc.store.single_windows.get(current.0).all_cohorts[ra - 1];
                             TagHash(self.doc.store.cohorts.get(ac.0).is_pright)
                         };
-                        self.par_left_pos = ui32(ni + 1);
-                        self.par_right_pos = ui32(ni + ne);
+                        self.scratch.par_left_pos = ui32(ni + 1);
+                        self.scratch.par_right_pos = ui32(ni + ne);
                         if rv & RV_TRACERULE != 0 {
                             continue;
                         }
@@ -885,12 +897,12 @@ impl crate::grammar_applicator::GrammarApplicator {
                 if handled {
                     return true;
                 }
-                if !self.did_final_enclosure {
-                    self.par_left_tag = TagHash(0);
-                    self.par_right_tag = TagHash(0);
-                    self.par_left_pos = 0;
-                    self.par_right_pos = 0;
-                    self.did_final_enclosure = true;
+                if !self.scratch.did_final_enclosure {
+                    self.scratch.par_left_tag = TagHash(0);
+                    self.scratch.par_right_tag = TagHash(0);
+                    self.scratch.par_left_pos = 0;
+                    self.scratch.par_right_pos = 0;
+                    self.scratch.did_final_enclosure = true;
                     if rv & RV_TRACERULE != 0 {
                         continue;
                     }
@@ -935,8 +947,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             self.doc.stream.previous.remove(0);
         }
 
-        self.rule_hits.clear();
-        self.index_ruleCohort_no.clear(0);
+        self.scratch.rule_hits.clear();
+        self.scratch.index_ruleCohort_no.clear(0);
         let current = self.doc.stream.current.unwrap();
         self.index_single_window(current);
         self.doc
@@ -1057,7 +1069,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         W: std::io::Write,
     {
         let current = self.doc.stream.current.unwrap();
-        self.did_final_enclosure = false;
+        self.scratch.did_final_enclosure = false;
 
         // Apply the window's variable deltas onto the global `variables` map.
         // The raw slot tables include EMPTY/DEL sentinel slots — filter them
@@ -1120,10 +1132,10 @@ impl crate::grammar_applicator::GrammarApplicator {
             while self.rr_wrap_one_enclosure(current) {}
         }
 
-        self.par_left_tag = TagHash(0);
-        self.par_right_tag = TagHash(0);
-        self.par_left_pos = 0;
-        self.par_right_pos = 0;
+        self.scratch.par_left_tag = TagHash(0);
+        self.scratch.par_right_tag = TagHash(0);
+        self.scratch.par_left_pos = 0;
+        self.scratch.par_right_pos = 0;
         let mut pass: u32 = 0;
         // C++ `runGrammarOnWindow_begin:` — loop until a pass runs to the end.
         while self.rr_window_pass(fmt, output, &mut pass).is_continue() {}

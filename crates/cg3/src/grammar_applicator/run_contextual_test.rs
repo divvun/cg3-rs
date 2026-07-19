@@ -139,8 +139,8 @@ impl super::GrammarApplicator {
     /// `grammar-applicator-fn` constructor (core.rs) should size `ci_depths` to 6
     /// zeros; until then this guard keeps the arm panic-free.
     fn ensure_ci_depths(&mut self) {
-        if self.ci_depths.len() < 6 {
-            self.ci_depths.resize(6, 0);
+        if self.scratch.ci_depths.len() < 6 {
+            self.scratch.ci_depths.resize(6, 0);
         }
     }
 
@@ -169,10 +169,10 @@ impl super::GrammarApplicator {
         let mut cohort: Option<CohortId> = Some(cohort);
         let cid = cohort.unwrap();
 
-        let regexgrpz = if self.context_stack.is_empty() {
+        let regexgrpz = if self.scratch.context_stack.is_empty() {
             0
         } else {
-            self.context_stack.last().unwrap().regexgrp_ct
+            self.scratch.context_stack.last().unwrap().regexgrp_ct
         };
 
         let (test_pos, test_target, test_offset, test_barrier, test_cbarrier) = {
@@ -201,7 +201,7 @@ impl super::GrammarApplicator {
             }
         }
         if test_pos.intersects(POS_WITH) {
-            self.merge_with = Some(cid);
+            self.scratch.merge_with = Some(cid);
         }
         if let Some(d) = deep.as_deref_mut() {
             *d = Some(cid);
@@ -269,7 +269,7 @@ impl super::GrammarApplicator {
             };
             let barrier = self.does_set_match_cohort_normal(cid, test_barrier, Some(&mut bctx));
             if barrier {
-                self.seen_barrier = true;
+                self.scratch.seen_barrier = true;
                 *rvs |= TRV_BREAK | TRV_BARRIER;
                 *rvs &= !TRV_BREAK_DEFAULT;
             }
@@ -289,7 +289,7 @@ impl super::GrammarApplicator {
             };
             let cbarrier = self.does_set_match_cohort_careful(cid, test_cbarrier, Some(&mut cbctx));
             if cbarrier {
-                self.seen_barrier = true;
+                self.scratch.seen_barrier = true;
                 *rvs |= TRV_BREAK | TRV_BARRIER;
                 *rvs &= !TRV_BREAK_DEFAULT;
             }
@@ -300,8 +300,8 @@ impl super::GrammarApplicator {
         if !broken && (*rvs & TRV_BARRIER != 0) && test_pos.contains(MASK_SELF_NB) {
             *rvs &= !(TRV_BREAK | TRV_BARRIER);
         }
-        if !*retval && !self.context_stack.is_empty() {
-            self.context_stack.last_mut().unwrap().regexgrp_ct = regexgrpz;
+        if !*retval && !self.scratch.context_stack.is_empty() {
+            self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = regexgrpz;
         }
         (cohort, retval_v)
     }
@@ -372,10 +372,10 @@ impl super::GrammarApplicator {
 
         // const Cohort* cs[4] = { cohort, cdeep, cohort, cdeep };
         let mut cs: [CohortId; 4] = [cohort, cdeep, cohort, cdeep];
-        if let Some(m) = self.tmpl_cntx.min {
+        if let Some(m) = self.scratch.tmpl_cntx.min {
             cs[2] = m;
         }
-        if let Some(m) = self.tmpl_cntx.max {
+        if let Some(m) = self.scratch.tmpl_cntx.max {
             cs[3] = m;
         }
 
@@ -444,14 +444,14 @@ impl super::GrammarApplicator {
         cdeep: &mut Option<CohortId>,
         origin: Option<CohortId>,
     ) -> Option<CohortId> {
-        let min = self.tmpl_cntx.min;
-        let max = self.tmpl_cntx.max;
-        let in_template = self.tmpl_cntx.in_template;
-        self.tmpl_cntx.in_template = true;
+        let min = self.scratch.tmpl_cntx.min;
+        let max = self.scratch.tmpl_cntx.max;
+        let in_template = self.scratch.tmpl_cntx.in_template;
+        self.scratch.tmpl_cntx.in_template = true;
 
         let test_linked = self.grammar.contexts_arena[test.0].linked;
         if let Some(l) = test_linked {
-            self.tmpl_cntx.linked.push(l);
+            self.scratch.tmpl_cntx.linked.push(l);
         }
 
         // Snapshot the template's own pos/offset/cbarrier/barrier.
@@ -505,12 +505,12 @@ impl super::GrammarApplicator {
         }
 
         if test_linked.is_some() {
-            self.tmpl_cntx.linked.pop();
+            self.scratch.tmpl_cntx.linked.pop();
         }
         if cohort.is_none() {
-            self.tmpl_cntx.min = min;
-            self.tmpl_cntx.max = max;
-            self.tmpl_cntx.in_template = in_template;
+            self.scratch.tmpl_cntx.min = min;
+            self.scratch.tmpl_cntx.max = max;
+            self.scratch.tmpl_cntx.in_template = in_template;
         }
 
         cohort
@@ -557,14 +557,14 @@ impl super::GrammarApplicator {
             } else if jump_pos == JUMP_ATTACH as i8 {
                 j = self.get_attach_to().cohort;
             } else if jump_pos == JUMP_TARGET as i8 {
-                for it in self.context_stack.iter().rev() {
+                for it in self.scratch.context_stack.iter().rev() {
                     if it.is_with {
                         j = it.target.cohort;
                     }
                 }
             } else {
-                if self.context_stack.len() > 1 {
-                    let ctx = &self.context_stack[self.context_stack.len() - 2];
+                if self.scratch.context_stack.len() > 1 {
+                    let ctx = &self.scratch.context_stack[self.scratch.context_stack.len() - 2];
                     if ctx.context.len() >= jump_pos as usize {
                         j = ctx.context[(jump_pos - 1) as usize];
                     }
@@ -600,7 +600,7 @@ impl super::GrammarApplicator {
             let mut cdeep: Option<CohortId> = None;
             let ors = self.grammar.contexts_arena[test.0].ors.clone();
             for iter in ors {
-                self.dep_deep_seen.clear();
+                self.scratch.dep_deep_seen.clear();
                 cohort =
                     self.run_contextual_test_tmpl(sw, position, test, iter, &mut cdeep, origin);
                 if cohort.is_some() {
@@ -628,7 +628,7 @@ impl super::GrammarApplicator {
             if let Some(d) = deep.as_deref_mut() {
                 *d = Some(cid);
             }
-            if self.tmpl_cntx.in_template {
+            if self.scratch.tmpl_cntx.in_template {
                 self.extend_tmpl_bounds(cid);
                 if let Some(d) = deep.as_deref()
                     && let Some(dc) = *d
@@ -641,8 +641,8 @@ impl super::GrammarApplicator {
             let mut it: Option<ItSel> = None;
 
             if (test_pos.intersects(POS_DEP_PARENT)) && (test_pos.intersects(POS_DEP_GLOB)) {
-                let key = self.ci_depths[5];
-                self.ci_depths[5] += 1;
+                let key = self.scratch.ci_depths[5];
+                self.scratch.ci_depths[5] += 1;
                 let (store, grammar, window) = self.split_for_iters();
                 let iter = DepAncestorIter::new(
                     Some(cid),
@@ -652,11 +652,11 @@ impl super::GrammarApplicator {
                     grammar,
                     window,
                 );
-                self.depAncestorIters.insert(key, iter);
+                self.scratch.depAncestorIters.insert(key, iter);
                 it = Some(ItSel::DepAncestor(key));
             } else if test_pos.intersects(POS_DEP_PARENT) {
-                let key = self.ci_depths[3];
-                self.ci_depths[3] += 1;
+                let key = self.scratch.ci_depths[3];
+                self.scratch.ci_depths[3] += 1;
                 let (store, grammar, window) = self.split_for_iters();
                 let iter = DepParentIter::new(
                     Some(cid),
@@ -666,11 +666,11 @@ impl super::GrammarApplicator {
                     grammar,
                     window,
                 );
-                self.depParentIters.insert(key, iter);
+                self.scratch.depParentIters.insert(key, iter);
                 it = Some(ItSel::DepParent(key));
             } else if test_pos.intersects(POS_DEP_GLOB) {
-                let key = self.ci_depths[4];
-                self.ci_depths[4] += 1;
+                let key = self.scratch.ci_depths[4];
+                self.scratch.ci_depths[4] += 1;
                 let (store, grammar, window) = self.split_for_iters();
                 let iter = DepDescendentIter::new(
                     Some(cid),
@@ -680,7 +680,7 @@ impl super::GrammarApplicator {
                     grammar,
                     window,
                 );
-                self.depDescendentIters.insert(key, iter);
+                self.scratch.depDescendentIters.insert(key, iter);
                 it = Some(ItSel::DepGlob(key));
             } else if test_pos.intersects(POS_DEP_CHILD | POS_DEP_SIBLING) {
                 let nc =
@@ -760,22 +760,22 @@ impl super::GrammarApplicator {
                 cohort = c;
                 retval = rv;
             } else if test_offset < 0 {
-                let key = self.ci_depths[1];
-                self.ci_depths[1] += 1;
+                let key = self.scratch.ci_depths[1];
+                self.scratch.ci_depths[1] += 1;
                 let iter = TopologyLeftIter::new(Some(cid), Some(test), self.cfg.always_span);
-                self.topologyLeftIters.insert(key, iter);
+                self.scratch.topologyLeftIters.insert(key, iter);
                 it = Some(ItSel::Left(key));
             } else if test_offset > 0 {
-                let key = self.ci_depths[2];
-                self.ci_depths[2] += 1;
+                let key = self.scratch.ci_depths[2];
+                self.scratch.ci_depths[2] += 1;
                 let iter = TopologyRightIter::new(Some(cid), Some(test), self.cfg.always_span);
-                self.topologyRightIters.insert(key, iter);
+                self.scratch.topologyRightIters.insert(key, iter);
                 it = Some(ItSel::Right(key));
             } else {
-                let key = self.ci_depths[0];
-                self.ci_depths[0] += 1;
+                let key = self.scratch.ci_depths[0];
+                self.scratch.ci_depths[0] += 1;
                 let iter = CohortIterator::new(Some(cid), Some(test), self.cfg.always_span);
-                self.cohortIterators.insert(key, iter);
+                self.scratch.cohortIterators.insert(key, iter);
                 it = Some(ItSel::Plain(key));
             }
 
@@ -838,7 +838,7 @@ impl super::GrammarApplicator {
             (win, co.local_number)
         };
         let gpos = make_64(cwin, cln);
-        let min_gpos = self.tmpl_cntx.min.map(|m| {
+        let min_gpos = self.scratch.tmpl_cntx.min.map(|m| {
             let mo = self.doc.store.cohorts.get(m.0);
             make_64(
                 self.doc
@@ -850,9 +850,9 @@ impl super::GrammarApplicator {
             )
         });
         if min_gpos.is_none() || gpos < min_gpos.unwrap() {
-            self.tmpl_cntx.min = Some(c);
+            self.scratch.tmpl_cntx.min = Some(c);
         }
-        let max_gpos = self.tmpl_cntx.max.map(|m| {
+        let max_gpos = self.scratch.tmpl_cntx.max.map(|m| {
             let mo = self.doc.store.cohorts.get(m.0);
             make_64(
                 self.doc
@@ -864,7 +864,7 @@ impl super::GrammarApplicator {
             )
         });
         if max_gpos.is_none() || gpos > max_gpos.unwrap() {
-            self.tmpl_cntx.max = Some(c);
+            self.scratch.tmpl_cntx.max = Some(c);
         }
     }
 
@@ -971,21 +971,36 @@ impl super::GrammarApplicator {
     /// C++ `**it` — the iterator's current cohort (dispatch by selected pool).
     fn iter_current(&self, sel: ItSel) -> Option<CohortId> {
         match sel {
-            ItSel::Plain(k) => self.cohortIterators.get(&k).and_then(|i| i.current()),
+            ItSel::Plain(k) => self
+                .scratch
+                .cohortIterators
+                .get(&k)
+                .and_then(|i| i.current()),
             ItSel::Left(k) => self
+                .scratch
                 .topologyLeftIters
                 .get(&k)
                 .and_then(|i| i.base.current()),
             ItSel::Right(k) => self
+                .scratch
                 .topologyRightIters
                 .get(&k)
                 .and_then(|i| i.base.current()),
-            ItSel::DepParent(k) => self.depParentIters.get(&k).and_then(|i| i.base.current()),
+            ItSel::DepParent(k) => self
+                .scratch
+                .depParentIters
+                .get(&k)
+                .and_then(|i| i.base.current()),
             ItSel::DepGlob(k) => self
+                .scratch
                 .depDescendentIters
                 .get(&k)
                 .and_then(|i| i.base.current()),
-            ItSel::DepAncestor(k) => self.depAncestorIters.get(&k).and_then(|i| i.base.current()),
+            ItSel::DepAncestor(k) => self
+                .scratch
+                .depAncestorIters
+                .get(&k)
+                .and_then(|i| i.base.current()),
         }
     }
 
@@ -995,35 +1010,35 @@ impl super::GrammarApplicator {
     fn iter_advance(&mut self, sel: ItSel) {
         match sel {
             ItSel::Plain(k) => {
-                if let Some(i) = self.cohortIterators.get_mut(&k) {
+                if let Some(i) = self.scratch.cohortIterators.get_mut(&k) {
                     i.advance();
                 }
             }
             ItSel::Left(k) => {
-                if let Some(mut i) = self.topologyLeftIters.remove(&k) {
+                if let Some(mut i) = self.scratch.topologyLeftIters.remove(&k) {
                     i.advance(&self.doc.store, &self.grammar);
-                    self.topologyLeftIters.insert(k, i);
+                    self.scratch.topologyLeftIters.insert(k, i);
                 }
             }
             ItSel::Right(k) => {
-                if let Some(mut i) = self.topologyRightIters.remove(&k) {
+                if let Some(mut i) = self.scratch.topologyRightIters.remove(&k) {
                     i.advance(&self.doc.store, &self.grammar);
-                    self.topologyRightIters.insert(k, i);
+                    self.scratch.topologyRightIters.insert(k, i);
                 }
             }
             ItSel::DepParent(k) => {
-                if let Some(mut i) = self.depParentIters.remove(&k) {
+                if let Some(mut i) = self.scratch.depParentIters.remove(&k) {
                     i.advance(&self.doc.store, &self.grammar, &self.doc.cohorts);
-                    self.depParentIters.insert(k, i);
+                    self.scratch.depParentIters.insert(k, i);
                 }
             }
             ItSel::DepGlob(k) => {
-                if let Some(i) = self.depDescendentIters.get_mut(&k) {
+                if let Some(i) = self.scratch.depDescendentIters.get_mut(&k) {
                     i.advance();
                 }
             }
             ItSel::DepAncestor(k) => {
-                if let Some(i) = self.depAncestorIters.get_mut(&k) {
+                if let Some(i) = self.scratch.depAncestorIters.get_mut(&k) {
                     i.advance();
                 }
             }
@@ -1250,10 +1265,10 @@ impl super::GrammarApplicator {
                 test_hash,
                 self.doc.store.cohorts.get(current.0).global_number.get(),
             );
-            if self.dep_deep_seen.contains(key) {
+            if self.scratch.dep_deep_seen.contains(key) {
                 return None;
             }
-            self.dep_deep_seen.insert(key);
+            self.scratch.dep_deep_seen.insert(key);
         }
 
         if (test_pos.intersects(POS_SELF)) && (!test_pos.intersects(MASK_POS_LORR)) {
@@ -1485,7 +1500,7 @@ impl super::GrammarApplicator {
         origin: Option<CohortId>,
     ) -> Option<CohortId> {
         let ln = self.doc.store.cohorts.get(current.0).local_number;
-        if ln < self.par_left_pos || ln > self.par_right_pos {
+        if ln < self.scratch.par_left_pos || ln > self.scratch.par_right_pos {
             return None;
         }
         let mut rv: Option<CohortId> = None;
@@ -1493,9 +1508,9 @@ impl super::GrammarApplicator {
         let mut rvs: u8 = 0;
         let test_pos = self.grammar.contexts_arena[test.0].pos;
         let cohort = if test_pos.intersects(POS_LEFT_PAR) {
-            self.doc.store.single_windows.get(sw.0).cohorts[self.par_left_pos as usize]
+            self.doc.store.single_windows.get(sw.0).cohorts[self.scratch.par_left_pos as usize]
         } else {
-            self.doc.store.single_windows.get(sw.0).cohorts[self.par_right_pos as usize]
+            self.doc.store.single_windows.get(sw.0).cohorts[self.scratch.par_right_pos as usize]
         };
         let (_, retval) = self.run_single_test(cohort, test, &mut rvs, deep, origin);
         if retval {
@@ -1530,7 +1545,7 @@ impl super::GrammarApplicator {
         }
 
         let mut rels: Vec<CohortId> = Vec::new();
-        let regexgrpz = self.context_stack.last().unwrap().regexgrp_ct;
+        let regexgrpz = self.scratch.context_stack.last().unwrap().regexgrp_ct;
 
         let test_relation = self.grammar.contexts_arena[test.0].relation;
         // rtag = grammar->single_tags[test->relation]; while T_VARSTRING, expand.
@@ -1597,9 +1612,10 @@ impl super::GrammarApplicator {
                             .get(&GlobalNumber(citer))
                             .unwrap();
                         cs_insert(&self.doc.store, &mut rels, c);
-                        let cur = self.context_stack.last().unwrap().regexgrp_ct;
+                        let cur = self.scratch.context_stack.last().unwrap().regexgrp_ct;
                         let capped = (regexgrpz as i32 + caps).clamp(0, u8::MAX as i32) as u8;
-                        self.context_stack.last_mut().unwrap().regexgrp_ct = cur.min(capped);
+                        self.scratch.context_stack.last_mut().unwrap().regexgrp_ct =
+                            cur.min(capped);
                     }
                 }
             }
@@ -1655,7 +1671,7 @@ impl super::GrammarApplicator {
         }
 
         if rv.is_none() {
-            self.context_stack.last_mut().unwrap().regexgrp_ct = regexgrpz;
+            self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = regexgrpz;
         }
         rv
     }

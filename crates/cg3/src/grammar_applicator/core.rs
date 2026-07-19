@@ -21,7 +21,7 @@
 //! translated to Rust `format_args!` interpolation. The EXTERNAL `Process&`
 //! endpoints are bridged with the local [`ProcWrite`]/[`ProcRead`] adapters.
 //!
-//! PLACEHOLDERS. `self.profiler`/`self.ux_stderr`/`self.ux_stdin`/`self.ux_stdout`
+//! PLACEHOLDERS. `self.diag.profiler`/`self.ux_stderr`/`self.ux_stdin`/`self.ux_stdout`
 //! are `Option<()>` stand-ins (no Profiler module, no wired streams yet), so the
 //! `error(...)`/`printDebugRule`/`addProfilingExample`/`profileRuleContext`
 //! emissions are built faithfully but not flushed to a real stream (noted inline).
@@ -285,16 +285,16 @@ impl super::GrammarApplicator {
     /// C++ `void resetIndexes()` — clears the per-reading/regex/icase match
     /// caches (the per-set `yes`/`no` vectors keep their length).
     pub fn reset_indexes(&mut self) {
-        for sv in &mut self.index_readingSet_yes {
+        for sv in &mut self.scratch.index_readingSet_yes {
             sv.clear(0);
         }
-        for sv in &mut self.index_readingSet_no {
+        for sv in &mut self.scratch.index_readingSet_no {
             sv.clear(0);
         }
-        self.index_regexp_yes.clear(0);
-        self.index_regexp_no.clear(0);
-        self.index_icase_yes.clear(0);
-        self.index_icase_no.clear(0);
+        self.scratch.index_regexp_yes.clear(0);
+        self.scratch.index_regexp_no.clear(0);
+        self.scratch.index_icase_yes.clear(0);
+        self.scratch.index_icase_no.clear(0);
     }
 
     // =======================================================================
@@ -492,10 +492,14 @@ impl super::GrammarApplicator {
         self.cfg.mprefix_value = self.grammar.single_tags_list[v.0].hash;
 
         let n = self.grammar.sets_list.capacity() as usize;
-        self.index_readingSet_yes.clear();
-        self.index_readingSet_yes.resize_with(n, Default::default);
-        self.index_readingSet_no.clear();
-        self.index_readingSet_no.resize_with(n, Default::default);
+        self.scratch.index_readingSet_yes.clear();
+        self.scratch
+            .index_readingSet_yes
+            .resize_with(n, Default::default);
+        self.scratch.index_readingSet_no.clear();
+        self.scratch
+            .index_readingSet_no
+            .resize_with(n, Default::default);
 
         if let Some(td_set) = self.grammar.text_delimiters {
             // Flatten the delimiter set's tries (both immutable borrows of grammar).
@@ -996,7 +1000,7 @@ impl super::GrammarApplicator {
         let local_number = self.doc.store.cohorts.get(cohort.0).local_number;
         // `goto removed` from local_number == 0 skips the entire main body.
         if local_number != 0 {
-            if profiling && Some(cohort) == self.rule_target {
+            if profiling && Some(cohort) == self.scratch.rule_target {
                 let _ = writeln!(output, "# RULE TARGET BEGIN");
             }
 
@@ -1095,7 +1099,7 @@ impl super::GrammarApplicator {
             }
         }
 
-        if profiling && Some(cohort) == self.rule_target {
+        if profiling && Some(cohort) == self.scratch.rule_target {
             let _ = writeln!(output, "# RULE TARGET END");
         }
     }
@@ -1551,7 +1555,7 @@ impl super::GrammarApplicator {
     /// current_rule->line)` when a current rule with a non-zero line is set,
     /// else `("RT INPUT", numLines)`.
     fn error_labels(&self) -> (&'static str, u32) {
-        if let Some(rid) = self.current_rule {
+        if let Some(rid) = self.scratch.current_rule {
             let line = self.grammar.rule_by_number[rid.0].line;
             if line != 0 {
                 return ("RT RULE", line);
@@ -1830,7 +1834,7 @@ impl super::GrammarApplicator {
     /// into a buffer, interns it in the profiler string table, and stores the id
     /// into `entries[key].example_window`. (The C++ passes the entry by
     /// reference; the port passes its `key` — same entry, borrow-checker-
-    /// friendly.) Caller guarantees `self.profiler` is `Some` and the entry
+    /// friendly.) Caller guarantees `self.diag.profiler` is `Some` and the entry
     /// exists. The C++ `swapper<bool>(true, trace, ttrace=false)` save/restore
     /// of the shared `trace` member is replaced by passing `trace = false` down
     /// the print chain, so `self.trace` (config) is never mutated.
@@ -1851,7 +1855,7 @@ impl super::GrammarApplicator {
             self.print_single_window(s, &mut buf, true, false);
         }
 
-        let p = self.profiler.as_mut().unwrap();
+        let p = self.diag.profiler.as_mut().unwrap();
         let sz = p.add_string(&String::from_utf8_lossy(&buf));
         if let Some(e) = p.entries.get_mut(&key) {
             e.example_window = sz;
@@ -1870,7 +1874,7 @@ impl super::GrammarApplicator {
     ///
     /// [`add_profiling_example`]: GrammarApplicator::add_profiling_example
     pub fn profile_rule_context(&mut self, test_good: bool, rule: RuleId, test: CtxId) {
-        if self.profiler.is_none() {
+        if self.diag.profiler.is_none() {
             return;
         }
         let test_hash = self.grammar.contexts_arena[test.0].hash;
@@ -1880,7 +1884,7 @@ impl super::GrammarApplicator {
             r#type: crate::profiler::ET_CONTEXT,
             id: test_hash,
         };
-        let p = self.profiler.as_mut().unwrap();
+        let p = self.diag.profiler.as_mut().unwrap();
         let Some(t) = p.entries.get_mut(&key) else {
             return;
         };

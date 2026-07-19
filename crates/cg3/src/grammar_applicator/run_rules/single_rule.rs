@@ -50,17 +50,17 @@ impl crate::grammar_applicator::GrammarApplicator {
         rule: RuleId,
         st: &mut RRState,
     ) -> bool {
-        self.finish_cohort_loop = true;
+        self.scratch.finish_cohort_loop = true;
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
 
         // cohortset = &current.rule_to_cohorts[rule.number]; override_cohortset()
         // may re-seat it to the nested set (in_nested). `nested` records which one.
         let nested = self.rr_override_cohortset(current, rnumber);
         let cohortset = self.rr_cohortset_ref(current, rnumber, nested);
-        self.cohortsets.push(cohortset);
+        self.scratch.cohortsets.push(cohortset);
         // The frame's iteration cursor, OWNED in `rocits` (the C++ parks
         // `&rocit`, a stack local; wave 4 makes the parked slot the cursor).
-        self.rocits.push(0);
+        self.scratch.rocits.push(0);
 
         // Run the body; the scope_guard `popper` (pop cohortsets/rocits) runs on
         // EVERY exit path, so it is applied here after the body returns.
@@ -68,8 +68,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             self.run_single_rule_body(current, rule, rnumber, nested, cohortset, st);
 
         // popper dtor: cohortsets.pop_back(); rocits.pop_back();
-        self.cohortsets.pop();
-        self.rocits.pop();
+        self.scratch.cohortsets.pop();
+        self.scratch.rocits.pop();
         anything_changed
     }
 
@@ -82,12 +82,13 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// (NOTED single_window.rs change). The context-tag scan uses the target set's
     /// `trie_special` keys with `T_CONTEXT` + `context_ref_pos`.
     fn rr_override_cohortset(&mut self, current: SwId, rule_number: u32) -> bool {
-        if !self.in_nested {
+        if !self.scratch.in_nested {
             return false;
         }
         let rtarget = self.grammar.rule_by_number.get(rule_number).target;
         // Gather T_CONTEXT context cohorts from the target set's trie_special.
         let ctx_len = self
+            .scratch
             .context_stack
             .last()
             .map(|f| f.context.len())
@@ -100,6 +101,7 @@ impl crate::grammar_applicator::GrammarApplicator {
             if t.r#type.intersects(crate::tag::T_CONTEXT)
                 && (crp as usize) <= ctx_len
                 && let Some(Some(c)) = self
+                    .scratch
                     .context_stack
                     .last()
                     .map(|f| f.context.get((crp - 1) as usize).copied().flatten())
@@ -164,8 +166,8 @@ impl crate::grammar_applicator::GrammarApplicator {
     ) -> crate::grammar_applicator::CsRef {
         let nested = self.rr_override_cohortset(current, rule_number);
         let cs = self.rr_cohortset_ref(current, rule_number, nested);
-        *self.cohortsets.last_mut().unwrap() = cs;
-        let idx = self.rocits.len() - 1;
+        *self.scratch.cohortsets.last_mut().unwrap() = cs;
+        let idx = self.scratch.rocits.len() - 1;
         let gac = self.get_apply_to().cohort;
         if let Some(gac) = gac {
             let gac_local = self.doc.store.cohorts.get(gac.0).local_number as usize;
@@ -186,15 +188,16 @@ impl crate::grammar_applicator::GrammarApplicator {
             let lb = self.cohortset_lower_bound_at(cs, front_at_local);
             let size = self.cs_ref(cs).size();
             if lb == size {
-                self.rocits[idx] = size;
+                self.scratch.rocits[idx] = size;
             } else {
                 let at = self.cs_ref(cs).as_slice()[lb];
-                self.rocits[idx] = self.cohortset_find_n_at(cs, at);
+                self.scratch.rocits[idx] = self.cohortset_find_n_at(cs, at);
             }
             let gac_type = self.doc.store.cohorts.get(gac.0).r#type;
             let new_size = self.cs_ref(cs).size();
-            if !gac_type.intersects(CT_REMOVED | CT_IGNORED) && self.rocits[idx] < new_size {
-                self.rocits[idx] += 1;
+            if !gac_type.intersects(CT_REMOVED | CT_IGNORED) && self.scratch.rocits[idx] < new_size
+            {
+                self.scratch.rocits[idx] += 1;
             }
         }
         cs
@@ -227,16 +230,16 @@ impl crate::grammar_applicator::GrammarApplicator {
         // The frame's cursor lives in `rocits[depth]` — ONE object, exactly the
         // C++ parked `rocit`; inner frames and update_rule_to_cohorts may adjust
         // it, so it is re-read from the slot at every use.
-        let depth = self.rocits.len() - 1;
+        let depth = self.scratch.rocits.len() - 1;
         loop {
-            let rocit = self.rocits[depth];
+            let rocit = self.scratch.rocits[depth];
             if rocit >= self.cs_ref(cohortset).size() {
                 break;
             }
             let cohort = self.cs_ref(cohortset).as_slice()[rocit];
-            self.rocits[depth] = rocit + 1;
+            self.scratch.rocits[depth] = rocit + 1;
 
-            self.finish_reading_loop = true;
+            self.scratch.finish_reading_loop = true;
 
             // Skip the initial >>> cohort.
             if self.doc.store.cohorts.get(cohort.0).local_number == 0 {
@@ -318,16 +321,19 @@ impl crate::grammar_applicator::GrammarApplicator {
 
             // Enclosure inner/outer gating.
             if rflags.intersects(RF_ENCL_INNER) {
-                if self.par_left_pos == 0 {
+                if self.scratch.par_left_pos == 0 {
                     continue;
                 }
                 let ln = self.doc.store.cohorts.get(cohort.0).local_number;
-                if ln < self.par_left_pos || ln > self.par_right_pos {
+                if ln < self.scratch.par_left_pos || ln > self.scratch.par_right_pos {
                     continue;
                 }
             } else if rflags.intersects(RF_ENCL_OUTER) {
                 let ln = self.doc.store.cohorts.get(cohort.0).local_number;
-                if self.par_left_pos != 0 && ln >= self.par_left_pos && ln <= self.par_right_pos {
+                if self.scratch.par_left_pos != 0
+                    && ln >= self.scratch.par_left_pos
+                    && ln <= self.scratch.par_right_pos
+                {
                     continue;
                 }
             }
@@ -348,10 +354,10 @@ impl crate::grammar_applicator::GrammarApplicator {
             // rule/cohort no-match cache.
             let gn = self.doc.store.cohorts.get(cohort.0).global_number.get();
             let ih = hash_value(rnumber, gn);
-            if self.index_ruleCohort_no.contains(ih) {
+            if self.scratch.index_ruleCohort_no.contains(ih) {
                 continue;
             }
-            self.index_ruleCohort_no.insert(ih);
+            self.scratch.index_ruleCohort_no.insert(ih);
 
             let mut num_active: usize = 0;
             let mut num_iff: usize = 0;
@@ -367,27 +373,29 @@ impl crate::grammar_applicator::GrammarApplicator {
             let mut test_good = false;
             let mut matched_target = false;
 
-            self.readings_plain.clear();
+            self.scratch.readings_plain.clear();
             self.subs_any_clear();
 
             // Per-cohort regex/unif capture state.
-            self.regexgrps_z.clear();
-            self.regexgrps_c.clear();
-            self.unif_tags_rs.clear();
-            self.unif_sets_rs.clear();
+            self.scratch.regexgrps_z.clear();
+            self.scratch.regexgrps_c.clear();
+            self.scratch.unif_tags_rs.clear();
+            self.scratch.unif_sets_rs.clear();
 
-            self.used_regex = 0;
+            self.scratch.used_regex = 0;
             let nread = self.doc.store.cohorts.get(cohort.0).readings.len();
-            if self.regexgrps_store.len() < nread {
-                self.regexgrps_store.resize_with(nread, Vec::new);
+            if self.scratch.regexgrps_store.len() < nread {
+                self.scratch.regexgrps_store.resize_with(nread, Vec::new);
             }
             let mut used_unif: usize = 0;
-            if self.unif_tags_store.len() < nread + 1 {
-                self.unif_tags_store
+            if self.scratch.unif_tags_store.len() < nread + 1 {
+                self.scratch
+                    .unif_tags_store
                     .resize_with(nread + 1, Default::default);
             }
-            if self.unif_sets_store.len() < nread + 1 {
-                self.unif_sets_store
+            if self.scratch.unif_sets_store.len() < nread + 1 {
+                self.scratch
+                    .unif_sets_store
                     .resize_with(nread + 1, Default::default);
             }
 
@@ -396,7 +404,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 let mut ctx = crate::grammar_applicator::Rule_Context::default();
                 ctx.target.cohort = Some(cohort);
                 ctx.is_with = rtype0 == K_WITH;
-                self.context_stack.push(ctx);
+                self.scratch.context_stack.push(ctx);
             }
 
             // State snapshot for change detection.
@@ -419,7 +427,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     }
                 };
                 {
-                    let f = self.context_stack.last_mut().unwrap();
+                    let f = self.scratch.context_stack.last_mut().unwrap();
                     f.target.reading = Some(reading_i);
                     f.target.subreading = Some(reading);
                 }
@@ -471,7 +479,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         let r = self.doc.store.readings.get_mut(reading.0);
                         r.matched_target = true;
                         r.matched_tests = true;
-                        reading_contexts.push(self.context_stack.last().unwrap().clone());
+                        reading_contexts.push(self.scratch.context_stack.last().unwrap().clone());
                     }
                     num_iff += 1;
                     num_immutable += 1;
@@ -482,8 +490,8 @@ impl crate::grammar_applicator::GrammarApplicator {
                 // Plain-signature cache.
                 did_test = false;
                 if !set_type.intersects(ST_SPECIAL | ST_MAPPING | ST_CHILD_UNIFY)
-                    && !self.readings_plain.is_empty()
-                    && let Some(&cached) = self.readings_plain.get(&r_hash_plain)
+                    && !self.scratch.readings_plain.is_empty()
+                    && let Some(&cached) = self.scratch.readings_plain.get(&r_hash_plain)
                 {
                     let (mt, mtst) = {
                         let cr = self.doc.store.readings.get(cached.0);
@@ -498,55 +506,55 @@ impl crate::grammar_applicator::GrammarApplicator {
                         num_active += 1;
                     }
                     let cnum = self.doc.store.readings.get(cached.0).number;
-                    if let Some(&rgc) = self.regexgrps_c.get(&cnum) {
-                        self.regexgrps_c.insert(r_number, rgc);
-                        let z = *self.regexgrps_z.get(&cnum).unwrap();
-                        self.regexgrps_z.insert(r_number, z);
-                        let f = self.context_stack.last_mut().unwrap();
+                    if let Some(&rgc) = self.scratch.regexgrps_c.get(&cnum) {
+                        self.scratch.regexgrps_c.insert(r_number, rgc);
+                        let z = *self.scratch.regexgrps_z.get(&cnum).unwrap();
+                        self.scratch.regexgrps_z.insert(r_number, z);
+                        let f = self.scratch.context_stack.last_mut().unwrap();
                         f.regexgrp_ct = z;
                         f.regexgrps = Some(rgc);
                     }
-                    let ut = self.unif_tags_rs.get(&r_hash_plain).copied();
-                    let us = self.unif_sets_rs.get(&r_hash_plain).copied();
+                    let ut = self.scratch.unif_tags_rs.get(&r_hash_plain).copied();
+                    let us = self.scratch.unif_sets_rs.get(&r_hash_plain).copied();
                     {
-                        let f = self.context_stack.last_mut().unwrap();
+                        let f = self.scratch.context_stack.last_mut().unwrap();
                         f.unif_tags = ut;
                         f.unif_sets = us;
                     }
                     test_good = mtst;
-                    reading_contexts.push(self.context_stack.last().unwrap().clone());
+                    reading_contexts.push(self.scratch.context_stack.last().unwrap().clone());
                     i += 1;
                     continue;
                 }
 
                 // Fresh per-reading regex/unif state (store INDICES, wave 4).
                 {
-                    let rgs = self.used_regex;
+                    let rgs = self.scratch.used_regex;
                     let uts = used_unif;
                     let uss = used_unif;
                     {
-                        let f = self.context_stack.last_mut().unwrap();
+                        let f = self.scratch.context_stack.last_mut().unwrap();
                         f.regexgrp_ct = 0;
                         f.regexgrps = Some(rgs);
                         f.unif_tags = Some(uts);
                         f.unif_sets = Some(uss);
                     }
-                    self.unif_tags_rs.insert(r_hash_plain, uts);
-                    self.unif_sets_rs.insert(r_hash_plain, uss);
-                    self.unif_tags_rs.insert(r_hash, uts);
-                    self.unif_sets_rs.insert(r_hash, uss);
+                    self.scratch.unif_tags_rs.insert(r_hash_plain, uts);
+                    self.scratch.unif_sets_rs.insert(r_hash_plain, uss);
+                    self.scratch.unif_tags_rs.insert(r_hash, uts);
+                    self.scratch.unif_sets_rs.insert(r_hash, uss);
                     used_unif += 1;
-                    self.unif_tags_store[uts].clear();
-                    self.unif_sets_store[uss].clear();
+                    self.scratch.unif_tags_store[uts].clear();
+                    self.scratch.unif_sets_store[uss].clear();
                 }
 
-                self.unif_last_wordform = TagHash(0);
-                self.unif_last_baseform = TagHash(0);
-                self.unif_last_textual = TagHash(0);
-                self.same_basic = r_hash_plain;
-                self.rule_target = None;
-                if self.context_stack.len() > 1 {
-                    let m = self.context_stack[self.context_stack.len() - 2].mark;
+                self.scratch.unif_last_wordform = TagHash(0);
+                self.scratch.unif_last_baseform = TagHash(0);
+                self.scratch.unif_last_textual = TagHash(0);
+                self.scratch.same_basic = r_hash_plain;
+                self.scratch.rule_target = None;
+                if self.scratch.context_stack.len() > 1 {
+                    let m = self.scratch.context_stack[self.scratch.context_stack.len() - 2].mark;
                     if m.is_some() {
                         self.set_mark(m);
                     } else {
@@ -555,7 +563,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 } else {
                     self.set_mark(Some(cohort));
                 }
-                let orz = self.context_stack.last().unwrap().regexgrp_ct;
+                let orz = self.scratch.context_stack.last().unwrap().regexgrp_ct;
                 {
                     let mut rc = Some(reading_i);
                     while let Some(r) = rc {
@@ -563,7 +571,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                         rc = self.doc.store.readings.get(r.0).next;
                     }
                 }
-                self.rule_target = Some(cohort);
+                self.scratch.rule_target = Some(cohort);
 
                 // First check: does the rule target match?
                 let target_matches = rtarget.get() != 0 && {
@@ -572,16 +580,21 @@ impl crate::grammar_applicator::GrammarApplicator {
                 };
                 if target_matches {
                     let mut regex_prop = true;
-                    if orz != self.context_stack.last().unwrap().regexgrp_ct {
+                    if orz != self.scratch.context_stack.last().unwrap().regexgrp_ct {
                         did_test = false;
                         regex_prop = false;
                     }
-                    self.rule_target = Some(cohort);
+                    self.scratch.rule_target = Some(cohort);
                     self.doc.store.readings.get_mut(reading.0).matched_target = true;
                     matched_target = true;
                     let mut good = true;
                     if !did_test {
-                        self.context_stack.last_mut().unwrap().context.clear();
+                        self.scratch
+                            .context_stack
+                            .last_mut()
+                            .unwrap()
+                            .context
+                            .clear();
                         let tests: Vec<CtxId> = self
                             .grammar
                             .rule_by_number
@@ -596,17 +609,18 @@ impl crate::grammar_applicator::GrammarApplicator {
                             if rflags.intersects(RF_RESETX) || !rflags.intersects(RF_REMEMBERX) {
                                 self.set_mark(Some(cohort));
                             }
-                            self.seen_barrier = false;
-                            self.dep_deep_seen.clear();
-                            for d in self.ci_depths.iter_mut() {
+                            self.scratch.seen_barrier = false;
+                            self.scratch.dep_deep_seen.clear();
+                            for d in self.scratch.ci_depths.iter_mut() {
                                 *d = 0;
                             }
-                            self.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+                            self.scratch.tmpl_cntx =
+                                crate::grammar_applicator::tmpl_context_t::default();
                             let tpos = self.grammar.contexts_arena[test.0].pos;
                             let mut result: Option<CohortId> = None;
                             let with_deep = rtype0 == K_WITH;
                             if with_deep {
-                                self.merge_with = None;
+                                self.scratch.merge_with = None;
                             }
                             let mut deep_ref: Option<&mut Option<CohortId>> =
                                 if with_deep { Some(&mut result) } else { None };
@@ -630,12 +644,13 @@ impl crate::grammar_applicator::GrammarApplicator {
                                     None,
                                 )
                             };
-                            let ctx_push = if self.merge_with.is_some() {
-                                self.merge_with
+                            let ctx_push = if self.scratch.merge_with.is_some() {
+                                self.scratch.merge_with
                             } else {
                                 result
                             };
-                            self.context_stack
+                            self.scratch
+                                .context_stack
                                 .last_mut()
                                 .unwrap()
                                 .context
@@ -653,13 +668,13 @@ impl crate::grammar_applicator::GrammarApplicator {
                                 break;
                             }
                             let (ut_empty, us_empty) = {
-                                let f = self.context_stack.last().unwrap();
+                                let f = self.scratch.context_stack.last().unwrap();
                                 (
                                     f.unif_tags
-                                        .map(|i| self.unif_tags_store[i].is_empty())
+                                        .map(|i| self.scratch.unif_tags_store[i].is_empty())
                                         .unwrap_or(true),
                                     f.unif_sets
-                                        .map(|i| self.unif_sets_store[i].is_empty())
+                                        .map(|i| self.scratch.unif_sets_store[i].is_empty())
                                         .unwrap_or(true),
                                 )
                             };
@@ -694,14 +709,14 @@ impl crate::grammar_applicator::GrammarApplicator {
                         }
                         self.doc.store.readings.get_mut(reading.0).matched_tests = true;
                         num_active += 1;
-                        if self.profiler.is_some() {
+                        if self.diag.profiler.is_some() {
                             // Profiler::Key k{ET_RULE, rule.number + 1}; ++entries[k].num_match
                             let rnum = self.grammar.rule_by_number.get(rule.0).number;
                             let k = crate::profiler::Key {
                                 r#type: crate::profiler::ET_RULE,
                                 id: rnum + 1,
                             };
-                            let p = self.profiler.as_mut().unwrap();
+                            let p = self.diag.profiler.as_mut().unwrap();
                             let e = p.entries.entry(k).or_default();
                             e.num_match += 1;
                             if e.example_window == 0 {
@@ -712,37 +727,37 @@ impl crate::grammar_applicator::GrammarApplicator {
                             self.rr_print_debug_rule(rule, true, true);
                         }
                         // Propagate regex captures from a prior reading.
-                        if regex_prop && i != 0 && !self.regexgrps_c.is_empty() {
+                        if regex_prop && i != 0 && !self.scratch.regexgrps_c.is_empty() {
                             let mut z = i;
                             while z > 0 {
                                 let prev = self.doc.store.cohorts.get(cohort.0).readings[z - 1];
                                 let prev_num = self.doc.store.readings.get(prev.0).number;
-                                if let Some(&rgc) = self.regexgrps_c.get(&prev_num) {
-                                    self.regexgrps_c.insert(r_number, rgc);
-                                    let zz = *self.regexgrps_z.get(&prev_num).unwrap();
-                                    self.regexgrps_z.insert(r_number, zz);
+                                if let Some(&rgc) = self.scratch.regexgrps_c.get(&prev_num) {
+                                    self.scratch.regexgrps_c.insert(r_number, rgc);
+                                    let zz = *self.scratch.regexgrps_z.get(&prev_num).unwrap();
+                                    self.scratch.regexgrps_z.insert(r_number, zz);
                                     break;
                                 }
                                 z -= 1;
                             }
                         }
                     } else {
-                        self.context_stack.last_mut().unwrap().regexgrp_ct = orz;
+                        self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = orz;
                         if !self.cfg.debug_rules.empty() && self.cfg.debug_rules.contains(rline) {
                             self.rr_print_debug_rule(rule, true, false);
                         }
                     }
                     num_iff += 1;
                 } else {
-                    self.context_stack.last_mut().unwrap().regexgrp_ct = orz;
-                    if self.profiler.is_some() {
+                    self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = orz;
+                    if self.diag.profiler.is_some() {
                         // Profiler::Key k{ET_RULE, rule.number + 1}; ++entries[k].num_fail
                         let rnum = self.grammar.rule_by_number.get(rule.0).number;
                         let k = crate::profiler::Key {
                             r#type: crate::profiler::ET_RULE,
                             id: rnum + 1,
                         };
-                        if let Some(p) = self.profiler.as_mut() {
+                        if let Some(p) = self.diag.profiler.as_mut() {
                             p.entries.entry(k).or_default().num_fail += 1;
                         }
                     }
@@ -751,7 +766,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                     }
                 }
 
-                self.readings_plain.insert(r_hash_plain, reading);
+                self.scratch.readings_plain.insert(r_hash_plain, reading);
                 {
                     let mut rc = Some(reading_i);
                     while let Some(r) = rc {
@@ -768,14 +783,20 @@ impl crate::grammar_applicator::GrammarApplicator {
                     ri.matched_target = mt;
                     ri.matched_tests = mtst;
                 }
-                let rgc_ct = self.context_stack.last().unwrap().regexgrp_ct;
+                let rgc_ct = self.scratch.context_stack.last().unwrap().regexgrp_ct;
                 if rgc_ct != 0 {
-                    let rgs = self.context_stack.last().unwrap().regexgrps.unwrap();
-                    self.regexgrps_c.insert(r_number, rgs);
-                    self.regexgrps_z.insert(r_number, rgc_ct);
-                    self.used_regex += 1;
+                    let rgs = self
+                        .scratch
+                        .context_stack
+                        .last()
+                        .unwrap()
+                        .regexgrps
+                        .unwrap();
+                    self.scratch.regexgrps_c.insert(r_number, rgs);
+                    self.scratch.regexgrps_z.insert(r_number, rgc_ct);
+                    self.scratch.used_regex += 1;
                 }
-                reading_contexts.push(self.context_stack.last().unwrap().clone());
+                reading_contexts.push(self.scratch.context_stack.last().unwrap().clone());
                 i += 1;
             }
 
@@ -800,24 +821,24 @@ impl crate::grammar_applicator::GrammarApplicator {
             // No valid targets → drop this cohort from the rule set.
             if num_active == 0 && (num_iff == 0 || rtype0 != K_IFF) {
                 if num_immutable == 0 && !matched_target {
-                    let ro = self.rocits[depth] - 1;
+                    let ro = self.scratch.rocits[depth] - 1;
                     self.cs_mut(cohortset).erase_n(ro);
-                    self.rocits[depth] = ro;
+                    self.scratch.rocits[depth] = ro;
                 }
-                self.context_stack.pop();
+                self.scratch.context_stack.pop();
                 continue;
             }
             // All readings valid → nothing to do for Select / safe Remove.
             if num_active == self.doc.store.cohorts.get(cohort.0).readings.len() {
                 if r#type == K_SELECT {
-                    self.context_stack.pop();
+                    self.scratch.context_stack.pop();
                     continue;
                 }
                 if r#type == K_REMOVE
                     && (!self.cfg.r#unsafe || (rflags.intersects(RF_SAFE)))
                     && !rflags.intersects(RF_UNSAFE)
                 {
-                    self.context_stack.pop();
+                    self.scratch.context_stack.pop();
                     continue;
                 }
             }
@@ -836,34 +857,34 @@ impl crate::grammar_applicator::GrammarApplicator {
                 if !mtst && rtype0 != K_IFF {
                     continue;
                 }
-                *self.context_stack.last_mut().unwrap() = ctx;
-                self.reset_cohorts_for_loop = false;
+                *self.scratch.context_stack.last_mut().unwrap() = ctx;
+                self.scratch.reset_cohorts_for_loop = false;
                 self.reading_cb_dispatch(st);
-                if !self.finish_cohort_loop {
-                    self.context_stack.pop();
+                if !self.scratch.finish_cohort_loop {
+                    self.scratch.context_stack.pop();
                     return anything_changed;
                 }
-                if self.reset_cohorts_for_loop {
+                if self.scratch.reset_cohorts_for_loop {
                     cohortset = self.rr_reset_cohorts(current, rnumber);
                     broke = true;
                     break;
                 }
-                if !self.finish_reading_loop {
+                if !self.scratch.finish_reading_loop {
                     break;
                 }
             }
             let _ = broke;
 
-            self.reset_cohorts_for_loop = false;
+            self.scratch.reset_cohorts_for_loop = false;
             self.cohort_cb_dispatch(st);
-            if !self.finish_cohort_loop {
-                self.context_stack.pop();
+            if !self.scratch.finish_cohort_loop {
+                self.scratch.context_stack.pop();
                 return anything_changed;
             }
-            if self.reset_cohorts_for_loop {
+            if self.scratch.reset_cohorts_for_loop {
                 cohortset = self.rr_reset_cohorts(current, rnumber);
             }
-            self.context_stack.pop();
+            self.scratch.context_stack.pop();
         }
         anything_changed
     }

@@ -462,24 +462,17 @@ impl Default for Document {
     }
 }
 
-/// C++ `class GrammarApplicator` — the constraint-grammar application engine.
-pub struct GrammarApplicator {
-    /// The options-derived, setup-written configuration (Stage-B re-homing of the
-    /// cfg-bucket members; see [`EngineConfig`]).
-    pub cfg: EngineConfig,
-
-    /// The run-mutable, document-lifetime state (Stage-B re-homing of the
-    /// doc-bucket members; see [`Document`]).
-    pub doc: Document,
-
+// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator]
+/// The per-rule / per-window / per-cohort transient state extracted from the C++
+/// `GrammarApplicator` members (the `scratch` bucket of the field triage). This
+/// is a Stage-B re-homing: it has no C++ analog as a type; the members map 1:1
+/// onto the scratch-bucket fields of `GrammarApplicator`, keeping their names,
+/// types, defaults, and per-field C++ reference comments. Every field is cleared
+/// or reset inside the rule-application loops (`context_stack`, the iterator
+/// pools, the `index_*` caches, the unification/regex-capture stores, the
+/// per-frame loop-control latches, etc.).
+pub struct RuleScratch {
     pub seen_barrier: bool,
-
-    /// C++ `const Grammar* grammar` — the applicator OWNS the loaded grammar.
-    pub grammar: crate::grammar::Grammar,
-    /// C++ `Profiler* profiler` — the raw pointer to main's Profiler becomes
-    /// OWNED `Option<Profiler>`: the driver (vislcg3) moves the profiler in
-    /// before the run and takes it back out afterwards to write the database.
-    pub profiler: Option<crate::profiler::Profiler>,
 
     /// C++ `sorted_vector<std::pair<uint32_t, uint32_t>> dep_deep_seen`.
     pub dep_deep_seen: sorted_vector<(u32, u32)>,
@@ -492,9 +485,6 @@ pub struct GrammarApplicator {
     pub depDescendentIters: BTreeMap<u32, DepDescendentIter>,
     pub depAncestorIters: BTreeMap<u32, DepAncestorIter>,
 
-    pub match_single: u32,
-    pub match_comp: u32,
-    pub match_sub: u32,
     pub par_left_tag: TagHash,
     pub par_right_tag: TagHash,
     pub par_left_pos: u32,
@@ -565,21 +555,12 @@ pub struct GrammarApplicator {
     pub subs_any: Vec<crate::arena::ReadingId>,
 }
 
-impl GrammarApplicator {
-    /// Constructs an applicator that owns `grammar`, with every field at its C++
-    /// default-member-initialiser value. This is NOT the real
-    /// `grammar-applicator-fn` constructor (which wires streams, options, and
-    /// the begin/end/subst tags); that semantic lands in the impl pass.
-    pub fn new(grammar: crate::grammar::Grammar) -> Self {
-        GrammarApplicator {
-            cfg: EngineConfig::new(),
-
-            doc: Document::new(),
-
+impl RuleScratch {
+    /// Every field at its C++ default-member-initialiser value (the initialisers
+    /// moved verbatim out of the former `GrammarApplicator::new`).
+    pub fn new() -> Self {
+        RuleScratch {
             seen_barrier: false,
-
-            grammar,
-            profiler: None,
 
             dep_deep_seen: Default::default(),
 
@@ -591,9 +572,6 @@ impl GrammarApplicator {
             depDescendentIters: Default::default(),
             depAncestorIters: Default::default(),
 
-            match_single: 0,
-            match_comp: 0,
-            match_sub: 0,
             par_left_tag: TagHash(0),
             par_right_tag: TagHash(0),
             par_left_pos: 0,
@@ -643,6 +621,97 @@ impl GrammarApplicator {
             used_regex: 0,
 
             subs_any: Vec::new(),
+        }
+    }
+}
+
+impl Default for RuleScratch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator]
+/// The profiler / statistics state extracted from the C++ `GrammarApplicator`
+/// members (the `diag` bucket of the field triage). This is a Stage-B re-homing:
+/// it has no C++ analog as a type; the members map 1:1 onto the diag-bucket
+/// fields of `GrammarApplicator`, keeping their names, types, defaults, and
+/// per-field C++ reference comments.
+pub struct Diagnostics {
+    /// C++ `Profiler* profiler` — the raw pointer to main's Profiler becomes
+    /// OWNED `Option<Profiler>`: the driver (vislcg3) moves the profiler in
+    /// before the run and takes it back out afterwards to write the database.
+    pub profiler: Option<crate::profiler::Profiler>,
+
+    pub match_single: u32,
+    pub match_comp: u32,
+    pub match_sub: u32,
+}
+
+impl Diagnostics {
+    /// Every field at its C++ default-member-initialiser value (the initialisers
+    /// moved verbatim out of the former `GrammarApplicator::new`).
+    pub fn new() -> Self {
+        Diagnostics {
+            profiler: None,
+
+            match_single: 0,
+            match_comp: 0,
+            match_sub: 0,
+        }
+    }
+}
+
+impl Default for Diagnostics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// C++ `class GrammarApplicator` — the constraint-grammar application engine.
+///
+/// Stage-B re-homing complete: the flat god-object members are partitioned into
+/// exactly five subsystems — the options-derived [`EngineConfig`] (`cfg`), the
+/// run-mutable document-lifetime [`Document`] (`doc`), the per-rule transient
+/// [`RuleScratch`] (`scratch`), the profiler/stats [`Diagnostics`] (`diag`), and
+/// the owned [`Grammar`](crate::grammar::Grammar) (`grammar`).
+pub struct GrammarApplicator {
+    /// The options-derived, setup-written configuration (Stage-B re-homing of the
+    /// cfg-bucket members; see [`EngineConfig`]).
+    pub cfg: EngineConfig,
+
+    /// The run-mutable, document-lifetime state (Stage-B re-homing of the
+    /// doc-bucket members; see [`Document`]).
+    pub doc: Document,
+
+    /// The per-rule / per-window / per-cohort transient state (Stage-B re-homing
+    /// of the scratch-bucket members; see [`RuleScratch`]).
+    pub scratch: RuleScratch,
+
+    /// The profiler / statistics state (Stage-B re-homing of the diag-bucket
+    /// members; see [`Diagnostics`]).
+    pub diag: Diagnostics,
+
+    /// C++ `const Grammar* grammar` — the applicator OWNS the loaded grammar.
+    pub grammar: crate::grammar::Grammar,
+}
+
+impl GrammarApplicator {
+    /// Constructs an applicator that owns `grammar`, with every field at its C++
+    /// default-member-initialiser value. This is NOT the real
+    /// `grammar-applicator-fn` constructor (which wires streams, options, and
+    /// the begin/end/subst tags); that semantic lands in the impl pass.
+    pub fn new(grammar: crate::grammar::Grammar) -> Self {
+        GrammarApplicator {
+            cfg: EngineConfig::new(),
+
+            doc: Document::new(),
+
+            scratch: RuleScratch::new(),
+
+            diag: Diagnostics::new(),
+
+            grammar,
         }
     }
 }

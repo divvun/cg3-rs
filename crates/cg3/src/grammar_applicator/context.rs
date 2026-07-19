@@ -27,10 +27,10 @@ impl super::GrammarApplicator {
     /// context's explicit attach target (does NOT fall back to `target`); an
     /// empty stack yields a default-constructed (all-null) `ReadingSpec`.
     pub fn get_attach_to(&self) -> ReadingSpec {
-        if self.context_stack.is_empty() {
+        if self.scratch.context_stack.is_empty() {
             ReadingSpec::default()
         } else {
-            self.context_stack.last().unwrap().attach_to.clone()
+            self.scratch.context_stack.last().unwrap().attach_to.clone()
         }
     }
 
@@ -42,10 +42,10 @@ impl super::GrammarApplicator {
     /// mark cohort (`X`/MARK reference), `None` on an empty stack (the stored
     /// `mark` may itself be `None`).
     pub fn get_mark(&self) -> Option<CohortId> {
-        if self.context_stack.is_empty() {
+        if self.scratch.context_stack.is_empty() {
             None
         } else {
-            self.context_stack.last().unwrap().mark
+            self.scratch.context_stack.last().unwrap().mark
         }
     }
 
@@ -58,9 +58,10 @@ impl super::GrammarApplicator {
     /// non-null) over the matched `target`; an empty stack yields the default
     /// (all-null) `ReadingSpec`.
     pub fn get_apply_to(&self) -> ReadingSpec {
-        if self.context_stack.is_empty() {
+        if self.scratch.context_stack.is_empty() {
             ReadingSpec::default()
         } else if self
+            .scratch
             .context_stack
             .last()
             .unwrap()
@@ -68,9 +69,9 @@ impl super::GrammarApplicator {
             .cohort
             .is_some()
         {
-            self.context_stack.last().unwrap().attach_to.clone()
+            self.scratch.context_stack.last().unwrap().attach_to.clone()
         } else {
-            self.context_stack.last().unwrap().target.clone()
+            self.scratch.context_stack.last().unwrap().target.clone()
         }
     }
 
@@ -85,10 +86,10 @@ impl super::GrammarApplicator {
     /// dereferenced in C++ so it is a bare [`ReadingId`], while `subreading`
     /// (stored as-is, may be null) is `Option<ReadingId>`.
     pub fn set_attach_to(&mut self, reading: ReadingId, subreading: Option<ReadingId>) {
-        if !self.context_stack.is_empty() {
+        if !self.scratch.context_stack.is_empty() {
             // spec.cohort = reading->parent (read before the mutable borrow below).
             let parent = self.doc.store.readings.get(reading.0).parent;
-            let spec = &mut self.context_stack.last_mut().unwrap().attach_to;
+            let spec = &mut self.scratch.context_stack.last_mut().unwrap().attach_to;
             spec.cohort = parent;
             spec.reading = Some(reading);
             spec.subreading = subreading;
@@ -103,8 +104,8 @@ impl super::GrammarApplicator {
     /// context's mark cohort (silent no-op when the stack is empty). `cohort` is
     /// only stored, never dereferenced, so it is nullable → `Option<CohortId>`.
     pub fn set_mark(&mut self, cohort: Option<CohortId>) {
-        if !self.context_stack.is_empty() {
-            self.context_stack.last_mut().unwrap().mark = cohort;
+        if !self.scratch.context_stack.is_empty() {
+            self.scratch.context_stack.last_mut().unwrap().mark = cohort;
         }
     }
 
@@ -118,19 +119,20 @@ impl super::GrammarApplicator {
     /// every later attempt for `set` succeeds only if it presents the identical
     /// pointer (enforcing "same tag across all uses").
     pub fn check_unif_tags(&mut self, set: u32, val: *const ()) -> bool {
-        if self.context_stack.is_empty() {
+        if self.scratch.context_stack.is_empty() {
             return false;
         }
         // auto& unif_tags = *(context_stack.back().unif_tags);
         // The C++ dereferences the pointer unconditionally; a null here would be
         // UB there, so a `None` index faithfully panics ("crash").
         let idx = self
+            .scratch
             .context_stack
             .last()
             .unwrap()
             .unif_tags
             .expect("check_unif_tags: active context frame has a null unif_tags index");
-        let unif_tags: &mut unif_tags_t = &mut self.unif_tags_store[idx];
+        let unif_tags: &mut unif_tags_t = &mut self.scratch.unif_tags_store[idx];
         if let Some(&existing) = unif_tags.get(&set) {
             return existing == val;
         }

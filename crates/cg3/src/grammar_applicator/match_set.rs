@@ -332,9 +332,9 @@ impl super::GrammarApplicator {
         let gc = group_count(tag);
         let mut m: u32 = 0;
         let ih = make_64(tag.hash.get(), test);
-        if !bypass_index && self.index_regexp_no.contains(ih) {
+        if !bypass_index && self.scratch.index_regexp_no.contains(ih) {
             m = 0;
-        } else if !bypass_index && gc == 0 && self.index_regexp_yes.contains(ih) {
+        } else if !bypass_index && gc == 0 && self.scratch.index_regexp_yes.contains(ih) {
             m = test;
         } else {
             // itag = *(grammar->single_tags.find(test)->second)
@@ -352,20 +352,32 @@ impl super::GrammarApplicator {
             }
             if m != 0 {
                 let capture = gc > 0
-                    && !self.context_stack.is_empty()
-                    && self.context_stack.last().unwrap().regexgrps.is_some();
+                    && !self.scratch.context_stack.is_empty()
+                    && self
+                        .scratch
+                        .context_stack
+                        .last()
+                        .unwrap()
+                        .regexgrps
+                        .is_some();
                 if capture {
                     if let Some(re) = &tag.regexp {
-                        let idx = self.context_stack.last().unwrap().regexgrps.unwrap();
-                        let frame = self.context_stack.last_mut().unwrap();
-                        let rg = &mut self.regexgrps_store[idx];
+                        let idx = self
+                            .scratch
+                            .context_stack
+                            .last()
+                            .unwrap()
+                            .regexgrps
+                            .unwrap();
+                        let frame = self.scratch.context_stack.last_mut().unwrap();
+                        let rg = &mut self.scratch.regexgrps_store[idx];
                         capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &itag_text);
                     }
                 } else {
-                    self.index_regexp_yes.insert(ih);
+                    self.scratch.index_regexp_yes.insert(ih);
                 }
             } else {
-                self.index_regexp_no.insert(ih);
+                self.scratch.index_regexp_no.insert(ih);
             }
         }
         m
@@ -380,9 +392,9 @@ impl super::GrammarApplicator {
     pub fn does_tag_match_icase(&mut self, test: u32, tag: &Tag, bypass_index: bool) -> u32 {
         let mut m: u32 = 0;
         let ih = make_64(tag.hash.get(), test);
-        if !bypass_index && self.index_icase_no.contains(ih) {
+        if !bypass_index && self.scratch.index_icase_no.contains(ih) {
             m = 0;
-        } else if !bypass_index && self.index_icase_yes.contains(ih) {
+        } else if !bypass_index && self.scratch.index_icase_yes.contains(ih) {
             m = test;
         } else {
             let (itag_hash, itag_text) = {
@@ -395,9 +407,9 @@ impl super::GrammarApplicator {
                 m = itag_hash;
             }
             if m != 0 {
-                self.index_icase_yes.insert(ih);
+                self.scratch.index_icase_yes.insert(ih);
             } else {
-                self.index_icase_no.insert(ih);
+                self.scratch.index_icase_no.insert(ih);
             }
         }
         m
@@ -422,9 +434,9 @@ impl super::GrammarApplicator {
             (r.tags_string_hash, r.tags_string.clone())
         };
         let ih = make_64(tsh, tag.hash.get());
-        if !bypass_index && self.index_regexp_no.contains(ih) {
+        if !bypass_index && self.scratch.index_regexp_no.contains(ih) {
             m = 0;
-        } else if !bypass_index && gc == 0 && self.index_regexp_yes.contains(ih) {
+        } else if !bypass_index && gc == 0 && self.scratch.index_regexp_yes.contains(ih) {
             m = tsh;
         } else {
             if let Some(re) = &tag.regexp
@@ -434,20 +446,32 @@ impl super::GrammarApplicator {
             }
             if m != 0 {
                 let capture = gc > 0
-                    && !self.context_stack.is_empty()
-                    && self.context_stack.last().unwrap().regexgrps.is_some();
+                    && !self.scratch.context_stack.is_empty()
+                    && self
+                        .scratch
+                        .context_stack
+                        .last()
+                        .unwrap()
+                        .regexgrps
+                        .is_some();
                 if capture {
                     if let Some(re) = &tag.regexp {
-                        let idx = self.context_stack.last().unwrap().regexgrps.unwrap();
-                        let frame = self.context_stack.last_mut().unwrap();
-                        let rg = &mut self.regexgrps_store[idx];
+                        let idx = self
+                            .scratch
+                            .context_stack
+                            .last()
+                            .unwrap()
+                            .regexgrps
+                            .unwrap();
+                        let frame = self.scratch.context_stack.last_mut().unwrap();
+                        let rg = &mut self.scratch.regexgrps_store[idx];
                         capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &ts);
                     }
                 } else {
-                    self.index_regexp_yes.insert(ih);
+                    self.scratch.index_regexp_yes.insert(ih);
                 }
             } else {
-                self.index_regexp_no.insert(ih);
+                self.scratch.index_regexp_no.insert(ih);
             }
         }
         m
@@ -547,12 +571,24 @@ impl super::GrammarApplicator {
                     if m != 0 {
                         let gc = group_count(tag);
                         if gc > 0
-                            && !self.context_stack.is_empty()
-                            && self.context_stack.last().unwrap().regexgrps.is_some()
+                            && !self.scratch.context_stack.is_empty()
+                            && self
+                                .scratch
+                                .context_stack
+                                .last()
+                                .unwrap()
+                                .regexgrps
+                                .is_some()
                         {
-                            let idx = self.context_stack.last().unwrap().regexgrps.unwrap();
-                            let frame = self.context_stack.last_mut().unwrap();
-                            let rg = &mut self.regexgrps_store[idx];
+                            let idx = self
+                                .scratch
+                                .context_stack
+                                .last()
+                                .unwrap()
+                                .regexgrps
+                                .unwrap();
+                            let frame = self.scratch.context_stack.last_mut().unwrap();
+                            let rg = &mut self.scratch.regexgrps_store[idx];
                             capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &text);
                         }
                     }
@@ -589,12 +625,12 @@ impl super::GrammarApplicator {
                     .unwrap_or(TagHash(0));
                 m = bf.get();
                 if unif_mode {
-                    if self.unif_last_baseform != TagHash(0) {
-                        if self.unif_last_baseform != bf {
+                    if self.scratch.unif_last_baseform != TagHash(0) {
+                        if self.scratch.unif_last_baseform != bf {
                             m = 0;
                         }
                     } else {
-                        self.unif_last_baseform = bf;
+                        self.scratch.unif_last_baseform = bf;
                     }
                 }
             } else if tag.r#type.intersects(T_WORDFORM) {
@@ -605,12 +641,12 @@ impl super::GrammarApplicator {
                 };
                 m = wf_hash.get();
                 if unif_mode {
-                    if self.unif_last_wordform != TagHash(0) {
-                        if self.unif_last_wordform != wf_hash {
+                    if self.scratch.unif_last_wordform != TagHash(0) {
+                        if self.scratch.unif_last_wordform != wf_hash {
                             m = 0;
                         }
                     } else {
-                        self.unif_last_wordform = wf_hash;
+                        self.scratch.unif_last_wordform = wf_hash;
                     }
                 }
             } else {
@@ -632,12 +668,12 @@ impl super::GrammarApplicator {
                     if !itype.intersects(T_BASEFORM | T_WORDFORM) {
                         m = ihash.get();
                         if unif_mode {
-                            if self.unif_last_textual != TagHash(0) {
-                                if self.unif_last_textual != TagHash(mter) {
+                            if self.scratch.unif_last_textual != TagHash(0) {
+                                if self.scratch.unif_last_textual != TagHash(mter) {
                                     m = 0;
                                 }
                             } else {
-                                self.unif_last_textual = TagHash(mter);
+                                self.scratch.unif_last_textual = TagHash(mter);
                             }
                         }
                     }
@@ -746,27 +782,27 @@ impl super::GrammarApplicator {
             }
         } else if tag.r#type.intersects(T_PAR_LEFT) {
             // (10)
-            if self.par_left_tag != TagHash(0) {
+            if self.scratch.par_left_tag != TagHash(0) {
                 let (ln, has) = {
                     let r = self.doc.store.readings.get(reading.0);
                     let cid = r.parent.unwrap();
-                    let has = r.tags.find(self.par_left_tag.get()) != r.tags.end();
+                    let has = r.tags.find(self.scratch.par_left_tag.get()) != r.tags.end();
                     (self.doc.store.cohorts.get(cid.0).local_number, has)
                 };
-                if ln == self.par_left_pos && has {
+                if ln == self.scratch.par_left_pos && has {
                     m = self.grammar.tag_any;
                 }
             }
         } else if tag.r#type.intersects(T_PAR_RIGHT) {
             // (11)
-            if self.par_right_tag != TagHash(0) {
+            if self.scratch.par_right_tag != TagHash(0) {
                 let (ln, has) = {
                     let r = self.doc.store.readings.get(reading.0);
                     let cid = r.parent.unwrap();
-                    let has = r.tags.find(self.par_right_tag.get()) != r.tags.end();
+                    let has = r.tags.find(self.scratch.par_right_tag.get()) != r.tags.end();
                     (self.doc.store.cohorts.get(cid.0).local_number, has)
                 };
-                if ln == self.par_right_pos && has {
+                if ln == self.scratch.par_right_pos && has {
                     m = self.grammar.tag_any;
                 }
             }
@@ -796,7 +832,7 @@ impl super::GrammarApplicator {
         } else if tag.r#type.intersects(T_TARGET) {
             // (13)
             let pc = self.doc.store.readings.get(reading.0).parent;
-            if self.rule_target.is_some() && pc == self.rule_target {
+            if self.scratch.rule_target.is_some() && pc == self.scratch.rule_target {
                 m = self.grammar.tag_any;
             }
         } else if tag.r#type.intersects(T_MARK) {
@@ -814,16 +850,16 @@ impl super::GrammarApplicator {
         } else if tag.r#type.intersects(T_SAME_BASIC) {
             // (16)
             let hp = self.doc.store.readings.get(reading.0).hash_plain;
-            if hp == self.same_basic {
+            if hp == self.scratch.same_basic {
                 m = self.grammar.tag_any;
             }
         } else if tag.r#type.intersects(T_CONTEXT) {
             // (17) previous context frame's position list
-            if self.context_stack.len() > 1 {
-                let idx = self.context_stack.len() - 2;
+            if self.scratch.context_stack.len() > 1 {
+                let idx = self.scratch.context_stack.len() - 2;
                 let crp = tag.context_ref_pos();
                 let pc = self.doc.store.readings.get(reading.0).parent;
-                let list = &self.context_stack[idx].context;
+                let list = &self.scratch.context_stack[idx].context;
                 if crp as usize <= list.len() && pc == list[(crp - 1) as usize] {
                     m = self.grammar.tag_any;
                 }
@@ -831,7 +867,7 @@ impl super::GrammarApplicator {
         }
 
         if m != 0 {
-            self.match_single += 1;
+            self.diag.match_single += 1;
             retval = m;
         }
         retval
@@ -1063,10 +1099,10 @@ impl super::GrammarApplicator {
     ) -> bool {
         if !bypass_index && !unif_mode {
             let rhash = self.doc.store.readings.get(reading.0).hash;
-            if self.index_readingSet_no[set as usize].contains(rhash) {
+            if self.scratch.index_readingSet_no[set as usize].contains(rhash) {
                 return false;
             }
-            if self.index_readingSet_yes[set as usize].contains(rhash) {
+            if self.scratch.index_readingSet_yes[set as usize].contains(rhash) {
                 return true;
             }
         }
@@ -1111,8 +1147,14 @@ impl super::GrammarApplicator {
             );
         } else if stype.intersects(ST_SET_UNIFY) {
             // (c) &&-unified set
-            let usets_idx = self.context_stack.last().unwrap().unif_sets.unwrap();
-            let usets_empty = self.unif_sets_store[usets_idx]
+            let usets_idx = self
+                .scratch
+                .context_stack
+                .last()
+                .unwrap()
+                .unif_sets
+                .unwrap();
+            let usets_empty = self.scratch.unif_sets_store[usets_idx]
                 .get(&snumber)
                 .map(|v| v.empty())
                 .unwrap_or(true);
@@ -1130,23 +1172,23 @@ impl super::GrammarApplicator {
                         bypass_index,
                         tagunif || unif_mode,
                     ) {
-                        self.unif_sets_store[usets_idx]
+                        self.scratch.unif_sets_store[usets_idx]
                             .entry(snumber)
                             .or_default()
                             .insert(tnum);
                     }
                 }
-                retval = !self.unif_sets_store[usets_idx]
+                retval = !self.scratch.unif_sets_store[usets_idx]
                     .get(&snumber)
                     .map(|v| v.empty())
                     .unwrap_or(true);
             } else {
                 // Subsequent evaluations: test the previously-stored sets.
-                let stored: Vec<u32> = self.unif_sets_store[usets_idx]
+                let stored: Vec<u32> = self.scratch.unif_sets_store[usets_idx]
                     .get(&snumber)
                     .map(|v| v.as_slice().to_vec())
                     .unwrap_or_default();
-                let mut sets = self.ss_u32sv.get();
+                let mut sets = self.scratch.ss_u32sv.get();
                 for usi in stored {
                     if self.does_set_match_reading(reading, usi, bypass_index, unif_mode) {
                         sets.insert(usi);
@@ -1206,21 +1248,27 @@ impl super::GrammarApplicator {
                     i += 1;
                 }
                 if m {
-                    self.match_sub += 1;
+                    self.diag.match_sub += 1;
                     retval = true;
                     break;
                 }
                 if failfast {
-                    self.match_sub += 1;
+                    self.diag.match_sub += 1;
                     retval = false;
                     break;
                 }
                 i += 1;
             }
             // Propagate a unified tag across the set's members.
-            if (unif_mode || tagunif) && !self.context_stack.is_empty() {
-                let ut_idx = self.context_stack.last().unwrap().unif_tags.unwrap();
-                let ut = &mut self.unif_tags_store[ut_idx];
+            if (unif_mode || tagunif) && !self.scratch.context_stack.is_empty() {
+                let ut_idx = self
+                    .scratch
+                    .context_stack
+                    .last()
+                    .unwrap()
+                    .unif_tags
+                    .unwrap();
+                let ut = &mut self.scratch.unif_tags_store[ut_idx];
                 let mut tagptr: Option<*const ()> = None;
                 for &s in ssets.iter().take(size) {
                     if let Some(&t) = ut.get(&s) {
@@ -1239,10 +1287,10 @@ impl super::GrammarApplicator {
         // Cache the result.
         if retval {
             let rhash = self.doc.store.readings.get(reading.0).hash;
-            self.index_readingSet_yes[set as usize].insert(rhash);
+            self.scratch.index_readingSet_yes[set as usize].insert(rhash);
         } else if !stype.intersects(ST_TAG_UNIFY) && !unif_mode {
             let rhash = self.doc.store.readings.get(reading.0).hash;
-            self.index_readingSet_no[set as usize].insert(rhash);
+            self.scratch.index_readingSet_no[set as usize].insert(rhash);
         }
         retval
     }
@@ -1270,11 +1318,11 @@ impl super::GrammarApplicator {
             .and_then(|cid| self.grammar.contexts_arena[cid.0].linked);
         if let Some(l) = ctx_test_linked {
             linked = Some(l);
-        } else if !self.tmpl_cntx.linked.is_empty() {
-            min = self.tmpl_cntx.min;
-            max = self.tmpl_cntx.max;
-            linked = self.tmpl_cntx.linked.last().copied();
-            self.tmpl_cntx.linked.pop();
+        } else if !self.scratch.tmpl_cntx.linked.is_empty() {
+            min = self.scratch.tmpl_cntx.min;
+            max = self.scratch.tmpl_cntx.max;
+            linked = self.scratch.tmpl_cntx.linked.last().copied();
+            self.scratch.tmpl_cntx.linked.pop();
             reset = true;
         }
         if let Some(l) = linked {
@@ -1314,11 +1362,11 @@ impl super::GrammarApplicator {
             retval = context.matched_tests;
         }
         if reset {
-            self.tmpl_cntx.linked.push(linked.unwrap());
+            self.scratch.tmpl_cntx.linked.push(linked.unwrap());
         }
         if !retval {
-            self.tmpl_cntx.min = min;
-            self.tmpl_cntx.max = max;
+            self.scratch.tmpl_cntx.min = min;
+            self.scratch.tmpl_cntx.max = max;
         }
         retval
     }
@@ -1337,12 +1385,12 @@ impl super::GrammarApplicator {
         mut context: Option<&mut dSMC_Context>,
     ) -> bool {
         let mut retval = false;
-        let mut utags = self.ss_utags.get();
-        let mut usets = self.ss_usets.get();
-        let orz = if self.context_stack.is_empty() {
+        let mut utags = self.scratch.ss_utags.get();
+        let mut usets = self.scratch.ss_usets.get();
+        let orz = if self.scratch.context_stack.is_empty() {
             0
         } else {
-            self.context_stack.last().unwrap().regexgrp_ct
+            self.scratch.context_stack.last().unwrap().regexgrp_ct
         };
 
         let (stype, snumber) = {
@@ -1350,19 +1398,20 @@ impl super::GrammarApplicator {
             (s.r#type, s.number.get())
         };
         let cur_flags = self
+            .scratch
             .current_rule
             .map(|rid| self.grammar.rule_by_number[rid.0].flags)
             .unwrap_or_default();
         let child_unify = stype.intersects(ST_CHILD_UNIFY);
         let cap_unif = cur_flags.intersects(RF_CAPTURE_UNIF);
 
-        if context.is_some() && !cap_unif && child_unify && !self.context_stack.is_empty() {
+        if context.is_some() && !cap_unif && child_unify && !self.scratch.context_stack.is_empty() {
             let (ut_idx, us_idx) = {
-                let f = self.context_stack.last().unwrap();
+                let f = self.scratch.context_stack.last().unwrap();
                 (f.unif_tags.unwrap(), f.unif_sets.unwrap())
             };
-            utags = self.unif_tags_store[ut_idx].clone();
-            usets = self.unif_sets_store[us_idx].clone();
+            utags = self.scratch.unif_tags_store[ut_idx].clone();
+            usets = self.scratch.unif_sets_store[us_idx].clone();
         }
 
         let bypass = stype.intersects(ST_CHILD_UNIFY | ST_SPECIAL);
@@ -1399,8 +1448,8 @@ impl super::GrammarApplicator {
                 }
                 if attach {
                     self.doc.store.readings.get_mut(reading.0).matched_tests = retval;
-                    if retval && !self.context_stack.is_empty() {
-                        let f = self.context_stack.last_mut().unwrap();
+                    if retval && !self.scratch.context_stack.is_empty() {
+                        let f = self.scratch.context_stack.last_mut().unwrap();
                         f.attach_to.cohort = Some(cohort);
                         f.attach_to.reading = None; // set by doesSetMatchCohortNormal
                         f.attach_to.subreading = Some(reading);
@@ -1414,10 +1463,16 @@ impl super::GrammarApplicator {
             && context.is_some()
             && !cap_unif
             && child_unify
-            && !self.context_stack.is_empty()
+            && !self.scratch.context_stack.is_empty()
         {
-            let ut_idx = self.context_stack.last().unwrap().unif_tags.unwrap();
-            let entry = &mut self.unif_tags_store[ut_idx];
+            let ut_idx = self
+                .scratch
+                .context_stack
+                .last()
+                .unwrap()
+                .unif_tags
+                .unwrap();
+            let entry = &mut self.scratch.unif_tags_store[ut_idx];
             let differs = utags.len() != entry.len() || utags != *entry;
             if differs {
                 std::mem::swap(entry, &mut utags);
@@ -1427,17 +1482,23 @@ impl super::GrammarApplicator {
             && context.is_some()
             && !cap_unif
             && child_unify
-            && !self.context_stack.is_empty()
+            && !self.scratch.context_stack.is_empty()
         {
-            let us_idx = self.context_stack.last().unwrap().unif_sets.unwrap();
-            let entry = &mut self.unif_sets_store[us_idx];
+            let us_idx = self
+                .scratch
+                .context_stack
+                .last()
+                .unwrap()
+                .unif_sets
+                .unwrap();
+            let entry = &mut self.scratch.unif_sets_store[us_idx];
             let differs = usets.len() != entry.len();
             if differs {
                 std::mem::swap(entry, &mut usets);
             }
         }
-        if !retval && !self.context_stack.is_empty() {
-            self.context_stack.last_mut().unwrap().regexgrp_ct = orz;
+        if !retval && !self.scratch.context_stack.is_empty() {
+            self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = orz;
         }
         retval
     }
@@ -1514,13 +1575,17 @@ impl super::GrammarApplicator {
                 if self.does_set_match_cohort_helper(cohort, reading, set, context.as_deref_mut()) {
                     retval = true;
                     // Back-fill the attach_to parent reading (helper only knew the subreading).
-                    if !self.context_stack.is_empty() {
-                        let f = self.context_stack.last().unwrap();
+                    if !self.scratch.context_stack.is_empty() {
+                        let f = self.scratch.context_stack.last().unwrap();
                         if f.attach_to.cohort == Some(cohort)
                             && f.attach_to.subreading == Some(reading)
                         {
-                            self.context_stack.last_mut().unwrap().attach_to.reading =
-                                Some(reading_head);
+                            self.scratch
+                                .context_stack
+                                .last_mut()
+                                .unwrap()
+                                .attach_to
+                                .reading = Some(reading_head);
                         }
                     }
                 }

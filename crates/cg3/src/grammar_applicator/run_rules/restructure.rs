@@ -35,11 +35,18 @@ impl crate::grammar_applicator::GrammarApplicator {
         // State hash before.
         let (phash, chash) = self.rr_window_state_hash(current);
 
-        let cohort = self.context_stack.last().unwrap().target.cohort.unwrap();
+        let cohort = self
+            .scratch
+            .context_stack
+            .last()
+            .unwrap()
+            .target
+            .cohort
+            .unwrap();
         let c = self.doc.store.cohorts.get(cohort.0).local_number;
-        self.dep_deep_seen.clear();
-        self.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
-        self.context_stack.last_mut().unwrap().attach_to =
+        self.scratch.dep_deep_seen.clear();
+        self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+        self.scratch.context_stack.last_mut().unwrap().attach_to =
             crate::grammar_applicator::ReadingSpec::default();
         let mut attach_out: Option<CohortId> = None;
         let res =
@@ -70,8 +77,8 @@ impl crate::grammar_applicator::GrammarApplicator {
             .collect();
         for it in dep_tests {
             self.set_mark_frame(attach);
-            self.dep_deep_seen.clear();
-            self.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+            self.scratch.dep_deep_seen.clear();
+            self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
             let (aparent, alocal) = {
                 let cc = self.doc.store.cohorts.get(attach.0);
                 (cc.parent, cc.local_number)
@@ -139,7 +146,7 @@ impl crate::grammar_applicator::GrammarApplicator {
                 }
             }
             if cohorts_set.empty() || edges.empty() {
-                self.finish_reading_loop = false;
+                self.scratch.finish_reading_loop = false;
                 return;
             }
 
@@ -185,13 +192,13 @@ impl crate::grammar_applicator::GrammarApplicator {
 
         let (phash_n, chash_n) = self.rr_window_state_hash(current);
         if phash != phash_n || chash != chash_n {
-            let hits = self.rule_hits.entry(rnumber).or_insert(0);
+            let hits = self.scratch.rule_hits.entry(rnumber).or_insert(0);
             *hits += 1;
             let hitcount = *hits;
             let limit = self.doc.store.single_windows.get(current.0).cohorts.len() * 100;
             if hitcount as usize > limit {
                 st.should_bail = true;
-                self.finish_cohort_loop = false;
+                self.scratch.finish_cohort_loop = false;
                 return;
             }
             let cohorts_vec: Vec<CohortId> = cohorts_set.as_slice().to_vec();
@@ -480,7 +487,14 @@ impl crate::grammar_applicator::GrammarApplicator {
         ccohort: CohortId,
         withs: Option<&CohortSet>,
     ) {
-        let target = self.context_stack.last().unwrap().target.cohort.unwrap();
+        let target = self
+            .scratch
+            .context_stack
+            .last()
+            .unwrap()
+            .target
+            .cohort
+            .unwrap();
         let dp = self.doc.store.cohorts.get(target.0).dep_parent;
         let has_parent = dp.is_some() && self.doc.cohorts.cohort_map.contains_key(&dp.unwrap());
         if !has_parent {
@@ -684,7 +698,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// K_MERGECOHORTS: resolve the `withs` set via the rule's dep tests, add the
     /// merged cohort, then remove every merged-in cohort. Fixes the `<<<` end tag.
     pub(crate) fn rr_mergecohorts(&mut self, st: &mut RRState, rule: RuleId) {
-        self.index_ruleCohort_no.clear(0);
+        self.scratch.index_ruleCohort_no.clear(0);
         let target = self.get_apply_to().cohort.unwrap();
         let mut withs = CohortSet::new();
         withs.insert(target);
@@ -700,13 +714,13 @@ impl crate::grammar_applicator::GrammarApplicator {
             .collect();
         for it in dep_tests {
             {
-                let f = self.context_stack.last_mut().unwrap();
+                let f = self.scratch.context_stack.last_mut().unwrap();
                 f.attach_to = crate::grammar_applicator::ReadingSpec::default();
             }
-            self.merge_with = None;
+            self.scratch.merge_with = None;
             self.set_mark_frame(target);
-            self.dep_deep_seen.clear();
-            self.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+            self.scratch.dep_deep_seen.clear();
+            self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
             let (tparent, tlocal) = {
                 let c = self.doc.store.cohorts.get(target.0);
                 (c.parent, c.local_number)
@@ -718,15 +732,15 @@ impl crate::grammar_applicator::GrammarApplicator {
                 && attach.is_some();
             self.profile_rule_context(tg, rule, it);
             if !tg {
-                self.finish_reading_loop = false;
+                self.scratch.finish_reading_loop = false;
                 return;
             }
             if let Some(at) = self.get_attach_to().cohort {
                 merge_at = at;
-                if let Some(mw) = self.merge_with {
+                if let Some(mw) = self.scratch.merge_with {
                     withs.insert(mw);
                 }
-            } else if let Some(mw) = self.merge_with {
+            } else if let Some(mw) = self.scratch.merge_with {
                 withs.insert(mw);
             } else if let Some(a) = attach {
                 withs.insert(a);
@@ -734,7 +748,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         }
 
         let (cc, mut spaces_in_added_wf) = self.rr_add_cohort(st, rule, merge_at, Some(&withs));
-        self.context_stack.last_mut().unwrap().target.cohort = Some(cc);
+        self.scratch.context_stack.last_mut().unwrap().target.cohort = Some(cc);
 
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
         for c in withs.as_slice().to_vec() {
@@ -794,7 +808,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         }
         self.index_single_window(current);
         st.readings_changed = true;
-        self.reset_cohorts_for_loop = true;
+        self.scratch.reset_cohorts_for_loop = true;
     }
 
     /// K_COPYCOHORT: resolve an `attach` cohort via `rule.dep_target` (+ dep_tests),
@@ -805,12 +819,19 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// `childset1`. Faithful port of the C++ `K_COPYCOHORT` action.
     pub(crate) fn rr_copycohort(&mut self, st: &mut RRState, rule: RuleId, rnumber: u32) {
         let current = st.current;
-        let cohort = self.context_stack.last().unwrap().target.cohort.unwrap();
+        let cohort = self
+            .scratch
+            .context_stack
+            .last()
+            .unwrap()
+            .target
+            .cohort
+            .unwrap();
         let c = self.doc.store.cohorts.get(cohort.0).local_number;
-        self.dep_deep_seen.clear();
-        self.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+        self.scratch.dep_deep_seen.clear();
+        self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
         {
-            let f = self.context_stack.last_mut().unwrap();
+            let f = self.scratch.context_stack.last_mut().unwrap();
             f.attach_to = crate::grammar_applicator::ReadingSpec::default();
         }
         let dep_target = match self.grammar.rule_by_number.get(rule.0).dep_target {
@@ -838,9 +859,9 @@ impl crate::grammar_applicator::GrammarApplicator {
             .copied()
             .collect();
         for it in dep_tests {
-            self.context_stack.last_mut().unwrap().mark = Some(attach);
-            self.dep_deep_seen.clear();
-            self.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+            self.scratch.context_stack.last_mut().unwrap().mark = Some(attach);
+            self.scratch.dep_deep_seen.clear();
+            self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
             let (aparent, alocal) = {
                 let cc = self.doc.store.cohorts.get(attach.0);
                 (cc.parent, cc.local_number)
@@ -1044,7 +1065,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         self.rr_reindex(attach_parent);
         self.index_single_window(attach_parent);
         st.readings_changed = true;
-        self.reset_cohorts_for_loop = true;
+        self.scratch.reset_cohorts_for_loop = true;
     }
 
     /// K_SPLITCOHORT: replace the apply-to cohort with a run of new cohorts built
@@ -1056,7 +1077,7 @@ impl crate::grammar_applicator::GrammarApplicator {
     /// relations. Text is handed to the last new cohort, then the source cohort is
     /// removed. Faithful port of the C++ `K_SPLITCOHORT` action.
     pub(crate) fn rr_splitcohort(&mut self, st: &mut RRState, rule: RuleId) {
-        self.index_ruleCohort_no.clear(0);
+        self.scratch.index_ruleCohort_no.clear(0);
         let current = st.current;
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
 
@@ -1419,7 +1440,7 @@ impl crate::grammar_applicator::GrammarApplicator {
         self.rr_reindex(current);
         self.index_single_window(current);
         st.readings_changed = true;
-        self.reset_cohorts_for_loop = true;
+        self.scratch.reset_cohorts_for_loop = true;
     }
 
     /// SPLITCOHORT `all_cohorts` splice: reproduces

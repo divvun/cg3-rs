@@ -487,7 +487,7 @@ pub fn main_run(args: &[String]) -> i32 {
         // C++: `applicator.profiler = profiler.get();` — move the profiler into
         // the engine for the run (taken back after, for the final write).
         if occ(&options, OPTIONS::PROFILING) {
-            applicator.base_mut().profiler = profiler.take();
+            applicator.base_mut().diag.profiler = profiler.take();
         }
 
         // applicator.runGrammarOnText(*ux_stdin, *ux_stdout); — the ported
@@ -511,7 +511,7 @@ pub fn main_run(args: &[String]) -> i32 {
         grammar = std::mem::take(&mut applicator.base_mut().grammar);
         #[cfg(feature = "profiler")]
         if profiler.is_none() {
-            profiler = applicator.base_mut().profiler.take();
+            profiler = applicator.base_mut().diag.profiler.take();
         }
     }
 

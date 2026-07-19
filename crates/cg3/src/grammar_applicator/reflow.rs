@@ -609,7 +609,7 @@ impl super::GrammarApplicator {
                 .collect();
 
             for (name, targets) in ri {
-                let mut newrel = self.ss_u32sv.get();
+                let mut newrel = self.scratch.ss_u32sv.get();
                 for target in targets {
                     if let Some(&mapped) = {
                         let it = self.doc.deps.relation_map.find(target);
@@ -781,13 +781,16 @@ impl super::GrammarApplicator {
         }
 
         // (3) Replace $1-$9 with the current context frame's capture groups.
-        if let Some(frame) = self.context_stack.last() {
+        if let Some(frame) = self.scratch.context_stack.last() {
             let ct = frame.regexgrp_ct as usize;
             let grps_idx = frame.regexgrps;
             let mut i = 0usize;
             while i < ct && i < 9 {
                 let text: String = match grps_idx {
-                    Some(gi) => self.regexgrps_store[gi].get(i).cloned().unwrap_or_default(),
+                    Some(gi) => self.scratch.regexgrps_store[gi]
+                        .get(i)
+                        .cloned()
+                        .unwrap_or_default(),
                     None => String::new(),
                 };
                 if find_and_replace(&mut tmp, STR_VS[i], &text) > 0 {
