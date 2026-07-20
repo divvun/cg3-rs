@@ -61,7 +61,6 @@ pub enum OPTIONS {
     OUT_CG2,
     OUT_APERTIUM,
     OUT_FST,
-    OUT_MATXIN,
     OUT_NICELINE,
     OUT_PLAIN,
     OUT_JSONL,
@@ -157,12 +156,6 @@ pub fn options_conv() -> options_conv_t {
             'F',
             UOPT_NO_ARG,
             "sets output format to HFST/XFST",
-        ),
-        uo(
-            "out-matxin",
-            'M',
-            UOPT_NO_ARG,
-            "sets output format to Matxin",
         ),
         uo(
             "out-niceline",

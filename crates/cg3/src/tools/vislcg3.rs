@@ -74,6 +74,10 @@ pub fn main_run(args: &[String]) -> i32 {
 
     let occ = |opts: &crate::options::options_t, o: OPTIONS| opts[o as usize].does_occur;
 
+    // --debug: the C++ `debug_level` flag only ever gated verbose diagnostics, so
+    // the port collapses it to "raise the tracing level to DEBUG" (no engine state).
+    super::enable_debug_logging(occ(&options, OPTIONS::DODEBUG));
+
     // --min-binary-revision
     if occ(&options, OPTIONS::VERSION_TOO_OLD) {
         println!("{}", CG3_TOO_OLD);

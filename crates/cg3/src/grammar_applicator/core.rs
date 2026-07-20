@@ -1536,9 +1536,6 @@ impl super::GrammarApplicator {
         if occ(OPTIONS::PIPE_DELETED) {
             self.cfg.pipe_deleted = true;
         }
-        if occ(OPTIONS::DRYRUN) {
-            self.cfg.dry_run = true;
-        }
         if occ(OPTIONS::SINGLERUN) {
             self.cfg.section_max_count = 1;
         }
@@ -1577,14 +1574,9 @@ impl super::GrammarApplicator {
                 1
             };
         }
-        if occ(OPTIONS::DODEBUG) {
-            self.cfg.debug_level = if !val(OPTIONS::DODEBUG).is_empty() {
-                stoul(val(OPTIONS::DODEBUG))
-            } else {
-                1
-            };
-            // C++ `std::cerr << "Debug level set to " << debug_level`: deferred.
-        }
+        // `--debug` (DODEBUG) is handled at the diagnostics layer (it raises the
+        // tracing level to DEBUG), not in the engine — there is no `debug_level`
+        // field. See `tools::enable_debug_logging`, wired from the CLI mains.
         if occ(OPTIONS::PRINT_IDS) {
             self.cfg.print_ids = true;
         }

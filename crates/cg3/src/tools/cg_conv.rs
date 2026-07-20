@@ -7,11 +7,10 @@
 //! the ported drivers need `R: Read + Seek`. FST/plaintext-only options are
 //! stored on the converter's persistent format strategies.
 //!
-//! ## Reproduced bug: `-M` / `--out-matxin` (OUT_MATXIN) unhandled
-//! The C++ output-format switch has NO `case OUT_MATXIN`, so passing `-M` sets
-//! `options_conv[OUT_MATXIN].doesOccur` but never changes `fmt_output` — the
-//! converter silently emits CG instead of Matxin. This is faithfully reproduced
-//! below: the `fmt_output` selection has no OUT_MATXIN arm (marked).
+//! DIVERGENCE: `-M` / `--out-matxin` is not offered. The C++ output-format
+//! switch had no `case OUT_MATXIN`, so `-M` silently emitted CG (neither
+//! FormatConverter has a Matxin arm); the option is removed rather than carried
+//! as a no-op. See plan node `option-wiring`.
 
 use crate::icu_uoptions::u_parseArgs;
 use crate::options_conv::{OPTIONS, options_conv, options_default, options_override};
@@ -222,7 +221,7 @@ pub fn main_conv(args: &[String]) -> i32 {
         applicator.set_fst_wfactor(wfactor);
     }
 
-    // fmt_output selection. NOTE the reproduced OUT_MATXIN bug: no arm for it.
+    // fmt_output selection.
     applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_CG;
     if occ(&options_conv, OPTIONS::OUT_APERTIUM) {
         applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_APERTIUM;
@@ -238,7 +237,6 @@ pub fn main_conv(args: &[String]) -> i32 {
     } else if occ(&options_conv, OPTIONS::OUT_BINARY) {
         applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_BINARY;
     }
-    // BUG (reproduced): `-M` / OUT_MATXIN has no case here, so fmt_output stays CG.
 
     if occ(&options_conv, OPTIONS::UNICODE_TAGS) {
         applicator.base_mut().cfg.unicode_tags = true;

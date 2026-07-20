@@ -86,6 +86,17 @@ impl UOption {
     }
 }
 
+// DIVERGENCE (operator decision): three upstream CLI options are removed, not
+// transcribed, so this enum + table are intentionally NOT a 1:1 mirror of the
+// C++ `options` array (see plan node `option-wiring`):
+//   * `--dry-run`         — dead in the reference too; its gate was deleted
+//                           upstream (declared + written, never read).
+//   * `--out-matxin`      — neither FormatConverter has a Matxin arm, so it
+//                           silently emitted CG; dropped rather than reproducing
+//                           the no-op quirk.
+//   * `--show-tag-hashes` — a stderr hash-dump whose numbers are port-internal
+//                           only (port hashes UTF-8, upstream UTF-16) and which
+//                           relied on the class-static mutable-stream wart.
 // [spec:cg3:def:options.options.options]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OPTIONS {
@@ -126,7 +137,6 @@ pub enum OPTIONS {
     TRACE_NO_REMOVED,
     TRACE_ENCL,
     PIPE_DELETED,
-    DRYRUN,
     SINGLERUN,
     MAXRUNS,
     PROFILING,
@@ -151,7 +161,6 @@ pub enum OPTIONS {
     SHOW_END_TAGS,
     SHOW_UNUSED_SETS,
     SHOW_TAGS,
-    SHOW_TAG_HASHES,
     SHOW_SET_HASHES,
     DUMP_AST,
     NO_BREAK,
@@ -165,7 +174,6 @@ pub enum OPTIONS {
     OUT_CG,
     OUT_APERTIUM,
     OUT_FST,
-    OUT_MATXIN,
     OUT_NICELINE,
     OUT_PLAIN,
     OUT_JSONL,
@@ -370,12 +378,6 @@ pub fn options() -> options_t {
             "read deleted readings as such, instead of as text",
         ),
         UOption::new(
-            "dry-run",
-            '\0',
-            UOPT_NO_ARG,
-            "make no actual changes to the input",
-        ),
-        UOption::new(
             "single-run",
             '\0',
             UOPT_NO_ARG,
@@ -510,12 +512,6 @@ pub fn options() -> options_t {
             "prints a list of unique used tags; implies --grammar-only",
         ),
         UOption::new(
-            "show-tag-hashes",
-            '\0',
-            UOPT_NO_ARG,
-            "prints a list of tags and their hashes as they are parsed during the run",
-        ),
-        UOption::new(
             "show-set-hashes",
             '\0',
             UOPT_NO_ARG,
@@ -592,12 +588,6 @@ pub fn options() -> options_t {
             '\0',
             UOPT_NO_ARG,
             "sets output format to HFST/XFST",
-        ),
-        UOption::new(
-            "out-matxin",
-            '\0',
-            UOPT_NO_ARG,
-            "sets output format to Matxin",
         ),
         UOption::new(
             "out-niceline",

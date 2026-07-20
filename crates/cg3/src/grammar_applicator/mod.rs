@@ -282,7 +282,6 @@ pub struct EngineConfig {
     pub show_end_tags: bool,
     pub unicode_tags: bool,
     pub unique_tags: bool,
-    pub dry_run: bool,
     pub is_conv: bool,
     pub split_mappings: bool,
     pub pipe_deleted: bool,
@@ -306,7 +305,6 @@ pub struct EngineConfig {
     pub trace_rules: uint32IntervalVector,
     pub debug_rules: uint32IntervalVector,
     pub verbosity_level: u32,
-    pub debug_level: u32,
     pub section_max_count: u32,
 
     pub parse_dep: bool,
@@ -355,7 +353,6 @@ impl EngineConfig {
             show_end_tags: false,
             unicode_tags: false,
             unique_tags: false,
-            dry_run: false,
             is_conv: false,
             split_mappings: false,
             pipe_deleted: false,
@@ -379,7 +376,6 @@ impl EngineConfig {
             trace_rules: Default::default(),
             debug_rules: Default::default(),
             verbosity_level: 0,
-            debug_level: 0,
             section_max_count: 0,
 
             parse_dep: false,

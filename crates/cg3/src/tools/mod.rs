@@ -53,22 +53,56 @@ pub mod vislcg3;
 
 // --- Diagnostics ----------------------------------------------------------------
 
+/// Handle to the reloadable level filter installed by [`init_diagnostics`], so
+/// [`enable_debug_logging`] (`--debug`) can raise the verbosity to DEBUG after
+/// the subscriber is already running — the CLI mains install diagnostics before
+/// they parse their options, so the level can't be known up front.
+static LEVEL_HANDLE: std::sync::OnceLock<
+    tracing_subscriber::reload::Handle<
+        tracing_subscriber::filter::LevelFilter,
+        tracing_subscriber::Registry,
+    >,
+> = std::sync::OnceLock::new();
+
 /// Install the process-wide tracing subscriber for the CLI binaries: every
 /// diagnostic the engine emits (the C++ `ux_stderr`/`std::cerr` messages, now
-/// `tracing::{error,warn,info}!` events) is written to stderr, message-first
-/// and timestamp-free so the output stays close to the classic CG-3 stderr
-/// text. Idempotent: a second call (e.g. from tests driving two tool mains in
-/// one process) is a no-op.
+/// `tracing::{error,warn,info,debug}!` events) is written to stderr, message-
+/// first and timestamp-free so the output stays close to the classic CG-3 stderr
+/// text. The level starts at INFO and is reloadable (see [`enable_debug_logging`]).
+/// Idempotent: a second call (e.g. from tests driving two tool mains in one
+/// process) is a no-op.
 pub fn init_diagnostics() {
+    use tracing_subscriber::filter::LevelFilter;
+    use tracing_subscriber::layer::SubscriberExt as _;
     use tracing_subscriber::util::SubscriberInitExt as _;
-    let _ = tracing_subscriber::fmt()
+
+    let (filter, handle) = tracing_subscriber::reload::Layer::new(LevelFilter::INFO);
+    let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .without_time()
         .with_target(false)
-        .with_ansi(false)
-        .with_max_level(tracing::Level::INFO)
-        .finish()
-        .try_init();
+        .with_ansi(false);
+    if tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt_layer)
+        .try_init()
+        .is_ok()
+    {
+        let _ = LEVEL_HANDLE.set(handle);
+    }
+}
+
+/// Raise the diagnostic level to DEBUG when `enabled`. Wired from `--debug` (the
+/// C++ `debug_level` flag, whose numeric level the port collapses to "DEBUG
+/// on"): diagnostics are the only thing `--debug` controlled, so it lives here
+/// rather than as engine state. Takes the flag by value so the caller stays
+/// branch-free. Idempotent, and a no-op if diagnostics were never installed
+/// (e.g. in-process tests).
+pub fn enable_debug_logging(enabled: bool) {
+    use tracing_subscriber::filter::LevelFilter;
+    if enabled && let Some(handle) = LEVEL_HANDLE.get() {
+        let _ = handle.modify(|filter| *filter = LevelFilter::DEBUG);
+    }
 }
 
 // --- Shared version constants (C++ `version.hpp`) ------------------------------

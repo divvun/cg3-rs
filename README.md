@@ -59,9 +59,12 @@ Out of scope by design: the native `libcg3` C API and its language bindings
 `FormatConverter`, used by both `cg-conv` and `vislcg3`, supports every input
 and output arm present in the C++ converter: CG, Apertium, Niceline, plaintext,
 FST, JSONL, and binary. Matxin is available through `cg-proc`, but neither the
-C++ nor Rust `FormatConverter` has a Matxin switch arm. Consequently the
-upstream `cg-conv --out-matxin` quirk is preserved: that option leaves the
-default CG output selected.
+C++ nor Rust `FormatConverter` has a Matxin switch arm — upstream `cg-conv -M` /
+`--out-matxin` therefore silently emitted plain CG. Rather than carry that no-op,
+the port drops the option (along with two other upstream flags that do nothing:
+`--dry-run`, whose gate was already deleted upstream, and `--show-tag-hashes`, a
+stderr hash dump whose values are meaningless in a port that hashes UTF-8 rather
+than UTF-16).
 
 Known edge differences are concentrated around replacements for ICU and
 RapidJSON:
