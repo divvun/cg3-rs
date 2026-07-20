@@ -1,6 +1,6 @@
 [package]
 name = "cg3"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 description = "VISL CG-3 (Constraint Grammar) engine — Rust port"
 license = "GPL-3.0-or-later"
@@ -9,6 +9,12 @@ homepage = "https://github.com/divvun/cg3-rs"
 readme = "README.md"
 keywords = ["constraint-grammar", "nlp", "linguistics", "cg3"]
 categories = ["text-processing"]
+
+[lints.rust]
+# The whole crate — lib, binaries, example, tests — is unsafe-free; the one
+# historically-unsafe construct (address-keyed unification identity) was
+# re-keyed off values. Enforced here so every target inherits the forbid.
+unsafe_code = "forbid"
 
 [lib]
 name = "cg3"

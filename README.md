@@ -50,6 +50,8 @@ use Rust-native mechanisms where that does not change behavior.
 
 Core engine + command-line tools only, **fully compatible with CG-3 grammar
 source and byte-compatible with the current `.cg3b` binary ABI (rev 13898)**.
+The crate contains no `unsafe` code (`unsafe_code = "forbid"`, enforced across
+the library, binaries, and tests).
 Out of scope by design: the native `libcg3` C API and its language bindings
 (SWIG / Python / WASM), and the C++ legacy `.cg3b` reader used for revisions
 10043–10297.
