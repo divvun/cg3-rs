@@ -50,7 +50,7 @@ use crate::tag::{
 };
 use crate::tag_trie::trie_get_tag_list_append;
 use crate::types::{GlobalNumber, TagHash};
-use crate::uextras::{u_fflush, u_fputc, ux_strCaseCompare};
+use crate::uextras::{u_fflush, u_fputc, ux_str_case_compare};
 
 use super::{Engine, Matcher, TmplContext};
 
@@ -416,13 +416,13 @@ impl super::GrammarApplicator {
         self.cfg.mprefix_value = self.grammar.single_tags_list[v.0].hash;
 
         let n = self.grammar.sets_list.capacity() as usize;
-        self.scratch.index_readingSet_yes.clear();
+        self.scratch.index_reading_set_yes.clear();
         self.scratch
-            .index_readingSet_yes
+            .index_reading_set_yes
             .resize_with(n, Default::default);
-        self.scratch.index_readingSet_no.clear();
+        self.scratch.index_reading_set_no.clear();
         self.scratch
-            .index_readingSet_no
+            .index_reading_set_no
             .resize_with(n, Default::default);
 
         if let Some(td_set) = self.grammar.text_delimiters {
@@ -622,10 +622,10 @@ impl Engine<'_> {
     /// mid-run and `GrammarApplicator::reset_indexes` forwards here for setup
     /// callers.
     pub fn reset_indexes(&mut self) {
-        for sv in &mut self.scratch.index_readingSet_yes {
+        for sv in &mut self.scratch.index_reading_set_yes {
             sv.clear(0);
         }
-        for sv in &mut self.scratch.index_readingSet_no {
+        for sv in &mut self.scratch.index_reading_set_no {
             sv.clear(0);
         }
         self.scratch.index_regexp_yes.clear(0);
@@ -1965,7 +1965,7 @@ impl Matcher<'_> {
                     let text = self.grammar.single_tags_list[titer.0].tag.clone();
                     for &iid in &icase_ids {
                         let itext = &self.grammar.single_tags_list[iid.0].tag;
-                        if ux_strCaseCompare(&text, itext) {
+                        if ux_str_case_compare(&text, itext) {
                             self.grammar.single_tags_list[titer.0].r#type |= T_TEXTUAL;
                             reflow = true;
                         }

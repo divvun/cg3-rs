@@ -718,7 +718,8 @@ fn u_get_combining_class(_c: UChar) -> u8 {
 // `throw new std::runtime_error(...)` (a raw POINTER, uncatchable by
 // `catch(const std::exception&)`) has no analog — the std folding path has no
 // `UErrorCode`, so it is simply unreachable here.
-pub fn ux_strCaseCompare(a: &UString, b: &UString) -> bool {
+/// C++ `ux_strCaseCompare`.
+pub fn ux_str_case_compare(a: &UString, b: &UString) -> bool {
     let fold = |s: &str| -> String { s.chars().flat_map(|c| c.to_lowercase()).collect() };
     fold(a) == fold(b)
 }
@@ -1010,7 +1011,7 @@ mod tests {
     }
 
     // ux_simplecasecmp: crude ASCII case-insensitive prefix compare with the
-    // documented lowercase-of-`a` asymmetry; ux_strCaseCompare is full-Unicode.
+    // documented lowercase-of-`a` asymmetry; ux_str_case_compare is full-Unicode.
     // [spec:cg3:sem:uextras.cg3.ux-simplecasecmp-fn/test]
     // [spec:cg3:sem:uextras.cg3.ux-str-case-compare-fn/test]
     #[test]
@@ -1025,16 +1026,16 @@ mod tests {
         // Different letters do not match.
         assert!(!ux_simplecasecmp_sv("abc", "xyz"));
 
-        // ux_strCaseCompare: proper Unicode case-insensitive equality.
-        assert!(ux_strCaseCompare(
+        // ux_str_case_compare: proper Unicode case-insensitive equality.
+        assert!(ux_str_case_compare(
             &"Hello".to_string(),
             &"hello".to_string()
         ));
-        assert!(ux_strCaseCompare(
+        assert!(ux_str_case_compare(
             &"GRüßE".to_string(),
             &"grüße".to_string()
         ));
-        assert!(!ux_strCaseCompare(&"abc".to_string(), &"abd".to_string()));
+        assert!(!ux_str_case_compare(&"abc".to_string(), &"abd".to_string()));
     }
 
     // substr / substr_t::new build a proxy; data() returns the [offset, offset+

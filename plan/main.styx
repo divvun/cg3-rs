@@ -863,6 +863,21 @@ children (
                 title "Rename the non_snake_case fns/fields/enums (the two OPTIONS enums + variants, u_parseArgs, index_readingSet_yes-style fields, TagSet_SubsetOf_TSet-style fns), preserving C++ names in docs; drop the crate-level non_snake_case allow"
                 priority 2
                 deps (idiom-names.types)
+                log (
+                    {
+                        at 2026-07-22T13:50:40.469502Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T13:58:05.276452Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
             }
 
             {

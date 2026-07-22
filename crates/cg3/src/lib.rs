@@ -7,7 +7,6 @@
 //!
 //! Type names are idiomatic Rust CamelCase; each renamed type's doc comment
 //! carries the original C++ name so the 1:1 mapping stays greppable.
-#![allow(non_snake_case)]
 
 // --- Wave 2 foundation layer (pointer-agnostic: containers + utilities) ---
 pub mod arena;

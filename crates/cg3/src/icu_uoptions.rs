@@ -50,8 +50,9 @@ fn at(token: &[UChar], k: usize) -> UChar {
 // faithful port: the option-search loops index `options[0..optionCount]` and
 // capture the matched index `j` (bound is the passed count, not `.len()`),
 // mirroring the C++ `for (j=0; j<optionCount; ++j)` scans.
+/// C++ `u_parseArgs`.
 #[allow(clippy::needless_range_loop)]
-pub fn u_parseArgs(
+pub fn u_parse_args(
     argc: i32,
     argv: &mut [Vec<UChar>],
     option_count: i32,
@@ -197,7 +198,7 @@ mod tests {
         s.chars().collect()
     }
 
-    // Drives `u_parseArgs` across its main branches: a long option flag, a short
+    // Drives `u_parse_args` across its main branches: a long option flag, a short
     // option taking its argument from the same token, a long option taking its
     // argument from the next argv[], a bare non-option that is compacted toward
     // the front (returned in `remaining`), and the `--` stop-processing marker.
@@ -226,7 +227,7 @@ mod tests {
         let argc = argv.len() as i32;
         let n = options.len() as i32;
 
-        let remaining = u_parseArgs(argc, &mut argv, n, &mut options);
+        let remaining = u_parse_args(argc, &mut argv, n, &mut options);
 
         assert!(options[0].does_occur, "--verbose seen");
         assert!(options[1].does_occur, "-g seen");
@@ -245,26 +246,26 @@ mod tests {
     // A required-argument option with no argument available returns the negated
     // index of the offending argv[]. Also checks the `--` marker stops option
     // processing so later dash tokens are treated as non-options.
-    // (u_parseArgs facet lives on the primary test above.)
+    // (u_parse_args facet lives on the primary test above.)
     #[test]
     fn missing_required_arg_errors_and_dashdash_stops() {
         // Missing required argument: -g at end with nothing after it.
         let mut options = [opt("grammar", 'g', UOPT_REQUIRES_ARG)];
         let mut argv = vec![tok("prog"), tok("-g")];
-        let rv = u_parseArgs(argv.len() as i32, &mut argv, 1, &mut options);
+        let rv = u_parse_args(argv.len() as i32, &mut argv, 1, &mut options);
         assert_eq!(rv, -1, "required arg missing -> -i (i==1)");
 
         // Unknown option -> negated index too.
         let mut options2 = [opt("verbose", 'v', UOPT_NO_ARG)];
         let mut argv2 = vec![tok("prog"), tok("--nope")];
-        let rv2 = u_parseArgs(argv2.len() as i32, &mut argv2, 1, &mut options2);
+        let rv2 = u_parse_args(argv2.len() as i32, &mut argv2, 1, &mut options2);
         assert_eq!(rv2, -1);
 
         // `--` stops option processing: "-v" after it is kept as a plain
         // non-option and compacted, and `verbose` is NOT marked.
         let mut options3 = [opt("verbose", 'v', UOPT_NO_ARG)];
         let mut argv3 = vec![tok("prog"), tok("--"), tok("-v")];
-        let remaining = u_parseArgs(argv3.len() as i32, &mut argv3, 1, &mut options3);
+        let remaining = u_parse_args(argv3.len() as i32, &mut argv3, 1, &mut options3);
         assert!(!options3[0].does_occur, "-v after -- is not an option");
         assert_eq!(remaining, 2);
         assert_eq!(argv3[1], tok("-v"));

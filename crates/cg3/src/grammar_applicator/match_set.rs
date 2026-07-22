@@ -41,7 +41,7 @@
 //!     (i.e. not (gc>0 && ctx frame present && frame.regexgrps set)); on non-match
 //!     write `index_regexp_no`.
 //!   - icase: key `make_64(tag.hash, test)`; read/write `index_icase_{no,yes}`.
-//!   - readingSet: `index_readingSet_{no,yes}[set]` keyed by `reading.hash`; only
+//!   - readingSet: `index_reading_set_{no,yes}[set]` keyed by `reading.hash`; only
 //!     consulted/written when `!bypass_index && !unif_mode`; the negative cache is
 //!     additionally skipped when the set is ST_TAG_UNIFY or `unif_mode`.
 //!
@@ -898,10 +898,10 @@ impl Matcher<'_> {
     ) -> bool {
         if !bypass_index && !unif_mode {
             let rhash = self.readings.get(reading.0).hash;
-            if self.scratch.index_readingSet_no[set as usize].contains(rhash) {
+            if self.scratch.index_reading_set_no[set as usize].contains(rhash) {
                 return false;
             }
-            if self.scratch.index_readingSet_yes[set as usize].contains(rhash) {
+            if self.scratch.index_reading_set_yes[set as usize].contains(rhash) {
                 return true;
             }
         }
@@ -1064,10 +1064,10 @@ impl Matcher<'_> {
         // Cache the result.
         if retval {
             let rhash = self.readings.get(reading.0).hash;
-            self.scratch.index_readingSet_yes[set as usize].insert(rhash);
+            self.scratch.index_reading_set_yes[set as usize].insert(rhash);
         } else if !stype.intersects(ST_TAG_UNIFY) && !unif_mode {
             let rhash = self.readings.get(reading.0).hash;
-            self.scratch.index_readingSet_no[set as usize].insert(rhash);
+            self.scratch.index_reading_set_no[set as usize].insert(rhash);
         }
         retval
     }

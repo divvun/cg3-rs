@@ -12,7 +12,7 @@
 //! FormatConverter has a Matxin arm); the option is removed rather than carried
 //! as a no-op. See plan node `option-wiring`.
 
-use crate::icu_uoptions::u_parseArgs;
+use crate::icu_uoptions::u_parse_args;
 use crate::options_conv::{Opt, options_conv, options_default, options_override};
 use crate::options_parser::parse_opts_env;
 
@@ -35,7 +35,7 @@ pub fn main_conv(args: &[String]) -> i32 {
 
     // argc = u_parseArgs(argc, argv, options_conv.size(), options_conv.data());
     let mut argv = to_uargv(args);
-    let argc = u_parseArgs(
+    let argc = u_parse_args(
         argv.len() as i32,
         &mut argv,
         Opt::NumOptionsConv as i32,

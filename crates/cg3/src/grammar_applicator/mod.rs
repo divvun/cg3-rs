@@ -491,8 +491,9 @@ impl Default for Document {
 /// The per-rule / per-window / per-cohort transient state extracted from the C++
 /// `GrammarApplicator` members (the `scratch` bucket of the field triage). This
 /// is a Stage-B re-homing: it has no C++ analog as a type; the members map 1:1
-/// onto the scratch-bucket fields of `GrammarApplicator`, keeping their names,
-/// types, defaults, and per-field C++ reference comments. Every field is cleared
+/// onto the scratch-bucket fields of `GrammarApplicator`, keeping their types,
+/// defaults, and per-field C++ reference comments; names are snake_case, with
+/// each camelCase C++ original on its field doc. Every field is cleared
 /// or reset inside the rule-application loops (`context_stack`, the iterator
 /// pools, the `index_*` caches, the unification/regex-capture stores, the
 /// per-frame loop-control latches, etc.).
@@ -503,12 +504,18 @@ pub struct RuleScratch {
     pub dep_deep_seen: SortedVector<(u32, u32)>,
 
     pub ci_depths: Uint32Vector,
-    pub cohortIterators: BTreeMap<u32, CohortIterator>,
-    pub topologyLeftIters: BTreeMap<u32, TopologyLeftIter>,
-    pub topologyRightIters: BTreeMap<u32, TopologyRightIter>,
-    pub depParentIters: BTreeMap<u32, DepParentIter>,
-    pub depDescendentIters: BTreeMap<u32, DepDescendentIter>,
-    pub depAncestorIters: BTreeMap<u32, DepAncestorIter>,
+    /// C++ `cohortIterators`.
+    pub cohort_iterators: BTreeMap<u32, CohortIterator>,
+    /// C++ `topologyLeftIters`.
+    pub topology_left_iters: BTreeMap<u32, TopologyLeftIter>,
+    /// C++ `topologyRightIters`.
+    pub topology_right_iters: BTreeMap<u32, TopologyRightIter>,
+    /// C++ `depParentIters`.
+    pub dep_parent_iters: BTreeMap<u32, DepParentIter>,
+    /// C++ `depDescendentIters`.
+    pub dep_descendent_iters: BTreeMap<u32, DepDescendentIter>,
+    /// C++ `depAncestorIters`.
+    pub dep_ancestor_iters: BTreeMap<u32, DepAncestorIter>,
 
     pub par_left_tag: TagHash,
     pub par_right_tag: TagHash,
@@ -580,8 +587,10 @@ pub struct RuleScratch {
     pub index_regexp_no: Uint64FlatHashSet,
     pub index_icase_yes: Uint64FlatHashSet,
     pub index_icase_no: Uint64FlatHashSet,
-    pub index_readingSet_yes: Vec<Uint32FlatHashSet>,
-    pub index_readingSet_no: Vec<Uint32FlatHashSet>,
+    /// C++ `index_readingSet_yes`.
+    pub index_reading_set_yes: Vec<Uint32FlatHashSet>,
+    /// C++ `index_readingSet_no`.
+    pub index_reading_set_no: Vec<Uint32FlatHashSet>,
 
     pub reset_cohorts_for_loop: bool,
     pub finish_reading_loop: bool,
@@ -605,12 +614,12 @@ impl RuleScratch {
             dep_deep_seen: Default::default(),
 
             ci_depths: vec![0u32; 6],
-            cohortIterators: Default::default(),
-            topologyLeftIters: Default::default(),
-            topologyRightIters: Default::default(),
-            depParentIters: Default::default(),
-            depDescendentIters: Default::default(),
-            depAncestorIters: Default::default(),
+            cohort_iterators: Default::default(),
+            topology_left_iters: Default::default(),
+            topology_right_iters: Default::default(),
+            dep_parent_iters: Default::default(),
+            dep_descendent_iters: Default::default(),
+            dep_ancestor_iters: Default::default(),
 
             par_left_tag: TagHash(0),
             par_right_tag: TagHash(0),
@@ -653,8 +662,8 @@ impl RuleScratch {
             index_regexp_no: Default::default(),
             index_icase_yes: Default::default(),
             index_icase_no: Default::default(),
-            index_readingSet_yes: Default::default(),
-            index_readingSet_no: Default::default(),
+            index_reading_set_yes: Default::default(),
+            index_reading_set_no: Default::default(),
 
             reset_cohorts_for_loop: false,
             finish_reading_loop: true,

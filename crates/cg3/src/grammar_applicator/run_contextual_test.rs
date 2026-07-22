@@ -662,7 +662,7 @@ impl Matcher<'_> {
                     grammar,
                     registry,
                 );
-                self.scratch.depAncestorIters.insert(key, iter);
+                self.scratch.dep_ancestor_iters.insert(key, iter);
                 it = Some(ItSel::DepAncestor(key));
             } else if test_pos.intersects(POS_DEP_PARENT) {
                 let key = self.scratch.ci_depths[3];
@@ -677,7 +677,7 @@ impl Matcher<'_> {
                     grammar,
                     registry,
                 );
-                self.scratch.depParentIters.insert(key, iter);
+                self.scratch.dep_parent_iters.insert(key, iter);
                 it = Some(ItSel::DepParent(key));
             } else if test_pos.intersects(POS_DEP_GLOB) {
                 let key = self.scratch.ci_depths[4];
@@ -692,7 +692,7 @@ impl Matcher<'_> {
                     grammar,
                     registry,
                 );
-                self.scratch.depDescendentIters.insert(key, iter);
+                self.scratch.dep_descendent_iters.insert(key, iter);
                 it = Some(ItSel::DepGlob(key));
             } else if test_pos.intersects(POS_DEP_CHILD | POS_DEP_SIBLING) {
                 let nc =
@@ -775,19 +775,19 @@ impl Matcher<'_> {
                 let key = self.scratch.ci_depths[1];
                 self.scratch.ci_depths[1] += 1;
                 let iter = TopologyLeftIter::new(Some(cid), Some(test), self.cfg.always_span);
-                self.scratch.topologyLeftIters.insert(key, iter);
+                self.scratch.topology_left_iters.insert(key, iter);
                 it = Some(ItSel::Left(key));
             } else if test_offset > 0 {
                 let key = self.scratch.ci_depths[2];
                 self.scratch.ci_depths[2] += 1;
                 let iter = TopologyRightIter::new(Some(cid), Some(test), self.cfg.always_span);
-                self.scratch.topologyRightIters.insert(key, iter);
+                self.scratch.topology_right_iters.insert(key, iter);
                 it = Some(ItSel::Right(key));
             } else {
                 let key = self.scratch.ci_depths[0];
                 self.scratch.ci_depths[0] += 1;
                 let iter = CohortIterator::new(Some(cid), Some(test), self.cfg.always_span);
-                self.scratch.cohortIterators.insert(key, iter);
+                self.scratch.cohort_iterators.insert(key, iter);
                 it = Some(ItSel::Plain(key));
             }
 
@@ -982,32 +982,32 @@ impl Matcher<'_> {
         match sel {
             ItSel::Plain(k) => self
                 .scratch
-                .cohortIterators
+                .cohort_iterators
                 .get(&k)
                 .and_then(|i| i.current()),
             ItSel::Left(k) => self
                 .scratch
-                .topologyLeftIters
+                .topology_left_iters
                 .get(&k)
                 .and_then(|i| i.base.current()),
             ItSel::Right(k) => self
                 .scratch
-                .topologyRightIters
+                .topology_right_iters
                 .get(&k)
                 .and_then(|i| i.base.current()),
             ItSel::DepParent(k) => self
                 .scratch
-                .depParentIters
+                .dep_parent_iters
                 .get(&k)
                 .and_then(|i| i.base.current()),
             ItSel::DepGlob(k) => self
                 .scratch
-                .depDescendentIters
+                .dep_descendent_iters
                 .get(&k)
                 .and_then(|i| i.base.current()),
             ItSel::DepAncestor(k) => self
                 .scratch
-                .depAncestorIters
+                .dep_ancestor_iters
                 .get(&k)
                 .and_then(|i| i.base.current()),
         }
@@ -1019,22 +1019,22 @@ impl Matcher<'_> {
     fn iter_advance(&mut self, sel: ItSel) {
         match sel {
             ItSel::Plain(k) => {
-                if let Some(i) = self.scratch.cohortIterators.get_mut(&k) {
+                if let Some(i) = self.scratch.cohort_iterators.get_mut(&k) {
                     i.advance();
                 }
             }
             ItSel::Left(k) => {
-                if let Some(i) = self.scratch.topologyLeftIters.get_mut(&k) {
+                if let Some(i) = self.scratch.topology_left_iters.get_mut(&k) {
                     i.advance(self.cohorts, self.grammar);
                 }
             }
             ItSel::Right(k) => {
-                if let Some(i) = self.scratch.topologyRightIters.get_mut(&k) {
+                if let Some(i) = self.scratch.topology_right_iters.get_mut(&k) {
                     i.advance(self.cohorts, self.grammar);
                 }
             }
             ItSel::DepParent(k) => {
-                if let Some(i) = self.scratch.depParentIters.get_mut(&k) {
+                if let Some(i) = self.scratch.dep_parent_iters.get_mut(&k) {
                     i.advance(
                         self.cohorts,
                         self.single_windows,
@@ -1044,12 +1044,12 @@ impl Matcher<'_> {
                 }
             }
             ItSel::DepGlob(k) => {
-                if let Some(i) = self.scratch.depDescendentIters.get_mut(&k) {
+                if let Some(i) = self.scratch.dep_descendent_iters.get_mut(&k) {
                     i.advance();
                 }
             }
             ItSel::DepAncestor(k) => {
-                if let Some(i) = self.scratch.depAncestorIters.get_mut(&k) {
+                if let Some(i) = self.scratch.dep_ancestor_iters.get_mut(&k) {
                     i.advance();
                 }
             }
