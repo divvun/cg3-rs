@@ -37,6 +37,7 @@ use crate::arena::{Arena, CtxId, RuleId, SetId, TagId};
 use crate::flat_unordered_map::{FlatUnorderedMap, Uint32FlatHashMap};
 use crate::interval_vector::uint32IntervalVector;
 use crate::sorted_vector::{sorted_vector, uint32SortedVector};
+use crate::strings::STR_DUMMY;
 use crate::types::{SetNumber, UChar, UString, Uint32Vector, flags_t};
 
 // Sibling grammar-object types (created by parallel agents). Aliased locally so
@@ -79,7 +80,6 @@ const STR_TEXTDELIMITSET: &str = "_S_TEXT_DELIMITERS_";
 const STR_GPREFIX: &str = "_G_";
 const STR_POSITIVE: &str = "POSITIVE";
 const STR_NEGATIVE: &str = "NEGATIVE";
-const STR_DUMMY: &str = "__CG3_DUMMY_STRINGBIT__";
 
 // C++ `enum { ... S_OR = 3, S_PLUS, S_MINUS, ... }` (Strings.hpp). Only the two
 // operators `addSet`/`appendToSet` reference are reproduced here.

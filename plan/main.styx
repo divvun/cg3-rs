@@ -802,4 +802,60 @@ children (
             }
         )
     }
+
+    {
+        id idiom-names
+        title "Finish the idiomization the wave-2 naming policy deferred: drop the three crate-level allows (dead_code, non_camel_case_types, non_snake_case), delete what the compiler reveals, rename the ~61 C++-typedef-named types and the mixed-case fns/fields to idiomatic Rust (C++ name preserved in each doc comment, per the crate's existing method convention), and reduce the scattered allow residue to individually-justified sites; API renames land as 0.3.0"
+        priority 2
+        children (
+            {
+                id idiom-names.dead-code
+                title "Drop the crate-level #![allow(dead_code)] (it can only hide PRIVATE unused code — pub items are never dead) and triage the fallout: delete per the standing rule, or carry an individually-justified targeted allow"
+                priority 2
+                log (
+                    {
+                        at 2026-07-22T13:19:23.008743Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T13:23:57.71464Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Fallout of dropping the crate-level + 5 module-level (inlines/*) dead_code allows was tiny — 3 items: (1) jsonl_applicator's private DEP_NO_PARENT alias, DELETED (the file uses crate::cohort::DEP_NO_PARENT directly); (2) niceline_applicator's private STR_DUMMY duplicate, DELETED — and the other four private copies (format_converter, grammar_applicator/core, mwesplit, grammar) consolidated to import the canonical pub strings::STR_DUMMY; (3) read_contextual_test_10043, KEPT with a targeted allow — it is the annotation home for the scope-excluded legacy-reader rule, unreachable by construction (its only C++ caller's port errors first). Pre-existing item-targeted allows audited: relabeller trie_copy_helper_reintern (reproduced C++ quirk — dead upstream too, documented), matxin test_pr (no C++ definition, annotation home), textual_parser freq_sorter + ParseError.0 (ported shape), profiler sqlite3_exec (kept as annotation home; its STALE doc claim \"Profiler::write calls this\" corrected — write uses execute_batch directly). Every remaining dead_code allow is now item-targeted and justified in its doc."
+                    }
+
+                    {
+                        at 2026-07-22T13:24:05.035599Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
+            }
+
+            {
+                id idiom-names.types
+                title "CamelCase the ~61 C++-typedef-named pub types (options_t, cg3_sformat, dSMC_Context, sorted_vector/uint32SortedVector, trie_t, the swapper/scope_guard RAII family, compare_*/equal_*, *streambuf, …), preserving each C++ name in the doc comment; drop the crate-level non_camel_case_types allow"
+                priority 2
+                deps (idiom-names.dead-code)
+            }
+
+            {
+                id idiom-names.fns-fields
+                title "Rename the non_snake_case fns/fields/enums (the two OPTIONS enums + variants, u_parseArgs, index_readingSet_yes-style fields, TagSet_SubsetOf_TSet-style fns), preserving C++ names in docs; drop the crate-level non_snake_case allow"
+                priority 2
+                deps (idiom-names.types)
+            }
+
+            {
+                id idiom-names.allow-sweep
+                title "Sweep the remaining ~30 targeted allows: remove the module-level duplicates made redundant by the crate-level drops, keep genuinely-justified sites (faithful enum-table index walks, reproduced dead comparisons) with a one-line reason each, and assess the unused_assignments driver sites (flow restructuring, not renames); bump to 0.3.0"
+                priority 2
+                deps (idiom-names.fns-fields)
+            }
+        )
+    }
 )

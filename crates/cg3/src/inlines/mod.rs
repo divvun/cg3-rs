@@ -40,7 +40,6 @@
 //!   for endianness, hand-ported musl `frexp`/`scalbn` for `ldexp`.
 
 #![allow(non_camel_case_types)]
-#![allow(dead_code)]
 
 mod hashing;
 mod io;

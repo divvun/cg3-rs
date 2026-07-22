@@ -43,6 +43,7 @@ use crate::process::Process;
 use crate::reading::Reading;
 use crate::store::RuntimeStore;
 use crate::strings::KEYWORDS;
+use crate::strings::STR_DUMMY;
 use crate::tag::{
     T_CASE_INSENSITIVE, T_DEPENDENCY, T_MAPPING, T_PRESERVE_ESC, T_REGEXP, T_RELATION, T_TEXTUAL,
     T_VARSTRING, Tag,
@@ -66,7 +67,6 @@ use super::{Engine, Matcher, tmpl_context_t};
 // C++ `Strings.hpp` string constants (UTF-16 → UTF-8 &str).
 const STR_BEGINTAG: &str = ">>>";
 const STR_ENDTAG: &str = "<<<";
-const STR_DUMMY: &str = "__CG3_DUMMY_STRINGBIT__";
 const STR_CMD_SETVAR: &str = "<STREAMCMD:SETVAR:";
 const STR_CMD_REMVAR: &str = "<STREAMCMD:REMVAR:";
 const STR_CMD_FLUSH: &str = "<STREAMCMD:FLUSH>";

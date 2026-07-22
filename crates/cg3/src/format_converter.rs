@@ -35,11 +35,10 @@ use crate::jsonl_applicator::{JsonlApplicator, JsonlFormat};
 use crate::niceline_applicator::{NicelineApplicator, NicelineFormat};
 use crate::plaintext_applicator::{PlaintextApplicator, PlaintextFormat};
 use crate::streambuf::bstreambuf;
+use crate::strings::STR_DUMMY;
 use crate::types::UStringView;
 
 const BUF_SIZE: usize = 1000;
-
-const STR_DUMMY: &str = "__CG3_DUMMY_STRINGBIT__";
 
 /// `CG3Quit()` (no args) — the C++ default-branch abort. Faithful: exits(1) with
 /// no diagnostic (the C++ macro passes `__FILE__`/`__LINE__` only under debug;

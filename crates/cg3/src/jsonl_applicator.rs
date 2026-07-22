@@ -64,7 +64,6 @@ const STR_CMD_SETVAR: &str = "<STREAMCMD:SETVAR:";
 const STR_CMD_REMVAR: &str = "<STREAMCMD:REMVAR:";
 
 const CT_REMOVED: crate::cohort::CohortType = crate::cohort::CT_REMOVED;
-const DEP_NO_PARENT: u32 = crate::cohort::DEP_NO_PARENT;
 
 // [spec:cg3:def:jsonl-applicator.cg3.ustring-to-utf8-fn]
 // [spec:cg3:sem:jsonl-applicator.cg3.ustring-to-utf8-fn]

@@ -3,7 +3,6 @@
 //! Split out of the wave-2 monolithic `inlines.rs` (wave 4, w4-file-split-fmt).
 
 #![allow(non_camel_case_types)]
-#![allow(dead_code)]
 
 use crate::types::UString;
 use std::io::{Read, Write};

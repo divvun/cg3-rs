@@ -43,12 +43,12 @@ use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{isnl, ui32};
+use crate::strings::STR_DUMMY;
 use crate::tag::T_WORDFORM;
 use crate::types::TagHash;
 use crate::uextras::{u_fflush, u_fputc};
 
 /// C++ `Strings.hpp` constants (UTF-16 → UTF-8 &str).
-const STR_DUMMY: &str = "__CG3_DUMMY_STRINGBIT__";
 const STR_CMD_SETVAR: &str = "<STREAMCMD:SETVAR:";
 const STR_CMD_REMVAR: &str = "<STREAMCMD:REMVAR:";
 const STR_CMD_FLUSH: &str = "<STREAMCMD:FLUSH>";

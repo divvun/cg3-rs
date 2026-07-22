@@ -9,7 +9,6 @@
 //! is allowed crate-wide so the 1:1 mapping reads cleanly against the source.
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
-#![allow(dead_code)]
 
 // --- Wave 2 foundation layer (pointer-agnostic: containers + utilities) ---
 pub mod arena;

@@ -122,9 +122,10 @@ pub struct Profiler {
 /// the C API `::sqlite3_exec(db, sql, nullptr, nullptr, nullptr)`: run one or more
 /// SQL statements with no per-row callback, no callback arg, and no error-message
 /// out-pointer, returning the result code. The rusqlite equivalent is
-/// [`Connection::execute_batch`] (no callback, no bindings). Exists only so callers
-/// can write `sqlite3_exec(db, q)` with two arguments; `Profiler::write` calls this
-/// for every PRAGMA/DDL/transaction statement.
+/// [`Connection::execute_batch`] (no callback, no bindings), which
+/// `Profiler::write` calls directly for every PRAGMA/DDL/transaction statement
+/// — so this wrapper has no callers in the port (targeted `dead_code` allow;
+/// kept as the annotation home for the ported C++ inline).
 #[cfg(feature = "profiler")]
 #[allow(dead_code)]
 fn sqlite3_exec(db: &Connection, sql: &str) -> Result<(), rusqlite::Error> {

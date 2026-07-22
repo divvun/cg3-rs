@@ -856,7 +856,10 @@ impl BinaryGrammar {
     // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-contextual-test-10043-fn]
     /// OUT OF SCOPE (legacy `_10043` contextual-test reader). ERRORING STUB:
     /// never invoked (its only caller, `read_binary_grammar_10043`, errors out
-    /// first); refuses legacy input and returns error code 1.
+    /// first — hence the targeted `dead_code` allow; the stub is kept as the
+    /// annotation home for the scope-excluded rule); refuses legacy input and
+    /// returns error code 1.
+    #[allow(dead_code)]
     fn read_contextual_test_10043<R: Read>(&mut self, _input: &mut R) -> i32 {
         tracing::error!(
             "Error: legacy .cg3b rev <10373 not supported (readContextualTest_10043 not ported)."

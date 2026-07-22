@@ -39,9 +39,6 @@ use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION};
 use crate::types::TagHash;
 use crate::uextras::{get_line_clean, u_fflush, u_fputc, ux_strip_bom};
 
-/// C++ `Strings.hpp` string constants used by the driver (UTF-16 → UTF-8 &str).
-const STR_DUMMY: &str = "__CG3_DUMMY_STRINGBIT__";
-
 /// C++ `grammar->single_tags[hash]` (operator[]) — resolve a hash to its
 /// `TagId`. operator[] would default-insert a null `Tag*` on a miss (deref
 /// crash); a miss here returns `TagId(0)` which cannot crash — benign for the
