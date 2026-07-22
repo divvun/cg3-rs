@@ -39,8 +39,6 @@
 //! * No external crate is required (std only): `to_be_bytes`/`from_le_bytes`/…
 //!   for endianness, hand-ported musl `frexp`/`scalbn` for `ldexp`.
 
-#![allow(non_camel_case_types)]
-
 mod hashing;
 mod io;
 mod misc;

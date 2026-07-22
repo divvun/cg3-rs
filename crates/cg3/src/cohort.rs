@@ -12,7 +12,7 @@
 //! * Already-id `uint32` fields (`global_number`, `local_number`, `enclosed`,
 //!   `dep_self`, `dep_parent`, `is_pleft`, `is_pright`, `line_number`) and the
 //!   dependency/relation keys stay `u32`.
-//! * `possible_sets` is `boost::dynamic_bitset<>` → [`flags_t`].
+//! * `possible_sets` is `boost::dynamic_bitset<>` → [`DynBitset`](crate::types::DynBitset).
 //!
 //! Container substitutions:
 //! * `bc::flat_map` (boost ordered, sorted-by-key flat map) → [`BTreeMap`]
@@ -26,9 +26,9 @@ use crate::arena::{CohortId, GenArena, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, ui32};
 use crate::reading::{Reading, ReadingList, alloc_reading, alloc_reading_copy, free_reading};
-use crate::sorted_vector::{sorted_vector, uint32SortedVector};
+use crate::sorted_vector::{SortedVector, Uint32SortedVector};
 use crate::store::RuntimeStore;
-use crate::types::{GlobalNumber, UString, flags_t};
+use crate::types::{DynBitset, GlobalNumber, UString};
 use crate::window::{CohortRegistry, DepBookkeeping};
 
 // Cohort `type` bit flags (C++ anonymous enum, OR'd into the `uint8_t type`
@@ -67,7 +67,7 @@ pub const DEP_NO_PARENT: u32 = u32::MAX;
 // [spec:cg3:def:cohort.cg3.relation-ctn]
 /// C++ `typedef bc::flat_map<uint32_t, uint32SortedVector> RelationCtn`.
 /// Ordered flat map → [`BTreeMap`].
-pub type RelationCtn = BTreeMap<u32, uint32SortedVector>;
+pub type RelationCtn = BTreeMap<u32, Uint32SortedVector>;
 
 // [spec:cg3:def:cohort.cg3.cohort-vector]
 /// C++ `typedef std::vector<Cohort*> CohortVector` → `Vec<CohortId>`.
@@ -81,7 +81,7 @@ pub type CohortVector = Vec<CohortId>;
 /// Comparator placeholder for [`CohortSet`] (C++ `struct compare_Cohort;`,
 /// forward-declared, defined in `Cohort.cpp`). Body deferred — see report.
 #[derive(Default, Clone, Copy)]
-pub struct compare_Cohort;
+pub struct CompareCohort;
 
 // PLACEHOLDER `Comparator<CohortId>` so `CohortSet = sorted_vector<CohortId,
 // compare_Cohort>` accessor methods (`size`/`at`/`find_n`/…) resolve. The REAL
@@ -91,7 +91,7 @@ pub struct compare_Cohort;
 // raw `CohortId`. CORRECTNESS: engine code that sorts/searches a CohortSet must
 // use the store-aware helpers (single_window::less_cohort); binary-search via
 // this trait is WRONG — a Wave-3 test-verified reconciliation item.
-impl crate::sorted_vector::Comparator<CohortId> for compare_Cohort {
+impl crate::sorted_vector::Comparator<CohortId> for CompareCohort {
     fn comp(&self, a: &CohortId, b: &CohortId) -> bool {
         a.0 < b.0
     }
@@ -99,12 +99,12 @@ impl crate::sorted_vector::Comparator<CohortId> for compare_Cohort {
 
 // [spec:cg3:def:cohort.cg3.cohort-set]
 /// C++ `typedef sorted_vector<Cohort*, compare_Cohort> CohortSet`.
-pub type CohortSet = sorted_vector<CohortId, compare_Cohort>;
+pub type CohortSet = SortedVector<CohortId, CompareCohort>;
 
 // [spec:cg3:def:cohort.cg3.uint32-to-cohorts-map]
 /// C++ `typedef std::unordered_map<uint32_t, CohortSet> uint32ToCohortsMap`.
 /// `std::unordered_map` → [`std::collections::HashMap`].
-pub type uint32ToCohortsMap = HashMap<u32, CohortSet>;
+pub type Uint32ToCohortsMap = HashMap<u32, CohortSet>;
 
 // [spec:cg3:def:cohort.cg3.cohort]
 /// A cohort: one surface token with its competing [`Reading`](crate::reading::Reading)s.
@@ -138,9 +138,9 @@ pub struct Cohort {
     pub deleted: ReadingList,
     pub delayed: ReadingList,
     pub ignored: ReadingList,
-    pub dep_children: uint32SortedVector,
+    pub dep_children: Uint32SortedVector,
     /// C++ `boost::dynamic_bitset<> possible_sets`.
-    pub possible_sets: flags_t,
+    pub possible_sets: DynBitset,
     pub relations: RelationCtn,
     pub relations_input: RelationCtn,
     pub line_number: u32,
@@ -171,8 +171,8 @@ impl Default for Cohort {
             deleted: ReadingList::new(),
             delayed: ReadingList::new(),
             ignored: ReadingList::new(),
-            dep_children: uint32SortedVector::new(),
-            possible_sets: flags_t::new(),
+            dep_children: Uint32SortedVector::new(),
+            possible_sets: DynBitset::new(),
             relations: RelationCtn::new(),
             relations_input: RelationCtn::new(),
             line_number: 0,

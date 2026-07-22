@@ -20,7 +20,7 @@ use crate::grammar_writer::GrammarWriter;
 use crate::icu_uoptions::u_parseArgs;
 use crate::inlines::{cg3_quit, is_cg3b};
 use crate::options::{
-    OPTIONS, grammar_options_default, grammar_options_override, options, options_default,
+    Opt, grammar_options_default, grammar_options_override, options, options_default,
     options_override,
 };
 use crate::options_parser::{parse_opts, parse_opts_env};
@@ -57,13 +57,13 @@ pub fn main_run(args: &[String]) -> i32 {
     let mut argc = u_parseArgs(
         argv.len() as i32,
         &mut argv,
-        OPTIONS::NUM_OPTIONS as i32,
+        Opt::NumOptions as i32,
         &mut options,
     );
 
     parse_opts_env("CG3_DEFAULT", &mut options_default);
     parse_opts_env("CG3_OVERRIDE", &mut options_override);
-    for i in 0..OPTIONS::NUM_OPTIONS as usize {
+    for i in 0..Opt::NumOptions as usize {
         if options_default[i].does_occur && !options[i].does_occur {
             options[i] = options_default[i].clone();
         }
@@ -72,23 +72,20 @@ pub fn main_run(args: &[String]) -> i32 {
         }
     }
 
-    let occ = |opts: &crate::options::options_t, o: OPTIONS| opts[o as usize].does_occur;
+    let occ = |opts: &crate::options::OptionsTable, o: Opt| opts[o as usize].does_occur;
 
     // --debug: the C++ `debug_level` flag only ever gated verbose diagnostics, so
     // the port collapses it to "raise the tracing level to DEBUG" (no engine state).
-    super::enable_debug_logging(occ(&options, OPTIONS::DODEBUG));
+    super::enable_debug_logging(occ(&options, Opt::Dodebug));
 
     // --min-binary-revision
-    if occ(&options, OPTIONS::VERSION_TOO_OLD) {
+    if occ(&options, Opt::VersionTooOld) {
         println!("{}", CG3_TOO_OLD);
         return 0;
     }
 
     // --version / --help print the version line to stdout.
-    if occ(&options, OPTIONS::VERSION)
-        || occ(&options, OPTIONS::HELP1)
-        || occ(&options, OPTIONS::HELP2)
-    {
+    if occ(&options, Opt::Version) || occ(&options, Opt::Help1) || occ(&options, Opt::Help2) {
         println!(
             "VISL CG-3 Disambiguator version {}.{}.{}.{}",
             CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
@@ -102,20 +99,17 @@ pub fn main_run(args: &[String]) -> i32 {
         return argc;
     }
 
-    if occ(&options, OPTIONS::VERSION) {
+    if occ(&options, Opt::Version) {
         println!("{}", CG3_COPYRIGHT_STRING);
         return U_ZERO_ERROR;
     }
 
-    if !occ(&options, OPTIONS::GRAMMAR)
-        && !occ(&options, OPTIONS::HELP1)
-        && !occ(&options, OPTIONS::HELP2)
-    {
+    if !occ(&options, Opt::Grammar) && !occ(&options, Opt::Help1) && !occ(&options, Opt::Help2) {
         tracing::error!("Error: No grammar specified - cannot continue!");
         argc = -argc;
     }
 
-    if argc < 0 || occ(&options, OPTIONS::HELP1) || occ(&options, OPTIONS::HELP2) {
+    if argc < 0 || occ(&options, Opt::Help1) || occ(&options, Opt::Help2) {
         print_help(&options);
         return if argc < 0 {
             U_ILLEGAL_ARGUMENT_ERROR
@@ -126,30 +120,30 @@ pub fn main_run(args: &[String]) -> i32 {
 
     // --show-* / --dump-ast imply --grammar-only; --grammar-only implies --verbose;
     // --quiet unsets --verbose; --verbose 0 unsets it too.
-    if occ(&options, OPTIONS::SHOW_UNUSED_SETS)
-        || occ(&options, OPTIONS::SHOW_SET_HASHES)
-        || occ(&options, OPTIONS::DUMP_AST)
+    if occ(&options, Opt::ShowUnusedSets)
+        || occ(&options, Opt::ShowSetHashes)
+        || occ(&options, Opt::DumpAst)
     {
-        options[OPTIONS::GRAMMAR_ONLY as usize].does_occur = true;
+        options[Opt::GrammarOnly as usize].does_occur = true;
     }
-    if occ(&options, OPTIONS::GRAMMAR_ONLY) && !occ(&options, OPTIONS::VERBOSE) {
-        options[OPTIONS::VERBOSE as usize].does_occur = true;
+    if occ(&options, Opt::GrammarOnly) && !occ(&options, Opt::Verbose) {
+        options[Opt::Verbose as usize].does_occur = true;
     }
-    if occ(&options, OPTIONS::QUIET) {
-        options[OPTIONS::VERBOSE as usize].does_occur = false;
+    if occ(&options, Opt::Quiet) {
+        options[Opt::Verbose as usize].does_occur = false;
     }
-    if occ(&options, OPTIONS::VERBOSE)
-        && !options[OPTIONS::VERBOSE as usize].value.is_empty()
-        && options[OPTIONS::VERBOSE as usize].value == "0"
+    if occ(&options, Opt::Verbose)
+        && !options[Opt::Verbose as usize].value.is_empty()
+        && options[Opt::Verbose as usize].value == "0"
     {
-        options[OPTIONS::VERBOSE as usize].does_occur = false;
+        options[Opt::Verbose as usize].does_occur = false;
     }
 
     // ICU init / codepage / locale dropped (UTF-8 port).
-    if occ(&options, OPTIONS::CODEPAGE_GLOBAL)
-        || occ(&options, OPTIONS::CODEPAGE_INPUT)
-        || occ(&options, OPTIONS::CODEPAGE_OUTPUT)
-        || occ(&options, OPTIONS::CODEPAGE_GRAMMAR)
+    if occ(&options, Opt::CodepageGlobal)
+        || occ(&options, Opt::CodepageInput)
+        || occ(&options, Opt::CodepageOutput)
+        || occ(&options, Opt::CodepageGrammar)
     {
         tracing::warn!(
             "Warning: The -C and --codepage-* option are deprecated and now default to UTF-8"
@@ -162,22 +156,22 @@ pub fn main_run(args: &[String]) -> i32 {
     // is false and those checks never fire; the C++ proceeds with a dead stream
     // (output silently discarded / input reads as empty). Mirrored here with
     // sink()/empty-input fallbacks. The `--stdin` stat() failure DOES exit.
-    let mut ux_stdout: Box<dyn Write> = if occ(&options, OPTIONS::STDOUT) {
-        match std::fs::File::create(&options[OPTIONS::STDOUT as usize].value) {
+    let mut ux_stdout: Box<dyn Write> = if occ(&options, Opt::Stdout) {
+        match std::fs::File::create(&options[Opt::Stdout as usize].value) {
             Ok(f) => Box::new(f),
             Err(_) => Box::new(std::io::sink()), // dead ofstream — see NOTE.
         }
     } else {
         Box::new(std::io::stdout())
     };
-    if occ(&options, OPTIONS::STDERR) {
+    if occ(&options, Opt::Stderr) {
         // std::ofstream(options[STDERR].value) — created (same truncation side
         // effect as C++), but NOTE: the engine's `ux_stderr` is an elided
         // placeholder in this port, so diagnostics still go to process stderr.
-        let _ = std::fs::File::create(&options[OPTIONS::STDERR as usize].value);
+        let _ = std::fs::File::create(&options[Opt::Stderr as usize].value);
     }
-    let ux_stdin_file: Option<std::fs::File> = if occ(&options, OPTIONS::STDIN) {
-        let path = options[OPTIONS::STDIN as usize].value.clone();
+    let ux_stdin_file: Option<std::fs::File> = if occ(&options, Opt::Stdin) {
+        let path = options[Opt::Stdin as usize].value.clone();
         // int serr = stat(path, &info); if (serr) { ... CG3Quit(1); } — stat
         // returns -1 on failure, so the message prints "error -1".
         if std::fs::metadata(&path).is_err() {
@@ -190,10 +184,10 @@ pub fn main_run(args: &[String]) -> i32 {
         None
     };
 
-    let verbose = occ(&options, OPTIONS::VERBOSE);
+    let verbose = occ(&options, Opt::Verbose);
 
     // Read the grammar's first 4 bytes to detect binary vs text.
-    let grammar_path = options[OPTIONS::GRAMMAR as usize].value.clone();
+    let grammar_path = options[Opt::Grammar as usize].value.clone();
     let mut head = [0u8; 4];
     {
         let mut input = match std::fs::File::open(&grammar_path) {
@@ -214,11 +208,11 @@ pub fn main_run(args: &[String]) -> i32 {
         if verbose {
             tracing::info!("Info: Binary grammar detected.");
         }
-        if occ(&options, OPTIONS::DUMP_AST) {
+        if occ(&options, Opt::DumpAst) {
             tracing::error!("Error: --dump-ast is for textual grammars only!");
             cg3_quit(1, None, 0);
         }
-        if occ(&options, OPTIONS::PROFILING) {
+        if occ(&options, Opt::Profiling) {
             tracing::error!("Error: --profile is for textual grammars only!");
             cg3_quit(1, None, 0);
         }
@@ -227,13 +221,13 @@ pub fn main_run(args: &[String]) -> i32 {
     // --profile persists to a SQLite database, which only the `profiler` feature
     // links in; reject it early otherwise (recording would silently never write).
     #[cfg(not(feature = "profiler"))]
-    if occ(&options, OPTIONS::PROFILING) {
+    if occ(&options, Opt::Profiling) {
         tracing::error!("Error: --profile requires building cg3 with the `profiler` feature.");
         cg3_quit(1, None, 0);
     }
 
     // Profiler for --profile (textual grammars only).
-    let mut profiler: Option<Profiler> = if occ(&options, OPTIONS::PROFILING) {
+    let mut profiler: Option<Profiler> = if occ(&options, Opt::Profiling) {
         Some(Profiler::default())
     } else {
         None
@@ -241,7 +235,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
     // Parse the grammar into an owned Grammar (parser owns it; moved out after).
     let verbosity_level: u32 = if verbose {
-        let v = &options[OPTIONS::VERBOSE as usize].value;
+        let v = &options[Opt::Verbose as usize].value;
         if !v.is_empty() {
             v.parse().unwrap_or(1)
         } else {
@@ -256,11 +250,11 @@ pub fn main_run(args: &[String]) -> i32 {
         if verbose {
             parser.set_verbosity(verbosity_level);
         }
-        parser.set_compatible(occ(&options, OPTIONS::VISLCGCOMPAT));
+        parser.set_compatible(occ(&options, Opt::Vislcgcompat));
         // C++ main.cpp wires --nrules/--nrules-v on the IGrammarParser base for
         // both parsers; BinaryGrammar_read.cpp applies them at rule read time.
-        if occ(&options, OPTIONS::NRULES) {
-            let pat = &options[OPTIONS::NRULES as usize].value;
+        if occ(&options, Opt::Nrules) {
+            let pat = &options[Opt::Nrules as usize].value;
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules = Some(re),
                 Err(e) => {
@@ -273,8 +267,8 @@ pub fn main_run(args: &[String]) -> i32 {
                 }
             }
         }
-        if occ(&options, OPTIONS::NRULES_INV) {
-            let pat = &options[OPTIONS::NRULES_INV as usize].value;
+        if occ(&options, Opt::NrulesInv) {
+            let pat = &options[Opt::NrulesInv as usize].value;
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules_inv = Some(re),
                 Err(e) => {
@@ -295,17 +289,17 @@ pub fn main_run(args: &[String]) -> i32 {
         g.verbosity_level = verbosity_level;
         g
     } else {
-        let mut parser = TextualParser::new(Grammar::default(), occ(&options, OPTIONS::DUMP_AST));
+        let mut parser = TextualParser::new(Grammar::default(), occ(&options, Opt::DumpAst));
         if verbose {
             parser.set_verbosity(verbosity_level);
         }
-        parser.set_compatible(occ(&options, OPTIONS::VISLCGCOMPAT));
+        parser.set_compatible(occ(&options, Opt::Vislcgcompat));
 
         // if (options[NRULES].doesOccur) { parser->nrules = uregex_open(...); }
         // (ICU converter dance dropped in the UTF-8 port; compile failure exits
         // like the C++ status check.)
-        if occ(&options, OPTIONS::NRULES) {
-            let pat = &options[OPTIONS::NRULES as usize].value;
+        if occ(&options, Opt::Nrules) {
+            let pat = &options[Opt::Nrules as usize].value;
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules = Some(re),
                 Err(e) => {
@@ -318,8 +312,8 @@ pub fn main_run(args: &[String]) -> i32 {
                 }
             }
         }
-        if occ(&options, OPTIONS::NRULES_INV) {
-            let pat = &options[OPTIONS::NRULES_INV as usize].value;
+        if occ(&options, Opt::NrulesInv) {
+            let pat = &options[Opt::NrulesInv as usize].value;
             match regex::Regex::new(pat) {
                 Ok(re) => parser.nrules_inv = Some(re),
                 Err(e) => {
@@ -350,7 +344,7 @@ pub fn main_run(args: &[String]) -> i32 {
         profiler = parser.profiler.take();
 
         // --dump-ast prints the parse tree to *ux_stdout.
-        if occ(&options, OPTIONS::DUMP_AST) {
+        if occ(&options, Opt::DumpAst) {
             parser.print_ast(&mut ux_stdout);
         }
         // --profile: capture the grammar AST into the profiler string table.
@@ -373,7 +367,7 @@ pub fn main_run(args: &[String]) -> i32 {
     if !grammar.cmdargs_override.is_empty() {
         parse_opts(&grammar.cmdargs_override, &mut grammar_options_override);
     }
-    for i in 0..OPTIONS::NUM_OPTIONS as usize {
+    for i in 0..Opt::NumOptions as usize {
         if grammar_options_default[i].does_occur && !options[i].does_occur {
             options[i] = grammar_options_default[i].clone();
         }
@@ -383,8 +377,8 @@ pub fn main_run(args: &[String]) -> i32 {
     }
 
     // --prefix: override the mapping prefix (must match a binary grammar's).
-    if occ(&options, OPTIONS::MAPPING_PREFIX) {
-        let mp = options[OPTIONS::MAPPING_PREFIX as usize]
+    if occ(&options, Opt::MappingPrefix) {
+        let mp = options[Opt::MappingPrefix as usize]
             .value
             .chars()
             .next()
@@ -402,8 +396,8 @@ pub fn main_run(args: &[String]) -> i32 {
         tracing::info!("Reindexing grammar...");
     }
     if let Err(e) = grammar.reindex(
-        occ(&options, OPTIONS::SHOW_UNUSED_SETS),
-        occ(&options, OPTIONS::SHOW_TAGS),
+        occ(&options, Opt::ShowUnusedSets),
+        occ(&options, Opt::ShowTags),
     ) {
         crate::error::cg3_exit(e.exit_code());
     }
@@ -428,7 +422,7 @@ pub fn main_run(args: &[String]) -> i32 {
         }
     }
 
-    if occ(&options, OPTIONS::PROFILING) && occ(&options, OPTIONS::GRAMMAR_ONLY) {
+    if occ(&options, Opt::Profiling) && occ(&options, Opt::GrammarOnly) {
         tracing::error!("Error: Cannot gather profiling data with no input to run grammar on.");
         cg3_quit(1, None, 0);
     }
@@ -436,25 +430,25 @@ pub fn main_run(args: &[String]) -> i32 {
     // --- The applicator run (FormatConverter). Base members are reached through
     // the converter's public shared-base accessors (`base()`/`base_mut()`) — the
     // composition analogue of the C++ public inheritance. ---
-    if !occ(&options, OPTIONS::GRAMMAR_ONLY) {
-        use crate::grammar_applicator::{GrammarApplicator, cg3_sformat};
+    if !occ(&options, Opt::GrammarOnly) {
+        use crate::grammar_applicator::{GrammarApplicator, StreamFormatKind};
         let base = GrammarApplicator::new(Grammar::default());
         let mut applicator = crate::format_converter::FormatConverter::new(base);
-        applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_CG;
-        if occ(&options, OPTIONS::IN_CG) {
-            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_CG;
-        } else if occ(&options, OPTIONS::IN_NICELINE) {
-            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_NICELINE;
-        } else if occ(&options, OPTIONS::IN_APERTIUM) {
-            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_APERTIUM;
-        } else if occ(&options, OPTIONS::IN_FST) {
-            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_FST;
-        } else if occ(&options, OPTIONS::IN_PLAIN) {
-            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_PLAIN;
-        } else if occ(&options, OPTIONS::IN_JSONL) {
-            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_JSONL;
-        } else if occ(&options, OPTIONS::IN_BINARY) {
-            applicator.base_mut().cfg.fmt_input = cg3_sformat::CG3SF_BINARY;
+        applicator.base_mut().cfg.fmt_input = StreamFormatKind::Cg;
+        if occ(&options, Opt::InCg) {
+            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Cg;
+        } else if occ(&options, Opt::InNiceline) {
+            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Niceline;
+        } else if occ(&options, Opt::InApertium) {
+            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Apertium;
+        } else if occ(&options, Opt::InFst) {
+            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Fst;
+        } else if occ(&options, Opt::InPlain) {
+            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Plain;
+        } else if occ(&options, Opt::InJsonl) {
+            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Jsonl;
+        } else if occ(&options, Opt::InBinary) {
+            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Binary;
         }
 
         // applicator.setGrammar(&grammar); — the ported base OWNS its grammar,
@@ -471,25 +465,25 @@ pub fn main_run(args: &[String]) -> i32 {
             crate::error::cg3_exit(e.exit_code());
         }
 
-        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_CG;
-        if occ(&options, OPTIONS::OUT_APERTIUM) {
-            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_APERTIUM;
+        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Cg;
+        if occ(&options, Opt::OutApertium) {
+            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Apertium;
             applicator.base_mut().cfg.unicode_tags = true;
-        } else if occ(&options, OPTIONS::OUT_FST) {
-            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_FST;
-        } else if occ(&options, OPTIONS::OUT_NICELINE) {
-            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_NICELINE;
-        } else if occ(&options, OPTIONS::OUT_PLAIN) {
-            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_PLAIN;
-        } else if occ(&options, OPTIONS::OUT_JSONL) {
-            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_JSONL;
-        } else if occ(&options, OPTIONS::OUT_BINARY) {
-            applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_BINARY;
+        } else if occ(&options, Opt::OutFst) {
+            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Fst;
+        } else if occ(&options, Opt::OutNiceline) {
+            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Niceline;
+        } else if occ(&options, Opt::OutPlain) {
+            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Plain;
+        } else if occ(&options, Opt::OutJsonl) {
+            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Jsonl;
+        } else if occ(&options, Opt::OutBinary) {
+            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Binary;
         }
 
         // C++: `applicator.profiler = profiler.get();` — move the profiler into
         // the engine for the run (taken back after, for the final write).
-        if occ(&options, OPTIONS::PROFILING) {
+        if occ(&options, Opt::Profiling) {
             applicator.base_mut().diag.profiler = profiler.take();
         }
 
@@ -519,8 +513,8 @@ pub fn main_run(args: &[String]) -> i32 {
     }
 
     // --grammar-out: write the grammar in textual form. LIVE.
-    if occ(&options, OPTIONS::GRAMMAR_OUT) {
-        let path = &options[OPTIONS::GRAMMAR_OUT as usize].value;
+    if occ(&options, Opt::GrammarOut) {
+        let path = &options[Opt::GrammarOut as usize].value;
         match std::fs::File::create(path) {
             Ok(mut gout) => {
                 let mut writer = GrammarWriter::grammar_writer(&grammar);
@@ -534,8 +528,8 @@ pub fn main_run(args: &[String]) -> i32 {
     }
 
     // --grammar-bin: write the grammar in binary form. LIVE.
-    if occ(&options, OPTIONS::GRAMMAR_BIN) {
-        let path = options[OPTIONS::GRAMMAR_BIN as usize].value.clone();
+    if occ(&options, Opt::GrammarBin) {
+        let path = options[Opt::GrammarBin as usize].value.clone();
         match std::fs::File::create(&path) {
             Ok(mut gout) => {
                 let mut writer = BinaryGrammar::binary_grammar(grammar);
@@ -555,7 +549,7 @@ pub fn main_run(args: &[String]) -> i32 {
     // --profile: write the profiling database.
     #[cfg(feature = "profiler")]
     if let Some(p) = profiler.as_ref() {
-        let _ = p.write(&options[OPTIONS::PROFILING as usize].value);
+        let _ = p.write(&options[Opt::Profiling as usize].value);
     }
 
     // u_cleanup dropped.
@@ -566,7 +560,7 @@ pub fn main_run(args: &[String]) -> i32 {
 // faithful port: `for (i=0; i<NUM_OPTIONS; ++i)` walks the enum-sized option
 // table by index (bound is the enum constant, not `.len()`), mirroring the C++.
 #[allow(clippy::needless_range_loop)]
-fn print_help(options: &crate::options::options_t) {
+fn print_help(options: &crate::options::OptionsTable) {
     let mut out = String::new();
     out.push_str("Usage: vislcg3 [OPTIONS]\n");
     out.push('\n');
@@ -579,12 +573,12 @@ fn print_help(options: &crate::options::options_t) {
     out.push_str("Options:\n");
 
     let mut longest = 0usize;
-    for i in 0..OPTIONS::NUM_OPTIONS as usize {
+    for i in 0..Opt::NumOptions as usize {
         if !options[i].description.is_empty() {
             longest = longest.max(options[i].long_name.map_or(0, |s| s.len()));
         }
     }
-    for i in 0..OPTIONS::NUM_OPTIONS as usize {
+    for i in 0..Opt::NumOptions as usize {
         if !options[i].description.is_empty() {
             out.push(' ');
             if options[i].short_name != '\0' {

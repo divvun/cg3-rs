@@ -35,10 +35,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::arena::{Arena, CtxId, RuleId, SetId, TagId};
 use crate::flat_unordered_map::{FlatUnorderedMap, Uint32FlatHashMap};
-use crate::interval_vector::uint32IntervalVector;
-use crate::sorted_vector::{sorted_vector, uint32SortedVector};
+use crate::interval_vector::Uint32IntervalVector;
+use crate::sorted_vector::{SortedVector, Uint32SortedVector};
 use crate::strings::STR_DUMMY;
-use crate::types::{SetNumber, UChar, UString, Uint32Vector, flags_t};
+use crate::types::{DynBitset, SetNumber, UChar, UString, Uint32Vector};
 
 // Sibling grammar-object types (created by parallel agents). Aliased locally so
 // the arena declarations read against a stable name.
@@ -56,14 +56,14 @@ use crate::set::{
     MASK_ST_UNIFY, ST_ANY, ST_CHILD_UNIFY, ST_SET_UNIFY, ST_SPECIAL, ST_STATIC, ST_TAG_UNIFY,
     ST_USED,
 };
-use crate::strings::KEYWORDS;
+use crate::strings::Keywords;
 use crate::tag::{
     T_ANY, T_CASE_INSENSITIVE, T_FAILFAST, T_MAPPING, T_SPECIAL, T_TEXTUAL, T_VARSTRING, TagList,
     TagVector, TagVectorSet, fill_tagvector,
 };
 use crate::tag_trie::{
-    trie_delete, trie_get_tag_list, trie_get_tag_list_append, trie_get_tags, trie_get_tags_into,
-    trie_has_type, trie_insert, trie_singular, trie_t,
+    TagTrie, trie_delete, trie_get_tag_list, trie_get_tag_list_append, trie_get_tags,
+    trie_get_tags_into, trie_has_type, trie_insert, trie_singular,
 };
 
 // ---------------------------------------------------------------------------
@@ -94,16 +94,16 @@ const S_MINUS: u32 = 5;
 /// order (and GrammarWriter's template output). C++ `unordered_map` order is a
 /// stdlib artifact (libc++ vs libstdc++ already differ); key order makes OUR
 /// output deterministic across runs and builds. The reader is order-agnostic.
-pub type contexts_t = BTreeMap<u32, CtxId>;
+pub type Contexts = BTreeMap<u32, CtxId>;
 
 // [spec:cg3:def:grammar.cg3.grammar.set-name-seeds-t]
 /// C++ `typedef std::unordered_map<UString, uint32_t, hash_ustring> set_name_seeds_t`.
 /// UTF-8 `String` keys; `hash_ustring` collapses into the std hasher.
-pub type set_name_seeds_t = HashMap<UString, u32>;
+pub type SetNameSeeds = HashMap<UString, u32>;
 
 // [spec:cg3:def:grammar.cg3.grammar.static-sets-t]
 /// C++ `typedef std::vector<UString> static_sets_t`.
-pub type static_sets_t = Vec<UString>;
+pub type StaticSets = Vec<UString>;
 
 // [spec:cg3:def:grammar.cg3.grammar.regex-tags-t]
 /// C++ `typedef std::set<URegularExpression*> regex_tags_t`.
@@ -113,7 +113,7 @@ pub type static_sets_t = Vec<UString>;
 /// (`regex`-crate wiring is a later concern), so the set is keyed by the owning
 /// tag's `TagId`; the compiled regex is reached via that tag. To reconcile once
 /// `Tag::regexp` is defined.
-pub type regex_tags_t = BTreeSet<TagId>;
+pub type RegexTags = BTreeSet<TagId>;
 
 // [spec:cg3:def:grammar.cg3.grammar.icase-tags-t]
 /// C++ `typedef TagSortedVector icase_tags_t` (`sorted_vector<Tag*, compare_Tag>`).
@@ -121,25 +121,25 @@ pub type regex_tags_t = BTreeSet<TagId>;
 /// NOTE: the custom `compare_Tag` comparator (orders by tag content) is not yet
 /// ported; this uses the default `Less` ordering over `TagId`. To reconcile when
 /// `compare_Tag` lands.
-pub type icase_tags_t = sorted_vector<TagId>;
+pub type IcaseTags = SortedVector<TagId>;
 
 // [spec:cg3:def:grammar.cg3.grammar.rules-by-set-t]
 /// C++ `typedef std::unordered_map<uint32_t, uint32IntervalVector> rules_by_set_t`.
-pub type rules_by_set_t = HashMap<u32, uint32IntervalVector>;
+pub type RulesBySet = HashMap<u32, Uint32IntervalVector>;
 
 // [spec:cg3:def:grammar.cg3.grammar.rules-by-tag-t]
 /// C++ `typedef std::unordered_map<uint32_t, uint32IntervalVector> rules_by_tag_t`.
-pub type rules_by_tag_t = HashMap<u32, uint32IntervalVector>;
+pub type RulesByTag = HashMap<u32, Uint32IntervalVector>;
 
 // [spec:cg3:def:grammar.cg3.grammar.sets-by-tag-t]
 /// C++ `typedef std::unordered_map<uint32_t, boost::dynamic_bitset<>> sets_by_tag_t`.
 /// The `dynamic_bitset` value becomes `crate::types::flags_t`.
-pub type sets_by_tag_t = HashMap<u32, flags_t>;
+pub type SetsByTag = HashMap<u32, DynBitset>;
 
 // [spec:cg3:def:grammar.cg3.grammar.parentheses-t]
 /// C++ `typedef bc::flat_map<uint32_t, uint32_t> parentheses_t`.
 /// Represented as `BTreeMap` (sorted associative container).
-pub type parentheses_t = BTreeMap<u32, u32>;
+pub type Parentheses = BTreeMap<u32, u32>;
 
 // [spec:cg3:def:grammar.cg3.grammar]
 /// The parsed/loaded grammar: owner of all static tags, sets, rules and
@@ -191,10 +191,10 @@ pub struct Grammar {
     pub sets_list_order: Vec<SetId>,
     /// C++ `SetSet sets_all` (`sorted_vector<Set*>`): ownership registry of every
     /// allocated set. NOTE: default `Less` orders by `SetId` (was pointer order).
-    pub sets_all: sorted_vector<SetId>,
+    pub sets_all: SortedVector<SetId>,
     /// C++ `uint32FlatHashMap sets_by_name`: name-hash → (content-hash | set-number).
     pub sets_by_name: Uint32FlatHashMap,
-    pub set_name_seeds: set_name_seeds_t,
+    pub set_name_seeds: SetNameSeeds,
     /// C++ `Setuint32HashMap sets_by_contents` (`std::unordered_map<uint32_t, Set*>`):
     /// content-hash → set.
     ///
@@ -205,28 +205,28 @@ pub struct Grammar {
     /// C++ `uint32FlatHashMap set_alias`: alias name-hash → real name-hash.
     pub set_alias: Uint32FlatHashMap,
     /// C++ `SetSet maybe_used_sets`.
-    pub maybe_used_sets: sorted_vector<SetId>,
+    pub maybe_used_sets: SortedVector<SetId>,
 
-    pub static_sets: static_sets_t,
+    pub static_sets: StaticSets,
 
-    pub regex_tags: regex_tags_t,
-    pub icase_tags: icase_tags_t,
+    pub regex_tags: RegexTags,
+    pub icase_tags: IcaseTags,
 
     // --- contextual tests ---
     /// Owned contextual-test arena (ADDED — port infra) backing every `CtxId`.
     pub contexts_arena: Arena<ContextualTest>,
-    pub templates: contexts_t,
-    pub contexts: contexts_t,
+    pub templates: Contexts,
+    pub contexts: Contexts,
 
     // --- runtime indexes ---
-    pub rules_by_set: rules_by_set_t,
-    pub rules_by_tag: rules_by_tag_t,
-    pub sets_by_tag: sets_by_tag_t,
+    pub rules_by_set: RulesBySet,
+    pub rules_by_tag: RulesByTag,
+    pub sets_by_tag: SetsByTag,
 
     /// C++ `uint32IntervalVector* rules_any` — cached `rules_by_tag[tag_any]`.
-    pub rules_any: Option<uint32IntervalVector>,
+    pub rules_any: Option<Uint32IntervalVector>,
     /// C++ `boost::dynamic_bitset<>* sets_any` — cached `sets_by_tag[tag_any]`.
-    pub sets_any: Option<flags_t>,
+    pub sets_any: Option<DynBitset>,
 
     // --- delimiter sets (nullable `Set*`) ---
     pub delimiters: Option<SetId>,
@@ -237,9 +237,9 @@ pub struct Grammar {
     /// C++ `uint32Vector preferred_targets` (tag hashes).
     pub preferred_targets: Uint32Vector,
     /// C++ `uint32SortedVector reopen_mappings`.
-    pub reopen_mappings: uint32SortedVector,
-    pub parentheses: parentheses_t,
-    pub parentheses_reverse: parentheses_t,
+    pub reopen_mappings: Uint32SortedVector,
+    pub parentheses: Parentheses,
+    pub parentheses_reverse: Parentheses,
 
     /// C++ `uint32Vector sections`.
     pub sections: Uint32Vector,
@@ -290,21 +290,21 @@ impl Default for Grammar {
             single_tags: FlatUnorderedMap::default(),
             sets_list: Arena::new(),
             sets_list_order: Vec::new(),
-            sets_all: sorted_vector::new(),
+            sets_all: SortedVector::new(),
             sets_by_name: Uint32FlatHashMap::default(),
-            set_name_seeds: set_name_seeds_t::default(),
+            set_name_seeds: SetNameSeeds::default(),
             sets_by_contents: BTreeMap::default(),
             set_alias: Uint32FlatHashMap::default(),
-            maybe_used_sets: sorted_vector::new(),
-            static_sets: static_sets_t::default(),
-            regex_tags: regex_tags_t::default(),
-            icase_tags: sorted_vector::new(),
+            maybe_used_sets: SortedVector::new(),
+            static_sets: StaticSets::default(),
+            regex_tags: RegexTags::default(),
+            icase_tags: SortedVector::new(),
             contexts_arena: Arena::new(),
-            templates: contexts_t::default(),
-            contexts: contexts_t::default(),
-            rules_by_set: rules_by_set_t::default(),
-            rules_by_tag: rules_by_tag_t::default(),
-            sets_by_tag: sets_by_tag_t::default(),
+            templates: Contexts::default(),
+            contexts: Contexts::default(),
+            rules_by_set: RulesBySet::default(),
+            rules_by_tag: RulesByTag::default(),
+            sets_by_tag: SetsByTag::default(),
             rules_any: None,
             sets_any: None,
             delimiters: None,
@@ -312,9 +312,9 @@ impl Default for Grammar {
             text_delimiters: None,
             tag_any: 0,
             preferred_targets: Uint32Vector::default(),
-            reopen_mappings: uint32SortedVector::new(),
-            parentheses: parentheses_t::default(),
-            parentheses_reverse: parentheses_t::default(),
+            reopen_mappings: Uint32SortedVector::new(),
+            parentheses: Parentheses::default(),
+            parentheses_reverse: Parentheses::default(),
             sections: Uint32Vector::default(),
             anchors: Uint32FlatHashMap::default(),
             rule_by_number: Arena::new(),
@@ -1329,7 +1329,7 @@ impl Grammar {
     /// the bitset to `sets_list.size()` (== `sets_list_order.len()`) if absent.
     pub fn index_tag_to_set(&mut self, t: u32, r: u32) {
         if !self.sets_by_tag.contains_key(&t) {
-            let mut bs: flags_t = Vec::new();
+            let mut bs: DynBitset = Vec::new();
             bs.resize(self.sets_list_order.len(), false);
             self.sets_by_tag.insert(t, bs);
         }
@@ -1676,7 +1676,7 @@ impl Grammar {
             if wordform.is_some() {
                 self.wf_rules.push(*rid);
             }
-            if rtype == KEYWORDS::K_PROTECT {
+            if rtype == Keywords::KProtect {
                 self.has_protect = true;
             }
             if self.is_binary {
@@ -1725,7 +1725,7 @@ impl Grammar {
 
             let templates: Vec<(u32, CtxId)> =
                 self.templates.iter().map(|(&k, &v)| (k, v)).collect();
-            let mut tosave: contexts_t = contexts_t::default();
+            let mut tosave: Contexts = Contexts::default();
             for (k, v) in templates {
                 if self.contexts_arena[v.0].is_used {
                     tosave.insert(k, v);
@@ -1734,7 +1734,7 @@ impl Grammar {
             self.templates = tosave;
 
             let contexts: Vec<(u32, CtxId)> = self.contexts.iter().map(|(&k, &v)| (k, v)).collect();
-            let mut tosave2: contexts_t = contexts_t::default();
+            let mut tosave2: Contexts = Contexts::default();
             for (k, v) in contexts {
                 if self.contexts_arena[v.0].is_used {
                     tosave2.insert(k, v);
@@ -1790,7 +1790,7 @@ impl Grammar {
         }
 
         // (13) Rule finalization.
-        let mut sects = uint32SortedVector::new();
+        let mut sects = Uint32SortedVector::new();
         for rid in &all_rule_ids {
             let (section, number, target) = {
                 let r = &self.rule_by_number[rid.0];
@@ -2112,7 +2112,7 @@ impl Grammar {
 /// rule number `r` via `grammar.indexTagToRule(tag->hash, r)`. The `trie` must be
 /// an EXTERNAL copy (callers clone the set's trie out first) so it does not alias
 /// the `&mut Grammar` borrow.
-pub fn trie_index_to_rule(trie: &trie_t, grammar: &mut Grammar, r: u32) {
+pub fn trie_index_to_rule(trie: &TagTrie, grammar: &mut Grammar, r: u32) {
     for (k, node) in trie.iter() {
         let h = grammar.single_tags_list[k.0].hash;
         grammar.index_tag_to_rule(h.get(), r);
@@ -2126,7 +2126,7 @@ pub fn trie_index_to_rule(trie: &trie_t, grammar: &mut Grammar, r: u32) {
 // [spec:cg3:sem:grammar.cg3.trie-index-to-set-fn]
 /// Free fn. Identical shape to `trie_index_to_rule` but sets bit `r` (a set
 /// number) in `sets_by_tag[tag->hash]` for every tag in the trie.
-pub fn trie_index_to_set(trie: &trie_t, grammar: &mut Grammar, r: u32) {
+pub fn trie_index_to_set(trie: &TagTrie, grammar: &mut Grammar, r: u32) {
     for (k, node) in trie.iter() {
         let h = grammar.single_tags_list[k.0].hash;
         grammar.index_tag_to_set(h.get(), r);
@@ -2145,7 +2145,7 @@ pub fn trie_index_to_set(trie: &trie_t, grammar: &mut Grammar, r: u32) {
 /// child count (recurse if non-zero). No bounds check on the tag index (arena
 /// index panics on OOB, matching the C++ UB).
 pub fn trie_unserialize<R: Read>(
-    trie: &mut trie_t,
+    trie: &mut TagTrie,
     input: &mut R,
     grammar: &Grammar,
     num_tags: u32,
@@ -2163,7 +2163,7 @@ pub fn trie_unserialize<R: Read>(
         let child_count: u32 = crate::inlines::read_be(input);
         if child_count != 0 {
             if node.trie.is_none() {
-                node.trie = Some(Box::new(trie_t::new()));
+                node.trie = Some(Box::new(TagTrie::new()));
             }
             trie_unserialize(
                 node.trie.as_deref_mut().unwrap(),

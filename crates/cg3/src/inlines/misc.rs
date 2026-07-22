@@ -2,8 +2,6 @@
 //!
 //! Split out of the wave-2 monolithic `inlines.rs` (wave 4, w4-file-split-fmt).
 
-#![allow(non_camel_case_types)]
-
 use crate::types::{UString, UStringView};
 
 // ---------------------------------------------------------------------------
@@ -213,24 +211,26 @@ fn strchr(s: &[u8], start: usize, ch: u8) -> Option<usize> {
 // ---------------------------------------------------------------------------
 
 // [spec:cg3:def:inlines.cg3.swapper]
-pub struct swapper<'a, T> {
+/// C++ `struct swapper<T>` (inlines.hpp) — RAII guard that swaps `a`/`b` when
+/// `cond` holds and swaps them back on destruction.
+pub struct Swapper<'a, T> {
     pub(crate) cond: bool,
     pub(crate) a: &'a mut T,
     pub(crate) b: &'a mut T,
 }
 
-impl<'a, T> swapper<'a, T> {
+impl<'a, T> Swapper<'a, T> {
     // [spec:cg3:def:inlines.cg3.swapper.swapper-fn]
     // [spec:cg3:sem:inlines.cg3.swapper.swapper-fn]
-    pub fn new(cond: bool, a: &'a mut T, b: &'a mut T) -> swapper<'a, T> {
+    pub fn new(cond: bool, a: &'a mut T, b: &'a mut T) -> Swapper<'a, T> {
         if cond {
             std::mem::swap(a, b);
         }
-        swapper { cond, a, b }
+        Swapper { cond, a, b }
     }
 }
 
-impl<'a, T> Drop for swapper<'a, T> {
+impl<'a, T> Drop for Swapper<'a, T> {
     fn drop(&mut self) {
         if self.cond {
             std::mem::swap(&mut *self.a, &mut *self.b);
@@ -239,29 +239,31 @@ impl<'a, T> Drop for swapper<'a, T> {
 }
 
 // [spec:cg3:def:inlines.cg3.swapper-false]
+/// C++ `struct swapper_false` (inlines.hpp).
+///
 // The C++ nests a `swapper<bool>` over an internal `val`, which is
 // self-referential (swp borrows val) and cannot be expressed in safe Rust. The
 // equivalent NET effect is implemented directly: while alive (cond true), `b`
 // is held at false and restored to its original value on drop.
-pub struct swapper_false<'a> {
+pub struct SwapperFalse<'a> {
     pub(crate) cond: bool,
     pub(crate) b: &'a mut bool,
     pub(crate) old: bool,
 }
 
-impl<'a> swapper_false<'a> {
+impl<'a> SwapperFalse<'a> {
     // [spec:cg3:def:inlines.cg3.swapper-false.swapper-false-fn]
     // [spec:cg3:sem:inlines.cg3.swapper-false.swapper-false-fn]
-    pub fn new(cond: bool, b: &'a mut bool) -> swapper_false<'a> {
+    pub fn new(cond: bool, b: &'a mut bool) -> SwapperFalse<'a> {
         let old = *b;
         if cond {
             *b = false;
         }
-        swapper_false { cond, b, old }
+        SwapperFalse { cond, b, old }
     }
 }
 
-impl<'a> Drop for swapper_false<'a> {
+impl<'a> Drop for SwapperFalse<'a> {
     fn drop(&mut self) {
         if self.cond {
             *self.b = self.old;
@@ -270,29 +272,31 @@ impl<'a> Drop for swapper_false<'a> {
 }
 
 // [spec:cg3:def:inlines.cg3.uncond-swap]
-pub struct uncond_swap<'a, T> {
+/// C++ `struct uncond_swap<T>` (inlines.hpp) — RAII guard that swaps `a` with
+/// the passed value and restores it on destruction.
+pub struct UncondSwap<'a, T> {
     pub(crate) a: &'a mut T,
     pub(crate) b: T,
 }
 
-impl<'a, T> uncond_swap<'a, T> {
+impl<'a, T> UncondSwap<'a, T> {
     // [spec:cg3:def:inlines.cg3.uncond-swap.uncond-swap-fn]
     // [spec:cg3:sem:inlines.cg3.uncond-swap.uncond-swap-fn]
     // `b` is taken by value (a copy/move); after construction `a` holds the
     // passed value and `b_` holds a's original.
-    pub fn new(a: &'a mut T, mut b: T) -> uncond_swap<'a, T> {
+    pub fn new(a: &'a mut T, mut b: T) -> UncondSwap<'a, T> {
         std::mem::swap(a, &mut b);
-        uncond_swap { a, b }
+        UncondSwap { a, b }
     }
 }
 
-impl<'a, T> Drop for uncond_swap<'a, T> {
+impl<'a, T> Drop for UncondSwap<'a, T> {
     fn drop(&mut self) {
         std::mem::swap(&mut *self.a, &mut self.b);
     }
 }
 
-// Provides `++`/`--` for the inc_dec counter guard.
+// Provides `++`/`--` for the IncDec (C++ `inc_dec`) counter guard.
 pub trait Incrementable {
     fn increment(&mut self);
     fn decrement(&mut self);
@@ -309,13 +313,15 @@ macro_rules! impl_incrementable {
 impl_incrementable!(i8, u8, i16, u16, i32, u32, i64, u64, isize, usize);
 
 // [spec:cg3:def:inlines.cg3.inc-dec]
-pub struct inc_dec<'a, T: Incrementable> {
+/// C++ `struct inc_dec<T>` (inlines.hpp) — RAII guard that increments a
+/// counter on `inc` and decrements it on destruction.
+pub struct IncDec<'a, T: Incrementable> {
     p: Option<&'a mut T>,
 }
 
-impl<'a, T: Incrementable> inc_dec<'a, T> {
-    pub fn new() -> inc_dec<'a, T> {
-        inc_dec { p: None }
+impl<'a, T: Incrementable> IncDec<'a, T> {
+    pub fn new() -> IncDec<'a, T> {
+        IncDec { p: None }
     }
 
     // [spec:cg3:def:inlines.cg3.inc-dec.inc-fn]
@@ -326,13 +332,13 @@ impl<'a, T: Incrementable> inc_dec<'a, T> {
     }
 }
 
-impl<'a, T: Incrementable> Default for inc_dec<'a, T> {
+impl<'a, T: Incrementable> Default for IncDec<'a, T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a, T: Incrementable> Drop for inc_dec<'a, T> {
+impl<'a, T: Incrementable> Drop for IncDec<'a, T> {
     // [spec:cg3:def:inlines.cg3.inc-dec.inc-dec-fn]
     // [spec:cg3:sem:inlines.cg3.inc-dec.inc-dec-fn]
     fn drop(&mut self) {
@@ -343,17 +349,19 @@ impl<'a, T: Incrementable> Drop for inc_dec<'a, T> {
 }
 
 // [spec:cg3:def:inlines.cg3.scope-guard]
+/// C++ `struct scope_guard` (inlines.hpp) — runs `func` on destruction.
+///
 // `std::function<void()>` -> `Box<dyn FnMut() + 'a>`. The C++ "empty func +
 // good -> throws bad_function_call" case does not arise: a callable is always
 // supplied at construction.
-pub struct scope_guard<'a> {
+pub struct ScopeGuard<'a> {
     func: Box<dyn FnMut() + 'a>,
     good: bool,
 }
 
-impl<'a> scope_guard<'a> {
-    pub fn new<F: FnMut() + 'a>(func: F) -> scope_guard<'a> {
-        scope_guard {
+impl<'a> ScopeGuard<'a> {
+    pub fn new<F: FnMut() + 'a>(func: F) -> ScopeGuard<'a> {
+        ScopeGuard {
             func: Box::new(func),
             good: true,
         }
@@ -367,7 +375,7 @@ impl<'a> scope_guard<'a> {
     }
 }
 
-impl<'a> Drop for scope_guard<'a> {
+impl<'a> Drop for ScopeGuard<'a> {
     // [spec:cg3:def:inlines.cg3.scope-guard.scope-guard-fn]
     // [spec:cg3:sem:inlines.cg3.scope-guard.scope-guard-fn]
     fn drop(&mut self) {

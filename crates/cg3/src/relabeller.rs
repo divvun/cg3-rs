@@ -57,11 +57,11 @@ use crate::arena::{SetId, TagId};
 use crate::grammar::Grammar;
 use crate::set::trie_reindex;
 use crate::set::{ST_CHILD_UNIFY, ST_MAPPING, ST_SET_UNIFY, ST_SPECIAL, ST_TAG_UNIFY};
-use crate::strings::KEYWORDS;
+use crate::strings::Keywords;
 use crate::tag::{T_SPECIAL, TagVector, TagVectorSet};
 use crate::tag_trie::{
-    trie_copy_helper, trie_delete, trie_get_tag_list, trie_get_tags_ordered, trie_insert,
-    trie_node_t, trie_t,
+    TagTrie, TrieNode, trie_copy_helper, trie_delete, trie_get_tag_list, trie_get_tags_ordered,
+    trie_insert,
 };
 use crate::types::{SetNumber, UString};
 
@@ -100,7 +100,7 @@ pub type UStringSetMap = HashMap<UString, SetId>;
 /// symmetric compare. This reproduces the "highest frequency first" intent; the
 /// stability difference from C++ `std::sort` only shows on equal-frequency ties,
 /// which do not affect the cheap trie-compression heuristic.
-struct freq_sorter<'a> {
+struct FreqSorter<'a> {
     // [spec:cg3:def:relabeller.cg3.freq-sorter.freq-sorter-fn]
     // [spec:cg3:sem:relabeller.cg3.freq-sorter.freq-sorter-fn]
     // Constructor: store `tag_freq` by reference (no copy). The referred map must
@@ -108,9 +108,9 @@ struct freq_sorter<'a> {
     tag_freq: &'a HashMap<TagId, usize>,
 }
 
-impl<'a> freq_sorter<'a> {
+impl<'a> FreqSorter<'a> {
     fn new(tag_freq: &'a HashMap<TagId, usize>) -> Self {
-        freq_sorter { tag_freq }
+        FreqSorter { tag_freq }
     }
 
     // [spec:cg3:def:relabeller.cg3.freq-sorter.operator-fn]
@@ -150,12 +150,12 @@ impl<'a> freq_sorter<'a> {
 /// [`crate::tag_trie::trie_copy_helper`], so nested child levels are copied by the
 /// ORIGINAL `TagId` WITHOUT re-interning into `grammar`. Only the top level has
 /// its tags transferred; deeper levels keep source-grammar tag ids.
-pub fn trie_copy(trie: &trie_t, grammar: &mut Grammar) -> trie_t {
-    let mut nt = trie_t::new();
+pub fn trie_copy(trie: &TagTrie, grammar: &mut Grammar) -> TagTrie {
+    let mut nt = TagTrie::new();
     // Collect the source keys/nodes first so the `&mut grammar` re-intern borrow
     // does not alias an immutable borrow of `trie` (which lives inside a Set in
     // the same grammar at the call sites).
-    let entries: Vec<(TagId, trie_node_t)> = trie.iter().map(|(k, n)| (*k, n.clone())).collect();
+    let entries: Vec<(TagId, TrieNode)> = trie.iter().map(|(k, n)| (*k, n.clone())).collect();
     for (k, node) in entries {
         // Tag* t = new Tag(*p.first); t = grammar.addTag(t);
         let tagcopy = grammar.single_tags_list[k.0].clone();
@@ -183,9 +183,9 @@ pub fn trie_copy(trie: &trie_t, grammar: &mut Grammar) -> trie_t {
 /// form), so it is effectively DEAD CODE. Ported for completeness; the intended
 /// deep re-interning of nested trie levels does not occur.
 #[allow(dead_code)]
-pub fn trie_copy_helper_reintern(trie: &trie_t, grammar: &mut Grammar) -> Box<trie_t> {
-    let mut nt = Box::new(trie_t::new());
-    let entries: Vec<(TagId, trie_node_t)> = trie.iter().map(|(k, n)| (*k, n.clone())).collect();
+pub fn trie_copy_helper_reintern(trie: &TagTrie, grammar: &mut Grammar) -> Box<TagTrie> {
+    let mut nt = Box::new(TagTrie::new());
+    let entries: Vec<(TagId, TrieNode)> = trie.iter().map(|(k, n)| (*k, n.clone())).collect();
     for (k, node) in entries {
         let tagcopy = grammar.single_tags_list[k.0].clone();
         let t = grammar.add_tag(tagcopy);
@@ -264,7 +264,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
                 // "... had a wordform, skipping!\n" (args: name, line)
                 continue;
             }
-            if rule.r#type != KEYWORDS::K_MAP {
+            if rule.r#type != Keywords::KMap {
                 // "... has unexpected keyword (expected MAP), skipping!\n"
                 continue;
             }
@@ -368,7 +368,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
             }
         }
 
-        let fs = freq_sorter::new(&tag_freq);
+        let fs = FreqSorter::new(&tag_freq);
         // Iterate the normalized/unique lists (BTreeSet order == std::set order
         // via compare_TagVector-equivalent hash ordering is NOT guaranteed here;
         // see the tag.rs TagVectorSet reconciliation note — order affects only

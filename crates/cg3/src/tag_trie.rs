@@ -60,13 +60,13 @@ use crate::tag::{T_USED, TagList, TagVector, TagVectorSet};
 // [spec:cg3:def:tag-trie.cg3.trie-node-t]
 /// C++ `struct trie_node_t { bool terminal = false; std::unique_ptr<trie_t> trie; }`.
 ///
-/// `std::unique_ptr<trie_t>` (a nullable owning child) → `Option<Box<trie_t>>`.
+/// `std::unique_ptr<trie_t>` (a nullable owning child) → `Option<Box<TagTrie>>`.
 #[derive(Default, Clone, Debug)]
-pub struct trie_node_t {
+pub struct TrieNode {
     /// `bool terminal = false;`
     pub terminal: bool,
     /// `std::unique_ptr<trie_t> trie;` — the child level, null when absent.
-    pub trie: Option<Box<trie_t>>,
+    pub trie: Option<Box<TagTrie>>,
 }
 
 // [spec:cg3:def:tag-trie.cg3.trie-t]
@@ -76,14 +76,14 @@ pub struct trie_node_t {
 /// re-derived where it matters (see module docs). Clean public alias so the
 /// lead can repoint `Set::trie` / `Set::trie_special` here (replacing the
 /// `crate::set::TrieTodo` placeholder).
-pub type trie_t = BTreeMap<TagId, trie_node_t>;
+pub type TagTrie = BTreeMap<TagId, TrieNode>;
 
 /// Collects the trie's entries in the C++ `compare_Tag` order — ascending
 /// `Tag->hash`. Not a manifest symbol: port infrastructure standing in for the
 /// flat_map's intrinsic hash ordering. STABLE sort → equal-hash entries keep
 /// their `TagId` order (they would have collided into one key in C++).
-fn ordered_entries<'a>(trie: &'a trie_t, grammar: &Grammar) -> Vec<(TagId, &'a trie_node_t)> {
-    let mut v: Vec<(TagId, &trie_node_t)> = trie.iter().map(|(k, n)| (*k, n)).collect();
+fn ordered_entries<'a>(trie: &'a TagTrie, grammar: &Grammar) -> Vec<(TagId, &'a TrieNode)> {
+    let mut v: Vec<(TagId, &TrieNode)> = trie.iter().map(|(k, n)| (*k, n)).collect();
     v.sort_by(|a, b| {
         let ha = grammar.single_tags_list[a.0.0].hash;
         let hb = grammar.single_tags_list[b.0.0].hash;
@@ -111,14 +111,14 @@ fn sort_tv_by_hash(tv: &mut TagVector, grammar: &Grammar) {
 /// key), so no grammar/hash ordering is needed. EDGE: an empty `tv` makes
 /// `tv.len() - 1` underflow — in C++ this reaches `tv[0]` OOB (UB); here it
 /// panics. Callers must pass a non-empty vector.
-pub fn trie_insert(trie: &mut trie_t, tv: &TagVector, w: usize) -> bool {
+pub fn trie_insert(trie: &mut TagTrie, tv: &TagVector, w: usize) -> bool {
     let node = trie.entry(tv[w]).or_default();
     if node.terminal {
         return false;
     }
     if w < tv.len() - 1 {
         if node.trie.is_none() {
-            node.trie = Some(Box::new(trie_t::new()));
+            node.trie = Some(Box::new(TagTrie::new()));
         }
         return trie_insert(node.trie.as_deref_mut().unwrap(), tv, w + 1);
     }
@@ -133,8 +133,8 @@ pub fn trie_insert(trie: &mut trie_t, tv: &TagVector, w: usize) -> bool {
 /// `Tag` keys are shared (`TagId`s copied, tags not cloned); only node structure
 /// and terminal flags are duplicated. Order-independent (a keyed rebuild), so no
 /// grammar needed.
-pub fn trie_copy_helper(trie: &trie_t) -> Box<trie_t> {
-    let mut nt = Box::new(trie_t::new());
+pub fn trie_copy_helper(trie: &TagTrie) -> Box<TagTrie> {
+    let mut nt = Box::new(TagTrie::new());
     for (k, node) in trie.iter() {
         let n = nt.entry(*k).or_default();
         n.terminal = node.terminal;
@@ -149,8 +149,8 @@ pub fn trie_copy_helper(trie: &trie_t) -> Box<trie_t> {
 // [spec:cg3:sem:tag-trie.cg3.trie-copy-fn]
 /// C++ `trie_copy` — deep-copies a whole trie, returning a new `trie_t` by value.
 /// Order-independent, so no grammar needed.
-pub fn trie_copy(trie: &trie_t) -> trie_t {
-    let mut nt = trie_t::new();
+pub fn trie_copy(trie: &TagTrie) -> TagTrie {
+    let mut nt = TagTrie::new();
     for (k, node) in trie.iter() {
         let n = nt.entry(*k).or_default();
         n.terminal = node.terminal;
@@ -166,7 +166,7 @@ pub fn trie_copy(trie: &trie_t) -> trie_t {
 /// C++ `trie_delete` — depth-first frees every descendant sub-trie, leaving the
 /// passed-in map's own top-level keys and terminal flags intact (only child
 /// `.trie` pointers are freed/nulled). Order-independent, so no grammar needed.
-pub fn trie_delete(trie: &mut trie_t) {
+pub fn trie_delete(trie: &mut TagTrie) {
     for node in trie.values_mut() {
         if node.trie.is_some() {
             trie_delete(node.trie.as_deref_mut().unwrap());
@@ -179,7 +179,7 @@ pub fn trie_delete(trie: &mut trie_t) {
 // [spec:cg3:sem:tag-trie.cg3.trie-singular-fn]
 /// C++ `trie_singular` — true iff the trie is a single non-branching chain that
 /// ends in a terminal. Only inspects the sole entry, so order-independent.
-pub fn trie_singular(trie: &trie_t) -> bool {
+pub fn trie_singular(trie: &TagTrie) -> bool {
     if trie.len() != 1 {
         return false;
     }
@@ -201,7 +201,7 @@ pub fn trie_singular(trie: &trie_t) -> bool {
 /// (`hash_value` is non-commutative), so entries are visited in ascending-hash
 /// order via [`ordered_entries`] and `grammar` is required. Terminal flags are
 /// NOT hashed (parity note).
-pub fn trie_rehash(trie: &trie_t, grammar: &Grammar) -> u32 {
+pub fn trie_rehash(trie: &TagTrie, grammar: &Grammar) -> u32 {
     let mut retval: u32 = 0;
     for (k, node) in ordered_entries(trie, grammar) {
         let h = grammar.single_tags_list[k.0].hash;
@@ -222,7 +222,7 @@ pub fn trie_rehash(trie: &trie_t, grammar: &Grammar) -> u32 {
 /// site the trie lives inside a `Set` owned by the same `Grammar`; the borrow of
 /// `grammar.single_tags_list` and the immutable borrow of the set's trie must be
 /// split — restructure or clone as needed.)
-pub fn trie_markused(trie: &trie_t, grammar: &mut Grammar) {
+pub fn trie_markused(trie: &TagTrie, grammar: &mut Grammar) {
     for (k, node) in trie.iter() {
         grammar.single_tags_list[k.0].r#type |= T_USED;
         if let Some(sub) = &node.trie {
@@ -237,7 +237,7 @@ pub fn trie_markused(trie: &trie_t, grammar: &mut Grammar) {
 /// its own `type` mask. Order-independent for the boolean result, but reads
 /// `Tag::type`, so `grammar` is required. (C++ takes `trie_t&`; the port takes
 /// `&trie_t` since it never mutates.)
-pub fn trie_has_type(trie: &trie_t, type_: crate::tag::TagType, grammar: &Grammar) -> bool {
+pub fn trie_has_type(trie: &TagTrie, type_: crate::tag::TagType, grammar: &Grammar) -> bool {
     for (k, node) in trie.iter() {
         if grammar.single_tags_list[k.0].r#type.intersects(type_) {
             return true;
@@ -255,7 +255,7 @@ pub fn trie_has_type(trie: &trie_t, type_: crate::tag::TagType, grammar: &Gramma
 // every tag of every path onto `the_tags` (no node search). Output order matches
 // the C++ flat_map hash order, so `grammar` is required.
 /// See [`trie_get_tag_list_find`] for the spec'd sibling overload.
-pub fn trie_get_tag_list_append(trie: &trie_t, the_tags: &mut TagList, grammar: &Grammar) {
+pub fn trie_get_tag_list_append(trie: &TagTrie, the_tags: &mut TagList, grammar: &Grammar) {
     for (k, node) in ordered_entries(trie, grammar) {
         the_tags.push(k);
         if let Some(sub) = &node.trie {
@@ -281,14 +281,14 @@ pub fn trie_get_tag_list_append(trie: &trie_t, the_tags: &mut TagList, grammar: 
 /// `getTagList` resolves by appending `path` directly (same output order as this
 /// walk's successful branch).
 pub fn trie_get_tag_list_find(
-    trie: &trie_t,
+    trie: &TagTrie,
     the_tags: &mut TagList,
     node: *const core::ffi::c_void,
     grammar: &Grammar,
 ) -> bool {
     for (k, n) in ordered_entries(trie, grammar) {
         the_tags.push(k);
-        if node == (n as *const trie_node_t as *const core::ffi::c_void) {
+        if node == (n as *const TrieNode as *const core::ffi::c_void) {
             return true;
         }
         if let Some(sub) = &n.trie
@@ -304,7 +304,7 @@ pub fn trie_get_tag_list_find(
 // Unspecced C++ overload `trie_getTagList(const trie_t&) -> TagVector`: returns the
 // full tag list (delegates sub-tries to [`trie_get_tag_list_append`]). Output
 // order is the flat_map hash order, so `grammar` is required.
-pub fn trie_get_tag_list(trie: &trie_t, grammar: &Grammar) -> TagVector {
+pub fn trie_get_tag_list(trie: &TagTrie, grammar: &Grammar) -> TagVector {
     let mut the_tags = TagVector::new();
     for (k, node) in ordered_entries(trie, grammar) {
         the_tags.push(k);
@@ -319,7 +319,7 @@ pub fn trie_get_tag_list(trie: &trie_t, grammar: &Grammar) -> TagVector {
 // TagVector&)`. Extends `tv` one level deeper; on a terminal it reproduces the
 // SORT-THEN-POP BUG (see [`trie_get_tags`]).
 pub fn trie_get_tags_into(
-    trie: &trie_t,
+    trie: &TagTrie,
     rv: &mut TagVectorSet,
     tv: &mut TagVector,
     grammar: &Grammar,
@@ -349,7 +349,7 @@ pub fn trie_get_tags_into(
 /// delegate to [`trie_get_tags_into`], which carries the sort-then-pop BUG. See
 /// that helper for the reproduced quirk. `grammar` is required for both the hash
 /// ordering and the per-sequence sort.
-pub fn trie_get_tags(trie: &trie_t, grammar: &Grammar) -> TagVectorSet {
+pub fn trie_get_tags(trie: &TagTrie, grammar: &Grammar) -> TagVectorSet {
     let mut rv = TagVectorSet::new();
     for (k, node) in ordered_entries(trie, grammar) {
         let mut tv = TagVector::new();
@@ -371,7 +371,7 @@ pub fn trie_get_tags(trie: &trie_t, grammar: &Grammar) -> TagVectorSet {
 // TagVectorSet&, TagVector&)`. Like [`trie_get_tags_into`] but WITHOUT sorting,
 // so backtracking (`pop`) correctly removes the just-pushed tag.
 pub fn trie_get_tags_ordered_into(
-    trie: &trie_t,
+    trie: &TagTrie,
     rv: &mut TagVectorSet,
     tv: &mut TagVector,
     grammar: &Grammar,
@@ -395,7 +395,7 @@ pub fn trie_get_tags_ordered_into(
 /// [`trie_get_tags`] but WITHOUT any per-sequence sorting: paths preserve their
 /// in-trie (ascending-hash) order, so `pop` always removes the just-pushed tag
 /// (no corruption). `grammar` is required for the hash ordering.
-pub fn trie_get_tags_ordered(trie: &trie_t, grammar: &Grammar) -> TagVectorSet {
+pub fn trie_get_tags_ordered(trie: &TagTrie, grammar: &Grammar) -> TagVectorSet {
     let mut rv = TagVectorSet::new();
     for (k, node) in ordered_entries(trie, grammar) {
         let mut tv = TagVector::new();
@@ -420,7 +420,7 @@ pub fn trie_get_tags_ordered(trie: &trie_t, grammar: &Grammar) -> TagVectorSet {
 /// BYTE-PARITY: the emitted identifier is `Tag->number` while the iteration/order
 /// key is `Tag->hash` (they need not correlate) — hence `grammar` supplies both
 /// the ordering AND `number`, and entries are visited in ascending-hash order.
-pub fn trie_serialize<W: Write>(trie: &trie_t, out: &mut W, grammar: &Grammar) {
+pub fn trie_serialize<W: Write>(trie: &TagTrie, out: &mut W, grammar: &Grammar) {
     for (k, node) in ordered_entries(trie, grammar) {
         let number = grammar.single_tags_list[k.0].number;
         write_be(out, number); // writeBE<uint32_t>(out, kv.first->number)
@@ -471,7 +471,7 @@ mod tests {
         let b = mk_tag(&mut g, 20, 1, T_MAPPING);
         let c = mk_tag(&mut g, 30, 2, crate::tag::TagType::empty());
 
-        let mut trie = trie_t::new();
+        let mut trie = TagTrie::new();
         // Insert the 2-tag path [a, b].
         assert!(trie_insert(&mut trie, &vec![a, b], 0));
         // A single non-branching chain ending in a terminal -> singular.
@@ -514,7 +514,7 @@ mod tests {
         let p = mk_tag(&mut g, 100, 2, crate::tag::TagType::empty()); // high-hash shared prefix
 
         // Trie shape: p -> { leaf_lo (terminal), leaf_hi (terminal) }.
-        let mut trie = trie_t::new();
+        let mut trie = TagTrie::new();
         assert!(trie_insert(&mut trie, &vec![p, leaf_lo], 0));
         assert!(trie_insert(&mut trie, &vec![p, leaf_hi], 0));
 
@@ -557,7 +557,7 @@ mod tests {
         let a = mk_tag(&mut g, 0x11, 7, crate::tag::TagType::empty()); // number 7
         let b = mk_tag(&mut g, 0x22, 9, crate::tag::TagType::empty()); // number 9
 
-        let mut trie = trie_t::new();
+        let mut trie = TagTrie::new();
         // Two single-tag terminal paths: a and b (both top-level terminals).
         assert!(trie_insert(&mut trie, &vec![a], 0));
         assert!(trie_insert(&mut trie, &vec![b], 0));
@@ -603,7 +603,7 @@ mod tests {
 
         // Two paths sharing the `a` prefix: [a, b] and [a, c] -> a has a sub-trie
         // with two children (drives trie_copy_helper recursion).
-        let mut trie = trie_t::new();
+        let mut trie = TagTrie::new();
         trie_insert(&mut trie, &vec![a, b], 0);
         trie_insert(&mut trie, &vec![a, c], 0);
 

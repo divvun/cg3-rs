@@ -17,7 +17,7 @@ use crate::inlines::{
     skipws_chars, ui32,
 };
 use crate::set::{ST_TAG_UNIFY, Set};
-use crate::strings::KEYWORDS;
+use crate::strings::Keywords;
 use crate::tag::{T_REGEXP_LINE, T_SPECIAL, T_VARSTRING};
 use crate::types::SetNumber;
 
@@ -576,7 +576,7 @@ impl TextualParser {
         self.grammar.lines = 1;
         let mut ast_grammar = ASTHelper::new(
             &mut self.ast,
-            ASTType::AST_Grammar,
+            ASTType::AstGrammar,
             self.grammar.lines as usize,
             4,
             self.cur_grammar_buf.clone(),
@@ -612,7 +612,7 @@ impl TextualParser {
     fn parse_grammar_data(&mut self, gi: usize) -> i32 {
         // 1. START anchor at rule 0.
         self.grammar
-            .add_anchor(KEYWORDS_STR[KEYWORDS::K_START as usize], 0, true);
+            .add_anchor(KEYWORDS_STR[Keywords::KStart as usize], 0, true);
         // 2. Magic * tag.
         let tany = self.parse_tag(STR_ASTERIK, &[]);
         self.grammar.tag_any = self.grammar.single_tags_list[tany.0].hash.get();
@@ -648,7 +648,7 @@ impl TextualParser {
         // 6. END anchor at the last rule number.
         let end_at = ui32(self.grammar.rule_by_number.capacity().wrapping_sub(1));
         self.grammar
-            .add_anchor(KEYWORDS_STR[KEYWORDS::K_END as usize], end_at, true);
+            .add_anchor(KEYWORDS_STR[Keywords::KEnd as usize], end_at, true);
 
         // 7. Named-rule anchors.
         let rule_ids: Vec<RuleId> = (0..self.grammar.rule_by_number.capacity())
@@ -671,7 +671,7 @@ impl TextualParser {
                 let r = &self.grammar.rule_by_number[rid.0];
                 (r.r#type, r.maplist)
             };
-            if rtype == KEYWORDS::K_JUMP {
+            if rtype == Keywords::KJump {
                 let maplist = maplist.unwrap();
                 let to = self.grammar.get_tag_list_any_ret(maplist)[0];
                 let (tty, thash) = {

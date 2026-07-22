@@ -30,11 +30,11 @@ use crate::arena::{CohortId, SwId};
 use crate::fst_applicator::{FSTApplicator, FstFormat};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::stream_format::StreamFormat;
-use crate::grammar_applicator::{Engine, GrammarApplicator, cg3_sformat};
+use crate::grammar_applicator::{Engine, GrammarApplicator, StreamFormatKind};
 use crate::jsonl_applicator::{JsonlApplicator, JsonlFormat};
 use crate::niceline_applicator::{NicelineApplicator, NicelineFormat};
 use crate::plaintext_applicator::{PlaintextApplicator, PlaintextFormat};
-use crate::streambuf::bstreambuf;
+use crate::streambuf::BStreamBuf;
 use crate::strings::STR_DUMMY;
 use crate::types::UStringView;
 
@@ -63,12 +63,12 @@ fn cg3_quit() -> ! {
 ///   The C++ converts to UTF-16 and caps the scan at [`BUF_SIZE`] (1000) UChars;
 ///   this port scans the (already UTF-8) prefix directly — equivalent for the
 ///   anchoring the patterns rely on. NEVER returns `CG3SF_MATXIN`.
-pub fn detect_format(buf8: &str) -> cg3_sformat {
-    use cg3_sformat::*;
+pub fn detect_format(buf8: &str) -> StreamFormatKind {
+    use StreamFormatKind::*;
 
     // 1. Binary sniff: first four bytes "CGBF".
     if crate::inlines::is_cg3bsf(buf8) {
-        return CG3SF_BINARY;
+        return Binary;
     }
 
     // Cap the scanned window at BUF_SIZE chars (mirrors the UTF-16 BUF_SIZE cap).
@@ -76,20 +76,20 @@ pub fn detect_format(buf8: &str) -> cg3_sformat {
 
     // 3. Try each regex in turn; first match wins. Patterns/flags per the spec.
     // A `.*?^` DOTALL+MULTILINE bridge between the wordform and baseform lines.
-    let patterns: &[(&str, cg3_sformat)] = &[
+    let patterns: &[(&str, StreamFormatKind)] = &[
         // `^"<[^>]+>".*?^\s+"[^"]+"` DOTALL|MULTILINE → CG
-        (r#"(?sm)^"<[^>]+>".*?^\s+"[^"]+""#, CG3SF_CG),
+        (r#"(?sm)^"<[^>]+>".*?^\s+"[^"]+""#, Cg),
         // `^\S+ *\t *\[\S+\]` DOTALL|MULTILINE → NICELINE
-        (r"(?sm)^\S+ *\t *\[\S+\]", CG3SF_NICELINE),
+        (r"(?sm)^\S+ *\t *\[\S+\]", Niceline),
         // `^\S+ *\t *"\S+"` DOTALL|MULTILINE → NICELINE
-        (r#"(?sm)^\S+ *\t *"\S+""#, CG3SF_NICELINE),
+        (r#"(?sm)^\S+ *\t *"\S+""#, Niceline),
         // `\^[^/]+(/[^<]+(<[^>]+>)+)+\$` DOTALL|MULTILINE → APERTIUM
         // (literal ^ / $; no leading anchor, so it matches anywhere).
-        (r"(?sm)\^[^/]+(/[^<]+(<[^>]+>)+)+\$", CG3SF_APERTIUM),
+        (r"(?sm)\^[^/]+(/[^<]+(<[^>]+>)+)+\$", Apertium),
         // `^\S+\t\S+(\+\S+)+$` DOTALL|MULTILINE → FST
-        (r"(?sm)^\S+\t\S+(\+\S+)+$", CG3SF_FST),
+        (r"(?sm)^\S+\t\S+(\+\S+)+$", Fst),
         // `^\{` MULTILINE only (NO DOTALL) → JSONL
-        (r"(?m)^\{", CG3SF_JSONL),
+        (r"(?m)^\{", Jsonl),
     ];
 
     for (pat, fmt) in patterns {
@@ -105,7 +105,7 @@ pub fn detect_format(buf8: &str) -> cg3_sformat {
     }
 
     // 6. No match → PLAIN.
-    CG3SF_PLAIN
+    Plain
 }
 
 // [spec:cg3:def:format-converter.cg3.format-converter]
@@ -215,20 +215,20 @@ impl FormatConverter {
     // [spec:cg3:sem:format-converter.cg3.format-converter.detect-format-fn]
     /// C++ `std::unique_ptr<std::istream> FormatConverter::detectFormat(std::istream&
     /// in)`. Peeks up to [`BUF_SIZE`] bytes, records the sniffed format in the
-    /// member `fmt_input`, and returns a wrapped reader ([`bstreambuf`]) that
+    /// member `fmt_input`, and returns a wrapped reader ([`BStreamBuf`]) that
     /// replays the peeked prefix before continuing from `in` — so downstream code
     /// sees the whole stream from the start.
     ///
     /// DIVERGENCE: the C++ leaks the heap `bstreambuf`; the Rust port owns it in
     /// the returned wrapper (no leak — a benign, memory-safe divergence).
-    pub fn detect_format<R: Read>(&mut self, in_: R) -> bstreambuf<R> {
+    pub fn detect_format<R: Read>(&mut self, in_: R) -> BStreamBuf<R> {
         let mut input = in_;
         let buf8 = crate::uextras::read_utf8(&mut input, BUF_SIZE);
         // The sniffer wants a &str view; read_utf8 returns UTF-8 bytes. A lossy
         // decode is safe here (only used for the anchored regex sniff).
         let buf_str = String::from_utf8_lossy(&buf8).into_owned();
         self.base_mut().cfg.fmt_input = detect_format(&buf_str);
-        bstreambuf::new(input, buf8)
+        BStreamBuf::new(input, buf8)
     }
 
     // [spec:cg3:def:format-converter.cg3.format-converter.run-grammar-on-text-fn]
@@ -252,19 +252,19 @@ impl FormatConverter {
             let b = self.base();
             (b.cfg.fmt_input, b.cfg.fmt_output)
         };
-        if fmt_output == cg3_sformat::CG3SF_BINARY || fmt_input == cg3_sformat::CG3SF_BINARY {
+        if fmt_output == StreamFormatKind::Binary || fmt_input == StreamFormatKind::Binary {
             self.base_mut().grammar.has_relations = true;
         }
 
-        use cg3_sformat::*;
+        use StreamFormatKind::*;
         match fmt_input {
-            CG3SF_CG => {
+            Cg => {
                 // GrammarApplicator::runGrammarOnText(input, output) — the base CG
                 // stream driver, printing through the ConvFormat vtable.
                 self.base
                     .run_grammar_on_text_with(&mut self.fmt, input, output)
             }
-            CG3SF_APERTIUM => {
+            Apertium => {
                 let mut app = ApertiumApplicator::borrowing(&mut self.base);
                 app.wordform_case = self.fmt.apertium.wordform_case;
                 app.print_word_forms = self.fmt.apertium.print_word_forms;
@@ -273,20 +273,20 @@ impl FormatConverter {
                 app.surface_readings = self.fmt.apertium.surface_readings;
                 app.run_grammar_on_text_with(&mut self.fmt, input, output)
             }
-            CG3SF_NICELINE => NicelineApplicator::new(&mut self.base).run_grammar_on_text(
+            Niceline => NicelineApplicator::new(&mut self.base).run_grammar_on_text(
                 &mut self.fmt,
                 input,
                 output,
             ),
-            CG3SF_JSONL => JsonlApplicator::new(&mut self.base).run_grammar_on_text(
+            Jsonl => JsonlApplicator::new(&mut self.base).run_grammar_on_text(
                 &mut self.fmt,
                 input,
                 output,
             ),
             // BinaryApplicator::runGrammarOnText(input, output).
-            CG3SF_BINARY => crate::binary_applicator::BinaryApplicator::new(&mut self.base)
+            Binary => crate::binary_applicator::BinaryApplicator::new(&mut self.base)
                 .run_grammar_on_text(&mut self.fmt, input, output),
-            CG3SF_FST => {
+            Fst => {
                 let mut app = FSTApplicator::borrowing(&mut self.base);
                 app.did_warn_statictags = self.fmt.fst.did_warn_statictags;
                 app.wfactor = self.fmt.fst.wfactor;
@@ -294,7 +294,7 @@ impl FormatConverter {
                 app.sub_delims.clone_from(&self.fmt.fst.sub_delims);
                 app.run_grammar_on_text_with(&mut self.fmt, input, output)
             }
-            CG3SF_PLAIN => {
+            Plain => {
                 let mut app = PlaintextApplicator::borrowing(&mut self.base);
                 app.add_tags = self.fmt.plaintext_add_tags;
                 app.run_grammar_on_text_with(&mut self.fmt, input, output)
@@ -380,18 +380,18 @@ impl StreamFormat for ConvFormat {
         output: &mut W,
         profiling: bool,
     ) {
-        use cg3_sformat::*;
+        use StreamFormatKind::*;
         match e.cfg.fmt_output {
-            CG3SF_CG => {
+            Cg => {
                 let trace = e.cfg.trace;
                 e.print_cohort(cohort, output, profiling, trace)
             }
-            CG3SF_APERTIUM => self.apertium.print_cohort_e(e, cohort, output, profiling),
-            CG3SF_FST => self.fst.print_cohort_e(e, cohort, output, profiling),
-            CG3SF_NICELINE => self.niceline.print_cohort_e(e, cohort, output, profiling),
-            CG3SF_PLAIN => self.plaintext.print_cohort_e(e, cohort, output, profiling),
-            CG3SF_JSONL => self.jsonl.print_cohort_e(e, cohort, output, profiling),
-            CG3SF_BINARY => {}
+            Apertium => self.apertium.print_cohort_e(e, cohort, output, profiling),
+            Fst => self.fst.print_cohort_e(e, cohort, output, profiling),
+            Niceline => self.niceline.print_cohort_e(e, cohort, output, profiling),
+            Plain => self.plaintext.print_cohort_e(e, cohort, output, profiling),
+            Jsonl => self.jsonl.print_cohort_e(e, cohort, output, profiling),
+            Binary => {}
             _ => cg3_quit(),
         }
     }
@@ -403,27 +403,27 @@ impl StreamFormat for ConvFormat {
         output: &mut W,
         profiling: bool,
     ) {
-        use cg3_sformat::*;
+        use StreamFormatKind::*;
         match e.cfg.fmt_output {
-            CG3SF_CG => {
+            Cg => {
                 let trace = e.cfg.trace;
                 e.print_single_window(window, output, profiling, trace);
             }
-            CG3SF_APERTIUM => self
+            Apertium => self
                 .apertium
                 .print_single_window_e(e, window, output, profiling),
-            CG3SF_FST => self.fst.print_single_window_e(e, window, output, profiling),
-            CG3SF_NICELINE => self
+            Fst => self.fst.print_single_window_e(e, window, output, profiling),
+            Niceline => self
                 .niceline
                 .print_single_window_e(e, window, output, profiling),
-            CG3SF_PLAIN => self
+            Plain => self
                 .plaintext
                 .print_single_window_e(e, window, output, profiling),
-            CG3SF_JSONL => self
+            Jsonl => self
                 .jsonl
                 .print_single_window_e(e, window, output, profiling),
             // BinaryApplicator::printSingleWindow.
-            CG3SF_BINARY => self
+            Binary => self
                 .binary
                 .bin_print_single_window(e, window, output, profiling),
             // MATXIN has no C++ converter case; invalid values share its
@@ -433,22 +433,22 @@ impl StreamFormat for ConvFormat {
     }
 
     fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W) {
-        use cg3_sformat::*;
+        use StreamFormatKind::*;
         match e.cfg.fmt_output {
-            CG3SF_JSONL => self.jsonl.print_stream_command_e(cmd, output),
+            Jsonl => self.jsonl.print_stream_command_e(cmd, output),
             // BinaryApplicator::printStreamCommand.
-            CG3SF_BINARY => self.binary.bin_print_stream_command(cmd, output),
+            Binary => self.binary.bin_print_stream_command(cmd, output),
             // CG / APERTIUM / FST / NICELINE / PLAIN / default → base.
             _ => e.print_stream_command(cmd, output),
         }
     }
 
     fn print_plain_text_line<W: Write>(&mut self, e: &mut Engine<'_>, line: &str, output: &mut W) {
-        use cg3_sformat::*;
+        use StreamFormatKind::*;
         match e.cfg.fmt_output {
-            CG3SF_JSONL => self.jsonl.print_plain_text_line_e(line, output),
+            Jsonl => self.jsonl.print_plain_text_line_e(line, output),
             // BinaryApplicator::printPlainTextLine.
-            CG3SF_BINARY => self.binary.bin_print_plain_text_line(line, output),
+            Binary => self.binary.bin_print_plain_text_line(line, output),
             // CG / APERTIUM / FST / NICELINE / PLAIN / default → base.
             _ => e.print_plain_text_line(line, output),
         }

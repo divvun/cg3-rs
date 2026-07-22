@@ -45,13 +45,13 @@ use regex::Regex;
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::ast::{ASTHelper, ASTType, Ast};
 use crate::contextual_test::{
-    GSR_SPECIALS, MASK_POS_SCAN, POS_64BIT, POS_ABSOLUTE, POS_ACTIVE, POS_ALL, POS_ATTACH_TO,
+    GsrSpecials, MASK_POS_SCAN, POS_64BIT, POS_ABSOLUTE, POS_ACTIVE, POS_ALL, POS_ATTACH_TO,
     POS_BAG_OF_TAGS, POS_CAREFUL, POS_DEP_CHILD, POS_DEP_DEEP, POS_DEP_GLOB, POS_DEP_PARENT,
-    POS_DEP_SIBLING, POS_INACTIVE, POS_JUMP, POS_JUMP_POS, POS_LEFT, POS_LEFT_PAR, POS_LEFTMOST,
+    POS_DEP_SIBLING, POS_INACTIVE, POS_JUMP, POS_LEFT, POS_LEFT_PAR, POS_LEFTMOST,
     POS_LOOK_DELAYED, POS_LOOK_DELETED, POS_LOOK_IGNORED, POS_MARK_SET, POS_NEGATE, POS_NO_BARRIER,
     POS_NO_PASS_ORIGIN, POS_NONE, POS_NOT, POS_NUMERIC_BRANCH, POS_PASS_ORIGIN, POS_RELATION,
     POS_RIGHT, POS_RIGHT_PAR, POS_RIGHTMOST, POS_SCANALL, POS_SCANFIRST, POS_SELF, POS_SPAN_BOTH,
-    POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH,
+    POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, PosJumpPos,
 };
 use crate::grammar::Grammar;
 use crate::inlines::{cg3_quit, hash_value_ustring, isspace, skiptows_chars, skipws_chars, ui32};
@@ -62,8 +62,8 @@ use crate::rule::{
     RF_REMEMBERX, RF_RESETX, RF_SAFE, RF_UNMAPLAST, RF_UNSAFE, RF_VARYORDER, RF_WITHCHILD, Rule,
 };
 use crate::set::{ST_CHILD_UNIFY, ST_ORDERED, ST_SET_UNIFY, ST_TAG_UNIFY};
-use crate::sorted_vector::uint32SortedVector;
-use crate::strings::KEYWORDS;
+use crate::sorted_vector::Uint32SortedVector;
+use crate::strings::Keywords;
 use crate::tag::{
     T_ANY, T_ATTACHTO, T_BASEFORM, T_CASE_INSENSITIVE, T_ENCL, T_FAILFAST, T_LOCAL_VARIABLE,
     T_MARK, T_META, T_PAR_LEFT, T_PAR_RIGHT, T_REGEXP, T_REGEXP_ANY, T_REGEXP_LINE, T_SAME_BASIC,
@@ -274,7 +274,7 @@ const FLAG_EXCLS_GROUPS: [crate::rule::RuleFlags; 9] = [
 /// (Strings.hpp). Not `crate::types::flags_t` (a bitset); this is the rule-flag
 /// return payload of `parseRuleFlags`.
 #[derive(Clone, Copy, Default)]
-struct flags_t {
+struct DynBitset {
     flags: crate::rule::RuleFlags,
     sub_reading: i32,
 }
@@ -395,18 +395,18 @@ fn is_mapping_list(grammar: &Grammar, s: SetId) -> bool {
 /// faithful reproduction carries the three manifest ids and is exercised via the
 /// `operator()` equivalent `compare`.
 #[allow(dead_code)]
-struct freq_sorter<'a> {
+struct FreqSorter<'a> {
     tag_freq: &'a BTreeMap<TagId, usize>,
 }
 
 #[allow(dead_code)]
-impl<'a> freq_sorter<'a> {
+impl<'a> FreqSorter<'a> {
     // [spec:cg3:def:textual-parser.cg3.freq-sorter.freq-sorter-fn]
     // [spec:cg3:sem:textual-parser.cg3.freq-sorter.freq-sorter-fn]
     /// `freq_sorter(const bc::flat_map<Tag*, size_t>& tag_freq)` — stores the map
     /// by reference in the member `tag_freq`; empty body.
     fn new(tag_freq: &'a BTreeMap<TagId, usize>) -> Self {
-        freq_sorter { tag_freq }
+        FreqSorter { tag_freq }
     }
 
     // [spec:cg3:def:textual-parser.cg3.freq-sorter.operator-fn]
@@ -497,19 +497,19 @@ fn merge_difference(g: &Grammar, a: &[TagVector], b: &[TagVector]) -> Vec<TagVec
 /// deferred_t` (TextualParser.hpp:86). The `ContextualTest*` key becomes the arena
 /// `CtxId`, `UString` becomes `String`; maps a deferred template context to its
 /// `(line, name)` for late resolution.
-type deferred_t = HashMap<CtxId, (usize, String)>;
+type DeferredTests = HashMap<CtxId, (usize, String)>;
 
 // [spec:cg3:def:textual-parser.cg3.textual-parser]
 pub struct TextualParser {
     pub grammar: Grammar,
     pub filebase: String,
-    pub strict_tags: uint32SortedVector,
-    pub list_tags: uint32SortedVector,
+    pub strict_tags: Uint32SortedVector,
+    pub list_tags: Uint32SortedVector,
     nearbuf: [char; 32],
     verbosity_level: u32,
     sets_counter: u32,
     seen_mapping_prefix: u32,
-    section_flags: flags_t,
+    section_flags: DynBitset,
     option_vislcg_compat: bool,
     in_section: bool,
     in_before_sections: bool,
@@ -539,7 +539,7 @@ pub struct TextualParser {
     cur_grammar_buf: crate::ast::SrcBuf,
     cur_grammar_n: u32,
     num_grammars: u32,
-    deferred_tmpls: deferred_t,
+    deferred_tmpls: DeferredTests,
     grammarbufs: Vec<crate::ast::SrcBuf>,
     error_counter: i32,
     /// Signals the `END` directive breaking the `parseFromUChar` loop.
@@ -564,13 +564,13 @@ impl TextualParser {
             ast: Ast::new(dump_ast),
             grammar,
             filebase: String::new(),
-            strict_tags: uint32SortedVector::new(),
-            list_tags: uint32SortedVector::new(),
+            strict_tags: Uint32SortedVector::new(),
+            list_tags: Uint32SortedVector::new(),
             nearbuf: ['\0'; 32],
             verbosity_level: 0,
             sets_counter: 100,
             seen_mapping_prefix: 0,
-            section_flags: flags_t::default(),
+            section_flags: DynBitset::default(),
             option_vislcg_compat: false,
             in_section: false,
             in_before_sections: true,
@@ -1271,11 +1271,11 @@ impl TextualParser {
                     *pos += 2;
                 } else if buf[*pos + 1] == 'A' {
                     posb |= POS_JUMP;
-                    jump_pos = POS_JUMP_POS::JUMP_ATTACH as i8;
+                    jump_pos = PosJumpPos::JumpAttach as i8;
                     *pos += 2;
                 } else if buf[*pos + 1] == 'T' {
                     posb |= POS_JUMP;
-                    jump_pos = POS_JUMP_POS::JUMP_TARGET as i8;
+                    jump_pos = PosJumpPos::JumpTarget as i8;
                     *pos += 2;
                 } else if buf[*pos + 1] == 'C' && u_isdigit(buf[*pos + 2]) {
                     *pos += 2;
@@ -1299,11 +1299,11 @@ impl TextualParser {
             let mut tries2 = 0usize;
             while buf[*pos] != ' ' && buf[*pos] != '(' && tries2 < 100 {
                 if buf[*pos] == '*' && buf[*pos + 1] == '*' {
-                    offset_sub = GSR_SPECIALS::GSR_ANY as i32;
+                    offset_sub = GsrSpecials::GsrAny as i32;
                     *pos += 2;
                 }
                 if buf[*pos] == '*' {
-                    offset_sub = GSR_SPECIALS::GSR_ANY as i32;
+                    offset_sub = GsrSpecials::GsrAny as i32;
                     *pos += 1;
                 }
                 if buf[*pos] == '-' {
@@ -1441,7 +1441,7 @@ impl TextualParser {
         let ast_ctx_b = *pos;
         let mut ast_context = ASTHelper::new(
             &mut self.ast,
-            ASTType::AST_Context,
+            ASTType::AstContext,
             self.grammar.lines as usize,
             *pos,
             self.cur_grammar_buf.clone(),
@@ -1696,8 +1696,8 @@ impl TextualParser {
 impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-flags-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-flags-fn]
-    fn parse_rule_flags(&mut self, buf: &[char], pos: &mut usize) -> flags_t {
-        let mut rv = flags_t::default();
+    fn parse_rule_flags(&mut self, buf: &[char], pos: &mut usize) -> DynBitset {
+        let mut rv = DynBitset::default();
 
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
 
@@ -1726,7 +1726,7 @@ impl TextualParser {
                             let token: String = buf[*pos..n].iter().collect();
                             *pos = n;
                             if token.starts_with('*') {
-                                rv.sub_reading = GSR_SPECIALS::GSR_ANY as i32;
+                                rv.sub_reading = GsrSpecials::GsrAny as i32;
                             } else {
                                 rv.sub_reading = scan_d(&token);
                             }
@@ -1789,82 +1789,82 @@ impl TextualParser {
         let p = *pos;
         // Longer names first; order-sensitive where one is a prefix of another.
         if is_icase_kw(buf, p, "ADDRELATIONS", "addrelations") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_ADDRELATIONS);
+            self.parse_rule(buf, pos, Keywords::KAddrelations);
         } else if is_icase_kw(buf, p, "SETRELATIONS", "setrelations") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_SETRELATIONS);
+            self.parse_rule(buf, pos, Keywords::KSetrelations);
         } else if is_icase_kw(buf, p, "REMRELATIONS", "remrelations") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_REMRELATIONS);
+            self.parse_rule(buf, pos, Keywords::KRemrelations);
         } else if is_icase_kw(buf, p, "ADDRELATION", "addrelation") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_ADDRELATION);
+            self.parse_rule(buf, pos, Keywords::KAddrelation);
         } else if is_icase_kw(buf, p, "SETRELATION", "setrelation") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_SETRELATION);
+            self.parse_rule(buf, pos, Keywords::KSetrelation);
         } else if is_icase_kw(buf, p, "REMRELATION", "remrelation") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_REMRELATION);
+            self.parse_rule(buf, pos, Keywords::KRemrelation);
         } else if is_icase_kw(buf, p, "SETVARIABLE", "setvariable") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_SETVARIABLE);
+            self.parse_rule(buf, pos, Keywords::KSetvariable);
         } else if is_icase_kw(buf, p, "REMVARIABLE", "remvariable") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_REMVARIABLE);
+            self.parse_rule(buf, pos, Keywords::KRemvariable);
         } else if is_icase_kw(buf, p, "SETPARENT", "setparent") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_SETPARENT);
+            self.parse_rule(buf, pos, Keywords::KSetparent);
         } else if is_icase_kw(buf, p, "SETCHILD", "setchild") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_SETCHILD);
+            self.parse_rule(buf, pos, Keywords::KSetchild);
         } else if is_icase_kw(buf, p, "REMPARENT", "remparent") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_REMPARENT);
+            self.parse_rule(buf, pos, Keywords::KRemparent);
         } else if is_icase_kw(buf, p, "SWITCHPARENT", "switchparent") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_SWITCHPARENT);
+            self.parse_rule(buf, pos, Keywords::KSwitchparent);
         } else if is_icase_kw(buf, p, "RESTORE", "restore") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_RESTORE);
+            self.parse_rule(buf, pos, Keywords::KRestore);
         } else if is_icase_kw(buf, p, "IFF", "iff") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_IFF);
+            self.parse_rule(buf, pos, Keywords::KIff);
         } else if is_icase_kw(buf, p, "MAP", "map") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_MAP);
+            self.parse_rule(buf, pos, Keywords::KMap);
         } else if is_icase_kw(buf, p, "ADD", "add") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_ADD);
+            self.parse_rule(buf, pos, Keywords::KAdd);
         } else if is_icase_kw(buf, p, "APPEND", "append") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_APPEND);
+            self.parse_rule(buf, pos, Keywords::KAppend);
         } else if is_icase_kw(buf, p, "SELECT", "select") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_SELECT);
+            self.parse_rule(buf, pos, Keywords::KSelect);
         } else if is_icase_kw(buf, p, "REMOVE", "remove") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_REMOVE);
+            self.parse_rule(buf, pos, Keywords::KRemove);
         } else if is_icase_kw(buf, p, "REPLACE", "replace") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_REPLACE);
+            self.parse_rule(buf, pos, Keywords::KReplace);
         } else if is_icase_kw(buf, p, "SUBSTITUTE", "substitute") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_SUBSTITUTE);
+            self.parse_rule(buf, pos, Keywords::KSubstitute);
         } else if is_icase_kw(buf, p, "COPYCOHORT", "copycohort") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_COPYCOHORT);
+            self.parse_rule(buf, pos, Keywords::KCopycohort);
         } else if is_icase_kw(buf, p, "COPY", "copy") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_COPY);
+            self.parse_rule(buf, pos, Keywords::KCopy);
         } else if is_icase_kw(buf, p, "UNMAP", "unmap") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_UNMAP);
+            self.parse_rule(buf, pos, Keywords::KUnmap);
         } else if is_icase_kw(buf, p, "PROTECT", "protect") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_PROTECT);
+            self.parse_rule(buf, pos, Keywords::KProtect);
         } else if is_icase_kw(buf, p, "UNPROTECT", "unprotect") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_UNPROTECT);
+            self.parse_rule(buf, pos, Keywords::KUnprotect);
         } else if is_icase_kw(buf, p, "DELIMIT", "delimit") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_DELIMIT);
+            self.parse_rule(buf, pos, Keywords::KDelimit);
         } else if is_icase_kw(buf, p, "JUMP", "jump") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_JUMP);
+            self.parse_rule(buf, pos, Keywords::KJump);
         } else if is_icase_kw(buf, p, "MOVE", "move") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_MOVE);
+            self.parse_rule(buf, pos, Keywords::KMove);
         } else if is_icase_kw(buf, p, "SWITCH", "switch") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_SWITCH);
+            self.parse_rule(buf, pos, Keywords::KSwitch);
         } else if is_icase_kw(buf, p, "EXECUTE", "execute") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_EXECUTE);
+            self.parse_rule(buf, pos, Keywords::KExecute);
         } else if is_icase_kw(buf, p, "EXTERNAL", "external") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_EXTERNAL);
+            self.parse_rule(buf, pos, Keywords::KExternal);
         } else if is_icase_kw(buf, p, "REMCOHORT", "remcohort") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_REMCOHORT);
+            self.parse_rule(buf, pos, Keywords::KRemcohort);
         } else if is_icase_kw(buf, p, "ADDCOHORT", "addcohort") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_ADDCOHORT);
+            self.parse_rule(buf, pos, Keywords::KAddcohort);
         } else if is_icase_kw(buf, p, "SPLITCOHORT", "splitcohort") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_SPLITCOHORT);
+            self.parse_rule(buf, pos, Keywords::KSplitcohort);
         } else if is_icase_kw(buf, p, "MERGECOHORTS", "mergecohorts") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_MERGECOHORTS);
+            self.parse_rule(buf, pos, Keywords::KMergecohorts);
         } else if is_icase_kw(buf, p, "RESTORE", "restore") != 0 {
             // Dead duplicate branch (never reached — the first RESTORE wins).
-            self.parse_rule(buf, pos, KEYWORDS::K_RESTORE);
+            self.parse_rule(buf, pos, Keywords::KRestore);
         } else if is_icase_kw(buf, p, "WITH", "with") != 0 {
-            self.parse_rule(buf, pos, KEYWORDS::K_WITH);
+            self.parse_rule(buf, pos, Keywords::KWith);
         } else {
             return false;
         }

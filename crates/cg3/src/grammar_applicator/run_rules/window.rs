@@ -5,7 +5,7 @@
 use crate::arena::{CohortId, ReadingId, RuleId, SetId, SwId, TagId};
 use crate::cohort::{CT_ENCLOSED, CT_IGNORED, CT_REMOVED, CohortSet};
 use crate::inlines::ui32;
-use crate::interval_vector::uint32IntervalVector;
+use crate::interval_vector::Uint32IntervalVector;
 use crate::reading::Reading;
 use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY, Set};
 use crate::tag::TagList;
@@ -315,8 +315,8 @@ impl crate::grammar_applicator::Engine<'_> {
     /// `reading` → `ReadingId` (used only for `reading.parent`).
     pub fn update_valid_rules(
         &mut self,
-        rules: &uint32IntervalVector,
-        intersects: &mut uint32IntervalVector,
+        rules: &Uint32IntervalVector,
+        intersects: &mut Uint32IntervalVector,
         hash: u32,
         reading: ReadingId,
     ) -> bool {

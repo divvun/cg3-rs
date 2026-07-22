@@ -47,20 +47,20 @@ use std::io::Write;
 
 use crate::arena::{CtxId, RuleId, SetId};
 use crate::contextual_test::{
-    ContextualTest, GSR_SPECIALS, POS_ABSOLUTE, POS_ACTIVE, POS_ALL, POS_ATTACH_TO,
-    POS_BAG_OF_TAGS, POS_CAREFUL, POS_DEP_CHILD, POS_DEP_DEEP, POS_DEP_GLOB, POS_DEP_PARENT,
-    POS_DEP_SIBLING, POS_INACTIVE, POS_JUMP, POS_JUMP_POS, POS_LEFT, POS_LEFT_PAR, POS_LEFTMOST,
-    POS_LOOK_DELAYED, POS_LOOK_DELETED, POS_LOOK_IGNORED, POS_MARK_SET, POS_NEGATE, POS_NO_BARRIER,
+    ContextualTest, GsrSpecials, POS_ABSOLUTE, POS_ACTIVE, POS_ALL, POS_ATTACH_TO, POS_BAG_OF_TAGS,
+    POS_CAREFUL, POS_DEP_CHILD, POS_DEP_DEEP, POS_DEP_GLOB, POS_DEP_PARENT, POS_DEP_SIBLING,
+    POS_INACTIVE, POS_JUMP, POS_LEFT, POS_LEFT_PAR, POS_LEFTMOST, POS_LOOK_DELAYED,
+    POS_LOOK_DELETED, POS_LOOK_IGNORED, POS_MARK_SET, POS_NEGATE, POS_NO_BARRIER,
     POS_NO_PASS_ORIGIN, POS_NONE, POS_NOT, POS_PASS_ORIGIN, POS_RELATION, POS_RIGHT, POS_RIGHT_PAR,
     POS_RIGHTMOST, POS_SCANALL, POS_SCANFIRST, POS_SELF, POS_SPAN_BOTH, POS_SPAN_LEFT,
-    POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH,
+    POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, PosJumpPos,
 };
 use crate::flat_unordered_set::Uint32FlatHashSet;
 use crate::grammar::Grammar;
 use crate::inlines::{is_internal, si32};
 use crate::rule::{FLAGS_COUNT, RF_AFTER, RF_BEFORE, RF_WITHCHILD, Rule};
 use crate::set::ST_ORDERED;
-use crate::strings::KEYWORDS;
+use crate::strings::Keywords;
 use crate::tag::Tag;
 use crate::tag_trie::trie_get_tags_ordered;
 use crate::types::SetNumber;
@@ -533,8 +533,8 @@ impl GrammarWriter {
         for h in anchor_hashes {
             let tid = grammar.single_tags.find(h).get().1;
             let tag = &grammar.single_tags_list[tid.0].tag;
-            if tag == KEYWORDS_NAMES[KEYWORDS::K_START as usize]
-                || tag == KEYWORDS_NAMES[KEYWORDS::K_END as usize]
+            if tag == KEYWORDS_NAMES[Keywords::KStart as usize]
+                || tag == KEYWORDS_NAMES[Keywords::KEnd as usize]
                 || *tag == rule.name
             {
                 continue;
@@ -548,15 +548,14 @@ impl GrammarWriter {
         }
 
         let mut type_kw = rule.r#type;
-        if rule.r#type == KEYWORDS::K_MOVE_BEFORE || rule.r#type == KEYWORDS::K_MOVE_AFTER {
-            type_kw = KEYWORDS::K_MOVE;
+        if rule.r#type == Keywords::KMoveBefore || rule.r#type == Keywords::KMoveAfter {
+            type_kw = Keywords::KMove;
         }
-        if rule.r#type == KEYWORDS::K_ADDCOHORT_BEFORE || rule.r#type == KEYWORDS::K_ADDCOHORT_AFTER
-        {
-            type_kw = KEYWORDS::K_ADDCOHORT;
+        if rule.r#type == Keywords::KAddcohortBefore || rule.r#type == Keywords::KAddcohortAfter {
+            type_kw = Keywords::KAddcohort;
         }
-        if rule.r#type == KEYWORDS::K_EXTERNAL_ONCE || rule.r#type == KEYWORDS::K_EXTERNAL_ALWAYS {
-            type_kw = KEYWORDS::K_EXTERNAL;
+        if rule.r#type == Keywords::KExternalOnce || rule.r#type == Keywords::KExternalAlways {
+            type_kw = Keywords::KExternal;
         }
 
         w!(to, "{}", KEYWORDS_NAMES[type_kw as usize]);
@@ -601,7 +600,7 @@ impl GrammarWriter {
             );
         }
 
-        if rule.r#type == KEYWORDS::K_SUBSTITUTE || rule.r#type == KEYWORDS::K_EXECUTE {
+        if rule.r#type == Keywords::KSubstitute || rule.r#type == Keywords::KExecute {
             w!(to, "{} ", grammar.sets_list[rule.sublist.unwrap().0].name);
         }
 
@@ -610,24 +609,24 @@ impl GrammarWriter {
         }
 
         if let Some(sublist) = rule.sublist
-            && (rule.r#type == KEYWORDS::K_ADDRELATIONS
-                || rule.r#type == KEYWORDS::K_SETRELATIONS
-                || rule.r#type == KEYWORDS::K_REMRELATIONS
-                || rule.r#type == KEYWORDS::K_SETVARIABLE
-                || rule.r#type == KEYWORDS::K_COPY
-                || rule.r#type == KEYWORDS::K_COPYCOHORT)
+            && (rule.r#type == Keywords::KAddrelations
+                || rule.r#type == Keywords::KSetrelations
+                || rule.r#type == Keywords::KRemrelations
+                || rule.r#type == Keywords::KSetvariable
+                || rule.r#type == Keywords::KCopy
+                || rule.r#type == Keywords::KCopycohort)
         {
-            if rule.r#type == KEYWORDS::K_COPY || rule.r#type == KEYWORDS::K_COPYCOHORT {
+            if rule.r#type == Keywords::KCopy || rule.r#type == Keywords::KCopycohort {
                 w!(to, "EXCEPT ");
             }
             w!(to, "{} ", grammar.sets_list[sublist.0].name);
         }
 
-        if rule.r#type == KEYWORDS::K_ADD
-            || rule.r#type == KEYWORDS::K_MAP
-            || rule.r#type == KEYWORDS::K_SUBSTITUTE
-            || rule.r#type == KEYWORDS::K_COPY
-            || rule.r#type == KEYWORDS::K_COPYCOHORT
+        if rule.r#type == Keywords::KAdd
+            || rule.r#type == Keywords::KMap
+            || rule.r#type == Keywords::KSubstitute
+            || rule.r#type == Keywords::KCopy
+            || rule.r#type == Keywords::KCopycohort
         {
             if rule.flags.intersects(RF_BEFORE) {
                 w!(to, "BEFORE ");
@@ -636,16 +635,16 @@ impl GrammarWriter {
                 w!(to, "AFTER ");
             }
             if rule.childset1.get() != 0 {
-                if rule.r#type == KEYWORDS::K_COPYCOHORT {
+                if rule.r#type == Keywords::KCopycohort {
                     w!(to, "WITHCHILD ");
                 }
                 w!(to, "{} ", grammar.set_by_number(rule.childset1).name);
             }
         }
 
-        if rule.r#type == KEYWORDS::K_ADDCOHORT_BEFORE {
+        if rule.r#type == Keywords::KAddcohortBefore {
             w!(to, "BEFORE ");
-        } else if rule.r#type == KEYWORDS::K_ADDCOHORT_AFTER {
+        } else if rule.r#type == Keywords::KAddcohortAfter {
             w!(to, "AFTER ");
         }
 
@@ -659,22 +658,22 @@ impl GrammarWriter {
             w!(to, ") ");
         }
 
-        if rule.r#type == KEYWORDS::K_SETPARENT
-            || rule.r#type == KEYWORDS::K_SETCHILD
-            || rule.r#type == KEYWORDS::K_ADDRELATIONS
-            || rule.r#type == KEYWORDS::K_ADDRELATION
-            || rule.r#type == KEYWORDS::K_SETRELATIONS
-            || rule.r#type == KEYWORDS::K_SETRELATION
-            || rule.r#type == KEYWORDS::K_REMRELATIONS
-            || rule.r#type == KEYWORDS::K_REMRELATION
-            || rule.r#type == KEYWORDS::K_COPYCOHORT
+        if rule.r#type == Keywords::KSetparent
+            || rule.r#type == Keywords::KSetchild
+            || rule.r#type == Keywords::KAddrelations
+            || rule.r#type == Keywords::KAddrelation
+            || rule.r#type == Keywords::KSetrelations
+            || rule.r#type == Keywords::KSetrelation
+            || rule.r#type == Keywords::KRemrelations
+            || rule.r#type == Keywords::KRemrelation
+            || rule.r#type == Keywords::KCopycohort
         {
             w!(to, "TO ");
-        } else if rule.r#type == KEYWORDS::K_MOVE_AFTER {
+        } else if rule.r#type == Keywords::KMoveAfter {
             w!(to, "AFTER ");
-        } else if rule.r#type == KEYWORDS::K_MOVE_BEFORE {
+        } else if rule.r#type == Keywords::KMoveBefore {
             w!(to, "BEFORE ");
-        } else if rule.r#type == KEYWORDS::K_SWITCH || rule.r#type == KEYWORDS::K_MERGECOHORTS {
+        } else if rule.r#type == Keywords::KSwitch || rule.r#type == Keywords::KMergecohorts {
             w!(to, "WITH ");
         }
 
@@ -696,7 +695,7 @@ impl GrammarWriter {
             w!(to, ") ");
         }
 
-        if rule.r#type == KEYWORDS::K_WITH {
+        if rule.r#type == Keywords::KWith {
             w!(to, "{{\n");
             let sub_rules = rule.sub_rules.clone();
             for r in sub_rules {
@@ -820,11 +819,11 @@ impl GrammarWriter {
                 w!(to, "X");
             }
             if test.pos.intersects(POS_JUMP) {
-                if test.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
+                if test.jump_pos == PosJumpPos::JumpMark as i8 {
                     w!(to, "x");
-                } else if test.jump_pos == POS_JUMP_POS::JUMP_ATTACH as i8 {
+                } else if test.jump_pos == PosJumpPos::JumpAttach as i8 {
                     w!(to, "jA");
-                } else if test.jump_pos == POS_JUMP_POS::JUMP_TARGET as i8 {
+                } else if test.jump_pos == PosJumpPos::JumpTarget as i8 {
                     w!(to, "jT");
                 } else {
                     w!(to, "jC{}", test.jump_pos);
@@ -860,7 +859,7 @@ impl GrammarWriter {
                 self.print_tag(to, &grammar.single_tags_list[tid.0]);
             }
             if test.offset_sub != 0 {
-                if test.offset_sub == GSR_SPECIALS::GSR_ANY as i32 {
+                if test.offset_sub == GsrSpecials::GsrAny as i32 {
                     w!(to, "/*");
                 } else {
                     w!(to, "/{}", test.offset_sub);

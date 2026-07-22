@@ -11,7 +11,7 @@ use crate::flat_unordered_map::FlatUnorderedMap;
 use crate::grammar::Grammar;
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_ustring, is_textual};
 use crate::math_parser::MathParser;
-use crate::sorted_vector::sorted_vector;
+use crate::sorted_vector::SortedVector;
 use crate::types::{TagHash, UString, UStringVector};
 use regex::Regex;
 
@@ -27,21 +27,21 @@ pub type SetVector = Vec<SetId>;
 /// C++ `enum C_OPS : uint8_t` — the numeric-comparison operators.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[repr(u8)]
-pub enum C_OPS {
-    OP_NOP,
-    OP_EQUALS,
-    OP_LESSTHAN,
-    OP_GREATERTHAN,
-    OP_LESSEQUALS,
-    OP_GREATEREQUALS,
-    OP_NOTEQUALS,
-    NUM_OPS,
+pub enum COps {
+    OpNop,
+    OpEquals,
+    OpLessthan,
+    OpGreaterthan,
+    OpLessequals,
+    OpGreaterequals,
+    OpNotequals,
+    NumOps,
 }
 
-impl Default for C_OPS {
+impl Default for COps {
     /// Mirrors the C++ member initialiser `C_OPS comparison_op = OP_NOP;`.
     fn default() -> Self {
-        C_OPS::OP_NOP
+        COps::OpNop
     }
 }
 
@@ -150,7 +150,7 @@ pub const MASK_TAG_SPECIAL: TagType = T_ANY
 #[derive(Default, Debug)]
 pub struct Tag {
     /// `C_OPS comparison_op = OP_NOP;`
-    pub comparison_op: C_OPS,
+    pub comparison_op: COps,
     /// `double comparison_val = 0;`
     pub comparison_val: f64,
     /// `uint32_t type = 0;` (`type` is a Rust keyword → raw identifier).
@@ -202,20 +202,20 @@ pub struct Tag {
 /// C++ `struct compare_Tag` — strict-weak ordering functor over `Tag*` by
 /// `hash`. The `operator()` body is a later (method) pass.
 #[derive(Default, Clone, Copy, Debug)]
-pub struct compare_Tag;
+pub struct CompareTag;
 
 // [spec:cg3:def:tag.cg3.equal-tag]
 /// C++ `struct equal_Tag` — equality functor over `Tag*` by `hash`. The
 /// `operator()` body is a later (method) pass.
 #[derive(Default, Clone, Copy, Debug)]
-pub struct equal_Tag;
+pub struct EqualTag;
 
 // [spec:cg3:def:tag.cg3.compare-tag-vector]
 /// C++ `struct compare_TagVector` — lexicographic strict-weak ordering over
 /// `TagVector`s by element `hash`. The `operator()` body is a later (method)
 /// pass.
 #[derive(Default, Clone, Copy, Debug)]
-pub struct compare_TagVector;
+pub struct CompareTagVector;
 
 /// C++ `using TagVector = std::vector<Tag*>;`
 pub type TagVector = Vec<TagId>;
@@ -234,7 +234,7 @@ pub type Taguint32HashMap = FlatUnorderedMap<u32, TagId>;
 // either this container carries the hash alongside the id or sorting is done
 // with an arena-aware comparator externally.
 /// C++ `sorted_vector<Tag*, compare_Tag>`.
-pub type TagSortedVector = sorted_vector<TagId, compare_Tag>;
+pub type TagSortedVector = SortedVector<TagId, CompareTag>;
 
 // C++ `using TagVectorSet = std::set<TagVector, compare_TagVector>;`.
 // NOTE(lead): literal `std::set` → `BTreeSet`. `BTreeSet` orders by `Ord`,
@@ -518,34 +518,34 @@ impl Tag {
         let top0 = top[0];
         let top1 = top.get(1).copied().unwrap_or('\0');
         if top0 == '<' {
-            self.comparison_op = C_OPS::OP_LESSTHAN;
+            self.comparison_op = COps::OpLessthan;
         } else if top0 == '>' {
-            self.comparison_op = C_OPS::OP_GREATERTHAN;
+            self.comparison_op = COps::OpGreaterthan;
         } else if top0 == '=' || top0 == ':' {
-            self.comparison_op = C_OPS::OP_EQUALS;
+            self.comparison_op = COps::OpEquals;
         } else if top0 == '!' {
-            self.comparison_op = C_OPS::OP_NOTEQUALS;
+            self.comparison_op = COps::OpNotequals;
         }
         if top1 != '\0' {
             if top1 == '=' || top1 == ':' {
-                if self.comparison_op == C_OPS::OP_GREATERTHAN {
-                    self.comparison_op = C_OPS::OP_GREATEREQUALS;
-                } else if self.comparison_op == C_OPS::OP_LESSTHAN {
-                    self.comparison_op = C_OPS::OP_LESSEQUALS;
-                } else if self.comparison_op == C_OPS::OP_NOTEQUALS {
-                    self.comparison_op = C_OPS::OP_NOTEQUALS;
+                if self.comparison_op == COps::OpGreaterthan {
+                    self.comparison_op = COps::OpGreaterequals;
+                } else if self.comparison_op == COps::OpLessthan {
+                    self.comparison_op = COps::OpLessequals;
+                } else if self.comparison_op == COps::OpNotequals {
+                    self.comparison_op = COps::OpNotequals;
                 }
             } else if top1 == '>' {
-                if self.comparison_op == C_OPS::OP_EQUALS {
-                    self.comparison_op = C_OPS::OP_GREATEREQUALS;
-                } else if self.comparison_op == C_OPS::OP_LESSTHAN {
-                    self.comparison_op = C_OPS::OP_NOTEQUALS;
+                if self.comparison_op == COps::OpEquals {
+                    self.comparison_op = COps::OpGreaterequals;
+                } else if self.comparison_op == COps::OpLessthan {
+                    self.comparison_op = COps::OpNotequals;
                 }
             } else if top1 == '<' {
-                if self.comparison_op == C_OPS::OP_EQUALS {
-                    self.comparison_op = C_OPS::OP_LESSEQUALS;
-                } else if self.comparison_op == C_OPS::OP_GREATERTHAN {
-                    self.comparison_op = C_OPS::OP_NOTEQUALS;
+                if self.comparison_op == COps::OpEquals {
+                    self.comparison_op = COps::OpLessequals;
+                } else if self.comparison_op == COps::OpGreaterthan {
+                    self.comparison_op = COps::OpNotequals;
                 }
             }
         }

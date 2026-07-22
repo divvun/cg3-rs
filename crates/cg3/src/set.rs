@@ -9,8 +9,8 @@
 use crate::arena::{SetId, TagId};
 use crate::grammar::Grammar;
 use crate::inlines::{hash_value, ui32};
-use crate::sorted_vector::{Comparator, sorted_vector};
-use crate::tag::{T_MAPPING, T_SPECIAL, TagSortedVector, compare_Tag};
+use crate::sorted_vector::{Comparator, SortedVector};
+use crate::tag::{CompareTag, T_MAPPING, T_SPECIAL, TagSortedVector};
 use crate::tag_trie::{trie_delete, trie_markused, trie_rehash};
 use crate::types::{SetNumber, UString, Uint32Vector};
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ use std::collections::HashMap;
 // so the blast radius is limited; a hash-ordered container is a later-pass
 // reconciliation. UNRESOLVED DEP: if the real impl later lands in `tag.rs`,
 // this placeholder must be removed to avoid a duplicate-impl conflict.
-impl Comparator<TagId> for compare_Tag {
+impl Comparator<TagId> for CompareTag {
     fn comp(&self, a: &TagId, b: &TagId) -> bool {
         a.0 < b.0
     }
@@ -70,7 +70,7 @@ pub const MASK_ST_UNIFY: SetType = SetType::TAG_UNIFY
 
 /// C++ `trie_t` (`bc::flat_map<Tag*, trie_node_t, compare_Tag>`) — the real
 /// port lives in the `tag_trie` module.
-pub use crate::tag_trie::trie_t;
+pub use crate::tag_trie::TagTrie;
 
 // [spec:cg3:def:set.cg3.set]
 /// C++ `class Set`. A named set of tags/child-sets: its type-flag mask, source
@@ -93,10 +93,10 @@ pub struct Set {
     pub number: SetNumber,
     /// `UString name;`
     pub name: UString,
-    /// `trie_t trie;` — placeholder type; see [`trie_t`].
-    pub trie: trie_t,
-    /// `trie_t trie_special;` — placeholder type; see [`trie_t`].
-    pub trie_special: trie_t,
+    /// `trie_t trie;` — placeholder type; see [`TagTrie`].
+    pub trie: TagTrie,
+    /// `trie_t trie_special;` — placeholder type; see [`TagTrie`].
+    pub trie_special: TagTrie,
     /// `TagSortedVector ff_tags;`
     pub ff_tags: TagSortedVector,
     /// `uint32Vector set_ops;`
@@ -107,7 +107,7 @@ pub struct Set {
 
 // [spec:cg3:def:set.cg3.set-set]
 /// C++ `typedef sorted_vector<Set*> SetSet;`
-pub type SetSet = sorted_vector<SetId>;
+pub type SetSet = SortedVector<SetId>;
 
 // [spec:cg3:def:set.cg3.set-vector]
 /// C++ `typedef std::vector<Set*> SetVector;`
@@ -360,7 +360,7 @@ impl Drop for Set {
 /// 256), so the `u8` return is lossless. Order-independent (OR accumulation),
 /// so the `BTreeMap` is iterated directly; `grammar` resolves each `TagId`'s
 /// `Tag::type`.
-pub fn trie_reindex(trie: &trie_t, grammar: &Grammar) -> SetType {
+pub fn trie_reindex(trie: &TagTrie, grammar: &Grammar) -> SetType {
     let mut type_ = SetType::empty();
     for (k, node) in trie.iter() {
         let tag_type = grammar.single_tags_list[k.0].r#type;

@@ -90,7 +90,7 @@ fn hashing_family() {
 
     // hash_ustring facade forces the seed and widens to usize; UTF-16-unit
     // hashing means it equals hash_value_ustring(_, 0) by construction.
-    let hu = hash_ustring;
+    let hu = HashUString;
     let s: UString = "kitten".to_string();
     assert_eq!(hu.call(&s), hash_value_ustring(&s, 0) as usize);
     assert_eq!(hu.call(&s), hu.call_view("kitten"));
@@ -439,7 +439,7 @@ fn swapper_swaps_on_construct_and_drop() {
     let mut a = 1;
     let mut b = 2;
     {
-        let _s = swapper::new(true, &mut a, &mut b);
+        let _s = Swapper::new(true, &mut a, &mut b);
         // swapped on construct
         assert_eq!((*_s.a, *_s.b), (2, 1));
     } // swapped back on drop -> net identity
@@ -449,7 +449,7 @@ fn swapper_swaps_on_construct_and_drop() {
     let mut a = 1;
     let mut b = 2;
     {
-        let _s = swapper::new(false, &mut a, &mut b);
+        let _s = Swapper::new(false, &mut a, &mut b);
     }
     assert_eq!((a, b), (1, 2));
 }
@@ -460,7 +460,7 @@ fn swapper_swaps_on_construct_and_drop() {
 fn swapper_false_restores_on_drop() {
     let mut flag = true;
     {
-        let _s = swapper_false::new(true, &mut flag);
+        let _s = SwapperFalse::new(true, &mut flag);
         assert!(!*_s.b, "held at false while alive");
     }
     assert!(flag, "restored to original (true) on drop");
@@ -468,7 +468,7 @@ fn swapper_false_restores_on_drop() {
     // cond=false: no change at all.
     let mut flag = true;
     {
-        let _s = swapper_false::new(false, &mut flag);
+        let _s = SwapperFalse::new(false, &mut flag);
     }
     assert!(flag);
 }
@@ -480,7 +480,7 @@ fn swapper_false_restores_on_drop() {
 fn uncond_swap_installs_and_restores() {
     let mut a = 10;
     {
-        let _s = uncond_swap::new(&mut a, 99);
+        let _s = UncondSwap::new(&mut a, 99);
         assert_eq!(*_s.a, 99, "installed the passed value");
         assert_eq!(_s.b, 10, "kept a's original");
     }
@@ -494,7 +494,7 @@ fn uncond_swap_installs_and_restores() {
 fn inc_dec_counter_guard() {
     let mut counter: i32 = 5;
     {
-        let mut g = inc_dec::new();
+        let mut g = IncDec::new();
         g.inc(&mut counter);
         // incremented on inc()
     } // decremented on drop -> back to 5
@@ -502,7 +502,7 @@ fn inc_dec_counter_guard() {
 
     // An un-armed guard (never inc'd) does nothing on drop.
     {
-        let _g: inc_dec<'_, i32> = inc_dec::new();
+        let _g: IncDec<'_, i32> = IncDec::new();
     }
     assert_eq!(counter, 5);
 }
@@ -515,14 +515,14 @@ fn scope_guard_runs_unless_disarmed() {
     use std::cell::Cell;
     let ran = Cell::new(false);
     {
-        let _g = scope_guard::new(|| ran.set(true));
+        let _g = ScopeGuard::new(|| ran.set(true));
     }
     assert!(ran.get(), "callback ran on drop (good)");
 
     // set(false) disarms.
     let ran2 = Cell::new(false);
     {
-        let mut g = scope_guard::new(|| ran2.set(true));
+        let mut g = ScopeGuard::new(|| ran2.set(true));
         g.set(false);
     }
     assert!(!ran2.get(), "disarmed guard does not run");

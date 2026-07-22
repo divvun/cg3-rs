@@ -78,17 +78,17 @@ use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value_ustring, make_64};
 use crate::math_parser::MathParser;
 use crate::rule::RF_CAPTURE_UNIF;
 use crate::set::{ST_ANY, ST_CHILD_UNIFY, ST_SET_UNIFY, ST_SPECIAL, ST_TAG_UNIFY};
-use crate::sorted_vector::uint32SortedVector;
+use crate::sorted_vector::Uint32SortedVector;
 use crate::tag::{
-    C_OPS, T_ATTACHTO, T_BASEFORM, T_CASE_INSENSITIVE, T_CONTEXT, T_ENCL, T_FAILFAST,
+    COps, T_ATTACHTO, T_BASEFORM, T_CASE_INSENSITIVE, T_CONTEXT, T_ENCL, T_FAILFAST,
     T_LOCAL_VARIABLE, T_MARK, T_META, T_NUMERIC_MATH, T_NUMERICAL, T_PAR_LEFT, T_PAR_RIGHT,
     T_REGEXP, T_REGEXP_ANY, T_REGEXP_LINE, T_SAME_BASIC, T_SET, T_SPECIAL, T_TARGET, T_TEXTUAL,
     T_VARIABLE, T_VARSTRING, T_WORDFORM, Tag, TagList, TagSortedVector,
 };
-use crate::tag_trie::{trie_node_t, trie_t};
+use crate::tag_trie::{TagTrie, TrieNode};
 use crate::types::{SetNumber, TagHash, UString};
 
-use super::{Matcher, UnifKey, dSMC_Context, regexgrps_t};
+use super::{CohortMatchContext, Matcher, RegexGroups, UnifKey};
 
 // C++ Strings.hpp set-operator enum values (`S_IGNORE, S_OR=3, S_PLUS, S_MINUS,
 // ... S_FAILFAST=8`). Only the four `doesSetMatchReading` uses are reproduced.
@@ -115,7 +115,7 @@ const S_FAILFAST: u32 = 8;
 fn capture_regex(
     gc: i32,
     regexgrp_ct: &mut u8,
-    regexgrps: &mut regexgrps_t,
+    regexgrps: &mut RegexGroups,
     regexp: &Regex,
     input: &str,
 ) {
@@ -173,7 +173,7 @@ pub fn check_options(
 pub fn tag_set_subset_of_t_set(
     grammar: &Grammar,
     a: &TagSortedVector,
-    b: &uint32SortedVector,
+    b: &Uint32SortedVector,
 ) -> bool {
     let a_slice = a.as_slice();
     let b_slice = b.as_slice();
@@ -210,7 +210,7 @@ pub fn test_tag_numerical(
     tag: &Tag,
     itag: &Tag,
 ) -> TagHash {
-    use C_OPS::*;
+    use COps::*;
     let mut m = TagHash(0);
     if tag.comparison_hash != itag.comparison_hash {
         return TagHash(0);
@@ -245,42 +245,42 @@ pub fn test_tag_numerical(
     // C++ if/else-if operator table: match on the (A, B) operator pair, with the
     // value comparison as an arm guard where the C++ arm has one.
     match (a, b) {
-        (OP_EQUALS, OP_EQUALS) if compval == v => m = itag.hash,
-        (OP_NOTEQUALS, OP_EQUALS) if compval != v => m = itag.hash,
-        (OP_EQUALS, OP_NOTEQUALS) if compval != v => m = itag.hash,
-        (OP_NOTEQUALS, OP_NOTEQUALS) if compval == v => m = itag.hash,
-        (OP_EQUALS, OP_LESSTHAN) if compval < v => m = itag.hash,
-        (OP_EQUALS, OP_LESSEQUALS) if compval <= v => m = itag.hash,
-        (OP_EQUALS, OP_GREATERTHAN) if compval > v => m = itag.hash,
-        (OP_EQUALS, OP_GREATEREQUALS) if compval >= v => m = itag.hash,
-        (OP_NOTEQUALS, OP_LESSTHAN) => m = itag.hash,
-        (OP_NOTEQUALS, OP_LESSEQUALS) => m = itag.hash,
-        (OP_NOTEQUALS, OP_GREATERTHAN) => m = itag.hash,
-        (OP_NOTEQUALS, OP_GREATEREQUALS) => m = itag.hash,
-        (OP_LESSTHAN, OP_NOTEQUALS) => m = itag.hash,
-        (OP_LESSEQUALS, OP_NOTEQUALS) => m = itag.hash,
-        (OP_GREATERTHAN, OP_NOTEQUALS) => m = itag.hash,
-        (OP_GREATEREQUALS, OP_NOTEQUALS) => m = itag.hash,
-        (OP_LESSTHAN, OP_EQUALS) if compval > v => m = itag.hash,
-        (OP_LESSEQUALS, OP_EQUALS) if compval >= v => m = itag.hash,
-        (OP_LESSTHAN, OP_LESSTHAN) => m = itag.hash,
-        (OP_LESSEQUALS, OP_LESSEQUALS) => m = itag.hash,
-        (OP_LESSEQUALS, OP_LESSTHAN) => m = itag.hash,
-        (OP_LESSTHAN, OP_LESSEQUALS) => m = itag.hash,
-        (OP_LESSTHAN, OP_GREATERTHAN) if compval > v => m = itag.hash,
-        (OP_LESSTHAN, OP_GREATEREQUALS) if compval > v => m = itag.hash,
-        (OP_LESSEQUALS, OP_GREATERTHAN) if compval > v => m = itag.hash,
-        (OP_LESSEQUALS, OP_GREATEREQUALS) if compval >= v => m = itag.hash,
-        (OP_GREATERTHAN, OP_EQUALS) if compval < v => m = itag.hash,
-        (OP_GREATEREQUALS, OP_EQUALS) if compval <= v => m = itag.hash,
-        (OP_GREATERTHAN, OP_GREATERTHAN) => m = itag.hash,
-        (OP_GREATEREQUALS, OP_GREATEREQUALS) => m = itag.hash,
-        (OP_GREATEREQUALS, OP_GREATERTHAN) => m = itag.hash,
-        (OP_GREATERTHAN, OP_GREATEREQUALS) => m = itag.hash,
-        (OP_GREATERTHAN, OP_LESSTHAN) if compval < v => m = itag.hash,
-        (OP_GREATERTHAN, OP_LESSEQUALS) if compval < v => m = itag.hash,
-        (OP_GREATEREQUALS, OP_LESSTHAN) if compval < v => m = itag.hash,
-        (OP_GREATEREQUALS, OP_LESSEQUALS) if compval <= v => m = itag.hash,
+        (OpEquals, OpEquals) if compval == v => m = itag.hash,
+        (OpNotequals, OpEquals) if compval != v => m = itag.hash,
+        (OpEquals, OpNotequals) if compval != v => m = itag.hash,
+        (OpNotequals, OpNotequals) if compval == v => m = itag.hash,
+        (OpEquals, OpLessthan) if compval < v => m = itag.hash,
+        (OpEquals, OpLessequals) if compval <= v => m = itag.hash,
+        (OpEquals, OpGreaterthan) if compval > v => m = itag.hash,
+        (OpEquals, OpGreaterequals) if compval >= v => m = itag.hash,
+        (OpNotequals, OpLessthan) => m = itag.hash,
+        (OpNotequals, OpLessequals) => m = itag.hash,
+        (OpNotequals, OpGreaterthan) => m = itag.hash,
+        (OpNotequals, OpGreaterequals) => m = itag.hash,
+        (OpLessthan, OpNotequals) => m = itag.hash,
+        (OpLessequals, OpNotequals) => m = itag.hash,
+        (OpGreaterthan, OpNotequals) => m = itag.hash,
+        (OpGreaterequals, OpNotequals) => m = itag.hash,
+        (OpLessthan, OpEquals) if compval > v => m = itag.hash,
+        (OpLessequals, OpEquals) if compval >= v => m = itag.hash,
+        (OpLessthan, OpLessthan) => m = itag.hash,
+        (OpLessequals, OpLessequals) => m = itag.hash,
+        (OpLessequals, OpLessthan) => m = itag.hash,
+        (OpLessthan, OpLessequals) => m = itag.hash,
+        (OpLessthan, OpGreaterthan) if compval > v => m = itag.hash,
+        (OpLessthan, OpGreaterequals) if compval > v => m = itag.hash,
+        (OpLessequals, OpGreaterthan) if compval > v => m = itag.hash,
+        (OpLessequals, OpGreaterequals) if compval >= v => m = itag.hash,
+        (OpGreaterthan, OpEquals) if compval < v => m = itag.hash,
+        (OpGreaterequals, OpEquals) if compval <= v => m = itag.hash,
+        (OpGreaterthan, OpGreaterthan) => m = itag.hash,
+        (OpGreaterequals, OpGreaterequals) => m = itag.hash,
+        (OpGreaterequals, OpGreaterthan) => m = itag.hash,
+        (OpGreaterthan, OpGreaterequals) => m = itag.hash,
+        (OpGreaterthan, OpLessthan) if compval < v => m = itag.hash,
+        (OpGreaterthan, OpLessequals) if compval < v => m = itag.hash,
+        (OpGreaterequals, OpLessthan) if compval < v => m = itag.hash,
+        (OpGreaterequals, OpLessequals) if compval <= v => m = itag.hash,
         _ => {}
     }
     m
@@ -746,7 +746,7 @@ impl Matcher<'_> {
     /// root-to-node key of the address-free [`UnifKey`]; navigating it fresh at
     /// each matcher step replaces holding a laundered sub-trie borrow. Requires a
     /// non-empty `path` (a node is named by at least one key).
-    fn trie_node_at(&self, set: u32, special: bool, path: &[TagId]) -> Option<&trie_node_t> {
+    fn trie_node_at(&self, set: u32, special: bool, path: &[TagId]) -> Option<&TrieNode> {
         let s = self.grammar.set_by_number(SetNumber(set));
         let root = if special { &s.trie_special } else { &s.trie };
         let mut node = root.get(path.first()?)?;
@@ -760,7 +760,7 @@ impl Matcher<'_> {
     /// (the C++ top-level `doesSetMatchReading_trie(theset.trie_special)` walk),
     /// else the child-trie of the node named by `path`. Short borrow, like
     /// [`Self::trie_node_at`].
-    fn trie_level_at(&self, set: u32, special: bool, path: &[TagId]) -> Option<&trie_t> {
+    fn trie_level_at(&self, set: u32, special: bool, path: &[TagId]) -> Option<&TagTrie> {
         let s = self.grammar.set_by_number(SetNumber(set));
         let root = if special { &s.trie_special } else { &s.trie };
         if path.is_empty() {
@@ -1082,7 +1082,7 @@ impl Matcher<'_> {
         &mut self,
         cohort: CohortId,
         set: u32,
-        context: &mut dSMC_Context,
+        context: &mut CohortMatchContext,
     ) -> bool {
         let mut retval = true;
         let mut reset = false;
@@ -1159,7 +1159,7 @@ impl Matcher<'_> {
         cohort: CohortId,
         reading: ReadingId,
         set: u32,
-        mut context: Option<&mut dSMC_Context>,
+        mut context: Option<&mut CohortMatchContext>,
     ) -> bool {
         let mut retval = false;
         let mut utags = self.scratch.ss_utags.get();
@@ -1292,7 +1292,7 @@ impl Matcher<'_> {
         &mut self,
         cohort: CohortId,
         set: u32,
-        mut context: Option<&mut dSMC_Context>,
+        mut context: Option<&mut CohortMatchContext>,
     ) -> bool {
         let mut retval = false;
 
@@ -1415,7 +1415,7 @@ impl Matcher<'_> {
         &mut self,
         cohort: CohortId,
         set: u32,
-        mut context: Option<&mut dSMC_Context>,
+        mut context: Option<&mut CohortMatchContext>,
     ) -> bool {
         let mut retval = false;
 
@@ -1487,7 +1487,7 @@ impl Matcher<'_> {
     fn gather_lists(
         &self,
         cohort: CohortId,
-        context: Option<&dSMC_Context>,
+        context: Option<&CohortMatchContext>,
     ) -> [Option<Vec<ReadingId>>; 4] {
         let c = self.cohorts.get(cohort.0);
         let mut lists: [Option<Vec<ReadingId>>; 4] = [Some(c.readings.clone()), None, None, None];

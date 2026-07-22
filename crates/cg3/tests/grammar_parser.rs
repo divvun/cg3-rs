@@ -20,7 +20,7 @@ use cg3::grammar::Grammar;
 use cg3::igrammar_parser::IGrammarParser;
 use cg3::inlines::hash_value_ustring;
 use cg3::rule::RF_SAFE;
-use cg3::strings::{KEYWORDS, STR_DUMMY};
+use cg3::strings::{Keywords, STR_DUMMY};
 use cg3::tag::TagVectorSet;
 use cg3::textual_parser::TextualParser;
 use cg3::types::SetNumber;
@@ -273,7 +273,7 @@ fn setops_fixture_eager_operators() {
     );
     for i in 0..g.rule_by_number.capacity() {
         let r = g.rule_by_number.try_get(i).unwrap();
-        assert_eq!(r.r#type, KEYWORDS::K_ADD);
+        assert_eq!(r.r#type, Keywords::KAdd);
         assert!(
             r.maplist.is_some(),
             "every ADD carries a maplist (mapping-list checked)"
@@ -344,9 +344,9 @@ fn rules_sections_anchors_and_jump() {
     let r_select = g.rule_by_number.try_get(0).unwrap();
     let r_remove = g.rule_by_number.try_get(1).unwrap();
     let r_jump = g.rule_by_number.try_get(2).unwrap();
-    assert_eq!(r_select.r#type, KEYWORDS::K_SELECT);
-    assert_eq!(r_remove.r#type, KEYWORDS::K_REMOVE);
-    assert_eq!(r_jump.r#type, KEYWORDS::K_JUMP);
+    assert_eq!(r_select.r#type, Keywords::KSelect);
+    assert_eq!(r_remove.r#type, Keywords::KRemove);
+    assert_eq!(r_jump.r#type, Keywords::KJump);
 
     // parseRuleFlags: SAFE was consumed into the rule's flags.
     assert!(
@@ -440,7 +440,7 @@ fn setparent_fixture_dependency_tests() {
     let mut both = 0;
     for i in 0..g.rule_by_number.capacity() {
         let r = g.rule_by_number.try_get(i).unwrap();
-        if matches!(r.r#type, KEYWORDS::K_SETPARENT | KEYWORDS::K_SETCHILD) {
+        if matches!(r.r#type, Keywords::KSetparent | Keywords::KSetchild) {
             if !r.dep_tests.is_empty() {
                 dep_rules += 1;
             }

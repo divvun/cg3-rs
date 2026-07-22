@@ -1,8 +1,8 @@
 //! Port of `src/options_conv.hpp` (`OptionsConv::options_conv`).
 //!
-//! The cg-conv CLI option enum ([`OPTIONS`]) and its `UOption` table (plus the
+//! The cg-conv CLI option enum ([`Opt`]) and its `UOption` table (plus the
 //! default/override copies). Like [`crate::options`], each table entry is
-//! indexed by its matching [`OPTIONS`] enumerator, so the table order matches
+//! indexed by its matching [`Opt`] enumerator, so the table order matches
 //! the enum order.
 //!
 //! The C++ header does `using ::Options::UOption;` (and the `UOPT_*` values) —
@@ -42,48 +42,50 @@ fn uo3(long: &'static str, short: UChar, has_arg: u8) -> UOption {
 }
 
 // [spec:cg3:def:options-conv.options-conv.options]
+/// C++ `enum OPTIONS` (`options_conv.hpp`); each variant camel-cases its C++
+/// enumerator (`NUM_OPTIONS_CONV` → `NumOptionsConv`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum OPTIONS {
-    HELP1,
-    HELP2,
-    MAPPING_PREFIX,
-    IN_AUTO,
-    IN_CG,
-    IN_CG2,
-    IN_NICELINE,
-    IN_APERTIUM,
-    IN_FST,
-    IN_PLAIN,
-    IN_JSONL,
-    IN_BINARY,
-    ADD_TAGS,
-    OUT_CG,
-    OUT_CG2,
-    OUT_APERTIUM,
-    OUT_FST,
-    OUT_NICELINE,
-    OUT_PLAIN,
-    OUT_JSONL,
-    OUT_BINARY,
-    FST_WFACTOR,
-    FST_WTAG,
-    SUB_DELIMITER,
-    SUB_RTL,
-    SUB_LTR,
-    ORDERED,
-    PARSE_DEP,
-    DEP_DELIMIT,
-    UNICODE_TAGS,
-    PIPE_DELETED,
-    NO_BREAK,
-    NUM_OPTIONS_CONV,
+pub enum Opt {
+    Help1,
+    Help2,
+    MappingPrefix,
+    InAuto,
+    InCg,
+    InCg2,
+    InNiceline,
+    InApertium,
+    InFst,
+    InPlain,
+    InJsonl,
+    InBinary,
+    AddTags,
+    OutCg,
+    OutCg2,
+    OutApertium,
+    OutFst,
+    OutNiceline,
+    OutPlain,
+    OutJsonl,
+    OutBinary,
+    FstWfactor,
+    FstWtag,
+    SubDelimiter,
+    SubRtl,
+    SubLtr,
+    Ordered,
+    ParseDep,
+    DepDelimit,
+    UnicodeTags,
+    PipeDeleted,
+    NoBreak,
+    NumOptionsConv,
 }
 
-/// `std::array<UOption, NUM_OPTIONS_CONV>`.
-pub type options_conv_t = [UOption; OPTIONS::NUM_OPTIONS_CONV as usize];
+/// C++ `using options_conv_t = std::array<UOption, NUM_OPTIONS_CONV>`.
+pub type ConvOptionsTable = [UOption; Opt::NumOptionsConv as usize];
 
-/// The base `OptionsConv::options_conv` table (indexed by [`OPTIONS`]).
-pub fn options_conv() -> options_conv_t {
+/// The base `OptionsConv::options_conv` table (indexed by [`Opt`]).
+pub fn options_conv() -> ConvOptionsTable {
     [
         uo("help", 'h', UOPT_NO_ARG, "shows this help"),
         uo("?", '?', UOPT_NO_ARG, "shows this help"),
@@ -241,15 +243,15 @@ pub fn options_conv() -> options_conv_t {
 }
 
 // `inline auto options_default = options_conv;` and the other copies.
-pub fn options_default() -> options_conv_t {
+pub fn options_default() -> ConvOptionsTable {
     options_conv()
 }
-pub fn options_override() -> options_conv_t {
+pub fn options_override() -> ConvOptionsTable {
     options_conv()
 }
-pub fn grammar_options_default() -> options_conv_t {
+pub fn grammar_options_default() -> ConvOptionsTable {
     options_conv()
 }
-pub fn grammar_options_override() -> options_conv_t {
+pub fn grammar_options_override() -> ConvOptionsTable {
     options_conv()
 }

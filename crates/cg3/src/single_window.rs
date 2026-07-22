@@ -15,8 +15,8 @@ use crate::cohort::Cohort;
 use crate::flat_unordered_map::Uint32FlatHashMap;
 use crate::flat_unordered_set::Uint32FlatHashSet;
 use crate::inlines::ui32;
-use crate::interval_vector::uint32IntervalVector;
-use crate::sorted_vector::uint32SortedVector;
+use crate::interval_vector::Uint32IntervalVector;
+use crate::sorted_vector::Uint32SortedVector;
 use crate::store::RuntimeStore;
 use crate::types::{GlobalNumber, UString};
 use crate::window::{CohortRegistry, DepBookkeeping};
@@ -45,8 +45,8 @@ pub struct SingleWindow {
     pub all_cohorts: Vec<CohortId>,
     /// C++ `CohortVector cohorts` (`std::vector<Cohort*>`).
     pub cohorts: Vec<CohortId>,
-    pub valid_rules: uint32IntervalVector,
-    pub hit_external: uint32SortedVector,
+    pub valid_rules: Uint32IntervalVector,
+    pub hit_external: Uint32SortedVector,
     /// C++ `std::vector<CohortSet> rule_to_cohorts`; each `CohortSet`
     /// (`sorted_vector<Cohort*, compare_Cohort>`).
     pub rule_to_cohorts: Vec<crate::cohort::CohortSet>,
@@ -57,7 +57,7 @@ pub struct SingleWindow {
     pub variables_set: Uint32FlatHashMap,
     /// C++ `uint32FlatHashSet variables_rem`.
     pub variables_rem: Uint32FlatHashSet,
-    pub variables_output: uint32SortedVector,
+    pub variables_output: Uint32SortedVector,
     /// C++ `Reading bag_of_tags` — an embedded (by-value) `Reading`.
     /// Cross-concern: resolves once the `reading` module lands.
     pub bag_of_tags: crate::reading::Reading,
@@ -69,7 +69,7 @@ pub struct SingleWindow {
 /// `operator()` needs the runtime store to resolve a `CohortId`; see the
 /// `call` method below.
 #[derive(Default)]
-pub struct compare_Cohort;
+pub struct CompareCohort;
 
 // ---------------------------------------------------------------------------
 // Ported free functions + method bodies (SingleWindow.cpp).
@@ -365,7 +365,7 @@ pub fn less_cohort(
     ca.local_number < cb.local_number
 }
 
-impl compare_Cohort {
+impl CompareCohort {
     // [spec:cg3:def:single-window.cg3.compare-cohort.operator-fn]
     // [spec:cg3:sem:single-window.cg3.compare-cohort.operator-fn]
     /// C++ `bool operator()(const Cohort* a, const Cohort* b) const` — returns

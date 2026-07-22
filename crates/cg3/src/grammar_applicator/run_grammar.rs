@@ -211,10 +211,10 @@ impl super::Engine<'_> {
         cleaned: &mut Vec<char>,
         line: &mut Vec<char>,
         indents: &mut Vec<(usize, crate::arena::ReadingId)>,
-        all_mappings: &mut super::all_mappings_t,
+        all_mappings: &mut super::AllMappings,
         variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
         variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
-        variables_output: &mut crate::sorted_vector::uint32SortedVector,
+        variables_output: &mut crate::sorted_vector::Uint32SortedVector,
         c_swindow: &mut Option<crate::arena::SwId>,
         c_cohort: crate::arena::CohortId,
         l_swindow: &mut Option<crate::arena::SwId>,
@@ -549,15 +549,15 @@ impl super::Engine<'_> {
 
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::new();
         let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::new();
-        let mut variables_output = crate::sorted_vector::uint32SortedVector::new();
+        let mut variables_output = crate::sorted_vector::Uint32SortedVector::new();
 
         let mut indents: Vec<(usize, crate::arena::ReadingId)> = Vec::new();
-        let mut all_mappings: super::all_mappings_t = super::all_mappings_t::new();
+        let mut all_mappings: super::AllMappings = super::AllMappings::new();
 
         crate::uextras::ux_strip_bom(input);
 
         // binary_maybe_window() [inlined; the C++ lambda captures cSWindow/lSWindow]
-        if self.cfg.fmt_output == super::cg3_sformat::CG3SF_BINARY {
+        if self.cfg.fmt_output == super::StreamFormatKind::Binary {
             let sw = self
                 .doc
                 .stream
@@ -1210,9 +1210,9 @@ impl super::Engine<'_> {
             c_swindow = None;
         }
 
-        if self.cfg.fmt_output == super::cg3_sformat::CG3SF_BINARY && !variables_output.empty() {
+        if self.cfg.fmt_output == super::StreamFormatKind::Binary && !variables_output.empty() {
             // binary_maybe_window() + adopt_variables() [inlined]
-            if self.cfg.fmt_output == super::cg3_sformat::CG3SF_BINARY {
+            if self.cfg.fmt_output == super::StreamFormatKind::Binary {
                 let sw = self
                     .doc
                     .stream
@@ -1342,7 +1342,7 @@ impl super::Engine<'_> {
         c_swindow: crate::arena::SwId,
         variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
         variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
-        variables_output: &mut crate::sorted_vector::uint32SortedVector,
+        variables_output: &mut crate::sorted_vector::Uint32SortedVector,
     ) {
         let vs = live_map_pairs(variables_set);
         let vr = live_set_values(variables_rem);

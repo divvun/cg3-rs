@@ -13,10 +13,10 @@ use super::to_uargv;
 // [spec:cg3:def:cg-mwesplit.options-mwe.options]
 /// C++ `OptionsMWE::OPTIONS` — the tiny option enum for cg-mwesplit (help only).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum OPTIONS {
-    HELP1,
-    HELP2,
-    NUM_OPTIONS_MWE,
+pub enum Opt {
+    Help1,
+    Help2,
+    NumOptionsMwe,
 }
 
 /// Local `UOption` aggregate-init helper (the crate's `UOption::new` is private
@@ -34,8 +34,8 @@ fn uo(long: &'static str, short: char, has_arg: u8, desc: &'static str) -> UOpti
 
 /// C++ `OptionsMWE::options_mwe[]` — the two help aliases. Built as owned local
 /// state (the C++ global array is mutated in place by `u_parseArgs`); indexed by
-/// [`OPTIONS`].
-fn options_mwe() -> [UOption; OPTIONS::NUM_OPTIONS_MWE as usize] {
+/// [`Opt`].
+fn options_mwe() -> [UOption; Opt::NumOptionsMwe as usize] {
     [
         uo("help", 'h', UOPT_NO_ARG, "shows this help"),
         uo("?", '?', UOPT_NO_ARG, "shows this help"),
@@ -59,12 +59,12 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
     let argc = u_parseArgs(
         argv.len() as i32,
         &mut argv,
-        OPTIONS::NUM_OPTIONS_MWE as i32,
+        Opt::NumOptionsMwe as i32,
         &mut options_mwe,
     );
 
-    let occ = |o: OPTIONS| options_mwe[o as usize].does_occur;
-    if argc < 0 || occ(OPTIONS::HELP1) || occ(OPTIONS::HELP2) {
+    let occ = |o: Opt| options_mwe[o as usize].does_occur;
+    if argc < 0 || occ(Opt::Help1) || occ(Opt::Help2) {
         // out = (argc < 0) ? stderr : stdout;
         let mut out = String::new();
         out.push_str("Usage: cg-mwesplit [OPTIONS]\n");
@@ -72,12 +72,12 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
         out.push_str("Options:\n");
 
         let mut longest = 0usize;
-        for i in 0..OPTIONS::NUM_OPTIONS_MWE as usize {
+        for i in 0..Opt::NumOptionsMwe as usize {
             if !options_mwe[i].description.is_empty() {
                 longest = longest.max(options_mwe[i].long_name.map_or(0, |s| s.len()));
             }
         }
-        for i in 0..OPTIONS::NUM_OPTIONS_MWE as usize {
+        for i in 0..Opt::NumOptionsMwe as usize {
             let desc = &options_mwe[i].description;
             if !desc.is_empty() && !desc.starts_with('!') {
                 out.push(' ');

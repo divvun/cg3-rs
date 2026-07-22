@@ -44,7 +44,7 @@ use crate::grammar::Grammar;
 use crate::inlines::hash_value_ustring;
 use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY};
 use crate::tag::{
-    C_OPS, MASK_TAG_SPECIAL, T_ANY, T_ATTACHTO, T_BASEFORM, T_CASE_INSENSITIVE, T_CONTEXT, T_ENCL,
+    COps, MASK_TAG_SPECIAL, T_ANY, T_ATTACHTO, T_BASEFORM, T_CASE_INSENSITIVE, T_CONTEXT, T_ENCL,
     T_FAILFAST, T_LOCAL_VARIABLE, T_MARK, T_META, T_PAR_LEFT, T_PAR_RIGHT, T_PRESERVE_ESC,
     T_REGEXP, T_REGEXP_ANY, T_REGEXP_LINE, T_SAME_BASIC, T_SET, T_SPECIAL, T_TARGET, T_TEXTUAL,
     T_VARIABLE, T_VARSTRING, T_VSTR, T_WORDFORM, Tag,
@@ -410,7 +410,7 @@ pub fn parse_tag<S: ParseTagState>(
             if tag.r#type.intersects(T_VARIABLE | T_LOCAL_VARIABLE) {
                 let tag_tag = tag.tag.clone();
                 if let Some(bpos) = tag_tag.find('=') {
-                    tag.comparison_op = C_OPS::OP_EQUALS;
+                    tag.comparison_op = COps::OpEquals;
                     let after: String = tag_tag[bpos + 1..].to_string();
                     let vh = {
                         let t = parse_tag(&after, near, state, false);

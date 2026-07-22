@@ -473,7 +473,7 @@ impl MatxinApplicator {
         tags_list.extend(multitags_list);
 
         // Build `mi` (pipe-joined morphology).
-        let mut used_tags = crate::sorted_vector::uint32SortedVector::new();
+        let mut used_tags = crate::sorted_vector::Uint32SortedVector::new();
         let mut mi: UString = String::new();
         let mut first = true;
         for tter in tags_list {

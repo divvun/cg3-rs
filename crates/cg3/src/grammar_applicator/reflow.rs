@@ -1136,7 +1136,7 @@ impl Engine<'_> {
     /// bool mapped)`.
     pub fn split_all_mappings(
         &mut self,
-        all_mappings: &mut super::all_mappings_t,
+        all_mappings: &mut super::AllMappings,
         cohort: CohortId,
         mapped: bool,
     ) {

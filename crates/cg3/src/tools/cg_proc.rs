@@ -29,7 +29,7 @@ use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::{cg3_quit, is_cg3b};
 use crate::matxin_applicator::MatxinApplicator;
 use crate::options::{
-    OPTIONS, grammar_options_default, grammar_options_override, options, options_default,
+    Opt, grammar_options_default, grammar_options_override, options, options_default,
     options_override,
 };
 use crate::options_parser::{parse_opts, parse_opts_env};
@@ -334,7 +334,7 @@ pub fn main_proc(args: &[String]) -> i32 {
 
     parse_opts_env("CG3_DEFAULT", &mut options_default);
     parse_opts_env("CG3_OVERRIDE", &mut options_override);
-    for i in 0..OPTIONS::NUM_OPTIONS as usize {
+    for i in 0..Opt::NumOptions as usize {
         if options_default[i].does_occur && !options[i].does_occur {
             options[i] = options_default[i].clone();
         }
@@ -418,7 +418,7 @@ pub fn main_proc(args: &[String]) -> i32 {
     if !grammar.cmdargs_override.is_empty() {
         parse_opts(&grammar.cmdargs_override, &mut grammar_options_override);
     }
-    for i in 0..OPTIONS::NUM_OPTIONS as usize {
+    for i in 0..Opt::NumOptions as usize {
         if grammar_options_default[i].does_occur && !options[i].does_occur {
             options[i] = grammar_options_default[i].clone();
         }

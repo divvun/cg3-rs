@@ -2,8 +2,6 @@
 //!
 //! Split out of the wave-2 monolithic `inlines.rs` (wave 4, w4-file-split-fmt).
 
-#![allow(non_camel_case_types)]
-
 use crate::types::{UString, UStringView};
 
 use super::*;
@@ -186,9 +184,10 @@ pub fn super_fast_hash_u16(data: &[u16], hash: u32) -> u32 {
 }
 
 // [spec:cg3:def:inlines.cg3.hash-ustring]
-pub struct hash_ustring;
+/// C++ `struct hash_ustring` (inlines.hpp) — the `UString` hash functor.
+pub struct HashUString;
 
-impl hash_ustring {
+impl HashUString {
     // [spec:cg3:def:inlines.cg3.hash-ustring.operator-fn]
     // [spec:cg3:sem:inlines.cg3.hash-ustring.operator-fn]
     // C++ `operator()` -> ported to a `call` method (Rust has no call operator

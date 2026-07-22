@@ -11,13 +11,9 @@
 
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::contextual_test::ContextList;
-use crate::strings::KEYWORDS;
+use crate::strings::Keywords;
 use crate::types::{SetNumber, UString};
 use std::collections::{BTreeMap, HashMap};
-
-/// C++ `using rule_flags_t = std::underlying_type<RULE_FLAGS>::type` (`uint64_t`)
-/// — wave 4: the typed [`RuleFlags`] bitflags set.
-pub type rule_flags_t = RuleFlags;
 
 // [spec:cg3:def:rule.cg3.rule-flags]
 // C++ `enum RULE_FLAGS : uint64_t`. Ported as a set of `u64` bit-flag constants
@@ -25,7 +21,9 @@ pub type rule_flags_t = RuleFlags;
 // `Rule::flags`. Must be kept in lock-step with Strings.hpp's `FL_*` / `g_flags`.
 bitflags::bitflags! {
     /// C++ `RF_*` rule-flag bits over `uint64_t` (wave 4: a typed `bitflags`
-    /// set instead of a bare `u64`).
+    /// set instead of a bare `u64`). Also stands in for C++ `using rule_flags_t
+    /// = std::underlying_type<RULE_FLAGS>::type` (`uint64_t`); the port's
+    /// `rule_flags_t` compat alias is deleted — this type IS the flags type.
     #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
     pub struct RuleFlags: u64 {
         const NEAREST = 1 << 0;
@@ -167,7 +165,7 @@ pub type RuleVector = Vec<RuleId>;
 /// The C++ `mutable` qualifier on `tests`/`dep_tests`/`dep_target` has no Rust
 /// analog at the field level (they are plain fields here). The field `type` is
 /// spelled `r#type` (Rust keyword). `Default` is hand-written rather than derived
-/// because `type`'s C++ default is `K_IGNORE` and [`KEYWORDS`] has no `Default`.
+/// because `type`'s C++ default is `K_IGNORE` and [`Keywords`] has no `Default`.
 #[derive(Clone, Debug)]
 pub struct Rule {
     pub name: UString,
@@ -182,7 +180,7 @@ pub struct Rule {
     pub flags: RuleFlags,
     pub section: i32,
     pub sub_reading: i32,
-    pub r#type: KEYWORDS,
+    pub r#type: Keywords,
     pub maplist: Option<SetId>,
     pub sublist: Option<SetId>,
     pub sub_rules: RuleVector,
@@ -195,7 +193,7 @@ pub struct Rule {
 // [spec:cg3:sem:rule.cg3.rule.rule-fn]
 // C++ `Rule() = default`: no custom logic — every member takes its in-class
 // initializer. Hand-written (not derived) only because `type`'s C++ default is
-// `K_IGNORE` and [`KEYWORDS`] has no `Default`; the values below match the C++
+// `K_IGNORE` and [`Keywords`] has no `Default`; the values below match the C++
 // defaults exactly.
 impl Default for Rule {
     fn default() -> Self {
@@ -212,7 +210,7 @@ impl Default for Rule {
             flags: RuleFlags::empty(),
             section: 0,
             sub_reading: 0,
-            r#type: KEYWORDS::K_IGNORE,
+            r#type: Keywords::KIgnore,
             maplist: None,
             sublist: None,
             sub_rules: RuleVector::new(),

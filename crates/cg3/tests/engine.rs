@@ -290,7 +290,7 @@ fn engine_inprocess_error_getters_and_dead_helpers() {
     use cg3::grammar::Grammar;
     use cg3::grammar_applicator::GrammarApplicator;
     use cg3::grammar_applicator::match_set::{check_options, tag_set_subset_of_t_set};
-    use cg3::sorted_vector::uint32SortedVector;
+    use cg3::sorted_vector::Uint32SortedVector;
     use cg3::tag::TagSortedVector;
 
     // error(): no current rule -> ("RT INPUT", numLines).
@@ -327,12 +327,12 @@ fn engine_inprocess_error_getters_and_dead_helpers() {
     // subset-of {bb_hash} alone.
     let mut a = TagSortedVector::new();
     a.insert(aa);
-    let mut b = uint32SortedVector::new();
+    let mut b = Uint32SortedVector::new();
     b.insert(aa_hash);
     b.insert(bb_hash);
     assert!(tag_set_subset_of_t_set(app.get_grammar(), &a, &b));
     a.insert(bb);
-    let mut b2 = uint32SortedVector::new();
+    let mut b2 = Uint32SortedVector::new();
     b2.insert(bb_hash);
     assert!(!tag_set_subset_of_t_set(app.get_grammar(), &a, &b2));
 }

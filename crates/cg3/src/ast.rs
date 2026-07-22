@@ -53,89 +53,90 @@ use crate::types::{UChar, UString};
 pub type SrcBuf = Rc<[char]>;
 
 // [spec:cg3:def:ast.ast-type]
-/// C++ `enum ASTType`. The concrete C++ name is `ASTType`; kept verbatim (as
-/// with `C_OPS` et al.). Default discriminants `0..NUM_ASTTypes` let a node's
-/// type index [`ASTTYPE_STR`] via `ty as usize`.
+/// C++ `enum ASTType`; each variant camel-cases its C++ `AST_*` enumerator
+/// (`AST_Unknown` → `AstUnknown`, ..., `NUM_ASTTypes` → `NumAstTypes`).
+/// Default discriminants `0..NUM_ASTTypes` let a node's type index
+/// [`ASTTYPE_STR`] via `ty as usize`.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(u32)]
 pub enum ASTType {
-    AST_Unknown,
-    AST_AfterSections,
-    AST_Anchor,
-    AST_AnchorName,
-    AST_Barrier,
-    AST_BarrierSafe,
-    AST_BeforeSections,
-    AST_CmdArgs,
-    AST_CompositeTag,
-    AST_Context,
-    AST_ContextMod,
-    AST_ContextPos,
-    AST_Contexts,
-    AST_ContextsTarget,
-    AST_Delimiters,
-    AST_Grammar,
-    AST_Include,
-    AST_IncludeFilename,
-    AST_List,
-    AST_MappingPrefix,
-    AST_NullSection,
-    AST_Option,
-    AST_Options,
-    AST_Parentheses,
-    AST_PreferredTargets,
-    AST_ReopenMappings,
-    AST_Rule,
-    AST_RuleAddcohortWhere,
-    AST_RuleDirection,
-    AST_RuleExcept,
-    AST_RuleExternalCmd,
-    AST_RuleExternalType,
-    AST_RuleFlag,
-    AST_RuleMaplist,
-    AST_RuleMoveType,
-    AST_RuleName,
-    AST_RuleSublist,
-    AST_RuleSubrules,
-    AST_RuleTarget,
-    AST_RuleType,
-    AST_RuleWithChildDepTarget,
-    AST_RuleWithChildTarget,
-    AST_RuleWordform,
-    AST_Section,
-    AST_Set,
-    AST_SetInline,
-    AST_SetName,
-    AST_SetOp,
-    AST_SoftDelimiters,
-    AST_StaticSets,
-    AST_UndefSets,
-    AST_StrictTags,
-    AST_ListTags,
-    AST_SubReadings,
-    AST_SubReadingsDirection,
-    AST_Tag,
-    AST_TagList,
-    AST_Template,
-    AST_TemplateInline,
-    AST_TemplateName,
-    AST_TemplateRef,
-    AST_TemplateShorthand,
-    AST_TextDelimiters,
-    NUM_ASTTypes,
+    AstUnknown,
+    AstAfterSections,
+    AstAnchor,
+    AstAnchorName,
+    AstBarrier,
+    AstBarrierSafe,
+    AstBeforeSections,
+    AstCmdArgs,
+    AstCompositeTag,
+    AstContext,
+    AstContextMod,
+    AstContextPos,
+    AstContexts,
+    AstContextsTarget,
+    AstDelimiters,
+    AstGrammar,
+    AstInclude,
+    AstIncludeFilename,
+    AstList,
+    AstMappingPrefix,
+    AstNullSection,
+    AstOption,
+    AstOptions,
+    AstParentheses,
+    AstPreferredTargets,
+    AstReopenMappings,
+    AstRule,
+    AstRuleAddcohortWhere,
+    AstRuleDirection,
+    AstRuleExcept,
+    AstRuleExternalCmd,
+    AstRuleExternalType,
+    AstRuleFlag,
+    AstRuleMaplist,
+    AstRuleMoveType,
+    AstRuleName,
+    AstRuleSublist,
+    AstRuleSubrules,
+    AstRuleTarget,
+    AstRuleType,
+    AstRuleWithChildDepTarget,
+    AstRuleWithChildTarget,
+    AstRuleWordform,
+    AstSection,
+    AstSet,
+    AstSetInline,
+    AstSetName,
+    AstSetOp,
+    AstSoftDelimiters,
+    AstStaticSets,
+    AstUndefSets,
+    AstStrictTags,
+    AstListTags,
+    AstSubReadings,
+    AstSubReadingsDirection,
+    AstTag,
+    AstTagList,
+    AstTemplate,
+    AstTemplateInline,
+    AstTemplateName,
+    AstTemplateRef,
+    AstTemplateShorthand,
+    AstTextDelimiters,
+    NumAstTypes,
 }
 
 impl Default for ASTType {
     /// Mirrors the C++ default node type (`ASTType type = AST_Unknown` via the
     /// `ASTNode` ctor's default argument).
     fn default() -> Self {
-        ASTType::AST_Unknown
+        ASTType::AstUnknown
     }
 }
 
 /// Number of real `ASTType` values (== `NUM_ASTTypes`'s discriminant); the size
 /// of [`ASTTYPE_STR`].
-pub const NUM_ASTTYPES: usize = ASTType::NUM_ASTTypes as usize;
+pub const NUM_ASTTYPES: usize = ASTType::NumAstTypes as usize;
 
 /// Static analog of the C++ lazily-filled `thread_local ASTType_str[]`. Indexed
 /// by `ASTType as usize`; the strings are the `#type` names (i.e. without the
@@ -289,7 +290,7 @@ impl Ast {
         Ast {
             enabled,
             root: ASTNode::new(
-                ASTType::AST_Unknown,
+                ASTType::AstUnknown,
                 0,
                 0,
                 AST_E_UNSET,
@@ -399,27 +400,27 @@ pub fn print_ast(out: &mut dyn Write, base: usize, n: usize, node: &ASTNode) {
     // Text-bearing node types also emit ` t="<XML-escaped source span>"`.
     if matches!(
         node.r#type,
-        AST_AnchorName
-            | AST_ContextMod
-            | AST_ContextPos
-            | AST_IncludeFilename
-            | AST_MappingPrefix
-            | AST_Option
-            | AST_RuleAddcohortWhere
-            | AST_RuleDirection
-            | AST_RuleExternalCmd
-            | AST_RuleExternalType
-            | AST_RuleFlag
-            | AST_RuleMoveType
-            | AST_RuleName
-            | AST_RuleType
-            | AST_RuleWordform
-            | AST_SetName
-            | AST_SetOp
-            | AST_SubReadingsDirection
-            | AST_Tag
-            | AST_TemplateName
-            | AST_TemplateRef
+        AstAnchorName
+            | AstContextMod
+            | AstContextPos
+            | AstIncludeFilename
+            | AstMappingPrefix
+            | AstOption
+            | AstRuleAddcohortWhere
+            | AstRuleDirection
+            | AstRuleExternalCmd
+            | AstRuleExternalType
+            | AstRuleFlag
+            | AstRuleMoveType
+            | AstRuleName
+            | AstRuleType
+            | AstRuleWordform
+            | AstSetName
+            | AstSetOp
+            | AstSubReadingsDirection
+            | AstTag
+            | AstTemplateName
+            | AstTemplateRef
     ) {
         // C++ `xml_encode(node.b, node.e)` — the `[b, e)` span of the node's own
         // buffer. Text-bearing printed nodes are always closed, so `e` is set;
@@ -443,7 +444,7 @@ pub fn print_ast(out: &mut dyn Write, base: usize, n: usize, node: &ASTNode) {
     }
     let _ = writeln!(out, ">");
     for it in &node.cs {
-        if it.r#type == AST_Grammar {
+        if it.r#type == AstGrammar {
             // Re-base offsets to the `#include`d sub-grammar's own buffer.
             print_ast(out, it.b, n + 1, it);
         } else {
@@ -563,8 +564,8 @@ mod tests {
         let (b, e) = (0usize, src.len());
 
         // ASTNode::new: fields set from args; u=0, cs empty.
-        let node = ASTNode::new(ASTType::AST_Tag, 7, b, e, src.clone());
-        assert_eq!(node.r#type, ASTType::AST_Tag);
+        let node = ASTNode::new(ASTType::AstTag, 7, b, e, src.clone());
+        assert_eq!(node.r#type, ASTType::AstTag);
         assert_eq!(node.line, 7);
         assert_eq!(node.u, 0);
         assert!(node.cs.is_empty());
@@ -588,9 +589,9 @@ mod tests {
         let src: SrcBuf = Rc::from("noun".chars().collect::<Vec<UChar>>().as_slice());
 
         // A Tag child (text-bearing -> gets a t="noun" attribute), spanning [0,4).
-        let child = ASTNode::new(ASTType::AST_Tag, 2, 0, 4, src.clone());
+        let child = ASTNode::new(ASTType::AstTag, 2, 0, 4, src.clone());
         // A Set parent containing the child; span [0,0) (offsets b=0,e=0).
-        let mut parent = ASTNode::new(ASTType::AST_Set, 1, 0, 0, src.clone());
+        let mut parent = ASTNode::new(ASTType::AstSet, 1, 0, 0, src.clone());
         parent.cs.push(child);
 
         let mut out: Vec<u8> = Vec::new();
@@ -604,7 +605,7 @@ mod tests {
         assert!(s.contains("</Set>"));
 
         // A childless, non-text node self-closes with "/>".
-        let leaf = ASTNode::new(ASTType::AST_Anchor, 3, 0, 0, src.clone());
+        let leaf = ASTNode::new(ASTType::AstAnchor, 3, 0, 0, src.clone());
         let mut out2: Vec<u8> = Vec::new();
         print_ast(&mut out2, 0, 0, &leaf);
         let s2 = String::from_utf8(out2).unwrap();
@@ -624,7 +625,7 @@ mod tests {
         // Disabled: helper is inert (no node created).
         let mut ast_off = Ast::new(false);
         {
-            let h = ASTHelper::new(&mut ast_off, ASTType::AST_Rule, 1, 0, src.clone());
+            let h = ASTHelper::new(&mut ast_off, ASTType::AstRule, 1, 0, src.clone());
             assert!(!h.open);
             assert!(ast_off.root().cs.is_empty());
         }
@@ -633,15 +634,15 @@ mod tests {
         // cursor advances to it.
         let mut ast = Ast::new(true);
         {
-            let mut h = ASTHelper::new(&mut ast, ASTType::AST_Rule, 5, 0, src.clone());
+            let mut h = ASTHelper::new(&mut ast, ASTType::AstRule, 5, 0, src.clone());
             assert!(h.open);
             assert_eq!(ast.root().cs.len(), 1);
             // The newly opened child carries the type/line we passed.
             let last = ast.root().cs.last().unwrap();
-            assert_eq!(last.r#type, ASTType::AST_Rule);
+            assert_eq!(last.r#type, ASTType::AstRule);
             assert_eq!(last.line, 5);
             // A nested open lands under the first node (cursor advanced).
-            let mut h2 = ASTHelper::new(&mut ast, ASTType::AST_Tag, 6, 0, src.clone());
+            let mut h2 = ASTHelper::new(&mut ast, ASTType::AstTag, 6, 0, src.clone());
             assert_eq!(ast.root().cs[0].cs.len(), 1);
             // close(e) fills the current node's end offset and pops back.
             h2.close(&mut ast, 1);
@@ -657,7 +658,7 @@ mod tests {
 
         // close_id sets both the end offset and the u payload.
         let mut ast2 = Ast::new(true);
-        let mut g = ASTHelper::new(&mut ast2, ASTType::AST_Grammar, 1, 0, src.clone());
+        let mut g = ASTHelper::new(&mut ast2, ASTType::AstGrammar, 1, 0, src.clone());
         g.close_id(&mut ast2, 1, 42);
         assert_eq!(ast2.root().cs[0].u, 42);
     }

@@ -5,9 +5,8 @@
 //! cleanups are deferred to Wave 4. Every ported item carries its
 //! `[spec:cg3:...]` annotation tying it back to the spec rule it implements.
 //!
-//! Snake_case C++ type names are preserved where practical; `non_camel_case_types`
-//! is allowed crate-wide so the 1:1 mapping reads cleanly against the source.
-#![allow(non_camel_case_types)]
+//! Type names are idiomatic Rust CamelCase; each renamed type's doc comment
+//! carries the original C++ name so the 1:1 mapping stays greppable.
 #![allow(non_snake_case)]
 
 // --- Wave 2 foundation layer (pointer-agnostic: containers + utilities) ---

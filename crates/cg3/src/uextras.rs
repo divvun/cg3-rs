@@ -727,34 +727,34 @@ pub fn ux_strCaseCompare(a: &UString, b: &UString) -> bool {
 // value_type = char (UChar) — the element type of the underlying UTF-8 string.
 
 // [spec:cg3:def:uextras.cg3.substr-t]
-/// In-place substring proxy. In C++ this temporarily NUL-terminates the backing
+/// C++ `struct substr_t` — in-place substring proxy. In C++ this temporarily NUL-terminates the backing
 /// string via `const_cast` (mutating through a shared ref) to hand a C API a
 /// `count`-length string, restoring the overwritten unit on destruction. That
 /// mutate-through-`&` trick is neither possible nor necessary in the `&str`
 /// slice model, so `data()` returns a plain sub-slice and no restore is needed
 /// (`old_value` is retained for shape fidelity but unused; there is no `Drop`).
 /// `offset`/`count` are char indices, matching C++'s code-unit indices.
-pub struct substr_t<'a> {
+pub struct Substr<'a> {
     pub str: &'a str,
     pub offset: usize,
     pub count: usize,
     pub old_value: UChar,
 }
 
-impl<'a> substr_t<'a> {
+impl<'a> Substr<'a> {
     // [spec:cg3:def:uextras.cg3.substr-t.substr-t-fn]
     // [spec:cg3:sem:uextras.cg3.substr-t.substr-t-fn]
     //
     // Stores `str`/`offset`/`count`; `old_value` starts at `'\0'`. When
     // `count != NPOS`, saves the char that `data()` would overwrite
     // (`str[offset + count]`) — cosmetic here, since nothing is restored.
-    pub fn new(str: &'a str, offset: usize, count: usize) -> substr_t<'a> {
+    pub fn new(str: &'a str, offset: usize, count: usize) -> Substr<'a> {
         let old_value = if count != NPOS {
             str.chars().nth(offset + count).unwrap_or('\0')
         } else {
             '\0'
         };
-        substr_t {
+        Substr {
             str,
             offset,
             count,
@@ -790,8 +790,8 @@ fn char_byte(str: &str, n: usize) -> usize {
 // Convenience factory. NOTE the C++ default `count` here is 0 (a zero-length
 // view), NOT `substr_t`'s own `NPOS` default — Rust has no default args, so all
 // three are passed explicitly; callers normally give an explicit `count`.
-pub fn substr(str: &str, offset: usize, count: usize) -> substr_t<'_> {
-    substr_t::new(str, offset, count)
+pub fn substr(str: &str, offset: usize, count: usize) -> Substr<'_> {
+    Substr::new(str, offset, count)
 }
 
 // [spec:cg3:def:uextras.cg3.ux-bufcpy-fn]
@@ -1051,7 +1051,7 @@ mod tests {
 
         // Direct ctor: char-indexed offset/count over multibyte text.
         let t = "héllo";
-        let sub2 = substr_t::new(t, 1, 3);
+        let sub2 = Substr::new(t, 1, 3);
         assert_eq!(sub2.data(), "éll");
         assert_eq!(sub2.offset, 1);
         assert_eq!(sub2.count, 3);
@@ -1059,7 +1059,7 @@ mod tests {
         assert_eq!(sub2.old_value, 'o');
 
         // count == NPOS => old_value stays '\0'.
-        let sub3 = substr_t::new(s, 0, NPOS);
+        let sub3 = Substr::new(s, 0, NPOS);
         assert_eq!(sub3.old_value, '\0');
     }
 

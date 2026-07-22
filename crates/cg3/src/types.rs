@@ -25,7 +25,7 @@ pub type Uint32Vector = Vec<u32>;
 /// C++ `flags_t` (`boost::dynamic_bitset<>`). Stand-in: a growable bit vector as
 /// `Vec<bool>` for Wave 2; a packed bitset (or the `bitvec` crate) is a Wave 4
 /// concern. Used for per-rule/per-set active masks (e.g. `Grammar::sets_any`).
-pub type flags_t = Vec<bool>;
+pub type DynBitset = Vec<bool>;
 
 /// The UTF-8 analog of ICU's `UChar`: a single Unicode scalar value.
 ///

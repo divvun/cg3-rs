@@ -274,7 +274,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 continue;
             }
             // RESTORE with nothing to restore.
-            if rtype0 == K_RESTORE {
+            if rtype0 == KRestore {
                 let cc = self.doc.store.cohorts.get(cohort.0);
                 if ((rflags.intersects(RF_DELAYED)) && cc.delayed.is_empty())
                     || ((rflags.intersects(RF_IGNORED)) && cc.ignored.is_empty())
@@ -295,10 +295,10 @@ impl crate::grammar_applicator::Engine<'_> {
             // Single-reading fast skips.
             let nreadings = self.doc.store.cohorts.get(cohort.0).readings.len();
             if nreadings == 1 {
-                if r#type == K_SELECT {
+                if r#type == KSelect {
                     continue;
                 }
-                if r#type == K_REMOVE || r#type == K_IFF {
+                if r#type == KRemove || r#type == KIff {
                     let front = self.doc.store.cohorts.get(cohort.0).readings[0];
                     if self.doc.store.readings.get(front.0).noprint {
                         continue;
@@ -309,11 +309,11 @@ impl crate::grammar_applicator::Engine<'_> {
                         continue;
                     }
                 }
-            } else if r#type == K_UNMAP && rflags.intersects(RF_SAFE) {
+            } else if r#type == KUnmap && rflags.intersects(RF_SAFE) {
                 continue;
             }
             // Delimit at final cohort.
-            if r#type == K_DELIMIT
+            if r#type == KDelimit
                 && c == (self.doc.store.single_windows.get(current.0).cohorts.len() as u32) - 1
             {
                 continue;
@@ -340,14 +340,14 @@ impl crate::grammar_applicator::Engine<'_> {
 
             // SETPARENT SAFE / NOPARENT with existing parent.
             let dep_parent = self.doc.store.cohorts.get(cohort.0).dep_parent;
-            if r#type == K_SETPARENT && (rflags.intersects(RF_SAFE)) && dep_parent.is_some() {
+            if r#type == KSetparent && (rflags.intersects(RF_SAFE)) && dep_parent.is_some() {
                 continue;
             }
             if (rflags.intersects(RF_NOPARENT)) && dep_parent.is_some() {
                 continue;
             }
             // REMPARENT / SWITCHPARENT with no parent.
-            if (r#type == K_REMPARENT || r#type == K_SWITCHPARENT) && dep_parent.is_none() {
+            if (r#type == KRemparent || r#type == KSwitchparent) && dep_parent.is_none() {
                 continue;
             }
 
@@ -364,11 +364,11 @@ impl crate::grammar_applicator::Engine<'_> {
             let mut num_active: usize = 0;
             let mut num_iff: usize = 0;
             let mut num_immutable: usize = 0;
-            let mut reading_contexts: Vec<crate::grammar_applicator::Rule_Context> = Vec::new();
+            let mut reading_contexts: Vec<crate::grammar_applicator::RuleContext> = Vec::new();
 
             // Assume Iff is Remove until a context matches.
-            if rtype0 == K_IFF {
-                r#type = K_REMOVE;
+            if rtype0 == KIff {
+                r#type = KRemove;
             }
 
             let mut did_test;
@@ -403,9 +403,9 @@ impl crate::grammar_applicator::Engine<'_> {
 
             // Push the per-cohort context frame.
             {
-                let mut ctx = crate::grammar_applicator::Rule_Context::default();
+                let mut ctx = crate::grammar_applicator::RuleContext::default();
                 ctx.target.cohort = Some(cohort);
-                ctx.is_with = rtype0 == K_WITH;
+                ctx.is_with = rtype0 == KWith;
                 self.scratch.context_stack.push(ctx);
             }
 
@@ -444,7 +444,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         r.number,
                     )
                 };
-                if r_mapped && (rtype0 == K_MAP || rtype0 == K_ADD || rtype0 == K_REPLACE) {
+                if r_mapped && (rtype0 == KMap || rtype0 == KAdd || rtype0 == KReplace) {
                     i += 1;
                     continue;
                 }
@@ -456,22 +456,22 @@ impl crate::grammar_applicator::Engine<'_> {
                     i += 1;
                     continue;
                 }
-                if r_immutable && rtype0 != K_UNPROTECT {
+                if r_immutable && rtype0 != KUnprotect {
                     if matches!(
                         rtype0,
-                        K_PROTECT
-                            | K_ADD
-                            | K_MAP
-                            | K_REPLACE
-                            | K_SELECT
-                            | K_REMOVE
-                            | K_IFF
-                            | K_SUBSTITUTE
-                            | K_UNMAP
+                        KProtect
+                            | KAdd
+                            | KMap
+                            | KReplace
+                            | KSelect
+                            | KRemove
+                            | KIff
+                            | KSubstitute
+                            | KUnmap
                     ) {
                         num_active += 1;
                     }
-                    if r#type == K_SELECT {
+                    if r#type == KSelect {
                         self.scratch.matched_target.insert(reading);
                         self.scratch.matched_tests.insert(reading);
                         reading_contexts.push(self.scratch.context_stack.last().unwrap().clone());
@@ -608,10 +608,10 @@ impl crate::grammar_applicator::Engine<'_> {
                                 *d = 0;
                             }
                             self.scratch.tmpl_cntx =
-                                crate::grammar_applicator::tmpl_context_t::default();
+                                crate::grammar_applicator::TmplContext::default();
                             let tpos = self.grammar.contexts_arena[test.0].pos;
                             let mut result: Option<CohortId> = None;
-                            let with_deep = rtype0 == K_WITH;
+                            let with_deep = rtype0 == KWith;
                             if with_deep {
                                 self.scratch.merge_with = None;
                             }
@@ -681,8 +681,8 @@ impl crate::grammar_applicator::Engine<'_> {
                     }
                     if good {
                         // Iff → Select once a context matches.
-                        if rtype0 == K_IFF && r#type != K_SELECT {
-                            r#type = K_SELECT;
+                        if rtype0 == KIff && r#type != KSelect {
+                            r#type = KSelect;
                             if self.grammar.has_protect {
                                 let mut j = 0usize;
                                 while j < i {
@@ -809,7 +809,7 @@ impl crate::grammar_applicator::Engine<'_> {
             }
 
             // No valid targets → drop this cohort from the rule set.
-            if num_active == 0 && (num_iff == 0 || rtype0 != K_IFF) {
+            if num_active == 0 && (num_iff == 0 || rtype0 != KIff) {
                 if num_immutable == 0 && !matched_target {
                     let ro = self.scratch.rocits[depth] - 1;
                     self.cs_mut(cohortset).erase_n(ro);
@@ -820,11 +820,11 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             // All readings valid → nothing to do for Select / safe Remove.
             if num_active == self.doc.store.cohorts.get(cohort.0).readings.len() {
-                if r#type == K_SELECT {
+                if r#type == KSelect {
                     self.scratch.context_stack.pop();
                     continue;
                 }
-                if r#type == K_REMOVE
+                if r#type == KRemove
                     && (!self.cfg.r#unsafe || (rflags.intersects(RF_SAFE)))
                     && !rflags.intersects(RF_UNSAFE)
                 {
@@ -846,7 +846,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 if !mt {
                     continue;
                 }
-                if !mtst && rtype0 != K_IFF {
+                if !mtst && rtype0 != KIff {
                     continue;
                 }
                 *self.scratch.context_stack.last_mut().unwrap() = ctx;

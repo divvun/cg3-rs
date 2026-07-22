@@ -5,7 +5,7 @@
 use crate::arena::{CohortId, ReadingId, RuleId, SwId, TagId};
 use crate::cohort::CohortSet;
 use crate::inlines::ui32;
-use crate::interval_vector::uint32IntervalVector;
+use crate::interval_vector::Uint32IntervalVector;
 use crate::reading::ReadingList;
 use crate::rule::{RF_ENCL_FINAL, RF_NOITERATE, RF_REPEAT};
 use crate::tag::{T_MAPPING, T_VARSTRING, TagList};
@@ -26,7 +26,7 @@ impl crate::grammar_applicator::Engine<'_> {
     pub fn run_rules_on_single_window(
         &mut self,
         current: SwId,
-        rules: &uint32IntervalVector,
+        rules: &Uint32IntervalVector,
     ) -> u32 {
         let mut retval = RV_NOTHING;
         let mut section_did_something = false;
@@ -84,15 +84,14 @@ impl crate::grammar_applicator::Engine<'_> {
                         self.doc.store.single_windows.get(current.0).has_enclosures,
                     )
                 };
-                if rtype == K_IGNORE {
+                if rtype == KIgnore {
                     break 'repeat;
                 }
-                if !self.cfg.apply_mappings
-                    && (rtype == K_MAP || rtype == K_ADD || rtype == K_REPLACE)
+                if !self.cfg.apply_mappings && (rtype == KMap || rtype == KAdd || rtype == KReplace)
                 {
                     break 'repeat;
                 }
-                if !self.cfg.apply_corrections && (rtype == K_SUBSTITUTE || rtype == K_APPEND) {
+                if !self.cfg.apply_corrections && (rtype == KSubstitute || rtype == KAppend) {
                     break 'repeat;
                 }
                 if has_enclosures {

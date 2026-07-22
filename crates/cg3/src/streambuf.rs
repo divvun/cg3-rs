@@ -2,9 +2,9 @@
 //!
 //! Two custom `std::streambuf` subclasses:
 //!
-//! * [`cstreambuf`] — a streambuf adapter over a C `FILE*`. Reads use
+//! * [`CStreamBuf`] — a streambuf adapter over a C `FILE*`. Reads use
 //!   `fgetc`/`fread`, writes use `fputc`/`fwrite`, sync uses `fflush`.
-//! * [`bstreambuf`] — serves an in-memory prefix `buffer` first, then falls
+//! * [`BStreamBuf`] — serves an in-memory prefix `buffer` first, then falls
 //!   through to an underlying `std::istream` (used to "un-read"/prepend bytes
 //!   already peeked in front of a stream).
 //!
@@ -31,24 +31,24 @@
 use std::io::{self, Read, Write};
 
 /// C++ `Base::char_type` (`char`) — a raw byte in a stream buffer.
-type char_type = u8;
+type CharType = u8;
 /// C++ `Base::int_type` (`int`) — an EOF-aware character value (`-1` == EOF).
-type int_type = i32;
+type IntType = i32;
 /// C++ `std::streamsize` — a signed byte count.
-type streamsize = i64;
+type StreamSize = i64;
 
 /// C++ `Base::traits_type::eof()`.
-const EOF: int_type = -1;
+const EOF: IntType = -1;
 
 // --- Helpers modelling the C stdio calls the C++ streambufs delegate to. ---
 
 /// `fgetc(stream)` / `istream::get()`: read one byte, or `EOF` at end/error.
-fn fgetc<R: Read>(r: &mut R) -> int_type {
+fn fgetc<R: Read>(r: &mut R) -> IntType {
     let mut b = [0u8; 1];
     loop {
         match r.read(&mut b) {
             Ok(0) => return EOF,
-            Ok(_) => return b[0] as int_type,
+            Ok(_) => return b[0] as IntType,
             Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(_) => return EOF,
         }
@@ -57,7 +57,7 @@ fn fgetc<R: Read>(r: &mut R) -> int_type {
 
 /// `fread(buf, 1, buf.len(), stream)` / `istream::read` + `gcount()`: read up to
 /// `buf.len()` bytes, returning the number actually read (short only at EOF).
-fn fread<R: Read>(r: &mut R, buf: &mut [u8]) -> streamsize {
+fn fread<R: Read>(r: &mut R, buf: &mut [u8]) -> StreamSize {
     let mut total = 0usize;
     while total < buf.len() {
         match r.read(&mut buf[total..]) {
@@ -67,22 +67,22 @@ fn fread<R: Read>(r: &mut R, buf: &mut [u8]) -> streamsize {
             Err(_) => break,
         }
     }
-    total as streamsize
+    total as StreamSize
 }
 
 /// `fputc(c, stream)`: write the low byte of `c`; return the written byte value
 /// (`(unsigned char)c` promoted to int) on success, or `EOF` on error.
-fn fputc<W: Write>(w: &mut W, c: int_type) -> int_type {
+fn fputc<W: Write>(w: &mut W, c: IntType) -> IntType {
     let b = [c as u8];
     match w.write_all(&b) {
-        Ok(()) => (c as u8) as int_type,
+        Ok(()) => (c as u8) as IntType,
         Err(_) => EOF,
     }
 }
 
 /// `fwrite(buf, 1, buf.len(), stream)`: write bytes, returning the number
 /// actually written (fewer than `buf.len()` on error).
-fn fwrite<W: Write>(w: &mut W, buf: &[u8]) -> streamsize {
+fn fwrite<W: Write>(w: &mut W, buf: &[u8]) -> StreamSize {
     let mut total = 0usize;
     while total < buf.len() {
         match w.write(&buf[total..]) {
@@ -92,7 +92,7 @@ fn fwrite<W: Write>(w: &mut W, buf: &[u8]) -> streamsize {
             Err(_) => break,
         }
     }
-    total as streamsize
+    total as StreamSize
 }
 
 /// `fflush(stream)`: 0 on success, `EOF` on error.
@@ -104,23 +104,23 @@ fn fflush<W: Write>(w: &mut W) -> i32 {
 }
 
 // [spec:cg3:def:streambuf.cg3.cstreambuf]
-/// Streambuf adapter over a C `FILE*` — here a generic stream `S` (bounded by
-/// `Read` for the get side, `Write` for the put side).
-pub struct cstreambuf<S> {
-    ch: char_type,
+/// C++ `class cstreambuf` — streambuf adapter over a C `FILE*`; here a generic
+/// stream `S` (bounded by `Read` for the get side, `Write` for the put side).
+pub struct CStreamBuf<S> {
+    ch: CharType,
     stream: S,
     /// Models `setg` state over the single byte `ch`: `avail == (gptr < egptr)`,
     /// i.e. whether `ch` currently holds a not-yet-consumed character.
     avail: bool,
 }
 
-impl<S> cstreambuf<S> {
+impl<S> CStreamBuf<S> {
     // [spec:cg3:def:streambuf.cg3.cstreambuf.cstreambuf-fn]
     // [spec:cg3:sem:streambuf.cg3.cstreambuf.cstreambuf-fn]
     pub fn new(s: S) -> Self {
         // setg(&ch, &ch+1, &ch+1): gptr == egptr -> empty get area, so the first
         // read request triggers underflow.
-        cstreambuf {
+        CStreamBuf {
             ch: 0,
             stream: s,
             avail: false,
@@ -128,15 +128,15 @@ impl<S> cstreambuf<S> {
     }
 }
 
-impl<S: Read> cstreambuf<S> {
+impl<S: Read> CStreamBuf<S> {
     // Get
     // [spec:cg3:def:streambuf.cg3.cstreambuf.underflow-fn]
     // [spec:cg3:sem:streambuf.cg3.cstreambuf.underflow-fn]
-    pub fn underflow(&mut self) -> int_type {
+    pub fn underflow(&mut self) -> IntType {
         // auto c = fgetc(stream);
         let c = fgetc(&mut self.stream);
         // ch = static_cast<char_type>(c);  (EOF -> (char)-1 == 0xFF)
-        self.ch = c as char_type;
+        self.ch = c as CharType;
         // setg(&ch, &ch, &ch+1): `ch` becomes the current available character.
         self.avail = true;
         // return c;  (EOF propagates as the return value to stop reads)
@@ -145,7 +145,7 @@ impl<S: Read> cstreambuf<S> {
 
     // [spec:cg3:def:streambuf.cg3.cstreambuf.xsgetn-fn]
     // [spec:cg3:sem:streambuf.cg3.cstreambuf.xsgetn-fn]
-    pub fn xsgetn(&mut self, s: &mut [u8], count: streamsize) -> streamsize {
+    pub fn xsgetn(&mut self, s: &mut [u8], count: StreamSize) -> StreamSize {
         // setg(&ch, &ch+1, &ch+1): reset the get area to empty, discarding any
         // char previously buffered in `ch`.
         // QUIRK: because this resets rather than consuming `ch`, a byte pushed
@@ -157,14 +157,14 @@ impl<S: Read> cstreambuf<S> {
     }
 }
 
-impl<S: Write> cstreambuf<S> {
+impl<S: Write> CStreamBuf<S> {
     // Put
     // [spec:cg3:def:streambuf.cg3.cstreambuf.overflow-fn]
     // [spec:cg3:sem:streambuf.cg3.cstreambuf.overflow-fn]
     //
     // The C++ default argument is `ch = traits::eof()` (a flush-type call); pass
     // `EOF` explicitly for that no-op case.
-    pub fn overflow(&mut self, ch: int_type) -> int_type {
+    pub fn overflow(&mut self, ch: IntType) -> IntType {
         if ch != EOF {
             // return fputc(ch, stream);
             return fputc(&mut self.stream, ch);
@@ -174,7 +174,7 @@ impl<S: Write> cstreambuf<S> {
 
     // [spec:cg3:def:streambuf.cg3.cstreambuf.xsputn-fn]
     // [spec:cg3:sem:streambuf.cg3.cstreambuf.xsputn-fn]
-    pub fn xsputn(&mut self, s: &[u8], count: streamsize) -> streamsize {
+    pub fn xsputn(&mut self, s: &[u8], count: StreamSize) -> StreamSize {
         // return fwrite(s, 1, count, stream);
         fwrite(&mut self.stream, &s[..count as usize])
     }
@@ -188,24 +188,25 @@ impl<S: Write> cstreambuf<S> {
 }
 
 // [spec:cg3:def:streambuf.cg3.bstreambuf]
-/// Serves an in-memory prefix `buffer` first, then the underlying stream `R`
-/// (`std::istream`; `Read` is a sufficient analog for its `get`/`read`).
-pub struct bstreambuf<R> {
+/// C++ `class bstreambuf` — serves an in-memory prefix `buffer` first, then the
+/// underlying stream `R` (`std::istream`; `Read` is a sufficient analog for its
+/// `get`/`read`).
+pub struct BStreamBuf<R> {
     buffer: Vec<u8>,
-    ch: char_type,
+    ch: CharType,
     offset: usize,
     stream: R,
-    /// Models `setg` state over the single byte `ch` (see [`cstreambuf`]).
+    /// Models `setg` state over the single byte `ch` (see [`CStreamBuf`]).
     avail: bool,
 }
 
-impl<R> bstreambuf<R> {
+impl<R> BStreamBuf<R> {
     // [spec:cg3:def:streambuf.cg3.bstreambuf.bstreambuf-fn]
     // [spec:cg3:sem:streambuf.cg3.bstreambuf.bstreambuf-fn]
     pub fn new(input: R, b: Vec<u8>) -> Self {
         // buffer(std::move(b)), stream(&input); offset 0, ch 0.
         // setg(&ch, &ch+1, &ch+1): gptr == egptr -> first request underflows.
-        bstreambuf {
+        BStreamBuf {
             buffer: b,
             ch: 0,
             offset: 0,
@@ -215,22 +216,22 @@ impl<R> bstreambuf<R> {
     }
 }
 
-impl<R: Read> bstreambuf<R> {
+impl<R: Read> BStreamBuf<R> {
     // [spec:cg3:def:streambuf.cg3.bstreambuf.underflow-fn]
     // [spec:cg3:sem:streambuf.cg3.bstreambuf.underflow-fn]
-    pub fn underflow(&mut self) -> int_type {
-        let c: int_type;
+    pub fn underflow(&mut self) -> IntType {
+        let c: IntType;
         if self.offset < self.buffer.len() {
             // c = static_cast<make_unsigned<char_type>>(buffer[offset++]);
             // u8 -> i32 is the unsigned widening: bytes 0x80..0xFF stay 128..255.
-            c = self.buffer[self.offset] as int_type;
+            c = self.buffer[self.offset] as IntType;
             self.offset += 1;
         } else {
             // c = stream->get();  (next byte, or EOF at end — no unsigned cast)
             c = fgetc(&mut self.stream);
         }
         // ch = static_cast<char_type>(c);
-        self.ch = c as char_type;
+        self.ch = c as CharType;
         // setg(&ch, &ch, &ch+1): `ch` becomes the current available character.
         self.avail = true;
         c
@@ -238,8 +239,8 @@ impl<R: Read> bstreambuf<R> {
 
     // [spec:cg3:def:streambuf.cg3.bstreambuf.xsgetn-fn]
     // [spec:cg3:sem:streambuf.cg3.bstreambuf.xsgetn-fn]
-    pub fn xsgetn(&mut self, s: &mut [u8], count: streamsize) -> streamsize {
-        let mut i: streamsize = 0;
+    pub fn xsgetn(&mut self, s: &mut [u8], count: StreamSize) -> StreamSize {
+        let mut i: StreamSize = 0;
         // Drain the prefix buffer first.
         while self.offset < self.buffer.len() && i < count {
             s[i as usize] = self.buffer[self.offset];
@@ -282,13 +283,13 @@ mod tests {
     #[test]
     fn cstreambuf_read_side() {
         // ctor: empty get area.
-        let mut sb = cstreambuf::new(Cursor::new(b"abc".to_vec()));
+        let mut sb = CStreamBuf::new(Cursor::new(b"abc".to_vec()));
         assert!(!sb.avail);
 
         // underflow reads bytes one at a time; EOF is -1 at end.
-        assert_eq!(sb.underflow(), b'a' as int_type);
+        assert_eq!(sb.underflow(), b'a' as IntType);
         assert!(sb.avail);
-        assert_eq!(sb.underflow(), b'b' as int_type);
+        assert_eq!(sb.underflow(), b'b' as IntType);
 
         // xsgetn resets the get area (drops the 'b' buffered in `ch`) and bulk
         // reads straight from the FILE, so it continues from 'c'.
@@ -309,12 +310,12 @@ mod tests {
     // [spec:cg3:sem:streambuf.cg3.cstreambuf.sync-fn/test]
     #[test]
     fn cstreambuf_write_side() {
-        let mut sb = cstreambuf::new(Vec::<u8>::new());
+        let mut sb = CStreamBuf::new(Vec::<u8>::new());
 
         // overflow(EOF) is a flush-type no-op returning 0 (writes nothing).
         assert_eq!(sb.overflow(EOF), 0);
         // overflow of a real char writes it and echoes the byte value.
-        assert_eq!(sb.overflow(b'H' as int_type), b'H' as int_type);
+        assert_eq!(sb.overflow(b'H' as IntType), b'H' as IntType);
 
         // xsputn bulk-writes `count` bytes and returns the count written.
         assert_eq!(sb.xsputn(b"ello!", 5), 5);
@@ -336,19 +337,19 @@ mod tests {
     #[test]
     fn bstreambuf_prefix_then_stream() {
         // ctor: prefix "AB" in front of a stream carrying "cd".
-        let mut sb = bstreambuf::new(Cursor::new(b"cd".to_vec()), b"AB".to_vec());
+        let mut sb = BStreamBuf::new(Cursor::new(b"cd".to_vec()), b"AB".to_vec());
         assert!(!sb.avail);
 
         // underflow serves the prefix first (unsigned-widened), then the stream.
-        assert_eq!(sb.underflow(), b'A' as int_type);
+        assert_eq!(sb.underflow(), b'A' as IntType);
         assert!(sb.avail);
-        assert_eq!(sb.underflow(), b'B' as int_type);
-        assert_eq!(sb.underflow(), b'c' as int_type); // fell through to stream
-        assert_eq!(sb.underflow(), b'd' as int_type);
+        assert_eq!(sb.underflow(), b'B' as IntType);
+        assert_eq!(sb.underflow(), b'c' as IntType); // fell through to stream
+        assert_eq!(sb.underflow(), b'd' as IntType);
         assert_eq!(sb.underflow(), EOF);
 
         // Fresh instance for xsgetn: prefix "AB" + stream "cd".
-        let mut sb2 = bstreambuf::new(Cursor::new(b"cd".to_vec()), b"AB".to_vec());
+        let mut sb2 = BStreamBuf::new(Cursor::new(b"cd".to_vec()), b"AB".to_vec());
         // count+1 room for the always-one-past NUL write (the documented quirk).
         let mut buf = [0u8; 5];
         let got = sb2.xsgetn(&mut buf, 4);

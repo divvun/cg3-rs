@@ -87,24 +87,25 @@ pub const BFV_SETVAR_ANY: u32 = 2;
 pub const BFV_REMVAR: u32 = 3;
 
 // [spec:cg3:def:binary-applicator.cg3.binary-packet-type]
-/// C++ `enum BinaryPacketType : uint8_t`.
+/// C++ `enum BinaryPacketType : uint8_t`; the variants camel-case the C++
+/// `BFP_INVALID`/`BFP_WINDOW`/`BFP_COMMAND`/`BFP_TEXT` enumerators.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 #[repr(u8)]
 pub enum BinaryPacketType {
     #[default]
-    BFP_INVALID = 0,
-    BFP_WINDOW = 1,
-    BFP_COMMAND = 2,
-    BFP_TEXT = 3,
+    BfpInvalid = 0,
+    BfpWindow = 1,
+    BfpCommand = 2,
+    BfpText = 3,
 }
 
 impl BinaryPacketType {
     fn from_u8(v: u8) -> BinaryPacketType {
         match v {
-            1 => BinaryPacketType::BFP_WINDOW,
-            2 => BinaryPacketType::BFP_COMMAND,
-            3 => BinaryPacketType::BFP_TEXT,
-            _ => BinaryPacketType::BFP_INVALID,
+            1 => BinaryPacketType::BfpWindow,
+            2 => BinaryPacketType::BfpCommand,
+            3 => BinaryPacketType::BfpText,
+            _ => BinaryPacketType::BfpInvalid,
         }
     }
 }
@@ -177,12 +178,12 @@ impl<'a> BinaryApplicator<'a> {
         let mut packet = BinaryPacket::default();
         let ty: u8 = read_le(input);
         packet.r#type = BinaryPacketType::from_u8(ty);
-        if packet.r#type == BinaryPacketType::BFP_WINDOW {
+        if packet.r#type == BinaryPacketType::BfpWindow {
             packet.window = self.read_window(input);
-        } else if packet.r#type == BinaryPacketType::BFP_COMMAND {
+        } else if packet.r#type == BinaryPacketType::BfpCommand {
             packet.command = self.read_command(input);
         }
-        if packet.r#type == BinaryPacketType::BFP_TEXT {
+        if packet.r#type == BinaryPacketType::BfpText {
             self.read_text(input);
             packet.text_set = true;
         }
@@ -560,7 +561,7 @@ impl BinaryFormat {
     /// `BFP_TEXT` byte + the line via `writeUTF8_LE`. No flush.
     pub fn bin_print_plain_text_line<W: Write>(&mut self, line: &str, output: &mut W) {
         self.bin_write_header(output);
-        write_le(output, ui8(BinaryPacketType::BFP_TEXT as u32));
+        write_le(output, ui8(BinaryPacketType::BfpText as u32));
         write_utf8_le(output, line);
     }
 
@@ -570,7 +571,7 @@ impl BinaryFormat {
     /// writes ONLY the type byte (malformed packet). No flush.
     pub fn bin_print_stream_command<W: Write>(&mut self, cmd: &str, output: &mut W) {
         self.bin_write_header(output);
-        write_le(output, ui8(BinaryPacketType::BFP_COMMAND as u32));
+        write_le(output, ui8(BinaryPacketType::BfpCommand as u32));
         if cmd == STR_CMD_FLUSH {
             write_le(output, BFC_FLUSH);
         } else if cmd == STR_CMD_EXIT {
@@ -596,7 +597,7 @@ impl BinaryFormat {
         _profiling: bool,
     ) {
         self.bin_write_header(output);
-        write_le(output, ui8(BinaryPacketType::BFP_WINDOW as u32));
+        write_le(output, ui8(BinaryPacketType::BfpWindow as u32));
 
         // Per-window tag table.
         let mut tags_to_write: Vec<TagId> = Vec::new();
@@ -871,8 +872,8 @@ impl BinaryFormat {
 
                     let mut tag_buf: Vec<u8> = Vec::new();
                     let mut tag_count: u16 = 0;
-                    let mut unique: crate::sorted_vector::uint32SortedVector =
-                        crate::sorted_vector::uint32SortedVector::new();
+                    let mut unique: crate::sorted_vector::Uint32SortedVector =
+                        crate::sorted_vector::Uint32SortedVector::new();
                     let tags: Vec<u32> = e.doc.store.readings.get(rid.0).tags_list.clone();
                     let parent_wf_hash = {
                         let cid = e.doc.store.readings.get(rid.0).parent.unwrap();
@@ -1051,7 +1052,7 @@ impl<'x> BinaryApplicator<'x> {
             }
             let packet = self.read_packet(&mut input);
             match packet.r#type {
-                BinaryPacketType::BFP_WINDOW => {
+                BinaryPacketType::BfpWindow => {
                     self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
                     if self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize {
                         self.base.engine().shuffle_windows_down();
@@ -1061,7 +1062,7 @@ impl<'x> BinaryApplicator<'x> {
                         }
                     }
                 }
-                BinaryPacketType::BFP_COMMAND => {
+                BinaryPacketType::BfpCommand => {
                     let cmd = packet.command;
                     if cmd == BFC_FLUSH {
                         let back = self.flush(fmt, output, true);
@@ -1081,11 +1082,11 @@ impl<'x> BinaryApplicator<'x> {
                         fmt.print_stream_command(&mut self.base.engine(), STR_CMD_RESUME, output);
                     }
                 }
-                BinaryPacketType::BFP_TEXT => {
+                BinaryPacketType::BfpText => {
                     let text = self.text.clone();
                     fmt.print_plain_text_line(&mut self.base.engine(), &text, output);
                 }
-                BinaryPacketType::BFP_INVALID => {}
+                BinaryPacketType::BfpInvalid => {}
             }
         }
         self.flush(fmt, output, false);

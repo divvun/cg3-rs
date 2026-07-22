@@ -38,11 +38,11 @@ use crate::inlines::{
     cg3_quit, g_app_set_opts_ranged, hash_value_ustring, is_textual, isnl, read_raw, read_utf8_raw,
     ui8, ui32, write_raw, write_utf8_raw,
 };
-use crate::options::{OPTIONS, options_t};
+use crate::options::{Opt, OptionsTable};
 use crate::process::Process;
 use crate::reading::Reading;
 use crate::store::RuntimeStore;
-use crate::strings::KEYWORDS;
+use crate::strings::Keywords;
 use crate::strings::STR_DUMMY;
 use crate::tag::{
     T_CASE_INSENSITIVE, T_DEPENDENCY, T_MAPPING, T_PRESERVE_ESC, T_REGEXP, T_RELATION, T_TEXTUAL,
@@ -52,7 +52,7 @@ use crate::tag_trie::trie_get_tag_list_append;
 use crate::types::{GlobalNumber, TagHash};
 use crate::uextras::{u_fflush, u_fputc, ux_strCaseCompare};
 
-use super::{Engine, Matcher, tmpl_context_t};
+use super::{Engine, Matcher, TmplContext};
 
 // ===========================================================================
 // Local port infrastructure.
@@ -73,84 +73,84 @@ const STR_CMD_FLUSH: &str = "<STREAMCMD:FLUSH>";
 const STR_TEXTDELIM_DEFAULT: &str = "/(^|\\n)</s/r";
 
 /// C++ `Strings.hpp` `constexpr UStringView keywords[KEYWORD_COUNT]` — the
-/// keyword name table indexed by [`KEYWORDS`]. Not ported in `strings.rs`
+/// keyword name table indexed by [`Keywords`]. Not ported in `strings.rs`
 /// (out of that module's spec scope), reproduced here verbatim for `print_trace`.
-fn keyword_name(k: KEYWORDS) -> &'static str {
-    use KEYWORDS::*;
+fn keyword_name(k: Keywords) -> &'static str {
+    use Keywords::*;
     match k {
-        K_IGNORE => "__CG3_DUMMY_KEYWORD__",
-        K_SETS => "SETS",
-        K_LIST => "LIST",
-        K_SET => "SET",
-        K_DELIMITERS => "DELIMITERS",
-        K_SOFT_DELIMITERS => "SOFT-DELIMITERS",
-        K_PREFERRED_TARGETS => "PREFERRED-TARGETS",
-        K_MAPPING_PREFIX => "MAPPING-PREFIX",
-        K_MAPPINGS => "MAPPINGS",
-        K_CONSTRAINTS => "CONSTRAINTS",
-        K_CORRECTIONS => "CORRECTIONS",
-        K_SECTION => "SECTION",
-        K_BEFORE_SECTIONS => "BEFORE-SECTIONS",
-        K_AFTER_SECTIONS => "AFTER-SECTIONS",
-        K_NULL_SECTION => "NULL-SECTION",
-        K_ADD => "ADD",
-        K_MAP => "MAP",
-        K_REPLACE => "REPLACE",
-        K_SELECT => "SELECT",
-        K_REMOVE => "REMOVE",
-        K_IFF => "IFF",
-        K_APPEND => "APPEND",
-        K_SUBSTITUTE => "SUBSTITUTE",
-        K_START => "START",
-        K_END => "END",
-        K_ANCHOR => "ANCHOR",
-        K_EXECUTE => "EXECUTE",
-        K_JUMP => "JUMP",
-        K_REMVARIABLE => "REMVARIABLE",
-        K_SETVARIABLE => "SETVARIABLE",
-        K_DELIMIT => "DELIMIT",
-        K_MATCH => "MATCH",
-        K_SETPARENT => "SETPARENT",
-        K_SETCHILD => "SETCHILD",
-        K_ADDRELATION => "ADDRELATION",
-        K_SETRELATION => "SETRELATION",
-        K_REMRELATION => "REMRELATION",
-        K_ADDRELATIONS => "ADDRELATIONS",
-        K_SETRELATIONS => "SETRELATIONS",
-        K_REMRELATIONS => "REMRELATIONS",
-        K_TEMPLATE => "TEMPLATE",
-        K_MOVE => "MOVE",
-        K_MOVE_AFTER => "MOVE-AFTER",
-        K_MOVE_BEFORE => "MOVE-BEFORE",
-        K_SWITCH => "SWITCH",
-        K_REMCOHORT => "REMCOHORT",
-        K_STATIC_SETS => "STATIC-SETS",
-        K_UNMAP => "UNMAP",
-        K_COPY => "COPY",
-        K_ADDCOHORT => "ADDCOHORT",
-        K_ADDCOHORT_AFTER => "ADDCOHORT-AFTER",
-        K_ADDCOHORT_BEFORE => "ADDCOHORT-BEFORE",
-        K_EXTERNAL => "EXTERNAL",
-        K_EXTERNAL_ONCE => "EXTERNAL-ONCE",
-        K_EXTERNAL_ALWAYS => "EXTERNAL-ALWAYS",
-        K_OPTIONS => "OPTIONS",
-        K_STRICT_TAGS => "STRICT-TAGS",
-        K_REOPEN_MAPPINGS => "REOPEN-MAPPINGS",
-        K_SUBREADINGS => "SUBREADINGS",
-        K_SPLITCOHORT => "SPLITCOHORT",
-        K_PROTECT => "PROTECT",
-        K_UNPROTECT => "UNPROTECT",
-        K_MERGECOHORTS => "MERGECOHORTS",
-        K_RESTORE => "RESTORE",
-        K_WITH => "WITH",
-        K_OLIST => "OLIST",
-        K_OSET => "OSET",
-        K_CMDARGS => "CMDARGS",
-        K_CMDARGS_OVERRIDE => "CMDARGS-OVERRIDE",
-        K_COPYCOHORT => "COPYCOHORT",
-        K_REMPARENT => "REMPARENT",
-        K_SWITCHPARENT => "SWITCHPARENT",
-        KEYWORD_COUNT => "",
+        KIgnore => "__CG3_DUMMY_KEYWORD__",
+        KSets => "SETS",
+        KList => "LIST",
+        KSet => "SET",
+        KDelimiters => "DELIMITERS",
+        KSoftDelimiters => "SOFT-DELIMITERS",
+        KPreferredTargets => "PREFERRED-TARGETS",
+        KMappingPrefix => "MAPPING-PREFIX",
+        KMappings => "MAPPINGS",
+        KConstraints => "CONSTRAINTS",
+        KCorrections => "CORRECTIONS",
+        KSection => "SECTION",
+        KBeforeSections => "BEFORE-SECTIONS",
+        KAfterSections => "AFTER-SECTIONS",
+        KNullSection => "NULL-SECTION",
+        KAdd => "ADD",
+        KMap => "MAP",
+        KReplace => "REPLACE",
+        KSelect => "SELECT",
+        KRemove => "REMOVE",
+        KIff => "IFF",
+        KAppend => "APPEND",
+        KSubstitute => "SUBSTITUTE",
+        KStart => "START",
+        KEnd => "END",
+        KAnchor => "ANCHOR",
+        KExecute => "EXECUTE",
+        KJump => "JUMP",
+        KRemvariable => "REMVARIABLE",
+        KSetvariable => "SETVARIABLE",
+        KDelimit => "DELIMIT",
+        KMatch => "MATCH",
+        KSetparent => "SETPARENT",
+        KSetchild => "SETCHILD",
+        KAddrelation => "ADDRELATION",
+        KSetrelation => "SETRELATION",
+        KRemrelation => "REMRELATION",
+        KAddrelations => "ADDRELATIONS",
+        KSetrelations => "SETRELATIONS",
+        KRemrelations => "REMRELATIONS",
+        KTemplate => "TEMPLATE",
+        KMove => "MOVE",
+        KMoveAfter => "MOVE-AFTER",
+        KMoveBefore => "MOVE-BEFORE",
+        KSwitch => "SWITCH",
+        KRemcohort => "REMCOHORT",
+        KStaticSets => "STATIC-SETS",
+        KUnmap => "UNMAP",
+        KCopy => "COPY",
+        KAddcohort => "ADDCOHORT",
+        KAddcohortAfter => "ADDCOHORT-AFTER",
+        KAddcohortBefore => "ADDCOHORT-BEFORE",
+        KExternal => "EXTERNAL",
+        KExternalOnce => "EXTERNAL-ONCE",
+        KExternalAlways => "EXTERNAL-ALWAYS",
+        KOptions => "OPTIONS",
+        KStrictTags => "STRICT-TAGS",
+        KReopenMappings => "REOPEN-MAPPINGS",
+        KSubreadings => "SUBREADINGS",
+        KSplitcohort => "SPLITCOHORT",
+        KProtect => "PROTECT",
+        KUnprotect => "UNPROTECT",
+        KMergecohorts => "MERGECOHORTS",
+        KRestore => "RESTORE",
+        KWith => "WITH",
+        KOlist => "OLIST",
+        KOset => "OSET",
+        KCmdargs => "CMDARGS",
+        KCmdargsOverride => "CMDARGS-OVERRIDE",
+        KCopycohort => "COPYCOHORT",
+        KRemparent => "REMPARENT",
+        KSwitchparent => "SWITCHPARENT",
+        KeywordCount => "",
     }
 }
 
@@ -192,21 +192,21 @@ pub fn print_trace<W: Write>(
     {
         let r = &grammar.rule_by_number[hit_by];
         let _ = write!(output, "{}", keyword_name(r.r#type));
-        use KEYWORDS::*;
+        use Keywords::*;
         let is_rel = matches!(
             r.r#type,
-            K_ADDRELATION
-                | K_SETRELATION
-                | K_REMRELATION
-                | K_ADDRELATIONS
-                | K_SETRELATIONS
-                | K_REMRELATIONS
+            KAddrelation
+                | KSetrelation
+                | KRemrelation
+                | KAddrelations
+                | KSetrelations
+                | KRemrelations
         );
         if is_rel {
             if let Some(txt) = first_maplist_tag(grammar, r.maplist) {
                 let _ = write!(output, "({txt}");
             }
-            if matches!(r.r#type, K_ADDRELATIONS | K_SETRELATIONS | K_REMRELATIONS)
+            if matches!(r.r#type, KAddrelations | KSetrelations | KRemrelations)
                 && let Some(txt) = first_maplist_tag(grammar, r.sublist)
             {
                 let _ = write!(output, ",{txt}");
@@ -309,7 +309,7 @@ fn stoi(s: &str) -> i32 {
 // tmpl_context_t::clear
 // ===========================================================================
 
-impl tmpl_context_t {
+impl TmplContext {
     // [spec:cg3:def:grammar-applicator.cg3.tmpl-context-t.clear-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.tmpl-context-t.clear-fn]
     /// C++ `void tmpl_context_t::clear()` — blanks the template-test window.
@@ -591,7 +591,7 @@ impl super::GrammarApplicator {
         }
 
         if !self.cfg.valid_rules.empty() {
-            let mut vr = crate::interval_vector::uint32IntervalVector::new();
+            let mut vr = crate::interval_vector::Uint32IntervalVector::new();
             for i in 0..self.grammar.rule_by_number.capacity() {
                 if let Some(rule) = self.grammar.rule_by_number.try_get(i)
                     && self.cfg.valid_rules.contains(rule.line)
@@ -1473,83 +1473,83 @@ impl super::GrammarApplicator {
     /// table is passed in (`options: &options_t`). The `UConverter*` is dropped
     /// — option values are already UTF-8 `String`s, so `ucnv_toUChars` is the
     /// identity.
-    pub fn set_options(&mut self, options: &options_t) -> Result<(), crate::error::Cg3Error> {
-        let occ = |o: OPTIONS| options[o as usize].does_occur;
-        let val = |o: OPTIONS| options[o as usize].value.as_str();
+    pub fn set_options(&mut self, options: &OptionsTable) -> Result<(), crate::error::Cg3Error> {
+        let occ = |o: Opt| options[o as usize].does_occur;
+        let val = |o: Opt| options[o as usize].value.as_str();
 
-        if occ(OPTIONS::ALWAYS_SPAN) {
+        if occ(Opt::AlwaysSpan) {
             self.cfg.always_span = true;
         }
         self.cfg.unicode_tags = false;
-        if occ(OPTIONS::UNICODE_TAGS) {
+        if occ(Opt::UnicodeTags) {
             self.cfg.unicode_tags = true;
         }
         self.cfg.unique_tags = false;
-        if occ(OPTIONS::UNIQUE_TAGS) {
+        if occ(Opt::UniqueTags) {
             self.cfg.unique_tags = true;
         }
         self.cfg.apply_mappings = true;
-        if occ(OPTIONS::NOMAPPINGS) {
+        if occ(Opt::Nomappings) {
             self.cfg.apply_mappings = false;
         }
         self.cfg.apply_corrections = true;
-        if occ(OPTIONS::NOCORRECTIONS) {
+        if occ(Opt::Nocorrections) {
             self.cfg.apply_corrections = false;
         }
         self.cfg.no_before_sections = false;
-        if occ(OPTIONS::NOBEFORESECTIONS) {
+        if occ(Opt::Nobeforesections) {
             self.cfg.no_before_sections = true;
         }
         self.cfg.no_sections = false;
-        if occ(OPTIONS::NOSECTIONS) {
+        if occ(Opt::Nosections) {
             self.cfg.no_sections = true;
         }
         self.cfg.no_after_sections = false;
-        if occ(OPTIONS::NOAFTERSECTIONS) {
+        if occ(Opt::Noaftersections) {
             self.cfg.no_after_sections = true;
         }
         self.cfg.r#unsafe = false;
-        if occ(OPTIONS::UNSAFE) {
+        if occ(Opt::Unsafe) {
             self.cfg.r#unsafe = true;
         }
-        if occ(OPTIONS::ORDERED) {
+        if occ(Opt::Ordered) {
             self.cfg.ordered = true;
         }
-        if occ(OPTIONS::TRACE) {
+        if occ(Opt::Trace) {
             self.cfg.trace = true;
-            if !val(OPTIONS::TRACE).is_empty() {
-                self.set_opts_ranged_interval(val(OPTIONS::TRACE), true, false);
+            if !val(Opt::Trace).is_empty() {
+                self.set_opts_ranged_interval(val(Opt::Trace), true, false);
             }
         }
-        if occ(OPTIONS::TRACE_NAME_ONLY) {
+        if occ(Opt::TraceNameOnly) {
             self.cfg.trace = true;
             self.cfg.trace_name_only = true;
         }
-        if occ(OPTIONS::TRACE_NO_REMOVED) {
+        if occ(Opt::TraceNoRemoved) {
             self.cfg.trace = true;
             self.cfg.trace_no_removed = true;
         }
-        if occ(OPTIONS::TRACE_ENCL) {
+        if occ(Opt::TraceEncl) {
             self.cfg.trace = true;
             self.cfg.trace_encl = true;
         }
-        if occ(OPTIONS::PIPE_DELETED) {
+        if occ(Opt::PipeDeleted) {
             self.cfg.pipe_deleted = true;
         }
-        if occ(OPTIONS::SINGLERUN) {
+        if occ(Opt::Singlerun) {
             self.cfg.section_max_count = 1;
         }
-        if occ(OPTIONS::MAXRUNS) {
-            self.cfg.section_max_count = stoul(val(OPTIONS::MAXRUNS));
+        if occ(Opt::Maxruns) {
+            self.cfg.section_max_count = stoul(val(Opt::Maxruns));
         }
-        if occ(OPTIONS::SECTIONS) {
-            g_app_set_opts_ranged(val(OPTIONS::SECTIONS), &mut self.cfg.sections, true);
+        if occ(Opt::Sections) {
+            g_app_set_opts_ranged(val(Opt::Sections), &mut self.cfg.sections, true);
         }
-        if occ(OPTIONS::RULES) {
-            self.set_opts_ranged_interval_valid(val(OPTIONS::RULES), true);
+        if occ(Opt::Rules) {
+            self.set_opts_ranged_interval_valid(val(Opt::Rules), true);
         }
-        if occ(OPTIONS::RULE) {
-            let v = val(OPTIONS::RULE);
+        if occ(Opt::Rule) {
+            let v = val(Opt::Rule);
             let first = v.chars().next().unwrap_or('\0');
             if first.is_ascii_digit() {
                 self.cfg.valid_rules.insert_sorted(stoi(v) as u32);
@@ -1564,12 +1564,12 @@ impl super::GrammarApplicator {
                 }
             }
         }
-        if occ(OPTIONS::DEBUG_RULES) {
-            self.set_opts_ranged_interval_debug(val(OPTIONS::DEBUG_RULES), false);
+        if occ(Opt::DebugRules) {
+            self.set_opts_ranged_interval_debug(val(Opt::DebugRules), false);
         }
-        if occ(OPTIONS::VERBOSE) {
-            self.cfg.verbosity_level = if !val(OPTIONS::VERBOSE).is_empty() {
-                stoul(val(OPTIONS::VERBOSE))
+        if occ(Opt::Verbose) {
+            self.cfg.verbosity_level = if !val(Opt::Verbose).is_empty() {
+                stoul(val(Opt::Verbose))
             } else {
                 1
             };
@@ -1577,62 +1577,62 @@ impl super::GrammarApplicator {
         // `--debug` (DODEBUG) is handled at the diagnostics layer (it raises the
         // tracing level to DEBUG), not in the engine — there is no `debug_level`
         // field. See `tools::enable_debug_logging`, wired from the CLI mains.
-        if occ(OPTIONS::PRINT_IDS) {
+        if occ(Opt::PrintIds) {
             self.cfg.print_ids = true;
         }
-        if occ(OPTIONS::PRINT_DEP) {
+        if occ(Opt::PrintDep) {
             self.doc.deps.has_dep = true;
         }
-        if occ(OPTIONS::NUM_WINDOWS) {
-            self.cfg.num_windows = stoul(val(OPTIONS::NUM_WINDOWS));
+        if occ(Opt::NumWindows) {
+            self.cfg.num_windows = stoul(val(Opt::NumWindows));
         }
-        if occ(OPTIONS::SOFT_LIMIT) {
-            self.cfg.soft_limit = stoul(val(OPTIONS::SOFT_LIMIT));
+        if occ(Opt::SoftLimit) {
+            self.cfg.soft_limit = stoul(val(Opt::SoftLimit));
         }
-        if occ(OPTIONS::HARD_LIMIT) {
-            self.cfg.hard_limit = stoul(val(OPTIONS::HARD_LIMIT));
+        if occ(Opt::HardLimit) {
+            self.cfg.hard_limit = stoul(val(Opt::HardLimit));
         }
-        if occ(OPTIONS::TEXT_DELIMIT) {
-            let rx = if !val(OPTIONS::TEXT_DELIMIT).is_empty() {
-                val(OPTIONS::TEXT_DELIMIT).to_string()
+        if occ(Opt::TextDelimit) {
+            let rx = if !val(Opt::TextDelimit).is_empty() {
+                val(Opt::TextDelimit).to_string()
             } else {
                 STR_TEXTDELIM_DEFAULT.to_string()
             };
             self.set_text_delimiter(rx)?;
         }
-        if occ(OPTIONS::DEP_DELIMIT) {
-            self.cfg.dep_delimit = if !val(OPTIONS::DEP_DELIMIT).is_empty() {
-                stoul(val(OPTIONS::DEP_DELIMIT))
+        if occ(Opt::DepDelimit) {
+            self.cfg.dep_delimit = if !val(Opt::DepDelimit).is_empty() {
+                stoul(val(Opt::DepDelimit))
             } else {
                 10
             };
             self.cfg.parse_dep = true;
         }
-        if occ(OPTIONS::DEP_ABSOLUTE) {
+        if occ(Opt::DepAbsolute) {
             self.cfg.dep_absolute = true;
         }
-        if occ(OPTIONS::DEP_ORIGINAL) {
+        if occ(Opt::DepOriginal) {
             self.cfg.dep_original = true;
         }
-        if occ(OPTIONS::DEP_ALLOW_LOOPS) {
+        if occ(Opt::DepAllowLoops) {
             self.cfg.dep_block_loops = false;
         }
-        if occ(OPTIONS::DEP_BLOCK_CROSSING) {
+        if occ(Opt::DepBlockCrossing) {
             self.cfg.dep_block_crossing = true;
         }
-        if occ(OPTIONS::MAGIC_READINGS) {
+        if occ(Opt::MagicReadings) {
             self.cfg.allow_magic_readings = false;
         }
-        if occ(OPTIONS::NO_PASS_ORIGIN) {
+        if occ(Opt::NoPassOrigin) {
             self.cfg.no_pass_origin = true;
         }
-        if occ(OPTIONS::SPLIT_MAPPINGS) {
+        if occ(Opt::SplitMappings) {
             self.cfg.split_mappings = true;
         }
-        if occ(OPTIONS::SHOW_END_TAGS) {
+        if occ(Opt::ShowEndTags) {
             self.cfg.show_end_tags = true;
         }
-        if occ(OPTIONS::NO_BREAK) {
+        if occ(Opt::NoBreak) {
             self.cfg.add_spacing = false;
         }
         Ok(())

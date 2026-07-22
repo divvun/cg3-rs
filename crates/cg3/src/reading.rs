@@ -25,7 +25,7 @@ use crate::arena::{CohortId, ReadingId, TagId};
 use crate::bloomish::Uint32Bloomish;
 use crate::grammar::Grammar;
 use crate::inlines::{hash_value, ui32};
-use crate::sorted_vector::uint32SortedVector;
+use crate::sorted_vector::Uint32SortedVector;
 use crate::store::RuntimeStore;
 use crate::types::{TagHash, UString, Uint32Vector};
 
@@ -35,12 +35,12 @@ pub type ReadingList = Vec<ReadingId>;
 
 // [spec:cg3:def:reading.cg3.reading.tags-list-t]
 /// C++ `typedef uint32Vector tags_list_t` (member typedef of `Reading`).
-pub type tags_list_t = Uint32Vector;
+pub type TagsList = Uint32Vector;
 
 // [spec:cg3:def:reading.cg3.reading.tags-numerical-t]
 /// C++ `typedef bc::flat_map<uint32_t, Tag*> tags_numerical_t` (member typedef
 /// of `Reading`). `Tag*` value → [`TagId`]; ordered flat map → [`BTreeMap`].
-pub type tags_numerical_t = BTreeMap<u32, TagId>;
+pub type TagsNumerical = BTreeMap<u32, TagId>;
 
 // [spec:cg3:def:reading.cg3.reading]
 /// A single reading (analysis) of a cohort.
@@ -80,11 +80,11 @@ pub struct Reading {
     /// C++ `Reading* next = nullptr` — sub-reading chain.
     pub next: Option<ReadingId>,
     pub hit_by: Uint32Vector,
-    pub tags_list: tags_list_t,
-    pub tags: uint32SortedVector,
-    pub tags_plain: uint32SortedVector,
-    pub tags_textual: uint32SortedVector,
-    pub tags_numerical: tags_numerical_t,
+    pub tags_list: TagsList,
+    pub tags: Uint32SortedVector,
+    pub tags_plain: Uint32SortedVector,
+    pub tags_textual: Uint32SortedVector,
+    pub tags_numerical: TagsNumerical,
 
     // ToDo (C++): Remove for real ordered mode
     pub tags_string: UString,

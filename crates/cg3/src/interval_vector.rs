@@ -13,13 +13,11 @@
 //! semantics.
 //!
 //! **Iterator representation.** The nested C++ `const_iterator` expands the
-//! interval list into individual integers; it is ported as [`const_iterator`],
+//! interval list into individual integers; it is ported as [`ConstIterator`],
 //! holding a borrow of the interval container, a `usize` index, and the current
 //! value. `operator++`/`operator--`/`operator*` become
-//! [`const_iterator::advance`]/[`const_iterator::retreat`]/
-//! [`const_iterator::value`]; a bonus [`Iterator`] impl is also provided.
-
-#![allow(non_camel_case_types)]
+//! [`ConstIterator::advance`]/[`ConstIterator::retreat`]/
+//! [`ConstIterator::value`]; a bonus [`Iterator`] impl is also provided.
 
 /// Scalar element trait: the operations `interval_vector<T>` needs from `T`.
 ///
@@ -53,23 +51,23 @@ impl IntervalScalar for u32 {
 /// One merged interval `[lb, ub]` (inclusive). Private, matching the C++
 /// `private: struct interval`.
 #[derive(Clone, Copy)]
-struct interval<T> {
+struct Interval<T> {
     lb: T,
     ub: T,
 }
 
-impl<T: IntervalScalar> interval<T> {
+impl<T: IntervalScalar> Interval<T> {
     // [spec:cg3:def:interval-vector.cg3.interval-vector.interval.interval-fn]
     // [spec:cg3:sem:interval-vector.cg3.interval-vector.interval.interval-fn]
     /// `explicit interval(T lb = T())`: a degenerate one-point interval with
     /// `lb == ub`.
     fn new1(lb: T) -> Self {
-        interval { lb, ub: lb }
+        Interval { lb, ub: lb }
     }
 
     /// `explicit interval(T lb, T ub)`: independent bounds.
     fn new2(lb: T, ub: T) -> Self {
-        interval { lb, ub }
+        Interval { lb, ub }
     }
 
     // [spec:cg3:def:interval-vector.cg3.interval-vector.interval.operator-fn]
@@ -87,26 +85,26 @@ impl<T: IntervalScalar> interval<T> {
 /// Forward/backward iterator that expands the interval list into individual
 /// integers. Ported from the nested C++ `interval_vector<T>::const_iterator`.
 #[derive(Clone, Copy)]
-pub struct const_iterator<'a, T: IntervalScalar> {
+pub struct ConstIterator<'a, T: IntervalScalar> {
     // `nullptr` in the default C++ ctor → `None` here.
-    elements: Option<&'a Vec<interval<T>>>,
+    elements: Option<&'a Vec<Interval<T>>>,
     // C++ `ContConstIter it`; `it == elements.len()` is the end sentinel.
     it: usize,
     // C++ current scalar value `T t`.
     t: T,
 }
 
-impl<'a, T: IntervalScalar> const_iterator<'a, T> {
+impl<'a, T: IntervalScalar> ConstIterator<'a, T> {
     // [spec:cg3:def:interval-vector.cg3.interval-vector.const-iterator.const-iterator-fn]
     // [spec:cg3:sem:interval-vector.cg3.interval-vector.const-iterator.const-iterator-fn]
     /// Two-arg ctor `const_iterator(elements, it)`: `t = T()`, then if
     /// `it != end` set `t = it->lb`.
-    fn new(elements: &'a Vec<interval<T>>, it: usize) -> Self {
+    fn new(elements: &'a Vec<Interval<T>>, it: usize) -> Self {
         let mut t = T::default();
         if it != elements.len() {
             t = elements[it].lb;
         }
-        const_iterator {
+        ConstIterator {
             elements: Some(elements),
             it,
             t,
@@ -115,8 +113,8 @@ impl<'a, T: IntervalScalar> const_iterator<'a, T> {
 
     /// Three-arg ctor `const_iterator(elements, it, t)`: sets `t` directly
     /// (used by `find`/`lower_bound` to point at an exact value).
-    fn with_value(elements: &'a Vec<interval<T>>, it: usize, t: T) -> Self {
-        const_iterator {
+    fn with_value(elements: &'a Vec<Interval<T>>, it: usize, t: T) -> Self {
+        ConstIterator {
             elements: Some(elements),
             it,
             t,
@@ -172,7 +170,7 @@ impl<'a, T: IntervalScalar> const_iterator<'a, T> {
 /// scalar value must match. (LITERAL DEVIATION: C++ compares raw iterator
 /// identity; here indices are compared, which is equivalent for iterators over
 /// the same container — the only case that occurs.)
-impl<'a, T: IntervalScalar> PartialEq for const_iterator<'a, T> {
+impl<'a, T: IntervalScalar> PartialEq for ConstIterator<'a, T> {
     fn eq(&self, o: &Self) -> bool {
         self.it == o.it && self.t == o.t
     }
@@ -180,7 +178,7 @@ impl<'a, T: IntervalScalar> PartialEq for const_iterator<'a, T> {
 
 /// Bonus ergonomic `Iterator` (not in the C++ surface): yields each expanded
 /// integer from the current position to the end sentinel.
-impl<'a, T: IntervalScalar> Iterator for const_iterator<'a, T> {
+impl<'a, T: IntervalScalar> Iterator for ConstIterator<'a, T> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
         let els = self.elements?;
@@ -194,19 +192,19 @@ impl<'a, T: IntervalScalar> Iterator for const_iterator<'a, T> {
 }
 
 // [spec:cg3:def:interval-vector.cg3.interval-vector]
-/// A set of `T` stored as a sorted list of merged `[lb, ub]` intervals.
-/// Ported bug-for-bug from `src/interval_vector.hpp`, including the `_size`
-/// drift.
+/// C++ `class interval_vector<T>` (`src/interval_vector.hpp`): a set of `T`
+/// stored as a sorted list of merged `[lb, ub]` intervals. Ported bug-for-bug,
+/// including the `_size` drift.
 #[derive(Clone)]
-pub struct interval_vector<T: IntervalScalar = u32> {
-    elements: Vec<interval<T>>,
+pub struct IntervalVector<T: IntervalScalar = u32> {
+    elements: Vec<Interval<T>>,
     _size: usize,
 }
 
-impl<T: IntervalScalar> interval_vector<T> {
+impl<T: IntervalScalar> IntervalVector<T> {
     /// `interval_vector() : _size(0)`.
     pub fn new() -> Self {
-        interval_vector {
+        IntervalVector {
             elements: Vec::new(),
             _size: 0,
         }
@@ -217,7 +215,7 @@ impl<T: IntervalScalar> interval_vector<T> {
     /// Range constructor `interval_vector(Iter b, Iter e)`: `_size = 0`, then
     /// `insert(*b)` for each element. Inherits `insert`'s `_size` bug.
     pub fn from_range<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut rv = interval_vector::new();
+        let mut rv = IntervalVector::new();
         for x in iter {
             rv.insert(x);
         }
@@ -240,7 +238,7 @@ impl<T: IntervalScalar> interval_vector<T> {
     /// without incrementing, so `size()` systematically under-counts.
     pub fn insert(&mut self, t: T) -> bool {
         if self.elements.is_empty() {
-            self.elements.push(interval::new1(t));
+            self.elements.push(Interval::new1(t));
             return true;
         }
         let it = self.lower_bound_idx(t);
@@ -253,7 +251,7 @@ impl<T: IntervalScalar> interval_vector<T> {
             } else if self.elements[it].lb.wrapping_sub(T::one()) == t {
                 self.elements[it].lb = self.elements[it].lb.wrapping_sub(T::one());
             } else {
-                self.elements.insert(it, interval::new1(t));
+                self.elements.insert(it, Interval::new1(t));
             }
             return true;
         }
@@ -273,7 +271,7 @@ impl<T: IntervalScalar> interval_vector<T> {
                 self.elements.remove(it);
             }
         } else {
-            self.elements.insert(it, interval::new1(t));
+            self.elements.insert(it, Interval::new1(t));
         }
         self._size = self._size.wrapping_add(1);
         true
@@ -330,7 +328,7 @@ impl<T: IntervalScalar> interval_vector<T> {
         if self.elements[it].lb < t && self.elements[it].ub > t {
             let ub = self.elements[it].ub;
             self.elements
-                .insert(it + 1, interval::new2(t.wrapping_add(T::one()), ub));
+                .insert(it + 1, Interval::new2(t.wrapping_add(T::one()), ub));
             self.elements[it].ub = t.wrapping_sub(T::one());
             self._size = self._size.wrapping_sub(1);
             return true;
@@ -346,7 +344,7 @@ impl<T: IntervalScalar> interval_vector<T> {
     // [spec:cg3:def:interval-vector.cg3.interval-vector.find-fn]
     // [spec:cg3:sem:interval-vector.cg3.interval-vector.find-fn]
     /// A `const_iterator` positioned exactly at `t`, or `end()` if absent.
-    pub fn find(&self, t: T) -> const_iterator<'_, T> {
+    pub fn find(&self, t: T) -> ConstIterator<'_, T> {
         let it = self.lower_bound_idx(t);
         if it == self.elements.len() {
             return self.end();
@@ -354,7 +352,7 @@ impl<T: IntervalScalar> interval_vector<T> {
         if self.elements[it].ub < t || self.elements[it].lb > t {
             return self.end();
         }
-        const_iterator::with_value(&self.elements, it, t)
+        ConstIterator::with_value(&self.elements, it, t)
     }
 
     // [spec:cg3:def:interval-vector.cg3.interval-vector.lower-bound-fn]
@@ -362,7 +360,7 @@ impl<T: IntervalScalar> interval_vector<T> {
     /// A `const_iterator` to the smallest present value `>= t`, or `end()`.
     /// The `if (it->ub < t)` block is dead given `lower_bound`'s guarantee but
     /// is reproduced faithfully.
-    pub fn lower_bound(&self, t: T) -> const_iterator<'_, T> {
+    pub fn lower_bound(&self, t: T) -> ConstIterator<'_, T> {
         let mut t = t;
         let mut it = self.lower_bound_idx(t);
         if it == self.elements.len() {
@@ -378,7 +376,7 @@ impl<T: IntervalScalar> interval_vector<T> {
         if self.elements[it].lb > t {
             t = self.elements[it].lb;
         }
-        const_iterator::with_value(&self.elements, it, t)
+        ConstIterator::with_value(&self.elements, it, t)
     }
 
     // [spec:cg3:def:interval-vector.cg3.interval-vector.contains-fn]
@@ -398,15 +396,15 @@ impl<T: IntervalScalar> interval_vector<T> {
     // [spec:cg3:def:interval-vector.cg3.interval-vector.begin-fn]
     // [spec:cg3:sem:interval-vector.cg3.interval-vector.begin-fn]
     /// Iterator at the first interval's `lb` (the minimum), or end if empty.
-    pub fn begin(&self) -> const_iterator<'_, T> {
-        const_iterator::new(&self.elements, 0)
+    pub fn begin(&self) -> ConstIterator<'_, T> {
+        ConstIterator::new(&self.elements, 0)
     }
 
     // [spec:cg3:def:interval-vector.cg3.interval-vector.end-fn]
     // [spec:cg3:sem:interval-vector.cg3.interval-vector.end-fn]
     /// The end sentinel: index `elements.len()`, value `T()`.
-    pub fn end(&self) -> const_iterator<'_, T> {
-        const_iterator::new(&self.elements, self.elements.len())
+    pub fn end(&self) -> ConstIterator<'_, T> {
+        ConstIterator::new(&self.elements, self.elements.len())
     }
 
     // [spec:cg3:def:interval-vector.cg3.interval-vector.front-fn]
@@ -452,8 +450,8 @@ impl<T: IntervalScalar> interval_vector<T> {
     /// merge over the sorted, non-overlapping interval lists, appending
     /// coalesced overlaps directly to the result. Unlike `insert`, keeps
     /// `_size` correct.
-    pub fn intersect(&self, o: &interval_vector<T>) -> interval_vector<T> {
-        let mut rv: interval_vector<T> = interval_vector::new();
+    pub fn intersect(&self, o: &IntervalVector<T>) -> IntervalVector<T> {
+        let mut rv: IntervalVector<T> = IntervalVector::new();
         if !self.empty() && !o.empty() {
             let ae = self.elements.len();
             let be = o.elements.len();
@@ -479,7 +477,7 @@ impl<T: IntervalScalar> interval_vector<T> {
                         let last = rv.elements.len() - 1;
                         rv.elements[last].ub = ub;
                     } else {
-                        rv.elements.push(interval::new2(lb, ub));
+                        rv.elements.push(Interval::new2(lb, ub));
                     }
                     rv._size = rv
                         ._size
@@ -496,14 +494,14 @@ impl<T: IntervalScalar> interval_vector<T> {
     }
 }
 
-impl<T: IntervalScalar> Default for interval_vector<T> {
+impl<T: IntervalScalar> Default for IntervalVector<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 /// C++ `using uint32IntervalVector = interval_vector<uint32_t>`.
-pub type uint32IntervalVector = interval_vector<u32>;
+pub type Uint32IntervalVector = IntervalVector<u32>;
 
 #[cfg(test)]
 mod tests {
@@ -531,14 +529,14 @@ mod tests {
     #[test]
     fn insert_coalesce_and_query() {
         // interval helper ctors + operator<
-        let iv1 = interval::<u32>::new1(5);
+        let iv1 = Interval::<u32>::new1(5);
         assert!(iv1.lt_val(&6));
         assert!(!iv1.lt_val(&5));
-        let iv2 = interval::<u32>::new2(2, 4);
+        let iv2 = Interval::<u32>::new2(2, 4);
         assert!(iv2.lt_val(&5));
 
         // Range ctor (from_range -> insert loop).
-        let mut v = interval_vector::from_range([3u32, 4, 5, 1]);
+        let mut v = IntervalVector::from_range([3u32, 4, 5, 1]);
         assert!(!v.empty());
         assert!(v.contains(1));
         assert!(v.contains(4));
@@ -587,7 +585,7 @@ mod tests {
     // [spec:cg3:sem:interval-vector.cg3.interval-vector.clear-fn/test]
     #[test]
     fn erase_split_and_size_drift() {
-        let mut v: interval_vector<u32> = interval_vector::new();
+        let mut v: IntervalVector<u32> = IntervalVector::new();
         // First insert into an empty container: returns true but does NOT bump
         // _size (the reproduced bug). So size() stays 0 after one element.
         assert!(v.insert(10));
@@ -627,8 +625,8 @@ mod tests {
     // [spec:cg3:sem:interval-vector.cg3.interval-vector.intersect-fn/test]
     #[test]
     fn intersect_overlaps() {
-        let a = interval_vector::from_range([1u32, 2, 3, 4, 5, 10, 11, 12]);
-        let b = interval_vector::from_range([3u32, 4, 11, 12, 13, 99]);
+        let a = IntervalVector::from_range([1u32, 2, 3, 4, 5, 10, 11, 12]);
+        let b = IntervalVector::from_range([3u32, 4, 11, 12, 13, 99]);
         let c = a.intersect(&b);
         let got: Vec<u32> = c.begin().collect();
         assert_eq!(got, vec![3, 4, 11, 12]);
@@ -636,7 +634,7 @@ mod tests {
         assert_eq!(c.size(), 4);
 
         // Empty operand -> empty intersection.
-        let empty: interval_vector<u32> = interval_vector::new();
+        let empty: IntervalVector<u32> = IntervalVector::new();
         assert!(a.intersect(&empty).empty());
     }
 }

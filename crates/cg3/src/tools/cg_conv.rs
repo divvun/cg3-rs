@@ -13,7 +13,7 @@
 //! as a no-op. See plan node `option-wiring`.
 
 use crate::icu_uoptions::u_parseArgs;
-use crate::options_conv::{OPTIONS, options_conv, options_default, options_override};
+use crate::options_conv::{Opt, options_conv, options_default, options_override};
 use crate::options_parser::parse_opts_env;
 
 use super::{U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, to_uargv};
@@ -38,14 +38,14 @@ pub fn main_conv(args: &[String]) -> i32 {
     let argc = u_parseArgs(
         argv.len() as i32,
         &mut argv,
-        OPTIONS::NUM_OPTIONS_CONV as i32,
+        Opt::NumOptionsConv as i32,
         &mut options_conv,
     );
 
     // parse_opts_env("CG3_CONV_DEFAULT", options_default); / OVERRIDE.
     parse_opts_env("CG3_CONV_DEFAULT", &mut options_default);
     parse_opts_env("CG3_CONV_OVERRIDE", &mut options_override);
-    for i in 0..OPTIONS::NUM_OPTIONS_CONV as usize {
+    for i in 0..Opt::NumOptionsConv as usize {
         if options_default[i].does_occur && !options_conv[i].does_occur {
             options_conv[i] = options_default[i].clone();
         }
@@ -54,9 +54,9 @@ pub fn main_conv(args: &[String]) -> i32 {
         }
     }
 
-    let occ = |opts: &crate::options_conv::options_conv_t, o: OPTIONS| opts[o as usize].does_occur;
+    let occ = |opts: &crate::options_conv::ConvOptionsTable, o: Opt| opts[o as usize].does_occur;
 
-    if argc < 0 || occ(&options_conv, OPTIONS::HELP1) || occ(&options_conv, OPTIONS::HELP2) {
+    if argc < 0 || occ(&options_conv, Opt::Help1) || occ(&options_conv, Opt::Help2) {
         // FILE* out = (argc < 0) ? stderr : stdout;
         let mut out = String::new();
         out.push_str("Usage: cg-conv [OPTIONS]\n");
@@ -68,12 +68,12 @@ pub fn main_conv(args: &[String]) -> i32 {
         out.push_str("Options:\n");
 
         let mut longest = 0usize;
-        for i in 0..OPTIONS::NUM_OPTIONS_CONV as usize {
+        for i in 0..Opt::NumOptionsConv as usize {
             if !options_conv[i].description.is_empty() {
                 longest = longest.max(options_conv[i].long_name.map_or(0, |s| s.len()));
             }
         }
-        for i in 0..OPTIONS::NUM_OPTIONS_CONV as usize {
+        for i in 0..Opt::NumOptionsConv as usize {
             let desc = &options_conv[i].description;
             if !desc.is_empty() && !desc.starts_with('!') {
                 out.push(' ');
@@ -121,11 +121,11 @@ pub fn main_conv(args: &[String]) -> i32 {
     }
 
     // in-cg2 → in-cg; out-cg2 → out-cg.
-    if occ(&options_conv, OPTIONS::IN_CG2) {
-        options_conv[OPTIONS::IN_CG as usize].does_occur = true;
+    if occ(&options_conv, Opt::InCg2) {
+        options_conv[Opt::InCg as usize].does_occur = true;
     }
-    if occ(&options_conv, OPTIONS::OUT_CG2) {
-        options_conv[OPTIONS::OUT_CG as usize].does_occur = true;
+    if occ(&options_conv, Opt::OutCg2) {
+        options_conv[Opt::OutCg as usize].does_occur = true;
     }
 
     // ucnv_setDefaultName / uloc_setDefault dropped (UTF-8 port).
@@ -139,7 +139,7 @@ pub fn main_conv(args: &[String]) -> i32 {
     // NOTE: in C++ `conv_grammar` IS the applicator's active grammar; in this
     // port that storage lives in `base.grammar` (`FormatConverter::conv_grammar`
     // is a kept-for-parity placeholder), so grammar settings target `base_mut()`.
-    if occ(&options_conv, OPTIONS::ORDERED) {
+    if occ(&options_conv, Opt::Ordered) {
         applicator.base_mut().grammar.ordered = true;
     }
 
@@ -152,32 +152,32 @@ pub fn main_conv(args: &[String]) -> i32 {
     crate::uextras::ux_strip_bom(&mut instream);
 
     // cg3_sformat fmt = CG3SF_INVALID;
-    use crate::grammar_applicator::cg3_sformat;
-    let mut fmt = cg3_sformat::CG3SF_INVALID;
+    use crate::grammar_applicator::StreamFormatKind;
+    let mut fmt = StreamFormatKind::Invalid;
 
     // if (ADD_TAGS) { options_conv[IN_PLAIN].doesOccur = true; ...add_tags = true; }
-    if occ(&options_conv, OPTIONS::ADD_TAGS) {
-        options_conv[OPTIONS::IN_PLAIN as usize].does_occur = true;
+    if occ(&options_conv, Opt::AddTags) {
+        options_conv[Opt::InPlain as usize].does_occur = true;
         applicator.set_plaintext_add_tags(true);
     }
 
-    if occ(&options_conv, OPTIONS::IN_CG) {
-        fmt = cg3_sformat::CG3SF_CG;
-    } else if occ(&options_conv, OPTIONS::IN_NICELINE) {
-        fmt = cg3_sformat::CG3SF_NICELINE;
-    } else if occ(&options_conv, OPTIONS::IN_APERTIUM) {
-        fmt = cg3_sformat::CG3SF_APERTIUM;
-    } else if occ(&options_conv, OPTIONS::IN_FST) {
-        fmt = cg3_sformat::CG3SF_FST;
-    } else if occ(&options_conv, OPTIONS::IN_PLAIN) {
-        fmt = cg3_sformat::CG3SF_PLAIN;
-    } else if occ(&options_conv, OPTIONS::IN_JSONL) {
-        fmt = cg3_sformat::CG3SF_JSONL;
-    } else if occ(&options_conv, OPTIONS::IN_BINARY) {
-        fmt = cg3_sformat::CG3SF_BINARY;
+    if occ(&options_conv, Opt::InCg) {
+        fmt = StreamFormatKind::Cg;
+    } else if occ(&options_conv, Opt::InNiceline) {
+        fmt = StreamFormatKind::Niceline;
+    } else if occ(&options_conv, Opt::InApertium) {
+        fmt = StreamFormatKind::Apertium;
+    } else if occ(&options_conv, Opt::InFst) {
+        fmt = StreamFormatKind::Fst;
+    } else if occ(&options_conv, Opt::InPlain) {
+        fmt = StreamFormatKind::Plain;
+    } else if occ(&options_conv, Opt::InJsonl) {
+        fmt = StreamFormatKind::Jsonl;
+    } else if occ(&options_conv, Opt::InBinary) {
+        fmt = StreamFormatKind::Binary;
     }
 
-    if occ(&options_conv, OPTIONS::IN_AUTO) || fmt == cg3_sformat::CG3SF_INVALID {
+    if occ(&options_conv, Opt::InAuto) || fmt == StreamFormatKind::Invalid {
         // _instream = applicator.detectFormat(std::cin); fmt = applicator.fmt_input;
         //
         // The C++ wraps the peeked prefix in a replaying bstreambuf and reads on
@@ -193,28 +193,27 @@ pub fn main_conv(args: &[String]) -> i32 {
     applicator.base_mut().cfg.fmt_input = fmt;
 
     // Grammar& settings — live grammar is base.grammar (see the ORDERED NOTE).
-    if occ(&options_conv, OPTIONS::SUB_LTR) {
+    if occ(&options_conv, Opt::SubLtr) {
         applicator.base_mut().grammar.sub_readings_ltr = true;
     }
-    if occ(&options_conv, OPTIONS::MAPPING_PREFIX) {
+    if occ(&options_conv, Opt::MappingPrefix) {
         // C++ converts the option value and takes buf[0]; UTF-8 port: first char.
-        applicator.base_mut().grammar.mapping_prefix = options_conv
-            [OPTIONS::MAPPING_PREFIX as usize]
+        applicator.base_mut().grammar.mapping_prefix = options_conv[Opt::MappingPrefix as usize]
             .value
             .chars()
             .next()
             .unwrap();
     }
-    if occ(&options_conv, OPTIONS::SUB_DELIMITER) {
-        let mut sub_delims = options_conv[OPTIONS::SUB_DELIMITER as usize].value.clone();
+    if occ(&options_conv, Opt::SubDelimiter) {
+        let mut sub_delims = options_conv[Opt::SubDelimiter as usize].value.clone();
         sub_delims.push('+');
         applicator.set_fst_sub_delims(sub_delims);
     }
-    if occ(&options_conv, OPTIONS::FST_WTAG) {
-        applicator.set_fst_wtag(options_conv[OPTIONS::FST_WTAG as usize].value.clone());
+    if occ(&options_conv, Opt::FstWtag) {
+        applicator.set_fst_wtag(options_conv[Opt::FstWtag as usize].value.clone());
     }
-    if occ(&options_conv, OPTIONS::FST_WFACTOR) {
-        let wfactor = options_conv[OPTIONS::FST_WFACTOR as usize]
+    if occ(&options_conv, Opt::FstWfactor) {
+        let wfactor = options_conv[Opt::FstWfactor as usize]
             .value
             .parse::<f64>()
             .unwrap();
@@ -222,38 +221,38 @@ pub fn main_conv(args: &[String]) -> i32 {
     }
 
     // fmt_output selection.
-    applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_CG;
-    if occ(&options_conv, OPTIONS::OUT_APERTIUM) {
-        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_APERTIUM;
+    applicator.base_mut().cfg.fmt_output = StreamFormatKind::Cg;
+    if occ(&options_conv, Opt::OutApertium) {
+        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Apertium;
         applicator.base_mut().cfg.unicode_tags = true;
-    } else if occ(&options_conv, OPTIONS::OUT_FST) {
-        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_FST;
-    } else if occ(&options_conv, OPTIONS::OUT_NICELINE) {
-        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_NICELINE;
-    } else if occ(&options_conv, OPTIONS::OUT_PLAIN) {
-        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_PLAIN;
-    } else if occ(&options_conv, OPTIONS::OUT_JSONL) {
-        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_JSONL;
-    } else if occ(&options_conv, OPTIONS::OUT_BINARY) {
-        applicator.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_BINARY;
+    } else if occ(&options_conv, Opt::OutFst) {
+        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Fst;
+    } else if occ(&options_conv, Opt::OutNiceline) {
+        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Niceline;
+    } else if occ(&options_conv, Opt::OutPlain) {
+        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Plain;
+    } else if occ(&options_conv, Opt::OutJsonl) {
+        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Jsonl;
+    } else if occ(&options_conv, Opt::OutBinary) {
+        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Binary;
     }
 
-    if occ(&options_conv, OPTIONS::UNICODE_TAGS) {
+    if occ(&options_conv, Opt::UnicodeTags) {
         applicator.base_mut().cfg.unicode_tags = true;
     }
-    if occ(&options_conv, OPTIONS::PIPE_DELETED) {
+    if occ(&options_conv, Opt::PipeDeleted) {
         applicator.base_mut().cfg.pipe_deleted = true;
     }
-    if occ(&options_conv, OPTIONS::NO_BREAK) {
+    if occ(&options_conv, Opt::NoBreak) {
         applicator.base_mut().cfg.add_spacing = false;
     }
-    if occ(&options_conv, OPTIONS::PARSE_DEP) {
+    if occ(&options_conv, Opt::ParseDep) {
         applicator.base_mut().cfg.parse_dep = true;
         applicator.base_mut().doc.deps.has_dep = true;
     }
-    if occ(&options_conv, OPTIONS::DEP_DELIMIT) {
+    if occ(&options_conv, Opt::DepDelimit) {
         // std::stoul(value) — throws (→ terminates) on non-numeric; unwrap.
-        let v = options_conv[OPTIONS::DEP_DELIMIT as usize].value.clone();
+        let v = options_conv[Opt::DepDelimit as usize].value.clone();
         applicator.base_mut().cfg.dep_delimit = if !v.is_empty() {
             v.parse().unwrap()
         } else {

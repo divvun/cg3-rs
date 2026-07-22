@@ -10,7 +10,7 @@ use crate::rule::{
     RF_AFTER, RF_ALLOWCROSS, RF_ALLOWLOOP, RF_DELAYED, RF_IGNORED, RF_NEAREST, RF_OUTPUT,
     RF_REPEAT, RF_REVERSE, RF_SAFE, RF_UNMAPLAST, RF_UNSAFE,
 };
-use crate::strings::KEYWORDS::{self};
+use crate::strings::Keywords::{self};
 use crate::tag::{T_BASEFORM, T_MAPPING, T_SPECIAL, T_VARSTRING, T_WORDFORM, TagList};
 use crate::types::TagHash;
 
@@ -35,7 +35,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
         let rsub_reading = self.grammar.rule_by_number.get(rule.0).sub_reading;
 
-        if rtype == K_SELECT || (rtype == K_IFF && !st.selected.is_empty()) {
+        if rtype == KSelect || (rtype == KIff && !st.selected.is_empty()) {
             let target = self.get_apply_to().cohort.unwrap();
             let treadings = self.doc.store.cohorts.get(target.0).readings.len();
             if st.selected.len() < treadings && !st.selected.is_empty() {
@@ -98,7 +98,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 st.readings_changed = true;
             }
             st.selected.clear();
-        } else if rtype == K_REMOVE || rtype == K_IFF {
+        } else if rtype == KRemove || rtype == KIff {
             let target = self.get_apply_to().cohort.unwrap();
             let treadings = self.doc.store.cohorts.get(target.0).readings.len();
             let cond = !st.removed.is_empty()
@@ -158,7 +158,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 self.init_empty_cohort(target);
             }
             st.selected.clear();
-        } else if rtype == K_JUMP {
+        } else if rtype == KJump {
             let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
             if let Some(to) = maplist.and_then(|ml| self.rr_first_taglist_tag(ml)) {
                 let to_hash = self.grammar.single_tags_list.get(to.0).hash;
@@ -177,7 +177,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     st.should_repeat = true;
                 }
             }
-        } else if rtype == K_REMVARIABLE {
+        } else if rtype == KRemvariable {
             let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
             if let Some(ml) = maplist {
                 let names = self.get_tag_list_of_set(ml, false);
@@ -232,7 +232,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     }
                 }
             }
-        } else if rtype == K_SETVARIABLE {
+        } else if rtype == KSetvariable {
             let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
             let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
             let name = maplist.and_then(|ml| self.rr_first_taglist_tag(ml));
@@ -251,7 +251,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         .insert(nh.get());
                 }
             }
-        } else if rtype == K_DELIMIT {
+        } else if rtype == KDelimit {
             let cohort = self.get_apply_to().cohort.unwrap();
             let (parent, ln) = {
                 let c = self.doc.store.cohorts.get(cohort.0);
@@ -262,10 +262,10 @@ impl crate::grammar_applicator::Engine<'_> {
                 st.delimited = true;
                 st.readings_changed = true;
             }
-        } else if rtype == K_EXTERNAL_ONCE || rtype == K_EXTERNAL_ALWAYS {
+        } else if rtype == KExternalOnce || rtype == KExternalAlways {
             let current = st.current;
             let rline = self.grammar.rule_by_number.get(rule.0).line;
-            if rtype == K_EXTERNAL_ONCE {
+            if rtype == KExternalOnce {
                 // .insert(...).second — true iff newly inserted.
                 if !self
                     .doc
@@ -341,7 +341,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 lb.value()
             };
             self.scratch.reset_cohorts_for_loop = true;
-        } else if rtype == K_REMCOHORT {
+        } else if rtype == KRemcohort {
             let apply = self.get_apply_to().cohort.unwrap();
             if rflags.intersects(RF_IGNORED) {
                 let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
@@ -407,10 +407,10 @@ impl crate::grammar_applicator::Engine<'_> {
             (r.r#type, r.flags, r.number, r.sub_reading)
         };
 
-        if rtype == K_SELECT || (rtype == K_IFF && self.apply_to_matched_tests()) {
+        if rtype == KSelect || (rtype == KIff && self.apply_to_matched_tests()) {
             let r = self.get_apply_to().reading.unwrap();
             st.selected.push(r);
-        } else if rtype == K_REMOVE || rtype == K_IFF {
+        } else if rtype == KRemove || rtype == KIff {
             let cohort_readings = self
                 .doc
                 .store
@@ -418,7 +418,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 .get(self.get_apply_to().cohort.unwrap().0)
                 .readings
                 .len();
-            if rtype == K_REMOVE
+            if rtype == KRemove
                 && (rflags.intersects(RF_UNMAPLAST))
                 && st.removed.len() == cohort_readings - 1
             {
@@ -430,21 +430,21 @@ impl crate::grammar_applicator::Engine<'_> {
                 self.trace(rnumber, rsub_reading);
                 st.removed.push(self.get_apply_to().reading.unwrap());
             }
-        } else if rtype == K_PROTECT {
+        } else if rtype == KProtect {
             self.trace(rnumber, rsub_reading);
             self.doc
                 .store
                 .readings
                 .get_mut(self.get_apply_to().subreading.unwrap().0)
                 .immutable = true;
-        } else if rtype == K_UNPROTECT {
+        } else if rtype == KUnprotect {
             self.trace(rnumber, rsub_reading);
             self.doc
                 .store
                 .readings
                 .get_mut(self.get_apply_to().subreading.unwrap().0)
                 .immutable = false;
-        } else if rtype == K_UNMAP {
+        } else if rtype == KUnmap {
             let sr = self.get_apply_to().subreading.unwrap();
             if self.unmap_reading(sr, rnumber) {
                 st.readings_changed = true;
@@ -471,59 +471,59 @@ impl crate::grammar_applicator::Engine<'_> {
         &mut self,
         st: &mut RRState,
         rule: RuleId,
-        rtype: KEYWORDS,
+        rtype: Keywords,
         rflags: crate::rule::RuleFlags,
         rnumber: u32,
         rsub_reading: i32,
     ) {
         match rtype {
-            K_SELECT | K_IFF => {
+            KSelect | KIff => {
                 // IFF-as-select with matched tests handled in the top dispatcher;
                 // reaching here means IFF with unmatched tests → no-op.
             }
-            K_ADDCOHORT_AFTER | K_ADDCOHORT_BEFORE => {
+            KAddcohortAfter | KAddcohortBefore => {
                 self.trace(rnumber, rsub_reading);
                 self.rr_addcohort(st, rule);
                 st.readings_changed = true;
                 self.scratch.reset_cohorts_for_loop = true;
             }
-            K_SPLITCOHORT => {
+            KSplitcohort => {
                 self.rr_splitcohort(st, rule);
             }
-            K_ADD | K_MAP => {
+            KAdd | KMap => {
                 self.rr_add_map(st, rule, rtype, rflags, rnumber, rsub_reading);
             }
-            K_RESTORE => {
+            KRestore => {
                 self.rr_restore(rule, rflags, rnumber, rsub_reading);
                 self.scratch.finish_reading_loop = false;
             }
-            K_REPLACE => {
+            KReplace => {
                 self.rr_replace(st, rule, rnumber, rsub_reading);
             }
-            K_SUBSTITUTE => {
+            KSubstitute => {
                 self.rr_substitute(st, rule, rnumber, rsub_reading);
             }
-            K_APPEND => {
+            KAppend => {
                 self.trace(rnumber, rsub_reading);
                 self.rr_append(st, rule, rnumber);
                 st.readings_changed = true;
                 self.scratch.finish_reading_loop = false;
             }
-            K_COPY => {
+            KCopy => {
                 self.rr_copy(st, rule, rnumber, rsub_reading);
             }
-            K_MERGECOHORTS => {
+            KMergecohorts => {
                 self.rr_mergecohorts(st, rule);
             }
-            K_COPYCOHORT => {
+            KCopycohort => {
                 self.rr_copycohort(st, rule, rnumber);
             }
-            K_SETPARENT | K_SETCHILD | K_ADDRELATION | K_SETRELATION | K_REMRELATION
-            | K_ADDRELATIONS | K_SETRELATIONS | K_REMRELATIONS => {
+            KSetparent | KSetchild | KAddrelation | KSetrelation | KRemrelation | KAddrelations
+            | KSetrelations | KRemrelations => {
                 self.rr_dep_relation(st, rule, rtype, rnumber, rsub_reading);
                 self.scratch.finish_reading_loop = false;
             }
-            K_REMPARENT => {
+            KRemparent => {
                 self.scratch.finish_reading_loop = false;
                 self.trace(rnumber, rsub_reading);
                 self.doc
@@ -532,21 +532,21 @@ impl crate::grammar_applicator::Engine<'_> {
                     .get_mut(self.get_apply_to().cohort.unwrap().0)
                     .dep_parent = None;
             }
-            K_SWITCHPARENT => {
+            KSwitchparent => {
                 self.scratch.finish_reading_loop = false;
                 self.trace(rnumber, rsub_reading);
                 self.rr_switchparent(rule);
             }
-            K_MOVE_AFTER | K_MOVE_BEFORE | K_SWITCH => {
+            KMoveAfter | KMoveBefore | KSwitch => {
                 self.scratch.finish_reading_loop = false;
                 self.rr_move_switch(st, rule, rtype, rnumber);
             }
-            K_WITH => {
+            KWith => {
                 self.trace(rnumber, rsub_reading);
                 self.rr_with(st, rule, rflags);
                 self.scratch.finish_reading_loop = false;
             }
-            _ if rtype != K_REMCOHORT => {
+            _ if rtype != KRemcohort => {
                 self.trace(rnumber, rsub_reading);
             }
             _ => {}
@@ -768,7 +768,7 @@ impl crate::grammar_applicator::Engine<'_> {
         &mut self,
         st: &mut RRState,
         rule: RuleId,
-        rtype: KEYWORDS,
+        rtype: Keywords,
         rflags: crate::rule::RuleFlags,
         rnumber: u32,
         rsub_reading: i32,
@@ -820,9 +820,9 @@ impl crate::grammar_applicator::Engine<'_> {
         }
         if !mappings.is_empty() {
             let cohort = self.get_apply_to().cohort.unwrap();
-            self.split_mappings(&mut mappings, cohort, reading, rtype == K_MAP);
+            self.split_mappings(&mut mappings, cohort, reading, rtype == KMap);
         }
-        if rtype == K_MAP {
+        if rtype == KMap {
             self.doc.store.readings.get_mut(reading.0).mapped = true;
         }
         if self.doc.store.readings.get(reading.0).hash != state_hash {
@@ -1320,7 +1320,7 @@ impl crate::grammar_applicator::Engine<'_> {
         &mut self,
         st: &mut RRState,
         rule: RuleId,
-        rtype: KEYWORDS,
+        rtype: Keywords,
         rnumber: u32,
         rsub_reading: i32,
     ) {
@@ -1345,7 +1345,7 @@ impl crate::grammar_applicator::Engine<'_> {
             let target_gn = self.doc.store.cohorts.get(target.0).global_number.get();
             seen_targets.push(target_gn);
             self.scratch.dep_deep_seen.clear();
-            self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+            self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
             {
                 let f = self.scratch.context_stack.last_mut().unwrap();
                 f.attach_to = crate::grammar_applicator::ReadingSpec::default();
@@ -1378,7 +1378,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 for it in dep_tests {
                     self.set_mark_frame(attach);
                     self.scratch.dep_deep_seen.clear();
-                    self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+                    self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
                     let (aparent, alocal) = {
                         let c = self.doc.store.cohorts.get(attach.0);
                         (c.parent, c.local_number)
@@ -1445,7 +1445,7 @@ impl crate::grammar_applicator::Engine<'_> {
         &mut self,
         st: &mut RRState,
         rule: RuleId,
-        rtype: KEYWORDS,
+        rtype: Keywords,
         rnumber: u32,
         rsub_reading: i32,
     ) -> bool {
@@ -1471,9 +1471,9 @@ impl crate::grammar_applicator::Engine<'_> {
             std::mem::swap(&mut target, &mut attach);
         }
 
-        if rtype == K_SETPARENT || rtype == K_SETCHILD {
+        if rtype == KSetparent || rtype == KSetchild {
             self.doc.deps.has_dep = true;
-            let attached = if rtype == K_SETPARENT {
+            let attached = if rtype == KSetparent {
                 self.attach_parent_child(
                     attach,
                     target,
@@ -1520,7 +1520,7 @@ impl crate::grammar_applicator::Engine<'_> {
 
         // Relation family.
         self.doc.deps.has_relations = true;
-        let is_plural = matches!(rtype, K_ADDRELATIONS | K_SETRELATIONS | K_REMRELATIONS);
+        let is_plural = matches!(rtype, KAddrelations | KSetrelations | KRemrelations);
         let mut rel_did_anything = false;
         let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
         let map_tags = match maplist {
@@ -1541,7 +1541,7 @@ impl crate::grammar_applicator::Engine<'_> {
             let thash = self.grammar.single_tags_list.get(tter.0).hash;
             let attach_gn = self.doc.store.cohorts.get(attach.0).global_number.get();
             match rtype {
-                K_ADDRELATION | K_ADDRELATIONS => {
+                KAddrelation | KAddrelations => {
                     if !is_plural {
                         crate::cohort::set_related(&mut self.doc.store, attach);
                     }
@@ -1554,7 +1554,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         .add_relation(thash.get(), attach_gn);
                     self.rr_add_relation_rtag(target, tter, attach_gn);
                 }
-                K_SETRELATION | K_SETRELATIONS => {
+                KSetrelation | KSetrelations => {
                     if !is_plural {
                         crate::cohort::set_related(&mut self.doc.store, attach);
                     }
@@ -1599,7 +1599,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 }
                 let thash = self.grammar.single_tags_list.get(tter.0).hash;
                 match rtype {
-                    K_ADDRELATIONS => {
+                    KAddrelations => {
                         crate::cohort::set_related(&mut self.doc.store, attach);
                         rel_did_anything |= self
                             .doc
@@ -1609,7 +1609,7 @@ impl crate::grammar_applicator::Engine<'_> {
                             .add_relation(thash.get(), target_gn);
                         self.rr_add_relation_rtag(attach, tter, target_gn);
                     }
-                    K_SETRELATIONS => {
+                    KSetrelations => {
                         crate::cohort::set_related(&mut self.doc.store, attach);
                         rel_did_anything |= self
                             .doc

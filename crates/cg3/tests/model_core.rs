@@ -40,13 +40,13 @@ use cg3::rule::{
 };
 use cg3::set::{ST_MAPPING, ST_SPECIAL, ST_USED, trie_reindex};
 use cg3::single_window::{
-    alloc_swindow, append_cohort, compare_Cohort, free_swindow, less_cohort, single_window_clear,
+    CompareCohort, alloc_swindow, append_cohort, free_swindow, less_cohort, single_window_clear,
     single_window_destroy,
 };
 use cg3::store::RuntimeStore;
-use cg3::strings::KEYWORDS;
+use cg3::strings::Keywords;
 use cg3::tag::{
-    C_OPS, T_BASEFORM, T_CASE_INSENSITIVE, T_DEPENDENCY, T_MAPPING, T_NUMERICAL, T_REGEXP,
+    COps, T_BASEFORM, T_CASE_INSENSITIVE, T_DEPENDENCY, T_MAPPING, T_NUMERICAL, T_REGEXP,
     T_RELATION, T_SPECIAL, T_TEXTUAL, T_USED, T_WORDFORM, Tag, TagVector, compare_tag,
     compare_tag_vector, equal_tag, fill_tagvector, parse_tag_raw,
 };
@@ -865,7 +865,7 @@ fn set_name_hash_reindex_markused_drop() {
 #[test]
 fn rule_defaults_name_tests_flags() {
     let mut r = Rule::default();
-    assert_eq!(r.r#type, KEYWORDS::K_IGNORE);
+    assert_eq!(r.r#type, Keywords::KIgnore);
     assert_eq!(r.flags, cg3::rule::RuleFlags::empty());
     assert_eq!(r.section, 0);
     assert!(r.name.is_empty() && r.maplist.is_none() && r.dep_target.is_none());
@@ -950,7 +950,7 @@ fn tag_parse_raw_and_numeric() {
     let mut t = Tag::default();
     t.tag = "<w>=12>".to_string();
     t.parse_numeric(false);
-    assert_eq!(t.comparison_op, C_OPS::OP_GREATEREQUALS);
+    assert_eq!(t.comparison_op, COps::OpGreaterequals);
     assert_eq!(t.comparison_val, 12.0);
     assert!(t.r#type.intersects(T_NUMERICAL));
     assert_eq!(t.comparison_hash, hash_value_ustring("w", 0));
@@ -958,7 +958,7 @@ fn tag_parse_raw_and_numeric() {
     let mut t = Tag::default();
     t.tag = "<w<3>".to_string();
     t.parse_numeric(false);
-    assert_eq!(t.comparison_op, C_OPS::OP_LESSTHAN);
+    assert_eq!(t.comparison_op, COps::OpLessthan);
     assert_eq!(t.comparison_val, 3.0);
 
     let mut t = Tag::default();
@@ -973,7 +973,7 @@ fn tag_parse_raw_and_numeric() {
         !t.r#type.intersects(T_NUMERICAL),
         "non-numeric value rejected"
     );
-    assert_eq!(t.comparison_op, C_OPS::OP_NOP);
+    assert_eq!(t.comparison_op, COps::OpNop);
 }
 
 // Tag copy ctor (Clone: tag_raw NOT copied — quirk; vs_names copied), rehash
@@ -1287,7 +1287,7 @@ fn single_window_alloc_append_clear_destroy() {
         less_cohort(&store.cohorts, &store.single_windows, ca, cb),
         "tie on local 0 -> window 1 < window 2"
     );
-    let cmp = compare_Cohort;
+    let cmp = CompareCohort;
     assert!(cmp.call(&store.cohorts, &store.single_windows, ca, cb));
     assert!(!cmp.call(&store.cohorts, &store.single_windows, cb, ca));
 

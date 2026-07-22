@@ -34,7 +34,7 @@ use serde_json::{Map, Value, json};
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::{Engine, GrammarApplicator};
-use crate::sorted_vector::uint32SortedVector;
+use crate::sorted_vector::Uint32SortedVector;
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
 use crate::types::{TagHash, UString, UStringView};
 
@@ -469,7 +469,7 @@ impl<'a> JsonlApplicator<'a> {
         // LOCAL variable-tracking state.
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::default();
         let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::default();
-        let mut variables_output = uint32SortedVector::new();
+        let mut variables_output = Uint32SortedVector::new();
 
         crate::uextras::ux_strip_bom(input);
 
@@ -903,7 +903,7 @@ impl JsonlFormat {
             )
         };
 
-        let mut unique = uint32SortedVector::new();
+        let mut unique = Uint32SortedVector::new();
         for tter in tags_list {
             let tter = TagHash(tter);
             if (!e.cfg.show_end_tags && tter == e.cfg.endtag) || tter == e.cfg.begintag {
@@ -1102,7 +1102,7 @@ impl JsonlFormat {
             };
             if !tags_list.is_empty() {
                 let mut static_tags_json: Vec<Value> = Vec::new();
-                let mut unique_sts = uint32SortedVector::new();
+                let mut unique_sts = Uint32SortedVector::new();
                 for tag_hash in tags_list {
                     if wf_hash == Some(TagHash(tag_hash)) {
                         continue;

@@ -37,7 +37,7 @@ use crate::inlines::{hash_value, insert_if_exists};
 use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
 use crate::single_window::{SingleWindow, append_cohort};
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_WORDFORM, TagList};
-use crate::types::{TagHash, UString, flags_t};
+use crate::types::{DynBitset, TagHash, UString};
 use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fputc, ux_strip_bom};
 
 // C++ `constexpr UChar esc_lt = '\1';` — the sentinel the reading scanner
@@ -153,7 +153,7 @@ where
         cleaned: &[char],
         variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
         variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
-        variables_output: &mut crate::sorted_vector::uint32SortedVector,
+        variables_output: &mut crate::sorted_vector::Uint32SortedVector,
     ) {
         let tag_any = self.base.grammar.tag_any;
 
@@ -637,7 +637,7 @@ where
 
         let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::default();
         let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::default();
-        let mut variables_output = crate::sorted_vector::uint32SortedVector::new();
+        let mut variables_output = crate::sorted_vector::Uint32SortedVector::new();
 
         ux_strip_bom(input);
 
@@ -1114,7 +1114,7 @@ where
         c_cohort: &mut Option<CohortId>,
         variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
         variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
-        variables_output: &mut crate::sorted_vector::uint32SortedVector,
+        variables_output: &mut crate::sorted_vector::Uint32SortedVector,
         c: char,
         output: &mut W,
     ) where
@@ -1423,7 +1423,7 @@ impl ApertiumFormat {
         }
         tags_list.extend(multitags_list);
 
-        let mut used_tags = crate::sorted_vector::uint32SortedVector::new();
+        let mut used_tags = crate::sorted_vector::Uint32SortedVector::new();
         let escape = if self.surface_readings { "\\" } else { "" };
         for tter in tags_list {
             if e.cfg.unique_tags {
@@ -1823,7 +1823,7 @@ fn collect_set(s: &crate::flat_unordered_set::Uint32FlatHashSet) -> Vec<u32> {
 // Ensure the flags_t/SingleWindow/Reading imports are considered used even if a
 // branch is elided; these are load-bearing types in the signatures above.
 const _: fn() = || {
-    let _: Option<flags_t> = None;
+    let _: Option<DynBitset> = None;
     let _: Option<SingleWindow> = None;
     let _: Option<Reading> = None;
 };

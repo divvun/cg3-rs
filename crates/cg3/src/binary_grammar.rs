@@ -80,8 +80,8 @@ use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::{is_cg3b, read_be, read_be_f64, ui16, ui32, write_be, write_be_f64};
 use crate::rule::Rule;
 use crate::set::Set;
-use crate::strings::KEYWORDS;
-use crate::tag::{C_OPS, T_CASE_INSENSITIVE, T_CONTEXT, T_LOCAL_VARIABLE, T_VARIABLE, Tag};
+use crate::strings::Keywords;
+use crate::tag::{COps, T_CASE_INSENSITIVE, T_CONTEXT, T_LOCAL_VARIABLE, T_VARIABLE, Tag};
 use crate::tag_trie::trie_serialize;
 use crate::types::{SetNumber, TagHash};
 
@@ -119,11 +119,11 @@ const CG3_TOO_OLD: u32 = 10373;
 // [spec:cg3:def:binary-grammar.cg3.binary-grammar.deferred-t]
 /// C++ `typedef std::unordered_map<ContextualTest*, uint32_t> deferred_t`.
 /// The `ContextualTest*` key becomes a `CtxId`.
-pub type deferred_t = HashMap<CtxId, u32>;
+pub type DeferredTests = HashMap<CtxId, u32>;
 
 // [spec:cg3:def:binary-grammar.cg3.binary-grammar.deferred-ors-t]
 /// C++ `typedef std::unordered_map<ContextualTest*, std::vector<uint32_t>> deferred_ors_t`.
-pub type deferred_ors_t = HashMap<CtxId, Vec<u32>>;
+pub type DeferredOrs = HashMap<CtxId, Vec<u32>>;
 
 // [spec:cg3:def:binary-grammar.cg3.binary-grammar]
 /// C++ `class BinaryGrammar : public IGrammarParser`.
@@ -145,8 +145,8 @@ pub struct BinaryGrammar {
     pub nrules_inv: Option<Regex>,
     /// C++ base `uint32_t verbosity`.
     verbosity: u32,
-    deferred_tmpls: deferred_t,
-    deferred_ors: deferred_ors_t,
+    deferred_tmpls: DeferredTests,
+    deferred_ors: DeferredOrs,
     seen_uint32: Uint32FlatHashSet,
 }
 
@@ -167,8 +167,8 @@ impl BinaryGrammar {
             nrules: None,
             nrules_inv: None,
             verbosity: 0,
-            deferred_tmpls: deferred_t::new(),
-            deferred_ors: deferred_ors_t::new(),
+            deferred_tmpls: DeferredTests::new(),
+            deferred_ors: DeferredOrs::new(),
             seen_uint32: Uint32FlatHashSet::new(),
         }
     }
@@ -735,12 +735,12 @@ impl BinaryGrammar {
             if let Some(re) = &self.nrules
                 && !re.is_match(&r.name)
             {
-                r.r#type = KEYWORDS::K_IGNORE;
+                r.r#type = Keywords::KIgnore;
             }
             if let Some(re) = &self.nrules_inv
                 && re.is_match(&r.name)
             {
-                r.r#type = KEYWORDS::K_IGNORE;
+                r.r#type = Keywords::KIgnore;
             }
 
             let number = r.number;
@@ -1046,7 +1046,7 @@ impl BinaryGrammar {
                 tfields |= 1 << 5;
                 write_be(&mut buffer, comparison_hash);
             }
-            if comparison_op != C_OPS::OP_NOP {
+            if comparison_op != COps::OpNop {
                 tfields |= 1 << 6;
                 write_be(&mut buffer, comparison_op as u32);
             }
@@ -1280,7 +1280,7 @@ impl BinaryGrammar {
                 rfields |= 1 << 0;
                 write_be(&mut buffer, section);
             }
-            if rtype != KEYWORDS::K_IGNORE {
+            if rtype != Keywords::KIgnore {
                 rfields |= 1 << 1;
                 write_be(&mut buffer, rtype as u32);
             }
@@ -1529,24 +1529,24 @@ impl BinaryGrammar {
 
 // C++ `static_cast<C_OPS>(uint32_t)` — map a serialized operator id back to the
 // enum. Out-of-range ids (never emitted by a valid writer) fall to OP_NOP.
-fn c_ops_from_u32(v: u32) -> C_OPS {
+fn c_ops_from_u32(v: u32) -> COps {
     match v {
-        0 => C_OPS::OP_NOP,
-        1 => C_OPS::OP_EQUALS,
-        2 => C_OPS::OP_LESSTHAN,
-        3 => C_OPS::OP_GREATERTHAN,
-        4 => C_OPS::OP_LESSEQUALS,
-        5 => C_OPS::OP_GREATEREQUALS,
-        6 => C_OPS::OP_NOTEQUALS,
-        7 => C_OPS::NUM_OPS,
-        _ => C_OPS::OP_NOP,
+        0 => COps::OpNop,
+        1 => COps::OpEquals,
+        2 => COps::OpLessthan,
+        3 => COps::OpGreaterthan,
+        4 => COps::OpLessequals,
+        5 => COps::OpGreaterequals,
+        6 => COps::OpNotequals,
+        7 => COps::NumOps,
+        _ => COps::OpNop,
     }
 }
 
 // C++ `static_cast<KEYWORDS>(uint32_t)`. `KEYWORDS` is `#[repr(u32)]` with
 // contiguous discriminants `0..=KEYWORD_COUNT`; the transmute is sound for that
 // range (out-of-range ids — never emitted by a valid writer — fall to K_IGNORE).
-fn keywords_from_u32(v: u32) -> KEYWORDS {
+fn keywords_from_u32(v: u32) -> Keywords {
     // Safe table lookup (wave 4; was a transmute). Out-of-range ids — never
     // emitted by a valid writer — fall to K_IGNORE, as before. NOTE: the old
     // bound was `v <= KEYWORD_COUNT` inclusive; `v == KEYWORD_COUNT` would have
@@ -1555,7 +1555,7 @@ fn keywords_from_u32(v: u32) -> KEYWORDS {
     crate::strings::KEYWORDS_BY_ID
         .get(v as usize)
         .copied()
-        .unwrap_or(KEYWORDS::K_IGNORE)
+        .unwrap_or(Keywords::KIgnore)
 }
 
 impl IGrammarParser for BinaryGrammar {

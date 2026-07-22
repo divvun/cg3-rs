@@ -147,10 +147,10 @@ pub const MASK_SELF_NB: PosFlags = POS_SELF.union(POS_NO_BARRIER);
 /// [`ContextualTest`]) because it holds values outside this enum.
 #[repr(i8)]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum POS_JUMP_POS {
-    JUMP_TARGET = -2,
-    JUMP_ATTACH = -1,
-    JUMP_MARK = 0,
+pub enum PosJumpPos {
+    JumpTarget = -2,
+    JumpAttach = -1,
+    JumpMark = 0,
     // All positive numbers are WITH's cohorts
 }
 
@@ -158,8 +158,8 @@ pub enum POS_JUMP_POS {
 /// C++ `enum GSR_SPECIALS { GSR_ANY = 32767 }`.
 #[repr(i32)]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum GSR_SPECIALS {
-    GSR_ANY = 32767,
+pub enum GsrSpecials {
+    GsrAny = 32767,
 }
 
 // [spec:cg3:def:contextual-test.cg3.contextual-test]
@@ -168,7 +168,7 @@ pub enum GSR_SPECIALS {
 /// `tmpl`/`linked` were `ContextualTest*` → `Option<CtxId>`. The `target`,
 /// `relation`, `barrier`, and `cbarrier` fields are `uint32_t` set/relation
 /// numbers in CG-3 (not pointers), so they stay `u32`. `jump_pos` defaults to `0`,
-/// which is [`POS_JUMP_POS::JUMP_MARK`]. Derived `Default` reproduces every C++
+/// which is [`PosJumpPos::JumpMark`]. Derived `Default` reproduces every C++
 /// in-class initializer; `operator==` is intentionally NOT derived because the
 /// C++ overload has special (hash-based) handling of `linked` — ported as
 /// [`ContextualTest::equals`], which threads the contextual-test arena so it can

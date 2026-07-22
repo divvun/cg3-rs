@@ -1023,8 +1023,8 @@ impl FstFormat {
         };
 
         let tags_list: Vec<u32> = e.doc.store.readings.get(reading.0).tags_list.clone();
-        let mut unique: crate::sorted_vector::uint32SortedVector =
-            crate::sorted_vector::uint32SortedVector::new();
+        let mut unique: crate::sorted_vector::Uint32SortedVector =
+            crate::sorted_vector::Uint32SortedVector::new();
         for tter in tags_list {
             let tter = TagHash(tter);
             if (!e.cfg.show_end_tags && tter == e.cfg.endtag) || tter == e.cfg.begintag {

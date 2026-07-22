@@ -9,16 +9,14 @@
 //! `upper_bound` return the index (or `size()` for the end position). This maps
 //! the C++ pointer arithmetic exactly (`begin() + at` becomes just `at`,
 //! `distance(begin(), it)` becomes `it`). For actual element traversal use
-//! [`sorted_vector::iter`] / [`sorted_vector::as_slice`]; reverse traversal
-//! (C++ `rbegin`/`rend`) collapses into [`sorted_vector::iter_rev`].
+//! [`SortedVector::iter`] / [`SortedVector::as_slice`]; reverse traversal
+//! (C++ `rbegin`/`rend`) collapses into [`SortedVector::iter_rev`].
 //!
 //! **Comparator.** C++ `sorted_vector<T, Comp = std::less<T>>` takes a
 //! stateless strict-weak-ordering functor `Comp` with `comp(a, b)` meaning
 //! "a < b". The Rust analog is the [`Comparator`] trait; the default [`Less`]
 //! uses `PartialOrd`. Custom comparators (later waves' `compare_Cohort`,
 //! `compare_Tag`, ...) implement [`Comparator`] for their element type.
-
-#![allow(non_camel_case_types)]
 
 use std::cmp::Ordering;
 
@@ -90,35 +88,36 @@ pub type SizeType = usize;
 //     key_type               = T
 
 // [spec:cg3:def:sorted-vector.cg3.sorted-vector]
-/// A `std::vector<T>` kept sorted by `comp` and holding unique elements (a
-/// sorted set). Ported bug-for-bug from `src/sorted_vector.hpp`.
+/// C++ `class sorted_vector<T, Comp>` (`src/sorted_vector.hpp`): a
+/// `std::vector<T>` kept sorted by `comp` and holding unique elements (a
+/// sorted set). Ported bug-for-bug.
 #[derive(Clone)]
-pub struct sorted_vector<T, Comp = Less> {
+pub struct SortedVector<T, Comp = Less> {
     elements: Container<T>,
     comp: Comp,
 }
 
-impl<T, Comp: Default> sorted_vector<T, Comp> {
+impl<T, Comp: Default> SortedVector<T, Comp> {
     // [spec:cg3:def:sorted-vector.cg3.sorted-vector.sorted-vector-fn]
     // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.sorted-vector-fn]
     /// Default constructor: an empty `elements` and a default-constructed
     /// `comp`. (The `CG_TRACE_OBJECTS` debug tracing is a debug-only side
     /// effect and is not reproduced.)
     pub fn new() -> Self {
-        sorted_vector {
+        SortedVector {
             elements: Container::new(),
             comp: Comp::default(),
         }
     }
 }
 
-impl<T, Comp: Default> Default for sorted_vector<T, Comp> {
+impl<T, Comp: Default> Default for SortedVector<T, Comp> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Clone, Comp: Comparator<T> + Default> sorted_vector<T, Comp> {
+impl<T: Clone, Comp: Comparator<T> + Default> SortedVector<T, Comp> {
     /// `std::lower_bound(begin, end, t, comp)` as an index — the first position
     /// whose element is not less than `t`.
     fn lower_bound_idx(&self, t: &T) -> usize {
@@ -359,7 +358,7 @@ impl<T: Clone, Comp: Comparator<T> + Default> sorted_vector<T, Comp> {
     // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.swap-fn]
     /// Swaps the underlying storage with `other`. The `comp` members are NOT
     /// swapped (each keeps its own).
-    pub fn swap(&mut self, other: &mut sorted_vector<T, Comp>) {
+    pub fn swap(&mut self, other: &mut SortedVector<T, Comp>) {
         std::mem::swap(&mut self.elements, &mut other.elements);
     }
 
@@ -414,7 +413,7 @@ impl<T: Clone, Comp: Comparator<T> + Default> sorted_vector<T, Comp> {
     }
 }
 
-impl<T: Clone + PartialEq, Comp: Comparator<T> + Default> sorted_vector<T, Comp> {
+impl<T: Clone + PartialEq, Comp: Comparator<T> + Default> SortedVector<T, Comp> {
     /// C++ range `insert(It b, It e)`: merges/sorts/uniques a whole range into
     /// `elements`. LITERAL DEVIATION: the C++ uses per-thread `thread_local`
     /// scratch buffers `merged`/`sorted`, which cannot be generic in Rust;
@@ -493,7 +492,7 @@ fn merge_into<T: Clone, C: Comparator<T>>(a: &[T], b: &[T], comp: &C, out: &mut 
 
 // [spec:cg3:def:sorted-vector.cg3.uint32-sorted-vector]
 /// C++ `typedef sorted_vector<uint32_t> uint32SortedVector`.
-pub type uint32SortedVector = sorted_vector<u32>;
+pub type Uint32SortedVector = SortedVector<u32>;
 
 #[cfg(test)]
 mod tests {
@@ -537,7 +536,7 @@ mod tests {
     // [spec:cg3:sem:sorted-vector.cg3.detail.is-sorted-fn/test]
     #[test]
     fn insert_query_and_bounds() {
-        let mut v: sorted_vector<u32> = sorted_vector::new();
+        let mut v: SortedVector<u32> = SortedVector::new();
         assert!(v.empty());
         assert_eq!(v.size(), 0);
         assert_eq!(v.begin(), 0);
@@ -602,7 +601,7 @@ mod tests {
     // [spec:cg3:sem:sorted-vector.cg3.sorted-vector.rend-fn/test]
     #[test]
     fn erase_pop_clear_and_reverse() {
-        let mut v: sorted_vector<u32> = sorted_vector::new();
+        let mut v: SortedVector<u32> = SortedVector::new();
         for x in [1u32, 2, 3, 4, 5] {
             v.insert_sorted(x);
         }
@@ -651,7 +650,7 @@ mod tests {
     #[test]
     fn sort_swap_assign() {
         // assign de-duplicates and sorts an unsorted range.
-        let mut v: sorted_vector<u32> = sorted_vector::new();
+        let mut v: SortedVector<u32> = SortedVector::new();
         v.assign(&[9, 1, 5, 1, 9, 3]);
         assert_eq!(v.as_slice(), &[1, 3, 5, 9]);
 
@@ -666,9 +665,9 @@ mod tests {
         assert_eq!(v.as_slice(), &[2, 4, 7, 7]); // sorted, duplicate NOT removed
 
         // swap exchanges storage between two sorted_vectors.
-        let mut a: sorted_vector<u32> = sorted_vector::new();
+        let mut a: SortedVector<u32> = SortedVector::new();
         a.assign(&[10, 20]);
-        let mut b: sorted_vector<u32> = sorted_vector::new();
+        let mut b: SortedVector<u32> = SortedVector::new();
         b.assign(&[1, 2, 3]);
         a.swap(&mut b);
         assert_eq!(a.as_slice(), &[1, 2, 3]);
@@ -676,7 +675,7 @@ mod tests {
 
         // A sorted_vector using a custom (descending) comparator: assign keeps
         // it in the comparator's order, and sort() re-derives that order.
-        let mut d: sorted_vector<u32, Greater> = sorted_vector::new();
+        let mut d: SortedVector<u32, Greater> = SortedVector::new();
         d.assign(&[3, 1, 2, 3]);
         assert_eq!(d.as_slice(), &[3, 2, 1]);
         d.sort();

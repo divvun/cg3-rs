@@ -65,7 +65,7 @@ use crate::cohort_iterator::{
     CohortIterator, DepAncestorIter, DepDescendentIter, DepParentIter, TopologyLeftIter,
     TopologyRightIter,
 };
-use crate::contextual_test::POS_JUMP_POS::{JUMP_ATTACH, JUMP_MARK, JUMP_TARGET};
+use crate::contextual_test::PosJumpPos::{JumpAttach, JumpMark, JumpTarget};
 use crate::contextual_test::{
     MASK_POS_LORR, MASK_SELF_NB, POS_ABSOLUTE, POS_ALL, POS_ATTACH_TO, POS_BAG_OF_TAGS,
     POS_CAREFUL, POS_DEP_CHILD, POS_DEP_DEEP, POS_DEP_GLOB, POS_DEP_PARENT, POS_DEP_SIBLING,
@@ -79,9 +79,9 @@ use crate::single_window::{SingleWindow, less_cohort};
 use crate::tag::T_VARSTRING;
 use crate::types::GlobalNumber;
 
-use crate::sorted_vector::uint32SortedVector;
+use crate::sorted_vector::Uint32SortedVector;
 
-use super::{Matcher, TRV_BARRIER, TRV_BREAK, TRV_BREAK_DEFAULT, dSMC_Context};
+use super::{CohortMatchContext, Matcher, TRV_BARRIER, TRV_BREAK, TRV_BREAK_DEFAULT};
 
 /// Which iterator pool `runContextualTest` selected for the generic-iterator
 /// arm (the C++ `CohortIterator* it`). The pools have incompatible concrete
@@ -217,7 +217,7 @@ impl Matcher<'_> {
         }
 
         // dSMC_Context context = { test, deep, origin, test->pos };
-        let mut context = dSMC_Context {
+        let mut context = CohortMatchContext {
             test: Some(test),
             deep,
             origin,
@@ -266,7 +266,7 @@ impl Matcher<'_> {
         if test_barrier != 0
             && let Some(cid) = cohort
         {
-            let mut bctx = dSMC_Context {
+            let mut bctx = CohortMatchContext {
                 test: None,
                 deep: None,
                 origin: None,
@@ -286,7 +286,7 @@ impl Matcher<'_> {
         if test_cbarrier != 0
             && let Some(cid) = cohort
         {
-            let mut cbctx = dSMC_Context {
+            let mut cbctx = CohortMatchContext {
                 test: None,
                 deep: None,
                 origin: None,
@@ -561,11 +561,11 @@ impl Matcher<'_> {
         if test_pos.intersects(POS_JUMP) {
             let jump_pos = self.grammar.contexts_arena[test.0].jump_pos;
             let mut j: Option<CohortId> = None;
-            if jump_pos == JUMP_MARK as i8 {
+            if jump_pos == JumpMark as i8 {
                 j = self.get_mark();
-            } else if jump_pos == JUMP_ATTACH as i8 {
+            } else if jump_pos == JumpAttach as i8 {
                 j = self.get_attach_to().cohort;
-            } else if jump_pos == JUMP_TARGET as i8 {
+            } else if jump_pos == JumpTarget as i8 {
                 for it in self.scratch.context_stack.iter().rev() {
                     if it.is_with {
                         j = it.target.cohort;
@@ -1329,7 +1329,7 @@ impl Matcher<'_> {
 
         if test_pos.intersects(MASK_POS_LORR) {
             // Rebuild `deps` by scanning the whole cohort_map (slower container).
-            let mut tmp_deps = uint32SortedVector::new();
+            let mut tmp_deps = Uint32SortedVector::new();
             let map: Vec<CohortId> = self.registry.cohort_map.values().copied().collect();
             for citer in map {
                 let gnum = self.cohorts.get(citer.0).global_number.get();

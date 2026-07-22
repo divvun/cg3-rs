@@ -6,7 +6,7 @@ use crate::arena::{CohortId, CtxId, ReadingId, RuleId, SwId, TagId};
 use crate::cohort::{CT_RELATED, CT_REMOVED, CohortSet, DEP_NO_PARENT};
 use crate::inlines::{hash_value, insert_if_exists, ui32};
 use crate::rule::{RF_BEFORE, RF_DETACH, RF_REVERSE};
-use crate::strings::KEYWORDS::{self};
+use crate::strings::Keywords::{self};
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_VARSTRING, T_WORDFORM, TagList};
 use crate::types::{GlobalNumber, TagHash};
 
@@ -23,7 +23,7 @@ impl crate::grammar_applicator::Engine<'_> {
         &mut self,
         st: &mut RRState,
         rule: RuleId,
-        rtype: KEYWORDS,
+        rtype: Keywords,
         rnumber: u32,
     ) {
         let current = st.current;
@@ -45,7 +45,7 @@ impl crate::grammar_applicator::Engine<'_> {
             .unwrap();
         let c = self.doc.store.cohorts.get(cohort.0).local_number;
         self.scratch.dep_deep_seen.clear();
-        self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+        self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
         self.scratch.context_stack.last_mut().unwrap().attach_to =
             crate::grammar_applicator::ReadingSpec::default();
         let mut attach_out: Option<CohortId> = None;
@@ -78,7 +78,7 @@ impl crate::grammar_applicator::Engine<'_> {
         for it in dep_tests {
             self.set_mark_frame(attach);
             self.scratch.dep_deep_seen.clear();
-            self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+            self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
             let (aparent, alocal) = {
                 let cc = self.doc.store.cohorts.get(attach.0);
                 (cc.parent, cc.local_number)
@@ -107,7 +107,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let childset2 = self.grammar.rule_by_number.get(rule.0).childset2.get();
 
         let mut cohorts_set = CohortSet::new();
-        if rtype == K_SWITCH {
+        if rtype == KSwitch {
             if self.doc.store.cohorts.get(attach.0).local_number == 0 {
                 return;
             }
@@ -165,7 +165,7 @@ impl crate::grammar_applicator::Engine<'_> {
             self.rr_renumber(current);
 
             // Determine the insertion spot.
-            let spot = if rtype == K_MOVE_BEFORE {
+            let spot = if rtype == KMoveBefore {
                 let mut s = self.doc.store.cohorts.get(edges.front().0).local_number;
                 if s == 0 {
                     s = 1;
@@ -424,11 +424,10 @@ impl crate::grammar_applicator::Engine<'_> {
         self.doc.deps.dep_window.insert(cgn, ccohort);
 
         let rtype = self.grammar.rule_by_number.get(rule.0).r#type;
-        if self.grammar.addcohort_attach
-            && (rtype == K_ADDCOHORT_BEFORE || rtype == K_ADDCOHORT_AFTER)
+        if self.grammar.addcohort_attach && (rtype == KAddcohortBefore || rtype == KAddcohortAfter)
         {
             self.attach_parent_child(insertion, ccohort, false, false);
-        } else if rtype == K_MERGECOHORTS
+        } else if rtype == KMergecohorts
             && !self
                 .grammar
                 .rule_by_number
@@ -453,7 +452,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
         let mut cohorts = CohortSet::new();
         self.rr_collect_subtree(current, &mut cohorts, insertion, childset1);
-        if rtype == K_ADDCOHORT_BEFORE {
+        if rtype == KAddcohortBefore {
             let ln = self.doc.store.cohorts.get(cohorts.front().0).local_number as usize;
             self.doc
                 .store
@@ -719,7 +718,7 @@ impl crate::grammar_applicator::Engine<'_> {
             self.scratch.merge_with = None;
             self.set_mark_frame(target);
             self.scratch.dep_deep_seen.clear();
-            self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+            self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
             let (tparent, tlocal) = {
                 let c = self.doc.store.cohorts.get(target.0);
                 (c.parent, c.local_number)
@@ -828,7 +827,7 @@ impl crate::grammar_applicator::Engine<'_> {
             .unwrap();
         let c = self.doc.store.cohorts.get(cohort.0).local_number;
         self.scratch.dep_deep_seen.clear();
-        self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+        self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
         {
             let f = self.scratch.context_stack.last_mut().unwrap();
             f.attach_to = crate::grammar_applicator::ReadingSpec::default();
@@ -860,7 +859,7 @@ impl crate::grammar_applicator::Engine<'_> {
         for it in dep_tests {
             self.scratch.context_stack.last_mut().unwrap().mark = Some(attach);
             self.scratch.dep_deep_seen.clear();
-            self.scratch.tmpl_cntx = crate::grammar_applicator::tmpl_context_t::default();
+            self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
             let (aparent, alocal) = {
                 let cc = self.doc.store.cohorts.get(attach.0);
                 (cc.parent, cc.local_number)

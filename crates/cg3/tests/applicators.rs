@@ -744,7 +744,7 @@ fn format_converter_wires_apertium_fst_and_plaintext() {
 // [spec:cg3:sem:format-converter.cg3.format-converter.print-plain-text-line-fn/test]
 #[test]
 fn format_converter_print_dispatch() {
-    use cg3::grammar_applicator::cg3_sformat;
+    use cg3::grammar_applicator::StreamFormatKind;
 
     let base = cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
     let mut fc = cg3::format_converter::FormatConverter::new(base);
@@ -783,7 +783,7 @@ fn format_converter_print_dispatch() {
     };
 
     // printCohort → NICELINE arm.
-    fc.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_NICELINE;
+    fc.base_mut().cfg.fmt_output = StreamFormatKind::Niceline;
     let mut out: Vec<u8> = Vec::new();
     fc.print_cohort(cohort, &mut out, false);
     let text = String::from_utf8(out).unwrap();
@@ -794,7 +794,7 @@ fn format_converter_print_dispatch() {
     assert!(text.contains(" X"), "reading tag lost: {text}");
 
     // printSingleWindow → JSONL arm (one JSON object per cohort).
-    fc.base_mut().cfg.fmt_output = cg3_sformat::CG3SF_JSONL;
+    fc.base_mut().cfg.fmt_output = StreamFormatKind::Jsonl;
     let mut out: Vec<u8> = Vec::new();
     fc.print_single_window(sw, &mut out, false);
     let text = String::from_utf8(out).unwrap();

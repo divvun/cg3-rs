@@ -22,8 +22,6 @@
 //! NOT C pointers) is a faithful, idiomatic representation, and migrating its
 //! ~300 in-place byte offsets carries poor risk/reward in a soft-gate wave.
 
-#![allow(non_camel_case_types)]
-
 use crate::types::UChar;
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 //! `src/GrammarApplicator_context.cpp` — the rule-application context
 //! accessors. `context_stack` is a stack (`Vec`) of
-//! [`Rule_Context`](super::Rule_Context) frames; the "current" context is its
+//! [`RuleContext`](super::RuleContext) frames; the "current" context is its
 //! `back()` (Rust `last()`). Each frame records, for the rule currently firing,
 //! its matched `target`, its explicit `attach_to`, its `mark` cohort, and the
 //! per-frame unification state. These six methods read/write the top frame.
@@ -20,7 +20,7 @@
 //! identity, ported to the address-free [`UnifKey`](super::UnifKey) — value
 //! equality of `(special, path)`, an exact bijection with the entry address.
 
-use super::{Engine, Matcher, ReadingSpec, UnifKey, unif_tags_t};
+use super::{Engine, Matcher, ReadingSpec, UnifKey, UnifTags};
 use crate::arena::{CohortId, ReadingId};
 
 impl Engine<'_> {
@@ -141,7 +141,7 @@ impl Matcher<'_> {
             .unwrap()
             .unif_tags
             .expect("check_unif_tags: active context frame has a null unif_tags index");
-        let unif_tags: &mut unif_tags_t = &mut self.scratch.unif_tags_store[idx];
+        let unif_tags: &mut UnifTags = &mut self.scratch.unif_tags_store[idx];
         if let Some(existing) = unif_tags.get(&set) {
             return *existing == val;
         }

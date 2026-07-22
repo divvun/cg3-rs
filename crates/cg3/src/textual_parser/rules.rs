@@ -6,15 +6,15 @@
 
 use crate::arena::RuleId;
 use crate::ast::{ASTHelper, ASTType};
-use crate::contextual_test::{GSR_SPECIALS, POS_JUMP, POS_JUMP_POS};
+use crate::contextual_test::{GsrSpecials, POS_JUMP, PosJumpPos};
 use crate::inlines::{backtonl_chars, isnl, isspace, skiptows_chars, skipws_chars};
 use crate::rule::{
     FLAGS_COUNT, FLAGS_EXCLS, RF_AFTER, RF_BEFORE, RF_ITERATE, RF_KEEPORDER, RF_NOCHILD,
     RF_NOITERATE, RF_REMEMBERX, RF_REVERSE, RF_SAFE, RF_UNSAFE, RF_WITHCHILD, Rule,
 };
 use crate::set::Set;
-use crate::sorted_vector::uint32SortedVector;
-use crate::strings::KEYWORDS;
+use crate::sorted_vector::Uint32SortedVector;
+use crate::strings::Keywords;
 use crate::tag::T_REGEXP;
 use crate::types::SetNumber;
 
@@ -46,12 +46,12 @@ impl TextualParser {
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn]
-    pub(crate) fn parse_rule(&mut self, buf: &[char], pos: &mut usize, key: KEYWORDS) {
+    pub(crate) fn parse_rule(&mut self, buf: &[char], pos: &mut usize, key: Keywords) {
         // C++ `AST_OPEN(Rule)` — also the profiler's rule span start.
         let ast_rule_b = *pos;
         let mut ast_rule = ASTHelper::new(
             &mut self.ast,
-            ASTType::AST_Rule,
+            ASTType::AstRule,
             self.grammar.lines as usize,
             *pos,
             self.cur_grammar_buf.clone(),
@@ -90,13 +90,13 @@ impl TextualParser {
         }
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
 
-        if key == KEYWORDS::K_EXTERNAL {
+        if key == Keywords::KExternal {
             if simplecasecmp(buf, *pos, STR_ONCE) {
                 *pos += slen(STR_ONCE);
-                rule.r#type = KEYWORDS::K_EXTERNAL_ONCE;
+                rule.r#type = Keywords::KExternalOnce;
             } else if simplecasecmp(buf, *pos, STR_ALWAYS) {
                 *pos += slen(STR_ALWAYS);
-                rule.r#type = KEYWORDS::K_EXTERNAL_ALWAYS;
+                rule.r#type = Keywords::KExternalAlways;
             } else {
                 self.error_near(&buf[*pos..]);
             }
@@ -143,20 +143,20 @@ impl TextualParser {
         }
 
         if !rule.flags.intersects(RF_ITERATE | RF_NOITERATE)
-            && key != KEYWORDS::K_SELECT
-            && key != KEYWORDS::K_REMOVE
-            && key != KEYWORDS::K_IFF
-            && key != KEYWORDS::K_DELIMIT
-            && key != KEYWORDS::K_REMCOHORT
-            && key != KEYWORDS::K_MOVE
-            && key != KEYWORDS::K_SWITCH
+            && key != Keywords::KSelect
+            && key != Keywords::KRemove
+            && key != Keywords::KIff
+            && key != Keywords::KDelimit
+            && key != Keywords::KRemcohort
+            && key != Keywords::KMove
+            && key != Keywords::KSwitch
         {
             rule.flags |= RF_NOITERATE;
         }
-        if key == KEYWORDS::K_UNMAP && !rule.flags.intersects(RF_SAFE | RF_UNSAFE) {
+        if key == Keywords::KUnmap && !rule.flags.intersects(RF_SAFE | RF_UNSAFE) {
             rule.flags |= RF_SAFE;
         }
-        if key == KEYWORDS::K_SETPARENT && !rule.flags.intersects(RF_SAFE | RF_UNSAFE) {
+        if key == Keywords::KSetparent && !rule.flags.intersects(RF_SAFE | RF_UNSAFE) {
             rule.flags |= if self.safe_setparent {
                 RF_SAFE
             } else {
@@ -174,7 +174,7 @@ impl TextualParser {
         }
 
         lp = *pos;
-        if key == KEYWORDS::K_SUBSTITUTE || key == KEYWORDS::K_EXECUTE {
+        if key == Keywords::KSubstitute || key == Keywords::KExecute {
             let saved = self.no_isets;
             self.no_isets = false;
             let s = self.parse_set_inline_wrapper(buf, pos);
@@ -189,13 +189,13 @@ impl TextualParser {
             }
         }
 
-        if rule.sub_reading == GSR_SPECIALS::GSR_ANY as i32
-            && (key == KEYWORDS::K_MAP
-                || key == KEYWORDS::K_ADD
-                || key == KEYWORDS::K_REPLACE
-                || key == KEYWORDS::K_SUBSTITUTE
-                || key == KEYWORDS::K_COPY
-                || key == KEYWORDS::K_COPYCOHORT)
+        if rule.sub_reading == GsrSpecials::GsrAny as i32
+            && (key == Keywords::KMap
+                || key == Keywords::KAdd
+                || key == Keywords::KReplace
+                || key == Keywords::KSubstitute
+                || key == Keywords::KCopy
+                || key == Keywords::KCopycohort)
         {
             self.error_bare();
         }
@@ -204,26 +204,26 @@ impl TextualParser {
         lp = *pos;
         if matches!(
             key,
-            KEYWORDS::K_MAP
-                | KEYWORDS::K_ADD
-                | KEYWORDS::K_REPLACE
-                | KEYWORDS::K_APPEND
-                | KEYWORDS::K_SUBSTITUTE
-                | KEYWORDS::K_COPY
-                | KEYWORDS::K_COPYCOHORT
-                | KEYWORDS::K_ADDRELATIONS
-                | KEYWORDS::K_ADDRELATION
-                | KEYWORDS::K_SETRELATIONS
-                | KEYWORDS::K_SETRELATION
-                | KEYWORDS::K_REMRELATIONS
-                | KEYWORDS::K_REMRELATION
-                | KEYWORDS::K_SETVARIABLE
-                | KEYWORDS::K_REMVARIABLE
-                | KEYWORDS::K_ADDCOHORT
-                | KEYWORDS::K_JUMP
-                | KEYWORDS::K_SPLITCOHORT
-                | KEYWORDS::K_MERGECOHORTS
-                | KEYWORDS::K_RESTORE
+            Keywords::KMap
+                | Keywords::KAdd
+                | Keywords::KReplace
+                | Keywords::KAppend
+                | Keywords::KSubstitute
+                | Keywords::KCopy
+                | Keywords::KCopycohort
+                | Keywords::KAddrelations
+                | Keywords::KAddrelation
+                | Keywords::KSetrelations
+                | Keywords::KSetrelation
+                | Keywords::KRemrelations
+                | Keywords::KRemrelation
+                | Keywords::KSetvariable
+                | Keywords::KRemvariable
+                | Keywords::KAddcohort
+                | Keywords::KJump
+                | Keywords::KSplitcohort
+                | Keywords::KMergecohorts
+                | Keywords::KRestore
         ) {
             let saved = self.no_isets;
             self.no_isets = false;
@@ -240,7 +240,7 @@ impl TextualParser {
         }
 
         let mut copy_except = false;
-        if (key == KEYWORDS::K_COPY || key == KEYWORDS::K_COPYCOHORT || key == KEYWORDS::K_REPLACE)
+        if (key == Keywords::KCopy || key == Keywords::KCopycohort || key == Keywords::KReplace)
             && simplecasecmp(buf, *pos, STR_EXCEPT)
         {
             *pos += slen(STR_EXCEPT);
@@ -249,10 +249,10 @@ impl TextualParser {
 
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
         lp = *pos;
-        if key == KEYWORDS::K_ADDRELATIONS
-            || key == KEYWORDS::K_SETRELATIONS
-            || key == KEYWORDS::K_REMRELATIONS
-            || key == KEYWORDS::K_SETVARIABLE
+        if key == Keywords::KAddrelations
+            || key == Keywords::KSetrelations
+            || key == Keywords::KRemrelations
+            || key == Keywords::KSetvariable
             || copy_except
         {
             let saved = self.no_isets;
@@ -269,23 +269,23 @@ impl TextualParser {
             }
         }
 
-        if key == KEYWORDS::K_ADDCOHORT {
+        if key == Keywords::KAddcohort {
             if simplecasecmp(buf, *pos, STR_AFTER) {
                 *pos += slen(STR_AFTER);
-                rule.r#type = KEYWORDS::K_ADDCOHORT_AFTER;
+                rule.r#type = Keywords::KAddcohortAfter;
             } else if simplecasecmp(buf, *pos, STR_BEFORE) {
                 *pos += slen(STR_BEFORE);
-                rule.r#type = KEYWORDS::K_ADDCOHORT_BEFORE;
+                rule.r#type = Keywords::KAddcohortBefore;
             } else {
                 self.error_near(&buf[*pos..]);
             }
         }
 
-        if key == KEYWORDS::K_ADD
-            || key == KEYWORDS::K_MAP
-            || key == KEYWORDS::K_SUBSTITUTE
-            || key == KEYWORDS::K_COPY
-            || key == KEYWORDS::K_COPYCOHORT
+        if key == Keywords::KAdd
+            || key == Keywords::KMap
+            || key == Keywords::KSubstitute
+            || key == Keywords::KCopy
+            || key == Keywords::KCopycohort
         {
             if simplecasecmp(buf, *pos, STR_AFTER) {
                 *pos += slen(STR_AFTER);
@@ -294,7 +294,7 @@ impl TextualParser {
                 *pos += slen(STR_BEFORE);
                 rule.flags |= RF_BEFORE;
             }
-            if key != KEYWORDS::K_COPYCOHORT && (rule.flags.intersects(RF_BEFORE | RF_AFTER)) {
+            if key != Keywords::KCopycohort && (rule.flags.intersects(RF_BEFORE | RF_AFTER)) {
                 let s = self.parse_set_inline_wrapper(buf, pos);
                 rule.childset1 = SetNumber(self.grammar.sets_list[s.0].hash);
             }
@@ -345,31 +345,31 @@ impl TextualParser {
 
         if matches!(
             key,
-            KEYWORDS::K_SETPARENT
-                | KEYWORDS::K_SETCHILD
-                | KEYWORDS::K_ADDRELATIONS
-                | KEYWORDS::K_ADDRELATION
-                | KEYWORDS::K_SETRELATIONS
-                | KEYWORDS::K_SETRELATION
-                | KEYWORDS::K_REMRELATIONS
-                | KEYWORDS::K_REMRELATION
-                | KEYWORDS::K_MOVE
-                | KEYWORDS::K_SWITCH
-                | KEYWORDS::K_MERGECOHORTS
-                | KEYWORDS::K_COPYCOHORT
+            Keywords::KSetparent
+                | Keywords::KSetchild
+                | Keywords::KAddrelations
+                | Keywords::KAddrelation
+                | Keywords::KSetrelations
+                | Keywords::KSetrelation
+                | Keywords::KRemrelations
+                | Keywords::KRemrelation
+                | Keywords::KMove
+                | Keywords::KSwitch
+                | Keywords::KMergecohorts
+                | Keywords::KCopycohort
         ) {
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-            if key == KEYWORDS::K_MOVE {
+            if key == Keywords::KMove {
                 if simplecasecmp(buf, *pos, STR_AFTER) {
                     *pos += slen(STR_AFTER);
-                    rule.r#type = KEYWORDS::K_MOVE_AFTER;
+                    rule.r#type = Keywords::KMoveAfter;
                 } else if simplecasecmp(buf, *pos, STR_BEFORE) {
                     *pos += slen(STR_BEFORE);
-                    rule.r#type = KEYWORDS::K_MOVE_BEFORE;
+                    rule.r#type = Keywords::KMoveBefore;
                 } else {
                     self.error_near(&buf[*pos..]);
                 }
-            } else if key == KEYWORDS::K_SWITCH || key == KEYWORDS::K_MERGECOHORTS {
+            } else if key == Keywords::KSwitch || key == Keywords::KMergecohorts {
                 if simplecasecmp(buf, *pos, STR_WITH) {
                     *pos += slen(STR_WITH);
                 } else {
@@ -385,7 +385,7 @@ impl TextualParser {
             }
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
 
-            if key == KEYWORDS::K_COPYCOHORT && (!rule.flags.intersects(RF_REVERSE)) {
+            if key == Keywords::KCopycohort && (!rule.flags.intersects(RF_REVERSE)) {
                 if simplecasecmp(buf, *pos, STR_AFTER) {
                     *pos += slen(STR_AFTER);
                     rule.flags |= RF_AFTER;
@@ -396,7 +396,7 @@ impl TextualParser {
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
 
-            if key == KEYWORDS::K_MOVE || key == KEYWORDS::K_COPYCOHORT {
+            if key == Keywords::KMove || key == Keywords::KCopycohort {
                 if simplecasecmp(buf, *pos, G_FLAGS[FL_WITHCHILD]) {
                     *pos += slen(G_FLAGS[FL_WITHCHILD]);
                     self.grammar.has_dep = true;
@@ -425,29 +425,29 @@ impl TextualParser {
             if rule.dep_tests.is_empty() {
                 self.error_near(&buf[lp..]);
             }
-            if key != KEYWORDS::K_MERGECOHORTS {
+            if key != Keywords::KMergecohorts {
                 rule.dep_target = rule.dep_tests.back().copied();
                 rule.dep_tests.pop_back();
             }
         }
-        if key == KEYWORDS::K_SETPARENT
-            || key == KEYWORDS::K_SETCHILD
-            || key == KEYWORDS::K_SPLITCOHORT
-            || key == KEYWORDS::K_MERGECOHORTS
+        if key == Keywords::KSetparent
+            || key == Keywords::KSetchild
+            || key == Keywords::KSplitcohort
+            || key == Keywords::KMergecohorts
         {
             self.grammar.has_dep = true;
         }
-        if key == KEYWORDS::K_SETRELATION
-            || key == KEYWORDS::K_SETRELATIONS
-            || key == KEYWORDS::K_ADDRELATION
-            || key == KEYWORDS::K_ADDRELATIONS
-            || key == KEYWORDS::K_REMRELATION
-            || key == KEYWORDS::K_REMRELATIONS
-            || key == KEYWORDS::K_MERGECOHORTS
+        if key == Keywords::KSetrelation
+            || key == Keywords::KSetrelations
+            || key == Keywords::KAddrelation
+            || key == Keywords::KAddrelations
+            || key == Keywords::KRemrelation
+            || key == Keywords::KRemrelations
+            || key == Keywords::KMergecohorts
         {
             self.grammar.has_relations = true;
         }
-        if key == KEYWORDS::K_COPYCOHORT && (!rule.flags.intersects(RF_BEFORE | RF_AFTER)) {
+        if key == Keywords::KCopycohort && (!rule.flags.intersects(RF_BEFORE | RF_AFTER)) {
             rule.flags |= RF_AFTER;
         }
 
@@ -455,21 +455,21 @@ impl TextualParser {
             let mut found = false;
             if let Some(dt) = rule.dep_target {
                 let c = &self.grammar.contexts_arena[dt.0];
-                if c.pos.intersects(POS_JUMP) && c.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
+                if c.pos.intersects(POS_JUMP) && c.jump_pos == PosJumpPos::JumpMark as i8 {
                     found = true;
                 }
             }
             if !found {
                 for &it in rule.tests.iter() {
                     let c = &self.grammar.contexts_arena[it.0];
-                    if c.pos.intersects(POS_JUMP) && c.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
+                    if c.pos.intersects(POS_JUMP) && c.jump_pos == PosJumpPos::JumpMark as i8 {
                         found = true;
                         break;
                     }
                 }
                 for &it in rule.dep_tests.iter() {
                     let c = &self.grammar.contexts_arena[it.0];
-                    if c.pos.intersects(POS_JUMP) && c.jump_pos == POS_JUMP_POS::JUMP_MARK as i8 {
+                    if c.pos.intersects(POS_JUMP) && c.jump_pos == PosJumpPos::JumpMark as i8 {
                         found = true;
                         break;
                     }
@@ -480,7 +480,7 @@ impl TextualParser {
             }
         }
 
-        if key == KEYWORDS::K_WITH {
+        if key == Keywords::KWith {
             rule.flags |= RF_KEEPORDER;
             self.grammar.lines += skipws_chars(buf, pos, '{', ';', false);
             if buf[*pos] == '{' {
@@ -810,7 +810,7 @@ impl TextualParser {
             }
             *pos += 2;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-            let mut tmp = uint32SortedVector::new();
+            let mut tmp = Uint32SortedVector::new();
             self.list_tags.swap(&mut tmp);
             while buf[*pos] != '\0' && buf[*pos] != ';' {
                 let mut n = *pos;
@@ -901,7 +901,7 @@ impl TextualParser {
             }
             *pos += 2;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-            let mut tmp = uint32SortedVector::new();
+            let mut tmp = Uint32SortedVector::new();
             self.strict_tags.swap(&mut tmp);
             while buf[*pos] != '\0' && buf[*pos] != ';' {
                 let mut n = *pos;

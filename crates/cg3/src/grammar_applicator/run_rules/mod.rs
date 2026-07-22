@@ -17,9 +17,9 @@
 //! context / core) by their C++-matching signatures — none of which exist yet.
 
 use crate::arena::{RuleId, SwId};
-use crate::interval_vector::uint32IntervalVector;
+use crate::interval_vector::Uint32IntervalVector;
 use crate::reading::ReadingList;
-use crate::strings::KEYWORDS::*;
+use crate::strings::Keywords::*;
 
 // C++ anonymous `enum { RV_NOTHING = 1, RV_SOMETHING = 2, RV_DELIMITED = 4,
 // RV_TRACERULE = 8 };` — the return-value bit flags of runRulesOnSingleWindow.
@@ -41,7 +41,7 @@ const GSR_ANY: i32 = 32767;
 
 /// Expand a `uint32IntervalVector` to the ascending list of its member values
 /// (the C++ `for (auto v : iv)`). Not a manifest symbol — iteration helper.
-fn iv_to_vec(iv: &uint32IntervalVector) -> Vec<u32> {
+fn iv_to_vec(iv: &Uint32IntervalVector) -> Vec<u32> {
     let mut out = Vec::new();
     let mut it = iv.begin();
     let end = iv.end();
@@ -62,9 +62,9 @@ fn iv_to_vec(iv: &uint32IntervalVector) -> Vec<u32> {
 pub(crate) struct RRState {
     pub(crate) current: SwId,
     /// The `rules` parameter (read-only working set).
-    pub(crate) rules: uint32IntervalVector,
+    pub(crate) rules: Uint32IntervalVector,
     /// `current.valid_rules.intersect(rules)` — grows as tags are added.
-    pub(crate) intersects: uint32IntervalVector,
+    pub(crate) intersects: Uint32IntervalVector,
     /// The current rule (`rule`); WITH temporarily reassigns it.
     pub(crate) rule: RuleId,
     /// The re-seatable outer cursor value (`*iter_rules`).
@@ -80,12 +80,12 @@ pub(crate) struct RRState {
 }
 
 /// First member value of an interval set, or `None` when empty.
-fn iv_first(iv: &uint32IntervalVector) -> Option<u32> {
+fn iv_first(iv: &Uint32IntervalVector) -> Option<u32> {
     if iv.empty() { None } else { Some(iv.front()) }
 }
 
 /// First member value strictly greater than `v` (the C++ `++iter_rules`).
-fn iv_next_after(iv: &uint32IntervalVector, v: u32) -> Option<u32> {
+fn iv_next_after(iv: &Uint32IntervalVector, v: u32) -> Option<u32> {
     let lb = iv.lower_bound(v.wrapping_add(1));
     if lb == iv.end() {
         None

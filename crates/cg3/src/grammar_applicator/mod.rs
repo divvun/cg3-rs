@@ -38,10 +38,10 @@ use crate::cohort_iterator::{
 };
 use crate::flat_unordered_map::Uint32FlatHashMap;
 use crate::flat_unordered_set::{Uint32FlatHashSet, Uint64FlatHashSet};
-use crate::interval_vector::uint32IntervalVector;
+use crate::interval_vector::Uint32IntervalVector;
 use crate::process::Process;
 use crate::scoped_stack::ScopedStack;
-use crate::sorted_vector::{sorted_vector, uint32SortedVector};
+use crate::sorted_vector::{SortedVector, Uint32SortedVector};
 use crate::tag::TagList;
 use crate::types::{TagHash, UChar, UString, Uint32Vector};
 
@@ -54,29 +54,31 @@ pub mod run_grammar;
 pub mod run_rules;
 pub mod stream_format;
 
-// C++ `cg3.h` `cg3_sformat` — the stream serialisation format tag used by
-// `fmt_input` / `fmt_output`. The public C-API header (`cg3.h`) is not yet
-// ported to Rust, so the enum is defined here (in the engine skeleton) where it
-// is first needed; a later pass may relocate it to a `cg3` C-API module.
+/// C++ `cg3.h` `enum cg3_sformat` — the stream serialisation format tag used
+/// by `fmt_input` / `fmt_output`; the variants camel-case the C++ `CG3SF_*`
+/// enumerators (`CG3SF_INVALID` → `Invalid`, `CG3SF_CG` → `Cg`, ...). The
+/// public C-API header (`cg3.h`) is not yet ported to Rust, so the enum is
+/// defined here (in the engine skeleton) where it is first needed; a later
+/// pass may relocate it to a `cg3` C-API module.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 #[repr(u32)]
-pub enum cg3_sformat {
-    CG3SF_INVALID = 0,
+pub enum StreamFormatKind {
+    Invalid = 0,
     #[default]
-    CG3SF_CG = 1,
-    CG3SF_NICELINE = 2,
-    CG3SF_APERTIUM = 3,
-    CG3SF_MATXIN = 4,
-    CG3SF_FST = 5,
-    CG3SF_PLAIN = 6,
-    CG3SF_JSONL = 7,
-    CG3SF_BINARY = 8,
+    Cg = 1,
+    Niceline = 2,
+    Apertium = 3,
+    Matxin = 4,
+    Fst = 5,
+    Plain = 6,
+    Jsonl = 7,
+    Binary = 8,
 }
 
 // [spec:cg3:def:grammar-applicator.cg3.regexgrps-t]
 /// C++ `typedef std::vector<UnicodeString> regexgrps_t` — the captured regex
 /// groups for one context frame (`UnicodeString` → UTF-8 [`UString`]).
-pub type regexgrps_t = Vec<UString>;
+pub type RegexGroups = Vec<UString>;
 
 // [spec:cg3:def:grammar-applicator.cg3.unif-key]
 /// Semantic identity of a unified trie node, replacing the C++ `const void*`
@@ -109,10 +111,10 @@ pub struct UnifKey {
 /// value (a `trie_t` entry address) becomes the address-free [`UnifKey`] (see its
 /// docs for the address↔key bijection); comparison is still pure identity, now
 /// value equality of `(special, path)`.
-pub type unif_tags_t = BTreeMap<u32, UnifKey>;
+pub type UnifTags = BTreeMap<u32, UnifKey>;
 // [spec:cg3:def:grammar-applicator.cg3.unif-sets-t]
 /// C++ `typedef bc::flat_map<uint32_t, uint32SortedVector> unif_sets_t`.
-pub type unif_sets_t = BTreeMap<u32, uint32SortedVector>;
+pub type UnifSets = BTreeMap<u32, Uint32SortedVector>;
 
 // [spec:cg3:def:grammar-applicator.cg3.tmpl-context-t]
 /// C++ `struct tmpl_context_t` — the active template-test window (`min`/`max`
@@ -120,7 +122,7 @@ pub type unif_sets_t = BTreeMap<u32, uint32SortedVector>;
 /// `clear()` member (`tmpl-context-t.clear-fn`) is a method left for the impl
 /// pass.
 #[derive(Default, Clone)]
-pub struct tmpl_context_t {
+pub struct TmplContext {
     pub min: Option<CohortId>,
     pub max: Option<CohortId>,
     /// C++ `std::vector<const ContextualTest*> linked`.
@@ -145,7 +147,7 @@ pub enum CsRef {
 /// out-targets, the option bitmask, and the match/barrier flags). `Cohort**
 /// deep` (a pointer to the caller's `Cohort*` slot) → a safe reborrowable
 /// `Option<&mut Option<CohortId>>` (wave 4; was a raw `*mut`).
-pub struct dSMC_Context<'a> {
+pub struct CohortMatchContext<'a> {
     /// C++ `const ContextualTest* test`.
     pub test: Option<CtxId>,
     /// C++ `Cohort** deep`.
@@ -178,7 +180,7 @@ pub struct ReadingSpec {
 /// replaces the raw aliasing pointers with plain store INDICES (safe across
 /// `Vec` reallocation).
 #[derive(Default, Clone)]
-pub struct Rule_Context {
+pub struct RuleContext {
     pub target: ReadingSpec,
     /// C++ `std::vector<Cohort*> context` — positions may be null.
     pub context: Vec<Option<CohortId>>,
@@ -207,21 +209,21 @@ pub struct Rule_Context {
 
 // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.all-mappings-t]
 /// C++ `typedef std::map<Reading*, TagList> all_mappings_t`.
-pub type all_mappings_t = BTreeMap<ReadingId, TagList>;
+pub type AllMappings = BTreeMap<ReadingId, TagList>;
 
 // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.rs-type]
 /// C++ `typedef std::map<int32_t, uint32IntervalVector> RSType` — the
 /// per-section rule schedule (negative keys are the before/after/null sections).
-pub type RSType = BTreeMap<i32, uint32IntervalVector>;
+pub type RSType = BTreeMap<i32, Uint32IntervalVector>;
 
 // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.externals-t]
 /// C++ `typedef std::map<uint32_t, Process> externals_t` — the running
 /// EXTERNAL child processes, keyed by tag hash.
-pub type externals_t = BTreeMap<u32, Process>;
+pub type Externals = BTreeMap<u32, Process>;
 
 // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.readings-plain-t]
 /// C++ `typedef bc::flat_map<uint32_t, Reading*> readings_plain_t`.
-pub type readings_plain_t = BTreeMap<u32, ReadingId>;
+pub type ReadingsPlain = BTreeMap<u32, ReadingId>;
 
 // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.st-retvals]
 // C++ `enum ST_RETVALS { … }` — bit flags OR-ed into the `uint8_t& rvs`
@@ -239,19 +241,19 @@ impl crate::pool::Poolable for TagList {
         Vec::clear(self);
     }
 }
-impl crate::pool::Poolable for unif_tags_t {
+impl crate::pool::Poolable for UnifTags {
     fn clear(&mut self) {
         BTreeMap::clear(self);
     }
 }
-impl crate::pool::Poolable for unif_sets_t {
+impl crate::pool::Poolable for UnifSets {
     fn clear(&mut self) {
         BTreeMap::clear(self);
     }
 }
-impl crate::pool::Poolable for uint32SortedVector {
+impl crate::pool::Poolable for Uint32SortedVector {
     fn clear(&mut self) {
-        uint32SortedVector::clear(self);
+        Uint32SortedVector::clear(self);
     }
 }
 
@@ -288,8 +290,8 @@ pub struct EngineConfig {
     pub add_spacing: bool,
     pub print_ids: bool,
 
-    pub fmt_input: cg3_sformat,
-    pub fmt_output: cg3_sformat,
+    pub fmt_input: StreamFormatKind,
+    pub fmt_output: StreamFormatKind,
 
     pub dep_delimit: u32,
     pub dep_absolute: bool,
@@ -301,9 +303,9 @@ pub struct EngineConfig {
     pub soft_limit: u32,
     pub hard_limit: u32,
     pub sections: Uint32Vector,
-    pub valid_rules: uint32IntervalVector,
-    pub trace_rules: uint32IntervalVector,
-    pub debug_rules: uint32IntervalVector,
+    pub valid_rules: Uint32IntervalVector,
+    pub trace_rules: Uint32IntervalVector,
+    pub debug_rules: Uint32IntervalVector,
     pub verbosity_level: u32,
     pub section_max_count: u32,
 
@@ -359,8 +361,8 @@ impl EngineConfig {
             add_spacing: true,
             print_ids: false,
 
-            fmt_input: cg3_sformat::CG3SF_CG,
-            fmt_output: cg3_sformat::CG3SF_CG,
+            fmt_input: StreamFormatKind::Cg,
+            fmt_output: StreamFormatKind::Cg,
 
             dep_delimit: 0,
             dep_absolute: false,
@@ -442,7 +444,7 @@ pub struct Document {
     pub input_eof: bool,
     pub dep_has_spanned: bool,
 
-    pub externals: externals_t,
+    pub externals: Externals,
 
     /// Per-run counter — number of input lines consumed (C++ `numLines`). NOT the
     /// `cfg.num_windows` limit; see the `num_windows` counter below.
@@ -498,7 +500,7 @@ pub struct RuleScratch {
     pub seen_barrier: bool,
 
     /// C++ `sorted_vector<std::pair<uint32_t, uint32_t>> dep_deep_seen`.
-    pub dep_deep_seen: sorted_vector<(u32, u32)>,
+    pub dep_deep_seen: SortedVector<(u32, u32)>,
 
     pub ci_depths: Uint32Vector,
     pub cohortIterators: BTreeMap<u32, CohortIterator>,
@@ -514,9 +516,9 @@ pub struct RuleScratch {
     pub par_right_pos: u32,
     pub did_final_enclosure: bool,
 
-    pub tmpl_cntx: tmpl_context_t,
+    pub tmpl_cntx: TmplContext,
 
-    pub regexgrps_store: Vec<regexgrps_t>,
+    pub regexgrps_store: Vec<RegexGroups>,
     /// C++ `bc::flat_map<uint32_t, uint8_t> regexgrps_z`.
     pub regexgrps_z: BTreeMap<u32, u8>,
     /// C++ `bc::flat_map<uint32_t, regexgrps_t*> regexgrps_c` — values are
@@ -526,7 +528,7 @@ pub struct RuleScratch {
     pub rule_target: Option<CohortId>,
     pub merge_with: Option<CohortId>,
     pub current_rule: Option<RuleId>,
-    pub context_stack: Vec<Rule_Context>,
+    pub context_stack: Vec<RuleContext>,
     /// C++ `std::vector<CohortSet*> cohortsets` — wave 4: safe DESCRIPTORS of
     /// the per-window cohort sets the active `run_single_rule` frames iterate
     /// (resolved against the store on every access, so window restructuring
@@ -538,7 +540,7 @@ pub struct RuleScratch {
     /// index, exactly as the C++ wrote through the parked pointers.
     pub rocits: Vec<usize>,
 
-    pub readings_plain: readings_plain_t,
+    pub readings_plain: ReadingsPlain,
 
     /// C++ `Reading::matched_target` / `Reading::matched_tests` (`uint8_t : 1`
     /// bitfields on `Reading`), re-homed here as `ReadingId` membership sets
@@ -559,20 +561,20 @@ pub struct RuleScratch {
     /// C++ `bc::flat_map<uint32_t, unif_tags_t*> unif_tags_rs` — values are
     /// indices into `unif_tags_store`.
     pub unif_tags_rs: BTreeMap<u32, usize>,
-    pub unif_tags_store: Vec<unif_tags_t>,
+    pub unif_tags_store: Vec<UnifTags>,
     /// C++ `bc::flat_map<uint32_t, unif_sets_t*> unif_sets_rs` — values are
     /// indices into `unif_sets_store`.
     pub unif_sets_rs: BTreeMap<u32, usize>,
-    pub unif_sets_store: Vec<unif_sets_t>,
+    pub unif_sets_store: Vec<UnifSets>,
     pub unif_last_wordform: TagHash,
     pub unif_last_baseform: TagHash,
     pub unif_last_textual: TagHash,
     /// C++ `bc::flat_map<uint32_t, uint32_t> rule_hits`.
     pub rule_hits: BTreeMap<u32, u32>,
 
-    pub ss_utags: ScopedStack<unif_tags_t>,
-    pub ss_usets: ScopedStack<unif_sets_t>,
-    pub ss_u32sv: ScopedStack<uint32SortedVector>,
+    pub ss_utags: ScopedStack<UnifTags>,
+    pub ss_usets: ScopedStack<UnifSets>,
+    pub ss_u32sv: ScopedStack<Uint32SortedVector>,
 
     pub index_regexp_yes: Uint64FlatHashSet,
     pub index_regexp_no: Uint64FlatHashSet,
@@ -923,7 +925,7 @@ impl Engine<'_> {
         &mut self,
         cohort: CohortId,
         set: u32,
-        context: Option<&mut dSMC_Context>,
+        context: Option<&mut CohortMatchContext>,
     ) -> bool {
         self.matcher()
             .does_set_match_cohort_normal(cohort, set, context)

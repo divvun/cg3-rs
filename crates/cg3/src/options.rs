@@ -1,8 +1,8 @@
 //! Port of `src/options.hpp` + `src/options.cpp`.
 //!
-//! The vislcg3 CLI option enum ([`OPTIONS`]) and the `UOption` table that backs
+//! The vislcg3 CLI option enum ([`Opt`]) and the `UOption` table that backs
 //! it (`options`, plus the four default/override copies). Every table entry is
-//! indexed by its matching [`OPTIONS`] enumerator, so the table order below is
+//! indexed by its matching [`Opt`] enumerator, so the table order below is
 //! identical to the enum order — do not reorder one without the other.
 //!
 //! ## Local `UOption` representation (NOTE)
@@ -98,97 +98,100 @@ impl UOption {
 //                           only (port hashes UTF-8, upstream UTF-16) and which
 //                           relied on the class-static mutable-stream wart.
 // [spec:cg3:def:options.options.options]
+/// C++ `enum OPTIONS` (`options.hpp`); each variant camel-cases its C++
+/// enumerator (`HELP1` → `Help1`, `IN_CG` → `InCg`, ..., `NUM_OPTIONS` →
+/// `NumOptions`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum OPTIONS {
-    HELP1,
-    HELP2,
-    VERSION,
-    VERSION_TOO_OLD,
-    GRAMMAR,
-    GRAMMAR_OUT,
-    GRAMMAR_BIN,
-    GRAMMAR_ONLY,
-    ORDERED,
-    UNSAFE,
-    SECTIONS,
-    RULES,
-    RULE,
-    NRULES,
-    NRULES_INV,
-    DODEBUG,
-    DEBUG_RULES,
-    VERBOSE,
-    QUIET,
-    VISLCGCOMPAT,
-    STDIN,
-    STDOUT,
-    STDERR,
-    CODEPAGE_GLOBAL,
-    CODEPAGE_GRAMMAR,
-    CODEPAGE_INPUT,
-    CODEPAGE_OUTPUT,
-    NOMAPPINGS,
-    NOCORRECTIONS,
-    NOBEFORESECTIONS,
-    NOSECTIONS,
-    NOAFTERSECTIONS,
-    TRACE,
-    TRACE_NAME_ONLY,
-    TRACE_NO_REMOVED,
-    TRACE_ENCL,
-    PIPE_DELETED,
-    SINGLERUN,
-    MAXRUNS,
-    PROFILING,
-    MAPPING_PREFIX,
-    UNICODE_TAGS,
-    UNIQUE_TAGS,
-    PRINT_IDS,
-    PRINT_DEP,
-    NUM_WINDOWS,
-    ALWAYS_SPAN,
-    SOFT_LIMIT,
-    HARD_LIMIT,
-    TEXT_DELIMIT,
-    DEP_DELIMIT,
-    DEP_ABSOLUTE,
-    DEP_ORIGINAL,
-    DEP_ALLOW_LOOPS,
-    DEP_BLOCK_CROSSING,
-    MAGIC_READINGS,
-    NO_PASS_ORIGIN,
-    SPLIT_MAPPINGS,
-    SHOW_END_TAGS,
-    SHOW_UNUSED_SETS,
-    SHOW_TAGS,
-    SHOW_SET_HASHES,
-    DUMP_AST,
-    NO_BREAK,
-    IN_CG,
-    IN_NICELINE,
-    IN_APERTIUM,
-    IN_FST,
-    IN_PLAIN,
-    IN_JSONL,
-    IN_BINARY,
-    OUT_CG,
-    OUT_APERTIUM,
-    OUT_FST,
-    OUT_NICELINE,
-    OUT_PLAIN,
-    OUT_JSONL,
-    OUT_BINARY,
-    NUM_OPTIONS,
+pub enum Opt {
+    Help1,
+    Help2,
+    Version,
+    VersionTooOld,
+    Grammar,
+    GrammarOut,
+    GrammarBin,
+    GrammarOnly,
+    Ordered,
+    Unsafe,
+    Sections,
+    Rules,
+    Rule,
+    Nrules,
+    NrulesInv,
+    Dodebug,
+    DebugRules,
+    Verbose,
+    Quiet,
+    Vislcgcompat,
+    Stdin,
+    Stdout,
+    Stderr,
+    CodepageGlobal,
+    CodepageGrammar,
+    CodepageInput,
+    CodepageOutput,
+    Nomappings,
+    Nocorrections,
+    Nobeforesections,
+    Nosections,
+    Noaftersections,
+    Trace,
+    TraceNameOnly,
+    TraceNoRemoved,
+    TraceEncl,
+    PipeDeleted,
+    Singlerun,
+    Maxruns,
+    Profiling,
+    MappingPrefix,
+    UnicodeTags,
+    UniqueTags,
+    PrintIds,
+    PrintDep,
+    NumWindows,
+    AlwaysSpan,
+    SoftLimit,
+    HardLimit,
+    TextDelimit,
+    DepDelimit,
+    DepAbsolute,
+    DepOriginal,
+    DepAllowLoops,
+    DepBlockCrossing,
+    MagicReadings,
+    NoPassOrigin,
+    SplitMappings,
+    ShowEndTags,
+    ShowUnusedSets,
+    ShowTags,
+    ShowSetHashes,
+    DumpAst,
+    NoBreak,
+    InCg,
+    InNiceline,
+    InApertium,
+    InFst,
+    InPlain,
+    InJsonl,
+    InBinary,
+    OutCg,
+    OutApertium,
+    OutFst,
+    OutNiceline,
+    OutPlain,
+    OutJsonl,
+    OutBinary,
+    NumOptions,
 }
 
 /// `using options_t = std::array<UOption, NUM_OPTIONS>;`
-pub type options_t = [UOption; OPTIONS::NUM_OPTIONS as usize];
+pub type OptionsTable = [UOption; Opt::NumOptions as usize];
 
-/// The base `Options::options` table (indexed by [`OPTIONS`]).
+/// The base `Options::options` table (indexed by [`Opt`]).
 ///
 /// C++ counterpart: the mutable global `options_t options{...}` in
 /// `options.cpp`; see the module NOTE on the global-vs-function deviation.
-pub fn options() -> options_t {
+pub fn options() -> OptionsTable {
     [
         UOption::new("help", 'h', UOPT_NO_ARG, "shows this help"),
         UOption::new("?", '?', UOPT_NO_ARG, "shows this help"),
@@ -618,15 +621,15 @@ pub fn options() -> options_t {
 
 // `options_t options_default = options;` and the other copies. Constructor
 // functions (see module NOTE); each returns a fresh clone of the base table.
-pub fn options_default() -> options_t {
+pub fn options_default() -> OptionsTable {
     options()
 }
-pub fn options_override() -> options_t {
+pub fn options_override() -> OptionsTable {
     options()
 }
-pub fn grammar_options_default() -> options_t {
+pub fn grammar_options_default() -> OptionsTable {
     options()
 }
-pub fn grammar_options_override() -> options_t {
+pub fn grammar_options_override() -> OptionsTable {
     options()
 }
