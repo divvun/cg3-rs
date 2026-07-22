@@ -5,7 +5,7 @@
 use crate::arena::{CohortId, CtxId, RuleId, SetId, SwId, TagId};
 use crate::cohort::{CT_ENCLOSED, CT_IGNORED, CT_NUM_CURRENT, CT_REMOVED, CohortSet};
 use crate::contextual_test::{POS_NO_PASS_ORIGIN, POS_PASS_ORIGIN};
-use crate::inlines::{hash_value, ui32};
+use crate::inlines::ui32;
 use crate::rule::{
     RF_DELAYED, RF_ENCL_INNER, RF_ENCL_OUTER, RF_IGNORED, RF_KEEPORDER, RF_NOMAPPED, RF_NOPARENT,
     RF_REMEMBERX, RF_RESETX, RF_SAFE, RF_UNSAFE,
@@ -351,13 +351,15 @@ impl crate::grammar_applicator::Engine<'_> {
                 continue;
             }
 
-            // rule/cohort no-match cache.
-            let gn = self.doc.store.cohorts.get(cohort.0).global_number.get();
-            let ih = hash_value(rnumber, gn);
-            if self.scratch.index_ruleCohort_no.contains(ih) {
-                continue;
-            }
-            self.scratch.index_ruleCohort_no.insert(ih);
+            // DIVERGENCE (operator decision, plan node `drop-rule-cohort-index`):
+            // the C++ `index_ruleCohort_no` visited-set is deleted, not ported.
+            // Upstream marked (rule, cohort) attempted here — insert BEFORE
+            // evaluation — and manually cleared the set at 19 mutation sites so
+            // the fixpoint loop would revisit; its key was the raw 32-bit
+            // hash_value(rule.number, global_number), so a collision silently
+            // suppressed a rule evaluation. Interleaved A/B benchmarking put its
+            // benefit at noise level, so every (rule, cohort) pair is simply
+            // re-evaluated each pass.
 
             let mut num_active: usize = 0;
             let mut num_iff: usize = 0;

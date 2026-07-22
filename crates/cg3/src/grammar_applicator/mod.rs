@@ -564,7 +564,6 @@ pub struct RuleScratch {
     pub index_icase_no: Uint64FlatHashSet,
     pub index_readingSet_yes: Vec<Uint32FlatHashSet>,
     pub index_readingSet_no: Vec<Uint32FlatHashSet>,
-    pub index_ruleCohort_no: Uint32FlatHashSet,
 
     pub reset_cohorts_for_loop: bool,
     pub finish_reading_loop: bool,
@@ -635,7 +634,6 @@ impl RuleScratch {
             index_icase_no: Default::default(),
             index_readingSet_yes: Default::default(),
             index_readingSet_no: Default::default(),
-            index_ruleCohort_no: Default::default(),
 
             reset_cohorts_for_loop: false,
             finish_reading_loop: true,

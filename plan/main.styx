@@ -605,4 +605,32 @@ children (
             }
         )
     }
+
+    {
+        id drop-rule-cohort-index
+        title "Delete the index_ruleCohort_no visited-set: the fixpoint scheduler's (rule,cohort) skip-marker whose validity rests on 19 hand-placed clears and a raw 32-bit key (a collision silently suppresses a rule evaluation); interleaved A/B measured its benefit at noise level (-9%..+5%), so drop it and re-optimise properly if a real-grammar workload ever demands it"
+        priority 2
+        log (
+            {
+                at 2026-07-22T11:08:01.129227Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan_start)"
+            }
+
+            {
+                at 2026-07-22T11:12:08.073065Z
+                author "brendan@necessary.nu"
+                kind @decision
+                text "Operator decision (2026-07-22): \"I would condemn it either way. We can implement better optimisations if we ever need them.\" Evidence basis: interleaved A/B (pristine vs read-disabled binaries, min of 4 rounds, amplified T_Dependency/T_RegExp/T_Unification/T_Templates inputs) put the visited-set's benefit at noise level (-9%..+5%), while it carried 18 hand-placed clear() invalidation sites across 4 files and a raw 32-bit hash_value(rule.number, global_number) key where a collision silently suppresses a rule evaluation (hazard inherited verbatim from C++). By contrast the three true memo families (index_regexp/icase/readingSet) measured a real 7-21% benefit and are KEPT — they were verified transparent (byte-identical output with reads disabled, 159/159). Full deletion verified byte-identical against the pristine binary on all four workloads. Caveat on record: the corpus is toy grammars with amplified window COUNTS, not window sizes — a real-grammar benchmark was offered and declined as unnecessary since the removal stands regardless."
+            }
+
+            {
+                at 2026-07-22T11:12:12.566265Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Doing → Done (nplan_complete)"
+            }
+        )
+    }
 )

@@ -122,9 +122,10 @@ impl crate::grammar_applicator::Engine<'_> {
                 }
 
                 if st.should_bail {
-                    // bailout: rule_hits[rule->number] = 0; index_ruleCohort_no.clear();
+                    // bailout: rule_hits[rule->number] = 0; (the C++ also cleared
+                    // its index_ruleCohort_no here — visited-set deleted, see
+                    // `run_single_rule`).
                     self.scratch.rule_hits.insert(j, 0);
-                    self.scratch.index_ruleCohort_no.clear(0);
                     if retval & RV_TRACERULE != 0 {
                         brk_outer = true;
                     }
@@ -147,7 +148,6 @@ impl crate::grammar_applicator::Engine<'_> {
                     break 'repeat;
                 }
                 if rule_did_something && (rflags.intersects(RF_REPEAT)) {
-                    self.scratch.index_ruleCohort_no.clear(0);
                     cur = j;
                     continue 'repeat;
                 }

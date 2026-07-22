@@ -124,7 +124,7 @@
 >   uint64FlatHashSet index_icase_no;
 >   std::vector<uint32FlatHashSet> index_readingSet_yes;
 >   std::vector<uint32FlatHashSet> index_readingSet_no;
->   uint32FlatHashSet index_ruleCohort_no;
+>   uint32FlatHashSet index_ruleCohort_no;  // PORT DIVERGENCE: not ported (drop-rule-cohort-index)
 >   bool reset_cohorts_for_loop = false;
 >   bool finish_reading_loop = true;
 >   bool finish_cohort_loop = true;
@@ -1469,7 +1469,9 @@
 > ENCL_INNER/OUTER parenthesis constraints; SETPARENT-SAFE/NOPARENT with an
 > existing parent; REMPARENT/SWITCHPARENT with no parent. Then a per-(rule,cohort)
 > negative cache `index_ruleCohort_no` keyed by `hash_value(rule.number,
-> global_number)` skips cohorts known not to match (inserted eagerly). Reset
+> global_number)` skips cohorts known not to match (inserted eagerly) — PORT
+> DIVERGENCE: this visited-set is deleted, not ported (operator decision, plan
+> node `drop-rule-cohort-index`; see GrammarApplicator_runRules.md). Reset
 > per-cohort scratch (readings_plain, subs_any, regexgrps_*, unif_*). Push a
 > Rule_Context for this cohort. First inner loop over readings: descend to the
 > sub-reading (`get_sub_reading`), clear its `matched_target`/`matched_tests`, skip

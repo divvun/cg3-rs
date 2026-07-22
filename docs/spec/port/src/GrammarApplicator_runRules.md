@@ -214,6 +214,14 @@
 > insert ih (the cohort is assumed non-matching until proven otherwise; this
 > cache is cleared whenever a rule changes window state).
 >
+> PORT DIVERGENCE (operator decision, plan node `drop-rule-cohort-index`): the
+> `index_ruleCohort_no` step above is NOT ported. It is a visited-set for the
+> fixpoint scheduler (inserted before evaluation, hand-cleared at 19 mutation
+> sites) whose raw 32-bit key means a hash collision silently suppresses a rule
+> evaluation; interleaved benchmarking measured its benefit at noise level. The
+> port re-evaluates every (rule, cohort) pair each pass; the surrounding skip
+> conditions and per-cohort scratch reset are unchanged.
+>
 > Per-cohort scratch reset: counters num_active=num_iff=num_immutable=0; a
 > reading_contexts vector; if rule.type==K_IFF set the working `type`=K_REMOVE
 > (Iff is treated as Remove until a match promotes it to Select). Clear

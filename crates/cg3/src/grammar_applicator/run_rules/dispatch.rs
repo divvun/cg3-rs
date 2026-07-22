@@ -327,7 +327,6 @@ impl crate::grammar_applicator::Engine<'_> {
 
             self.index_single_window(current);
             st.readings_changed = true;
-            self.scratch.index_ruleCohort_no.clear(0);
             st.intersects = self
                 .doc
                 .store
@@ -384,7 +383,6 @@ impl crate::grammar_applicator::Engine<'_> {
                         st.iter_val = rnumber;
                     }
                 }
-                self.scratch.index_ruleCohort_no.clear(0);
             }
             st.readings_changed = true;
             self.scratch.reset_cohorts_for_loop = true;
@@ -412,7 +410,6 @@ impl crate::grammar_applicator::Engine<'_> {
         if rtype == K_SELECT || (rtype == K_IFF && self.apply_to_matched_tests()) {
             let r = self.get_apply_to().reading.unwrap();
             st.selected.push(r);
-            self.scratch.index_ruleCohort_no.clear(0);
         } else if rtype == K_REMOVE || rtype == K_IFF {
             let cohort_readings = self
                 .doc
@@ -433,7 +430,6 @@ impl crate::grammar_applicator::Engine<'_> {
                 self.trace(rnumber, rsub_reading);
                 st.removed.push(self.get_apply_to().reading.unwrap());
             }
-            self.scratch.index_ruleCohort_no.clear(0);
         } else if rtype == K_PROTECT {
             self.trace(rnumber, rsub_reading);
             self.doc
@@ -451,7 +447,6 @@ impl crate::grammar_applicator::Engine<'_> {
         } else if rtype == K_UNMAP {
             let sr = self.get_apply_to().subreading.unwrap();
             if self.unmap_reading(sr, rnumber) {
-                self.scratch.index_ruleCohort_no.clear(0);
                 st.readings_changed = true;
             }
         } else {
@@ -487,7 +482,6 @@ impl crate::grammar_applicator::Engine<'_> {
                 // reaching here means IFF with unmatched tests → no-op.
             }
             K_ADDCOHORT_AFTER | K_ADDCOHORT_BEFORE => {
-                self.scratch.index_ruleCohort_no.clear(0);
                 self.trace(rnumber, rsub_reading);
                 self.rr_addcohort(st, rule);
                 st.readings_changed = true;
@@ -510,7 +504,6 @@ impl crate::grammar_applicator::Engine<'_> {
                 self.rr_substitute(st, rule, rnumber, rsub_reading);
             }
             K_APPEND => {
-                self.scratch.index_ruleCohort_no.clear(0);
                 self.trace(rnumber, rsub_reading);
                 self.rr_append(st, rule, rnumber);
                 st.readings_changed = true;
@@ -783,7 +776,6 @@ impl crate::grammar_applicator::Engine<'_> {
         self.trace(rnumber, rsub_reading);
         let reading = self.get_apply_to().subreading.unwrap();
         let state_hash = self.doc.store.readings.get(reading.0).hash;
-        self.scratch.index_ruleCohort_no.clear(0);
         self.doc.store.readings.get_mut(reading.0).noprint = false;
         let mut mappings = TagList::new();
         let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
@@ -844,7 +836,6 @@ impl crate::grammar_applicator::Engine<'_> {
         let reading = self.get_apply_to().subreading.unwrap();
         let cohort = self.get_apply_to().cohort.unwrap();
         let state_hash = self.doc.store.readings.get(reading.0).hash;
-        self.scratch.index_ruleCohort_no.clear(0);
         self.trace(rnumber, rsub_reading);
         self.doc.store.readings.get_mut(reading.0).noprint = false;
 
@@ -996,7 +987,6 @@ impl crate::grammar_applicator::Engine<'_> {
         let creading =
             crate::cohort::allocate_append_reading_copy(&mut self.doc.store, cohort, &src_snapshot);
         self.doc.num_readings = self.doc.num_readings.wrapping_add(1);
-        self.scratch.index_ruleCohort_no.clear(0);
         self.trace_reading(creading, rnumber);
         {
             let r = self.doc.store.readings.get_mut(creading.0);
@@ -1180,7 +1170,6 @@ impl crate::grammar_applicator::Engine<'_> {
                     }
                 }
             }
-            self.scratch.index_ruleCohort_no.clear(0);
             self.trace(rnumber, rsub_reading);
             self.doc.store.readings.get_mut(sr.0).noprint = false;
             if tpos >= self.doc.store.readings.get(sr.0).tags_list.len() {
@@ -1500,7 +1489,6 @@ impl crate::grammar_applicator::Engine<'_> {
                 )
             };
             if attached {
-                self.scratch.index_ruleCohort_no.clear(0);
                 let at_was = self.scratch.context_stack.last().unwrap().attach_to.cohort;
                 self.scratch
                     .context_stack
@@ -1644,7 +1632,6 @@ impl crate::grammar_applicator::Engine<'_> {
             }
         }
         if rel_did_anything {
-            self.scratch.index_ruleCohort_no.clear(0);
             let at_was = self.scratch.context_stack.last().unwrap().attach_to.cohort;
             self.scratch
                 .context_stack

@@ -958,7 +958,6 @@ impl crate::grammar_applicator::Engine<'_> {
         }
 
         self.scratch.rule_hits.clear();
-        self.scratch.index_ruleCohort_no.clear(0);
         let current = self.doc.stream.current.unwrap();
         self.index_single_window(current);
         self.doc

@@ -698,7 +698,6 @@ impl crate::grammar_applicator::Engine<'_> {
     /// K_MERGECOHORTS: resolve the `withs` set via the rule's dep tests, add the
     /// merged cohort, then remove every merged-in cohort. Fixes the `<<<` end tag.
     pub(crate) fn rr_mergecohorts(&mut self, st: &mut RRState, rule: RuleId) {
-        self.scratch.index_ruleCohort_no.clear(0);
         let target = self.get_apply_to().cohort.unwrap();
         let mut withs = CohortSet::new();
         withs.insert(target);
@@ -1077,7 +1076,6 @@ impl crate::grammar_applicator::Engine<'_> {
     /// relations. Text is handed to the last new cohort, then the source cohort is
     /// removed. Faithful port of the C++ `K_SPLITCOHORT` action.
     pub(crate) fn rr_splitcohort(&mut self, st: &mut RRState, rule: RuleId) {
-        self.scratch.index_ruleCohort_no.clear(0);
         let current = st.current;
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
 
