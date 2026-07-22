@@ -668,19 +668,18 @@ pub fn ux_is_empty(text: &str) -> bool {
 // a missing `a[i]` as a mismatch and a missing `a[n]` as end-of-string
 // (`a[n] == 0`). `u_getCombiningClass` is unavailable and approximated as 0.
 //
-// faithful port: `for (i=0; i<n; ++i)` indexes both `a` and `b` in lockstep over
-// the caller-supplied count `n` (not `.len()`), mirroring the C++ pointer walk.
-#[allow(clippy::needless_range_loop)]
+// The walk is driven by `a` up to the caller-supplied count `n` (the C++
+// `for (i=0; i<n; ++i)` pointer walk): `a` running out inside the prefix is a
+// mismatch, and `b[i]` is indexed with `n` — panicking where the C++ read past
+// `b` (UB) if a caller ever passes `n > b.len()`.
 pub fn ux_simplecasecmp(a: &[UChar], b: &[UChar], n: usize) -> bool {
-    for i in 0..n {
-        match a.get(i) {
-            Some(&ai) => {
-                if ai != b[i] && (ai as u32) != (b[i] as u32) + 32 {
-                    return false;
-                }
-            }
-            None => return false,
+    for (i, &ai) in a.iter().enumerate().take(n) {
+        if ai != b[i] && (ai as u32) != (b[i] as u32) + 32 {
+            return false;
         }
+    }
+    if a.len() < n {
+        return false;
     }
 
     // If there is a combining character after the last plain letter, it's not a

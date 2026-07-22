@@ -180,9 +180,9 @@ pub fn trie_copy(trie: &TagTrie, grammar: &mut Grammar) -> TagTrie {
 ///
 /// QUIRK (reproduced): this two-argument overload is NEVER called anywhere in the
 /// Relabeller (both [`trie_copy`] and this helper recurse through the one-arg
-/// form), so it is effectively DEAD CODE. Ported for completeness; the intended
-/// deep re-interning of nested trie levels does not occur.
-#[allow(dead_code)]
+/// form), so it is effectively DEAD CODE in the C++. Ported for completeness (it
+/// is public API, exercised only by the spec test); the intended deep
+/// re-interning of nested trie levels does not occur.
 pub fn trie_copy_helper_reintern(trie: &TagTrie, grammar: &mut Grammar) -> Box<TagTrie> {
     let mut nt = Box::new(TagTrie::new());
     let entries: Vec<(TagId, TrieNode)> = trie.iter().map(|(k, n)| (*k, n.clone())).collect();

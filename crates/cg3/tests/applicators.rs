@@ -321,21 +321,10 @@ fn matxin_cg_proc_stream() {
     assert!(got.contains("mi=\""), "missing morph info: {got}");
 }
 
-// MatxinApplicator::testPR — DECLARED but never DEFINED in the C++ (the port
-// keeps it as a documented no-op stub); no binary can reach it, so the drive
-// is the direct in-process call, asserting the stub emits nothing.
-// [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.test-pr-fn/test]
-#[test]
-fn matxin_test_pr_stub() {
-    let base = conv_base();
-    let m = cg3::matxin_applicator::MatxinApplicator::new(base);
-    let mut out: Vec<u8> = Vec::new();
-    m.test_pr(&mut out);
-    assert!(
-        out.is_empty(),
-        "MatxinApplicator::testPR must be a no-op stub"
-    );
-}
+// MatxinApplicator::testPR — DECLARED but never DEFINED in the C++, so the
+// port omits the symbol entirely (see the PORT DIVERGENCE note on
+// matxin-applicator.cg3.matxin-applicator.test-pr-fn in
+// docs/spec/port/src/MatxinApplicator.md); there is nothing to drive.
 
 // ===========================================================================
 // BinaryApplicator (.cg3bsf binary stream format) — full round-trip through

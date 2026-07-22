@@ -62,10 +62,12 @@
 //!   entry, else more records emit than the count and the stream desyncs on read.
 //!
 //! ## Legacy reader OUT OF SCOPE
-//! `read_binary_grammar_10043` / `read_contextual_test_10043` (the `*_10043`
-//! methods) are the legacy pre-10298 reader, intentionally EXCLUDED from the
-//! port. They are kept as ERRORING STUBS (carrying their spec ids) that refuse
-//! legacy input with "legacy .cg3b rev <10373 not supported".
+//! The C++ `readBinaryGrammar_10043` / `readContextualTest_10043` methods (the
+//! legacy pre-10298 reader) are intentionally EXCLUDED from the port. The entry
+//! point `read_binary_grammar_10043` is an ERRORING STUB that refuses legacy
+//! input with "legacy .cg3b rev <10373 not supported"; the contextual-test
+//! reader behind it has no port item at all (PORT DIVERGENCE note in
+//! `docs/spec/port/src/BinaryGrammar.md`).
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -159,9 +161,8 @@ impl BinaryGrammar {
     /// result`. The port OWNS `res` (so `grammar` == `result` == the owned
     /// field); the `ux_err` diagnostic sink is tracing (wave 4). No allocation
     /// or I/O occurs.
-    // faithful port: named after the C++ `BinaryGrammar(...)` constructor.
-    #[allow(clippy::self_named_constructors)]
-    pub fn binary_grammar(res: Grammar) -> BinaryGrammar {
+    /// C++ `BinaryGrammar(Grammar& res, std::ostream& ux_err)` constructor.
+    pub fn new(res: Grammar) -> BinaryGrammar {
         BinaryGrammar {
             grammar: res,
             nrules: None,
@@ -382,14 +383,14 @@ impl BinaryGrammar {
                 // writer. Clamp at the int32 extremes to NUMERIC_MIN/MAX.
                 let v = read_be::<i32, _>(input);
                 t.comparison_val = v as f64;
-                // faithful port: mirrors the C++ int32 extremes clamp; the
-                // <=/>= at the type bounds are tautological in typed Rust.
-                #[allow(clippy::absurd_extreme_comparisons)]
-                if v <= i32::MIN {
+                // C++ compares the double `comparison_val` (just assigned from
+                // this int32) with `<= numeric_limits<int32_t>::min()` / `>=
+                // ...max()`; for an int32-valued double those only hit AT the
+                // extremes, i.e. equality.
+                if v == i32::MIN {
                     t.comparison_val = crate::inlines::NUMERIC_MIN;
                 }
-                #[allow(clippy::absurd_extreme_comparisons)]
-                if v >= i32::MAX {
+                if v == i32::MAX {
                     t.comparison_val = crate::inlines::NUMERIC_MAX;
                 }
             }
@@ -848,21 +849,6 @@ impl BinaryGrammar {
     fn read_binary_grammar_10043<R: Read>(&mut self, _input: &mut R) -> i32 {
         tracing::error!(
             "Error: legacy .cg3b rev <10373 not supported (readBinaryGrammar_10043 not ported)."
-        );
-        1
-    }
-
-    // [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-contextual-test-10043-fn]
-    // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-contextual-test-10043-fn]
-    /// OUT OF SCOPE (legacy `_10043` contextual-test reader). ERRORING STUB:
-    /// never invoked (its only caller, `read_binary_grammar_10043`, errors out
-    /// first — hence the targeted `dead_code` allow; the stub is kept as the
-    /// annotation home for the scope-excluded rule); refuses legacy input and
-    /// returns error code 1.
-    #[allow(dead_code)]
-    fn read_contextual_test_10043<R: Read>(&mut self, _input: &mut R) -> i32 {
-        tracing::error!(
-            "Error: legacy .cg3b rev <10373 not supported (readContextualTest_10043 not ported)."
         );
         1
     }

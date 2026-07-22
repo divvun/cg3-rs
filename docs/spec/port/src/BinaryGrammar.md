@@ -99,6 +99,14 @@
 > bit11 linked = `contexts_list[u32-1]`. If local `tmpl` is nonzero, record
 > `deferred_tmpls[t] = tmpl`. Return t. References use 1-based `contexts_list`
 > indices, unlike the modern hash-keyed scheme.
+>
+> PORT DIVERGENCE (zero-allow ruling, plan node `allow-zero.parsers-io`): the
+> port carries no item for this rule. Its only caller,
+> `read_binary_grammar_10043`, is itself an erroring stub that refuses legacy
+> input before any contextual test could be read, so a
+> `read_contextual_test_10043` stub was unreachable; the dead stub that
+> previously carried these ids is deleted. The scope exclusion itself is
+> unchanged — see the module doc's Legacy-reader section.
 
 > [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-contextual-test-fn]
 > ContextualTest* readContextualTest(std::istream& input)

@@ -128,22 +128,18 @@ fn short_requires_arg(c: char) -> Option<bool> {
     }
 }
 
-// Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
-// the ported reads were elided (see the deferred-I/O / driver notes).
-#[allow(unused_assignments, unused_variables)]
 fn getopt_long_cgproc(args: &[String]) -> GetoptResult {
     let mut events = Vec::new();
     let mut i = 1usize; // getopt starts after argv[0]
-    let mut stop = false;
 
     while i < args.len() {
         let arg = &args[i];
-        if stop || !arg.starts_with('-') || arg == "-" {
+        if !arg.starts_with('-') || arg == "-" {
             break;
         }
         if arg == "--" {
+            // getopt's "stop scanning" marker: everything after is non-options.
             i += 1;
-            stop = true;
             break;
         }
         if let Some(long) = arg.strip_prefix("--") {
@@ -373,7 +369,7 @@ pub fn main_proc(args: &[String]) -> i32 {
 
     // Parse the grammar (binary → BinaryGrammar; text → TextualParser + warning).
     let mut grammar: Grammar = if is_cg3b(head) {
-        let mut parser = BinaryGrammar::binary_grammar(Grammar::default());
+        let mut parser = BinaryGrammar::new(Grammar::default());
         match parser.parse_grammar_filename(grammar_path) {
             Ok(0) => {}
             Ok(_) => {

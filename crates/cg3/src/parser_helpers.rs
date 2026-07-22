@@ -33,8 +33,6 @@
 //! site); an unanchored `/.../` pattern is used verbatim, a bare pattern is
 //! wrapped `^…$`, and `T_CASE_INSENSITIVE` becomes a leading `(?i)`.
 
-#![allow(clippy::needless_range_loop)]
-
 use std::sync::LazyLock;
 
 use regex::Regex;

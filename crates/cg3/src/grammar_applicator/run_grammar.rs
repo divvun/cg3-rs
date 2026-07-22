@@ -102,6 +102,27 @@ enum GotReading {
     Istext,
 }
 
+/// The `runGrammarOnText` read-loop locals the C++ `got_reading:` label body
+/// reads and writes in its enclosing scope, borrowed as one view for the
+/// extracted [`got_reading`](super::Engine::got_reading) helper: the line
+/// buffers, the sub-reading indent stack, the pending mapping-tag lists, the
+/// pending SETVAR/REMVAR variable deltas, and the current/last-window cursors.
+struct GotReadingScope<'a> {
+    /// C++ `UChar* cleaned` / `line` — the scratch line buffers.
+    cleaned: &'a mut Vec<char>,
+    line: &'a mut Vec<char>,
+    /// C++ `std::vector<std::pair<size_t, Reading*>> indents`.
+    indents: &'a mut Vec<(usize, crate::arena::ReadingId)>,
+    all_mappings: &'a mut super::AllMappings,
+    variables_set: &'a mut crate::flat_unordered_map::Uint32FlatHashMap,
+    variables_rem: &'a mut crate::flat_unordered_set::Uint32FlatHashSet,
+    variables_output: &'a mut crate::sorted_vector::Uint32SortedVector,
+    /// C++ `SingleWindow* cSWindow` / `lSWindow` (current / last).
+    c_swindow: &'a mut Option<crate::arena::SwId>,
+    l_swindow: &'a mut Option<crate::arena::SwId>,
+    did_soft_lookback: &'a mut bool,
+}
+
 impl super::Engine<'_> {
     // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.init-empty-single-window-fn]
     // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.init-empty-single-window-fn]
@@ -205,22 +226,24 @@ impl super::Engine<'_> {
     /// target list (C++ `readings = &cCohort->readings` vs `&cCohort->deleted`).
     /// Returns a [`GotReading`] signalling the block's non-local exits so the
     /// caller can reproduce the `continue` / `goto istext` control flow.
-    #[allow(clippy::too_many_arguments)]
     fn got_reading(
         &mut self,
-        cleaned: &mut Vec<char>,
-        line: &mut Vec<char>,
-        indents: &mut Vec<(usize, crate::arena::ReadingId)>,
-        all_mappings: &mut super::AllMappings,
-        variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
-        variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
-        variables_output: &mut crate::sorted_vector::Uint32SortedVector,
-        c_swindow: &mut Option<crate::arena::SwId>,
+        scope: GotReadingScope<'_>,
         c_cohort: crate::arena::CohortId,
-        l_swindow: &mut Option<crate::arena::SwId>,
-        did_soft_lookback: &mut bool,
         is_deleted: bool,
     ) -> GotReading {
+        let GotReadingScope {
+            cleaned,
+            line,
+            indents,
+            all_mappings,
+            variables_set,
+            variables_rem,
+            variables_output,
+            c_swindow,
+            l_swindow,
+            did_soft_lookback,
+        } = scope;
         // Count current indent level
         let mut indent = 0usize;
         while crate::inlines::isspace(line[indent]) {
@@ -511,7 +534,6 @@ impl super::Engine<'_> {
         }
     }
 
-    #[allow(unused_assignments, unused_variables)]
     fn run_grammar_on_text_with_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
         F: super::stream_format::StreamFormat,
@@ -537,9 +559,12 @@ impl super::Engine<'_> {
         let reset_after: u32 = (self.cfg.num_windows + 4) * 2 + 1;
         let mut lines: u32 = 0;
 
+        // C++ also keeps a driver-level `Reading* cReading`: every read of it
+        // happens inside the `got_reading:` label body (the [`got_reading`]
+        // helper's own local here), so at driver level it is write-only and the
+        // port drops it.
         let mut c_swindow: Option<crate::arena::SwId> = None;
         let mut c_cohort: Option<crate::arena::CohortId> = None;
-        let mut c_reading: Option<crate::arena::ReadingId> = None;
 
         let mut l_swindow: Option<crate::arena::SwId> = None;
         let mut l_cohort: Option<crate::arena::CohortId> = None;
@@ -845,25 +870,23 @@ impl super::Engine<'_> {
                     cleaned.remove(0);
                     line.remove(0);
                 }
-                match self.got_reading(
-                    &mut cleaned,
-                    &mut line,
-                    &mut indents,
-                    &mut all_mappings,
-                    &mut variables_set,
-                    &mut variables_rem,
-                    &mut variables_output,
-                    &mut c_swindow,
-                    c_cohort.unwrap(),
-                    &mut l_swindow,
-                    &mut did_soft_lookback,
-                    is_deleted,
-                ) {
+                let scope = GotReadingScope {
+                    cleaned: &mut cleaned,
+                    line: &mut line,
+                    indents: &mut indents,
+                    all_mappings: &mut all_mappings,
+                    variables_set: &mut variables_set,
+                    variables_rem: &mut variables_rem,
+                    variables_output: &mut variables_output,
+                    c_swindow: &mut c_swindow,
+                    l_swindow: &mut l_swindow,
+                    did_soft_lookback: &mut did_soft_lookback,
+                };
+                match self.got_reading(scope, c_cohort.unwrap(), is_deleted) {
                     GotReading::Continue => {
                         // C++ `cReading = nullptr; continue;` — the `continue`
                         // re-enters the read loop WITHOUT running the trailing
                         // `++numLines; line[0]=cleaned[0]=0;`.
-                        c_reading = None;
                         continue 'mainloop;
                     }
                     GotReading::Istext => {
@@ -913,7 +936,7 @@ impl super::Engine<'_> {
                                 let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
                                 self.add_tag_to_reading(r, tid);
                             }
-                            c_reading = None;
+                            // cReading = lReading = nullptr; etc.
                             l_reading = None;
                             c_cohort = None;
                             l_cohort = None;
@@ -957,8 +980,8 @@ impl super::Engine<'_> {
                         fmt.print_stream_command(self, crate::strings::STR_CMD_RESUME, output);
                         line[0] = '\0';
                     } else if cleaned_str == crate::strings::STR_CMD_EXIT {
-                        // "EXIT encountered …": deferred.
-                        is_cmd = true;
+                        // "EXIT encountered …": deferred. C++ also sets is_cmd,
+                        // dead there too: the goto/break leaves its last read.
                         fmt.print_stream_command(self, crate::strings::STR_CMD_EXIT, output);
                         break 'mainloop;
                     } else if cleaned_str.starts_with(crate::strings::STR_CMD_SETVAR) {
@@ -1205,20 +1228,20 @@ impl super::Engine<'_> {
                 let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
                 self.add_tag_to_reading(r, tid);
             }
-            c_reading = None;
-            c_cohort = None;
+            // C++ also nulls cReading/cCohort here; nothing below reads them.
             c_swindow = None;
         }
 
         if self.cfg.fmt_output == super::StreamFormatKind::Binary && !variables_output.empty() {
-            // binary_maybe_window() + adopt_variables() [inlined]
+            // binary_maybe_window() + adopt_variables() [inlined]. The lambda's
+            // `lSWindow = cSWindow` store is dead at EOF: lSWindow's reads are
+            // all inside the read loop.
             if self.cfg.fmt_output == super::StreamFormatKind::Binary {
                 let sw = self
                     .doc
                     .stream
                     .alloc_append_single_window(&mut self.doc.store);
                 self.init_empty_single_window(sw);
-                l_swindow = Some(sw);
                 c_swindow = Some(sw);
             }
             if let Some(sw) = c_swindow {

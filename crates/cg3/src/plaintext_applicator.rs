@@ -33,7 +33,7 @@
 use std::io::{Read, Seek, Write};
 use std::ops::DerefMut;
 
-use crate::arena::{CohortId, ReadingId, SwId, TagId};
+use crate::arena::{CohortId, SwId, TagId};
 use crate::cohort::CT_REMOVED;
 use crate::grammar::Grammar;
 use crate::grammar_applicator::{Engine, GrammarApplicator};
@@ -100,8 +100,6 @@ where
     /// PORT NOTES: same generic-handle / deferred-I/O notes as the Niceline
     /// variant. `get_line_clean` is called with `keep_tabs = false`, so TABs
     /// collapse to single spaces (matching the C++ default `keep_tabs`).
-    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
-    // the ported reads were elided (see the deferred-I/O / driver notes).
     pub fn run_grammar_on_text<R, W>(
         &mut self,
         input: &mut R,
@@ -131,7 +129,6 @@ where
         crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
     }
 
-    #[allow(unused_assignments, unused_variables)]
     fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
@@ -148,12 +145,13 @@ where
         self.base.index();
 
         let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
-        let mut lines: u32 = 0;
+        // C++ `uint32_t lines` feeds only the verbose Progress line, whose
+        // emission is deferred with the I/O layer; no counter is kept here.
 
         let mut c_swindow: Option<SwId> = None;
         let mut c_cohort: Option<CohortId> = None;
-        #[allow(unused_assignments)]
-        let mut c_reading: Option<ReadingId>;
+        // C++ `cReading` is only ever assigned in this driver (every read of it
+        // happens through the local reading id), so no binding is kept for it.
 
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
@@ -163,7 +161,6 @@ where
         ux_strip_bom(input);
 
         loop {
-            lines += 1;
             let mut packoff = get_line_clean(&mut line, &mut cleaned, input, false);
 
             // C++ `while (!input.eof())`: a blank line (packoff == 0 but
@@ -387,11 +384,13 @@ where
                         c.global_number = gn;
                         c.wordform = Some(wf);
                     }
-                    c_cohort = Some(cc);
+                    // C++ points cCohort at this cohort and nulls it again right
+                    // after the append below with no read in between, so the
+                    // port works through `cc` and `c_cohort` stays None
+                    // throughout (see the module DEAD-code note).
                     l_cohort = Some(cc);
                     self.base.doc.num_cohorts += 1;
                     let cr = self.base.engine().init_empty_cohort(cc);
-                    c_reading = Some(cr);
                     self.base.doc.store.readings.get_mut(cr.0).noprint = !self.add_tags;
                     if self.add_tags {
                         let tag = self.base.add_tag("<cg-conv>", crate::tag::TagType::empty());
@@ -505,12 +504,8 @@ where
                 let tid = tag_by_hash(&self.base.grammar, te);
                 self.base.engine().add_tag_to_reading(r, tid);
             }
-            #[allow(unused_assignments)]
-            {
-                c_reading = None;
-                c_cohort = None;
-                c_swindow = None;
-            }
+            // C++ nulls cReading/cCohort/cSWindow here; nothing reads them past
+            // this point, so the port's bindings simply go out of scope.
         }
 
         while self.base.engine().rotate_next().is_some() {

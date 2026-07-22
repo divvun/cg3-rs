@@ -246,7 +246,7 @@ pub fn main_run(args: &[String]) -> i32 {
     };
 
     let mut grammar: Grammar = if is_binary {
-        let mut parser = BinaryGrammar::binary_grammar(Grammar::default());
+        let mut parser = BinaryGrammar::new(Grammar::default());
         if verbose {
             parser.set_verbosity(verbosity_level);
         }
@@ -517,7 +517,7 @@ pub fn main_run(args: &[String]) -> i32 {
         let path = &options[Opt::GrammarOut as usize].value;
         match std::fs::File::create(path) {
             Ok(mut gout) => {
-                let mut writer = GrammarWriter::grammar_writer(&grammar);
+                let mut writer = GrammarWriter::new(&grammar);
                 writer.write_grammar(&mut grammar, &mut gout);
                 let _ = gout.flush();
             }
@@ -532,7 +532,7 @@ pub fn main_run(args: &[String]) -> i32 {
         let path = options[Opt::GrammarBin as usize].value.clone();
         match std::fs::File::create(&path) {
             Ok(mut gout) => {
-                let mut writer = BinaryGrammar::binary_grammar(grammar);
+                let mut writer = BinaryGrammar::new(grammar);
                 if let Err(e) = writer.write_binary_grammar(&mut gout) {
                     crate::error::cg3_exit(e.exit_code());
                 }
@@ -557,9 +557,8 @@ pub fn main_run(args: &[String]) -> i32 {
 }
 
 /// The `--help` usage banner (C++ inlined in `main`). Emits to stdout.
-// faithful port: `for (i=0; i<NUM_OPTIONS; ++i)` walks the enum-sized option
-// table by index (bound is the enum constant, not `.len()`), mirroring the C++.
-#[allow(clippy::needless_range_loop)]
+// faithful port: the C++ `for (i=0; i<NUM_OPTIONS; ++i)` scans cover the whole
+// table — its length IS the enum constant (`OptionsTable`).
 fn print_help(options: &crate::options::OptionsTable) {
     let mut out = String::new();
     out.push_str("Usage: vislcg3 [OPTIONS]\n");
@@ -573,27 +572,27 @@ fn print_help(options: &crate::options::OptionsTable) {
     out.push_str("Options:\n");
 
     let mut longest = 0usize;
-    for i in 0..Opt::NumOptions as usize {
-        if !options[i].description.is_empty() {
-            longest = longest.max(options[i].long_name.map_or(0, |s| s.len()));
+    for o in options.iter() {
+        if !o.description.is_empty() {
+            longest = longest.max(o.long_name.map_or(0, |s| s.len()));
         }
     }
-    for i in 0..Opt::NumOptions as usize {
-        if !options[i].description.is_empty() {
+    for o in options.iter() {
+        if !o.description.is_empty() {
             out.push(' ');
-            if options[i].short_name != '\0' {
-                out.push_str(&format!("-{},", options[i].short_name));
+            if o.short_name != '\0' {
+                out.push_str(&format!("-{},", o.short_name));
             } else {
                 out.push_str("   ");
             }
-            let ln = options[i].long_name.unwrap_or("");
+            let ln = o.long_name.unwrap_or("");
             out.push_str(&format!(" --{}", ln));
             let mut ldiff = longest - ln.len();
             while ldiff > 0 {
                 out.push(' ');
                 ldiff -= 1;
             }
-            out.push_str(&format!("  {}\n", options[i].description));
+            out.push_str(&format!("  {}\n", o.description));
         }
     }
     print!("{}", out);

@@ -422,8 +422,6 @@ impl<'a> JsonlApplicator<'a> {
     ///   are not triggered here.
     /// * `variables.clear()` (the member map) is reproduced; the LOCAL
     ///   `variables_set/rem/output` are NOT cleared on FLUSH (faithful).
-    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
-    // the ported reads were elided (see the deferred-I/O / driver notes).
     pub fn run_grammar_on_text<F, R, W>(
         &mut self,
         fmt: &mut F,
@@ -438,7 +436,6 @@ impl<'a> JsonlApplicator<'a> {
         crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
     }
 
-    #[allow(unused_assignments, unused_variables)]
     fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
@@ -455,12 +452,9 @@ impl<'a> JsonlApplicator<'a> {
 
         let mut ignoreinput = false;
         let mut c_swindow: Option<SwId> = None;
-        // `cCohort` is written after each cohort/delimit (faithful to the C++); the
-        // reads are elided because the C++ `if (!cCohort)` null-check is
-        // unreachable here (alloc always succeeds).
-        #[allow(unused_assignments, unused_variables)]
-        let mut c_cohort: Option<CohortId> = None;
-        #[allow(unused_assignments)]
+        // C++ `cCohort` exists only for the `if (!cCohort)` "Failed to create
+        // cohort" null-check, which is unreachable here (alloc always succeeds),
+        // so no binding is kept for it; the cohort id is used directly (`cc`).
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
 
@@ -479,12 +473,10 @@ impl<'a> JsonlApplicator<'a> {
 
         'mainloop: loop {
             let mut line_str = String::new();
-            let n = match reader.read_line(&mut line_str) {
-                Ok(0) => break 'mainloop, // EOF: getline fails, loop ends.
-                Ok(n) => n,
-                Err(_) => break 'mainloop,
-            };
-            let _ = n;
+            match reader.read_line(&mut line_str) {
+                Ok(0) | Err(_) => break 'mainloop, // EOF: getline fails, loop ends.
+                Ok(_) => {}
+            }
             // std::getline strips the trailing '\n' (but keeps '\r' etc).
             if line_str.ends_with('\n') {
                 line_str.pop();
@@ -707,7 +699,6 @@ impl<'a> JsonlApplicator<'a> {
 
                 let sw = c_swindow.unwrap();
                 let cc = self.parse_json_cohort(obj, sw);
-                c_cohort = Some(cc);
                 // cCohort is never null in this port (alloc always succeeds), so the
                 // "Failed to create cohort" branch is unreachable.
 
@@ -740,7 +731,6 @@ impl<'a> JsonlApplicator<'a> {
                         self.add_endtag(r);
                     }
                     c_swindow = None;
-                    c_cohort = None;
                     did_delim = true;
                 } else {
                     let hard_hit = cohorts_len >= self.base.cfg.hard_limit as usize
@@ -764,7 +754,6 @@ impl<'a> JsonlApplicator<'a> {
                             self.add_endtag(r);
                         }
                         c_swindow = None;
-                        c_cohort = None;
                         did_delim = true;
                     }
                 }
@@ -778,7 +767,6 @@ impl<'a> JsonlApplicator<'a> {
                     }
                     // verbose progress: deferred.
                 }
-                c_cohort = None;
             }
         }
 

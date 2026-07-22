@@ -64,8 +64,7 @@ impl crate::grammar_applicator::Engine<'_> {
 
         // Run the body; the scope_guard `popper` (pop cohortsets/rocits) runs on
         // EVERY exit path, so it is applied here after the body returns.
-        let anything_changed =
-            self.run_single_rule_body(current, rule, rnumber, nested, cohortset, st);
+        let anything_changed = self.run_single_rule_body(current, rule, rnumber, cohortset, st);
 
         // popper dtor: cohortsets.pop_back(); rocits.pop_back();
         self.scratch.cohortsets.pop();
@@ -206,16 +205,11 @@ impl crate::grammar_applicator::Engine<'_> {
     /// The body of [`Self::run_single_rule`] (everything inside the `popper`
     /// scope guard). Split out so the guard's `cohortsets`/`rocits` pop runs on
     /// every early-return path. See [`Self::run_single_rule`] for the markers.
-    #[allow(clippy::too_many_arguments)]
-    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
-    // the ported reads were elided (see the deferred-I/O / driver notes).
-    #[allow(unused_assignments, unused_variables)]
     fn run_single_rule_body(
         &mut self,
         current: SwId,
         rule: RuleId,
         rnumber: u32,
-        nested: bool,
         mut cohortset: crate::grammar_applicator::CsRef,
         st: &mut RRState,
     ) -> bool {
@@ -225,7 +219,6 @@ impl crate::grammar_applicator::Engine<'_> {
             (r.r#type, r.flags, r.sub_reading, r.target, r.line)
         };
         let set_type = self.grammar.set_by_number(rtarget).r#type;
-        let _ = (nested, rline);
 
         // The frame's cursor lives in `rocits[depth]` — ONE object, exactly the
         // C++ parked `rocit`; inner frames and update_rule_to_cohorts may adjust
@@ -660,20 +653,11 @@ impl crate::grammar_applicator::Engine<'_> {
                                 }
                                 break;
                             }
-                            let (ut_empty, us_empty) = {
-                                let f = self.scratch.context_stack.last().unwrap();
-                                (
-                                    f.unif_tags
-                                        .map(|i| self.scratch.unif_tags_store[i].is_empty())
-                                        .unwrap_or(true),
-                                    f.unif_sets
-                                        .map(|i| self.scratch.unif_sets_store[i].is_empty())
-                                        .unwrap_or(true),
-                                )
-                            };
-                            did_test = !set_type.intersects(ST_CHILD_UNIFY | ST_SPECIAL)
-                                && ut_empty
-                                && us_empty;
+                            // C++ recomputes `did_test` here (`did_test =
+                            // ((set.type & (ST_CHILD_UNIFY | ST_SPECIAL)) == 0 &&
+                            // unif_tags->empty() && unif_sets->empty())`), but
+                            // the value is dead upstream too: the `did_test =
+                            // false` reset above runs before every read.
                             ti += 1;
                         }
                     } else {
@@ -834,7 +818,6 @@ impl crate::grammar_applicator::Engine<'_> {
             }
 
             // Dispatch each matched reading.
-            let mut broke = false;
             for ctx in reading_contexts.into_iter() {
                 let (mt, mtst) = {
                     let sr = ctx.target.subreading.unwrap();
@@ -858,14 +841,12 @@ impl crate::grammar_applicator::Engine<'_> {
                 }
                 if self.scratch.reset_cohorts_for_loop {
                     cohortset = self.rr_reset_cohorts(current, rnumber);
-                    broke = true;
                     break;
                 }
                 if !self.scratch.finish_reading_loop {
                     break;
                 }
             }
-            let _ = broke;
 
             self.scratch.reset_cohorts_for_loop = false;
             self.cohort_cb_dispatch(st);

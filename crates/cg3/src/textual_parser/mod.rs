@@ -139,7 +139,7 @@ const STR_ADDCOHORT_ATTACH: &str = "addcohort-attach";
 const STR_SAFE_SETPARENT: &str = "safe-setparent";
 
 /// C++ `g_flags[FLAGS_COUNT]` — the rule-flag keyword names (index == FL_*).
-const G_FLAGS: [&str; 34] = [
+const G_FLAGS: [&str; FLAGS_COUNT] = [
     "NEAREST",
     "ALLOWLOOP",
     "DELAYED",
@@ -277,10 +277,12 @@ struct DynBitset {
     sub_reading: i32,
 }
 
-/// Panic payload for the `error(...)` / `catch(int)` control flow. `pub(crate)`
-/// so the CLI panic hook (crate::error::run_cli) can silence it like the C++
-/// caught exception (which printed nothing).
-pub(crate) struct ParseError(#[allow(dead_code)] pub(crate) i32);
+/// Panic payload for the `error(...)` / `catch(int)` control flow. The C++
+/// `throw error_counter` is caught by TYPE only (an unnamed `catch (int)`), so
+/// the thrown count is never observed — a unit payload models that exactly.
+/// `pub(crate)` so the CLI panic hook (crate::error::run_cli) can silence it
+/// like the C++ caught exception (which printed nothing).
+pub(crate) struct ParseError;
 
 // ---------------------------------------------------------------------------
 // Free helpers.
@@ -382,39 +384,6 @@ fn is_mapping_list(grammar: &Grammar, s: SetId) -> bool {
         }
     }
     is_list
-}
-
-// [spec:cg3:def:textual-parser.cg3.freq-sorter]
-/// Translation-unit-local comparator functor `struct freq_sorter` (C++
-/// `TextualParser.cpp` ~line 114). Holds a reference to the tag→frequency map
-/// (`bc::flat_map<Tag*, size_t>` → `&BTreeMap<TagId, usize>` in the arena model)
-/// and orders highest-frequency-first for cheap trie compression. In the port the
-/// single live use is the inlined `tv.sort_by(...)` in `do_grammar_actions`; this
-/// faithful reproduction carries the three manifest ids and is exercised via the
-/// `operator()` equivalent `compare`.
-#[allow(dead_code)]
-struct FreqSorter<'a> {
-    tag_freq: &'a BTreeMap<TagId, usize>,
-}
-
-#[allow(dead_code)]
-impl<'a> FreqSorter<'a> {
-    // [spec:cg3:def:textual-parser.cg3.freq-sorter.freq-sorter-fn]
-    // [spec:cg3:sem:textual-parser.cg3.freq-sorter.freq-sorter-fn]
-    /// `freq_sorter(const bc::flat_map<Tag*, size_t>& tag_freq)` — stores the map
-    /// by reference in the member `tag_freq`; empty body.
-    fn new(tag_freq: &'a BTreeMap<TagId, usize>) -> Self {
-        FreqSorter { tag_freq }
-    }
-
-    // [spec:cg3:def:textual-parser.cg3.freq-sorter.operator-fn]
-    // [spec:cg3:sem:textual-parser.cg3.freq-sorter.operator-fn]
-    /// `bool operator()(Tag* a, Tag* b) const` — sorts highest-frequency-first:
-    /// returns `tag_freq[a] > tag_freq[b]` (dereferences `find(...)->second` with
-    /// no end-check, so both keys must be present). Used with `std::sort`.
-    fn compare(&self, a: TagId, b: TagId) -> bool {
-        self.tag_freq[&a] > self.tag_freq[&b]
-    }
 }
 
 /// Collect a `TagVectorSet` into a `Vec<TagVector>` ordered by `compare_TagVector`
@@ -649,7 +618,7 @@ impl TextualParser {
             tracing::error!("{}: Too many errors - giving up...", self.filebase);
             cg3_quit(1, None, 0);
         }
-        panic::panic_any(ParseError(self.error_counter))
+        panic::panic_any(ParseError)
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.error-fn]
@@ -1703,13 +1672,12 @@ impl TextualParser {
         let mut setflag = true;
         while setflag {
             setflag = false;
-            // faithful port: `i` is a flag BIT index (`1 << i`) and a cursor into
-            // the parallel `G_FLAGS` table, not a plain collection index.
-            #[allow(clippy::needless_range_loop)]
-            for i in 0..FLAGS_COUNT {
+            // `i` is both the flag BIT index (`1 << i`) and the index of the
+            // flag's keyword in the parallel `G_FLAGS` table.
+            for (i, flag_name) in G_FLAGS.iter().enumerate() {
                 let op = *pos;
-                if simplecasecmp(buf, *pos, G_FLAGS[i]) {
-                    *pos += slen(G_FLAGS[i]);
+                if simplecasecmp(buf, *pos, flag_name) {
+                    *pos += slen(flag_name);
                     rv.flags |= crate::rule::RuleFlags::from_bits_retain(1u64 << i);
                     setflag = true;
 

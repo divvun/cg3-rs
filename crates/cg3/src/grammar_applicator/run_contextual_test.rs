@@ -6,30 +6,29 @@
 //!
 //! SIBLING methods CALLED here but DEFINED in other partials (also on
 //! `impl Matcher`):
-//!   - match_set: does_set_match_cohort_normal / does_set_match_cohort_careful
-//!    (`(&mut self, cohort: CohortId, set: u32,
-//!    context: Option<&mut dSMC_Context>) -> bool`),
-//!    does_set_match_reading
-//!    (`(&mut self, reading: ReadingId, set: u32, bypass_index: bool,
-//!    unif_mode: bool) -> bool`),
-//!    does_tag_match_regexp
-//!    (`(&mut self, test: u32, tag: &Tag, bypass_index: bool) -> u32`).
-//!   - context:   get_mark (`(&self) -> Option<CohortId>`),
-//!    get_attach_to (`(&self) -> ReadingSpec`, uses `.cohort`),
-//!    set_mark (`(&mut self, Option<CohortId>)`).
-//!   - reflow:    generate_varstring_tag (`(&mut self, &Tag) -> TagId`).
-//!   - run_rules: get_sub_reading (`(&mut self, ReadingId, i32)
-//!    -> Option<ReadingId>`) — used indirectly via the cohort
-//!    matchers, not called here.
+//!
+//! - match_set: `does_set_match_cohort_normal` / `does_set_match_cohort_careful`
+//!   (`(&mut self, cohort: CohortId, set: u32, context: Option<&mut
+//!   dSMC_Context>) -> bool`), `does_set_match_reading` (`(&mut self, reading:
+//!   ReadingId, set: u32, bypass_index: bool, unif_mode: bool) -> bool`),
+//!   `does_tag_match_regexp` (`(&mut self, test: u32, tag: &Tag, bypass_index:
+//!   bool) -> u32`).
+//! - context: `get_mark` (`(&self) -> Option<CohortId>`), `get_attach_to`
+//!   (`(&self) -> ReadingSpec`, uses `.cohort`), `set_mark` (`(&mut self,
+//!   Option<CohortId>)`).
+//! - reflow: `generate_varstring_tag` (`(&mut self, &Tag) -> TagId`).
+//! - run_rules: `get_sub_reading` (`(&mut self, ReadingId, i32) ->
+//!   Option<ReadingId>`) — used indirectly via the cohort matchers, not called
+//!   here.
 //!
 //! EXPOSED here (match_set calls it directly; run_rules through the `Engine`
 //! forwarder in mod.rs):
-//!   - run_contextual_test(&mut self, sw: Option<SwId>, position: u32,
-//!         test: CtxId, deep: Option<*mut Option<CohortId>>,
-//!         origin: Option<CohortId>) -> Option<CohortId>
-//!     This is the exact shape match_set.rs already calls
-//!     (`self.run_contextual_test(cparent, clocal, l, context.deep, Some(cohort))`),
-//!     where `cparent: Option<SwId>`, `clocal: u32` (a cohort's `local_number`).
+//!
+//! - `run_contextual_test(&mut self, sw: Option<SwId>, position: u32, test:
+//!   CtxId, deep: Option<&mut Option<CohortId>>, origin: Option<CohortId>) ->
+//!   Option<CohortId>` — the exact shape match_set.rs already calls
+//!   (`self.run_contextual_test(cparent, clocal, l, context.deep, Some(cohort))`),
+//!   where `cparent: Option<SwId>`, `clocal: u32` (a cohort's `local_number`).
 //!
 //! ARENA-MODEL / SIGNATURE NOTES
 //! * `SingleWindow*& sWindow` (a by-reference, reassignable pointer) → an
@@ -54,16 +53,11 @@
 //! * runContextualTest returns `sWindow->cohorts[0]` as a truthy
 //!   success-with-no-cohort sentinel (e.g. a matched NONE test).
 
-// The module doc above is a hand-aligned cross-partial reference block (wrapped
-// method signatures under list items); it trips the markdown-list doc lints
-// without being a real rendering problem.
-#![allow(clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)]
-
 use crate::arena::{CohortId, CtxId, GenArena, SwId};
 use crate::cohort::{CT_RELATED, CT_REMOVED, Cohort};
 use crate::cohort_iterator::{
-    CohortIterator, DepAncestorIter, DepDescendentIter, DepParentIter, TopologyLeftIter,
-    TopologyRightIter,
+    CohortIterator, DepAncestorIter, DepDescendentIter, DepParentIter, IterArenas,
+    TopologyLeftIter, TopologyRightIter,
 };
 use crate::contextual_test::PosJumpPos::{JumpAttach, JumpMark, JumpTarget};
 use crate::contextual_test::{
@@ -99,6 +93,18 @@ enum ItSel {
     DepParent(u32),
     DepGlob(u32),
     DepAncestor(u32),
+}
+
+/// The `(test, deep, origin)` argument triple of C++ `runContextualTest`
+/// (`const ContextualTest*`, `Cohort** deep`, `Cohort* origin`), threaded
+/// intact into the extracted iterator/scan arms ([`Matcher::run_iter`],
+/// [`Matcher::run_scan`]).
+struct TestArgs<'a> {
+    test: CtxId,
+    /// C++ `Cohort** deep`.
+    deep: Option<&'a mut Option<CohortId>>,
+    /// C++ `Cohort* origin`.
+    origin: Option<CohortId>,
 }
 
 // --- Arena-aware `CohortSet` helpers (runRelationTest builds a `CohortSet`) ---
@@ -652,45 +658,33 @@ impl Matcher<'_> {
             if (test_pos.intersects(POS_DEP_PARENT)) && (test_pos.intersects(POS_DEP_GLOB)) {
                 let key = self.scratch.ci_depths[5];
                 self.scratch.ci_depths[5] += 1;
-                let (cohorts, windows, grammar, registry) = self.split_for_iters();
                 let iter = DepAncestorIter::new(
                     Some(cid),
                     Some(test),
                     self.cfg.always_span,
-                    cohorts,
-                    windows,
-                    grammar,
-                    registry,
+                    self.split_for_iters(),
                 );
                 self.scratch.dep_ancestor_iters.insert(key, iter);
                 it = Some(ItSel::DepAncestor(key));
             } else if test_pos.intersects(POS_DEP_PARENT) {
                 let key = self.scratch.ci_depths[3];
                 self.scratch.ci_depths[3] += 1;
-                let (cohorts, windows, grammar, registry) = self.split_for_iters();
                 let iter = DepParentIter::new(
                     Some(cid),
                     Some(test),
                     self.cfg.always_span,
-                    cohorts,
-                    windows,
-                    grammar,
-                    registry,
+                    self.split_for_iters(),
                 );
                 self.scratch.dep_parent_iters.insert(key, iter);
                 it = Some(ItSel::DepParent(key));
             } else if test_pos.intersects(POS_DEP_GLOB) {
                 let key = self.scratch.ci_depths[4];
                 self.scratch.ci_depths[4] += 1;
-                let (cohorts, windows, grammar, registry) = self.split_for_iters();
                 let iter = DepDescendentIter::new(
                     Some(cid),
                     Some(test),
                     self.cfg.always_span,
-                    cohorts,
-                    windows,
-                    grammar,
-                    registry,
+                    self.split_for_iters(),
                 );
                 self.scratch.dep_descendent_iters.insert(key, iter);
                 it = Some(ItSel::DepGlob(key));
@@ -767,8 +761,12 @@ impl Matcher<'_> {
                 }
             } else if test_offset == 0 && (test_pos.intersects(POS_SCANFIRST | POS_SCANALL)) {
                 // Symmetric bidirectional scan.
-                let (c, rv) =
-                    self.run_scan(sw_id, cid, test, pos, deep.as_deref_mut(), origin, retval);
+                let args = TestArgs {
+                    test,
+                    deep: deep.as_deref_mut(),
+                    origin,
+                };
+                let (c, rv) = self.run_scan(sw_id, cid, pos, args, retval);
                 cohort = c;
                 retval = rv;
             } else if test_offset < 0 {
@@ -792,8 +790,8 @@ impl Matcher<'_> {
             }
 
             if let Some(sel) = it {
-                let (c, rv) =
-                    self.run_iter(sel, org_swin, position, cid, test, deep, origin, retval);
+                let args = TestArgs { test, deep, origin };
+                let (c, rv) = self.run_iter(sel, org_swin, position, cid, args, retval);
                 cohort = c;
                 retval = rv;
             }
@@ -867,40 +865,35 @@ impl Matcher<'_> {
         }
     }
 
-    /// Split `self` into the four read-only views the dep iterators' ctors need
+    /// Split `self` into the [`IterArenas`] view the dep iterators dereference
     /// (cohort arena, single-window arena, grammar, cohort registry) without
     /// aliasing — the iterator pools live on `self` separately from these fields.
-    fn split_for_iters(
-        &self,
-    ) -> (
-        &GenArena<Cohort>,
-        &GenArena<SingleWindow>,
-        &crate::grammar::Grammar,
-        &crate::window::CohortRegistry,
-    ) {
-        (
-            self.cohorts,
-            self.single_windows,
-            self.grammar,
-            self.registry,
-        )
+    fn split_for_iters(&self) -> IterArenas<'_> {
+        IterArenas {
+            cohorts: self.cohorts,
+            windows: self.single_windows,
+            grammar: self.grammar,
+            registry: self.registry,
+        }
     }
 
     /// The C++ generic-iterator arm (`if (it) { ... }`): resets nothing here (the
     /// port ctors already seat the iterator), runs the optional POS_SELF probe,
     /// then walks the iterator to the null sentinel. Returns `(cohort, retval)`.
-    #[allow(clippy::too_many_arguments)]
     fn run_iter(
         &mut self,
         sel: ItSel,
         org_swin: Option<SwId>,
         position: u32,
         cohort: CohortId,
-        test: CtxId,
-        mut deep: Option<&mut Option<CohortId>>,
-        origin: Option<CohortId>,
+        args: TestArgs<'_>,
         mut retval: bool,
     ) -> (Option<CohortId>, bool) {
+        let TestArgs {
+            test,
+            mut deep,
+            origin,
+        } = args;
         let test_pos = self.grammar.contexts_arena[test.0].pos;
 
         let mut nc: Option<CohortId> = None;
@@ -1035,12 +1028,12 @@ impl Matcher<'_> {
             }
             ItSel::DepParent(k) => {
                 if let Some(i) = self.scratch.dep_parent_iters.get_mut(&k) {
-                    i.advance(
-                        self.cohorts,
-                        self.single_windows,
-                        self.grammar,
-                        self.registry,
-                    );
+                    i.advance(IterArenas {
+                        cohorts: self.cohorts,
+                        windows: self.single_windows,
+                        grammar: self.grammar,
+                        registry: self.registry,
+                    });
                 }
             }
             ItSel::DepGlob(k) => {
@@ -1059,17 +1052,19 @@ impl Matcher<'_> {
     /// The `test->offset == 0 && (SCANFIRST|SCANALL)` bidirectional scan arm.
     /// Returns `(cohort, retval)`; the C++ `goto label_gotACohort` short-circuits
     /// become early returns of the current `(cohort, retval)`.
-    #[allow(clippy::too_many_arguments)]
     fn run_scan(
         &mut self,
         sw: SwId,
         start_cohort: CohortId,
-        test: CtxId,
         pos: i32,
-        mut deep: Option<&mut Option<CohortId>>,
-        origin: Option<CohortId>,
+        args: TestArgs<'_>,
         mut retval: bool,
     ) -> (Option<CohortId>, bool) {
+        let TestArgs {
+            test,
+            mut deep,
+            origin,
+        } = args;
         let test_pos = self.grammar.contexts_arena[test.0].pos;
 
         let mut right: Option<SwId> = Some(sw);
@@ -1241,7 +1236,6 @@ impl Matcher<'_> {
     /// each, optionally recursing (deep). C++ `Cohort* runDependencyTest(
     /// SingleWindow*, Cohort* current, const ContextualTest*, Cohort** deep,
     /// Cohort* origin, const Cohort* self)`.
-    #[allow(clippy::too_many_arguments)]
     pub fn run_dependency_test(
         &mut self,
         // C++ reads `sWindow->parent->cohort_map` throughout, which is the

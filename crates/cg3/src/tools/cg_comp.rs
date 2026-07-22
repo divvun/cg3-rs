@@ -130,7 +130,7 @@ pub fn main_comp(args: &[String]) -> i32 {
     // std::ofstream gout(argv[2], ...); if (gout) { BinaryGrammar writer; writer.writeBinaryGrammar(gout); }
     match File::create(&args[2]) {
         Ok(mut gout) => {
-            let mut writer = BinaryGrammar::binary_grammar(grammar);
+            let mut writer = BinaryGrammar::new(grammar);
             if let Err(e) = writer.write_binary_grammar(&mut gout) {
                 crate::error::cg3_exit(e.exit_code());
             }

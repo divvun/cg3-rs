@@ -157,7 +157,7 @@ const KEYWORDS_NAMES: [&str; 72] = [
 ];
 
 // `Strings.hpp` `constexpr UStringView g_flags[FLAGS_COUNT]` (34 entries).
-const G_FLAGS: [&str; 34] = [
+const G_FLAGS: [&str; FLAGS_COUNT] = [
     "NEAREST",
     "ALLOWLOOP",
     "DELAYED",
@@ -253,9 +253,8 @@ impl GrammarWriter {
     /// rule number with anchor-tag-hash values, which `print_rule` later queries
     /// via `equal_range(rule.number)`. (The non-specced destructor merely nulls
     /// `grammar`; the arena port keeps no such pointer, so it is a no-op.)
-    // faithful port: named after the C++ `GrammarWriter(...)` constructor.
-    #[allow(clippy::self_named_constructors)]
-    pub fn grammar_writer(res: &Grammar) -> GrammarWriter {
+    /// C++ `GrammarWriter(Grammar& res, std::ostream& ux_err)` constructor.
+    pub fn new(res: &Grammar) -> GrammarWriter {
         let mut anchors: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
 
         // for (auto at : res.anchors) anchors.insert(make_pair(at.second, at.first));
@@ -560,23 +559,20 @@ impl GrammarWriter {
 
         w!(to, "{}", KEYWORDS_NAMES[type_kw as usize]);
 
-        // !name.empty() && !(name[0]=='_' && name[1]=='R' && name[2]=='_')
-        // faithful port: mirrors the C++ boolean structure verbatim.
-        #[allow(clippy::nonminimal_bool)]
+        // C++ `!name.empty() && !(name[0]=='_' && name[1]=='R' && name[2]=='_')`
+        // — i.e. named, and the name is not `_R_`-prefixed (auto-generated).
         if !rule.name.is_empty()
-            && !(byte_at(&rule.name, 0) == b'_'
-                && byte_at(&rule.name, 1) == b'R'
-                && byte_at(&rule.name, 2) == b'_')
+            && (byte_at(&rule.name, 0) != b'_'
+                || byte_at(&rule.name, 1) != b'R'
+                || byte_at(&rule.name, 2) != b'_')
         {
             w!(to, ":{}", rule.name);
         }
         w!(to, " ");
 
-        // faithful port: `i` is a flag BIT index (`1 << i`) and a cursor into the
-        // parallel `G_FLAGS` table — not a plain collection index, so the range loop
-        // is the natural form.
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..FLAGS_COUNT {
+        // `i` is both the flag BIT index (`1 << i`) and the index of the flag's
+        // keyword in the parallel `G_FLAGS` table.
+        for (i, flag_name) in G_FLAGS.iter().enumerate() {
             if i == FL_BEFORE || i == FL_AFTER || i == FL_WITHCHILD {
                 continue;
             }
@@ -585,9 +581,9 @@ impl GrammarWriter {
                 .intersects(crate::rule::RuleFlags::from_bits_retain(1u64 << i))
             {
                 if i == FL_SUB {
-                    w!(to, "{}:{} ", G_FLAGS[i], rule.sub_reading);
+                    w!(to, "{}:{} ", flag_name, rule.sub_reading);
                 } else {
-                    w!(to, "{} ", G_FLAGS[i]);
+                    w!(to, "{} ", flag_name);
                 }
             }
         }

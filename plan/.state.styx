@@ -65,4 +65,8 @@ assertions (
     {id idiom-names.types, kind @complete, author "brendan@necessary.nu", at 2026-07-22T13:50:00.614026Z}
     {id idiom-names.fns-fields, kind @complete, author "brendan@necessary.nu", at 2026-07-22T13:58:05.276452Z}
     {id idiom-names.allow-sweep, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:01:10.560837Z}
+    {id allow-zero.applicators, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:38:00.208134Z}
+    {id allow-zero.engine, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:38:02.178521Z}
+    {id allow-zero.parsers-io, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:38:03.942947Z}
+    {id allow-zero.tests, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:38:05.575197Z}
 )

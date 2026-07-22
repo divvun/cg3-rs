@@ -7,8 +7,8 @@ use crate::ast::{ASTHelper, ASTType};
 use crate::contextual_test::{GsrSpecials, POS_JUMP, PosJumpPos};
 use crate::inlines::{backtonl_chars, isnl, isspace, skiptows_chars, skipws_chars};
 use crate::rule::{
-    FLAGS_COUNT, FLAGS_EXCLS, RF_AFTER, RF_BEFORE, RF_ITERATE, RF_KEEPORDER, RF_NOCHILD,
-    RF_NOITERATE, RF_REMEMBERX, RF_REVERSE, RF_SAFE, RF_UNSAFE, RF_WITHCHILD, Rule,
+    FLAGS_EXCLS, RF_AFTER, RF_BEFORE, RF_ITERATE, RF_KEEPORDER, RF_NOCHILD, RF_NOITERATE,
+    RF_REMEMBERX, RF_REVERSE, RF_SAFE, RF_UNSAFE, RF_WITHCHILD, Rule,
 };
 use crate::set::Set;
 use crate::sorted_vector::Uint32SortedVector;
@@ -125,13 +125,11 @@ impl TextualParser {
         rule.sub_reading = flags.sub_reading;
 
         if !self.section_flags.flags.is_empty() {
-            // faithful port: `i` is a flag BIT index (`1 << i`) and a cursor into the
-            // parallel `FLAGS_EXCLS` table, not a plain collection index.
-            #[allow(clippy::needless_range_loop)]
-            for i in 0..FLAGS_COUNT {
+            // `i` is both the flag BIT index (`1 << i`) and the index of the
+            // flag's exclusion group in the parallel `FLAGS_EXCLS` table.
+            for (i, &excls) in FLAGS_EXCLS.iter().enumerate() {
                 let f = crate::rule::RuleFlags::from_bits_retain(1u64 << i);
-                if self.section_flags.flags.intersects(f) && !rule.flags.intersects(FLAGS_EXCLS[i])
-                {
+                if self.section_flags.flags.intersects(f) && !rule.flags.intersects(excls) {
                     rule.flags |= f;
                 }
             }

@@ -315,4 +315,9 @@
 > The Rust port should treat this as a no-op stub (or omit it entirely); the
 > corresponding functional test debug routine lives only in the Apertium
 > applicator's `testPR`.
+>
+> PORT DIVERGENCE: the port omits the symbol entirely (plan node
+> allow-zero.applicators) — no C++ definition ever existed, and the dead no-op
+> stub that carried this annotation was pure dead code, so
+> `matxin_applicator.rs` has no `test_pr`.
 

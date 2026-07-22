@@ -179,18 +179,19 @@ where
         let mut line: Vec<char> = vec!['\0'; 1024];
         let mut cleaned: Vec<char> = vec!['\0'; line.len()];
         let ignoreinput = false;
-        let mut did_soft_lookback = false;
 
         self.base.index();
 
-        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
-        let mut lines: u32 = 0;
-
-        let mut c_swindow: Option<SwId> = None;
-        let mut c_cohort: Option<CohortId> = None;
-
-        let mut l_swindow: Option<SwId> = None;
-        let mut l_cohort: Option<CohortId> = None;
+        // C++ `uint32_t lines` feeds only the verbose Progress line, whose
+        // emission goes to the discard sink; no counter is kept here.
+        let mut st = FstStreamState {
+            reset_after: (self.base.cfg.num_windows + 4) * 2 + 1,
+            did_soft_lookback: false,
+            c_swindow: None,
+            c_cohort: None,
+            l_swindow: None,
+            l_cohort: None,
+        };
 
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
@@ -199,7 +200,6 @@ where
         // C++ `while (!input.eof())`: reproduced by breaking when a read makes no
         // progress (get_line_clean returns 0 and the line buffer stays empty).
         'mainloop: loop {
-            lines += 1;
             let mut packoff = get_line_clean_chars(&mut line, &mut cleaned, input, true);
 
             // C++ `while (!input.eof())`: eofbit is set when a read attempt hits
@@ -245,8 +245,8 @@ where
                     tag.push_str(&wf_body);
                     tag.push_str(">\"");
 
-                    if c_cohort.is_none() {
-                        if c_swindow.is_none() {
+                    if st.c_cohort.is_none() {
+                        if st.c_swindow.is_none() {
                             let sw = {
                                 let base = &mut *self.base;
                                 base.doc
@@ -254,12 +254,12 @@ where
                                     .alloc_append_single_window(&mut base.doc.store)
                             };
                             self.base.engine().init_empty_single_window(sw);
-                            c_swindow = Some(sw);
-                            l_swindow = Some(sw);
+                            st.c_swindow = Some(sw);
+                            st.l_swindow = Some(sw);
                             self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
-                            did_soft_lookback = false;
+                            st.did_soft_lookback = false;
                         }
-                        let cc = alloc_cohort(&mut self.base.doc.store, c_swindow);
+                        let cc = alloc_cohort(&mut self.base.doc.store, st.c_swindow);
                         let gn = self.base.doc.cohorts.next_cohort_number();
                         let wf = self.base.add_tag(&tag, crate::tag::TagType::empty());
                         {
@@ -267,11 +267,11 @@ where
                             c.global_number = gn;
                             c.wordform = Some(wf);
                         }
-                        c_cohort = Some(cc);
-                        l_cohort = Some(cc);
+                        st.c_cohort = Some(cc);
+                        st.l_cohort = Some(cc);
                         self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
                     }
-                    let cc = c_cohort.unwrap();
+                    let cc = st.c_cohort.unwrap();
 
                     // ++space; while (space && *space && (space[0]!='+' ||
                     //   space[1]!='?' || space[2]!=0)) { ... }
@@ -632,19 +632,7 @@ where
             }
 
             if is_text {
-                self.istext(
-                    fmt,
-                    &line,
-                    &cleaned,
-                    output,
-                    &mut c_swindow,
-                    &mut c_cohort,
-                    &mut l_swindow,
-                    &mut l_cohort,
-                    &mut did_soft_lookback,
-                    reset_after,
-                    lines,
-                );
+                self.istext(fmt, &line, &cleaned, output, &mut st);
             }
 
             self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
@@ -658,7 +646,7 @@ where
         }
 
         // Trailing pending cohort at EOF.
-        if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
+        if let (Some(cc), Some(sw)) = (st.c_cohort, st.c_swindow) {
             {
                 let base = &mut *self.base;
                 append_cohort(
@@ -705,27 +693,21 @@ where
     /// C++ `istext:` label body of `runGrammarOnText`. Runs for every non-cohort
     /// line: closes any pending cohort, handles the `is_conv` fast path, applies
     /// the soft/hard delimiter window breaks, allocates windows, drains the
-    /// pipeline, and attaches trailing text.
-    #[allow(clippy::too_many_arguments)]
+    /// pipeline, and attaches trailing text. `st` carries the driver locals the
+    /// label body reads and writes (see `FstStreamState`).
     fn istext<F, W>(
         &mut self,
         fmt: &mut F,
         line: &[char],
         cleaned: &[char],
         output: &mut W,
-        c_swindow: &mut Option<SwId>,
-        c_cohort: &mut Option<CohortId>,
-        l_swindow: &mut Option<SwId>,
-        l_cohort: &mut Option<CohortId>,
-        did_soft_lookback: &mut bool,
-        reset_after: u32,
-        lines: u32,
+        st: &mut FstStreamState,
     ) where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: Write,
     {
         // if (cCohort && cCohort->readings.empty()) initEmptyCohort(*cCohort);
-        if let Some(cc) = *c_cohort
+        if let Some(cc) = st.c_cohort
             && self.base.doc.store.cohorts.get(cc.0).readings.is_empty()
         {
             self.base.engine().init_empty_cohort(cc);
@@ -733,7 +715,7 @@ where
 
         // is_conv fast path.
         if self.base.cfg.is_conv {
-            if let Some(cc) = *c_cohort {
+            if let Some(cc) = st.c_cohort {
                 self.base.doc.store.cohorts.get_mut(cc.0).local_number = 1;
                 fmt.print_cohort(&mut self.base.engine(), cc, output, false);
                 let opt = Some(cc);
@@ -745,7 +727,7 @@ where
                         opt,
                     );
                 }
-                *c_cohort = None;
+                st.c_cohort = None;
             }
             if cleaned[0] != '\0' && line[0] != '\0' {
                 let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
@@ -755,24 +737,24 @@ where
         }
 
         // Soft-limit lookback.
-        if let Some(cs) = *c_swindow {
+        if let Some(cs) = st.c_swindow {
             let over_soft = self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32
                 >= self.base.cfg.soft_limit;
-            if over_soft && self.base.grammar.soft_delimiters.is_some() && !*did_soft_lookback {
-                *did_soft_lookback = true;
+            if over_soft && self.base.grammar.soft_delimiters.is_some() && !st.did_soft_lookback {
+                st.did_soft_lookback = true;
                 let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
                     .number
                     .get();
                 let cohorts = self.base.doc.store.single_windows.get(cs.0).cohorts.clone();
                 for &c in reversed(&cohorts) {
                     if self.base.engine().does_set_match_cohort_normal(c, sd, None) {
-                        *did_soft_lookback = false;
+                        st.did_soft_lookback = false;
                         let cohort = self.base.engine().delimit_at(cs, c);
                         // cSWindow = cohort->parent->next;
                         let parent = self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
-                        *c_swindow = self.base.doc.store.single_windows.get(parent.0).next;
-                        if let Some(cc) = *c_cohort {
-                            self.base.doc.store.cohorts.get_mut(cc.0).parent = *c_swindow;
+                        st.c_swindow = self.base.doc.store.single_windows.get(parent.0).next;
+                        if let Some(cc) = st.c_cohort {
+                            self.base.doc.store.cohorts.get_mut(cc.0).parent = st.c_swindow;
                         }
                         // verbose soft-limit warning: discard sink.
                         break;
@@ -782,7 +764,7 @@ where
         }
 
         // Soft-delimiter on the current cohort.
-        if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
+        if let (Some(cc), Some(cs)) = (st.c_cohort, st.c_swindow) {
             let over_soft = self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32
                 >= self.base.cfg.soft_limit;
             let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
@@ -809,15 +791,15 @@ where
                         cc,
                     );
                 }
-                *l_swindow = Some(cs);
-                *l_cohort = Some(cc);
-                *c_swindow = None;
-                *did_soft_lookback = false;
+                st.l_swindow = Some(cs);
+                st.l_cohort = Some(cc);
+                st.c_swindow = None;
+                st.did_soft_lookback = false;
             }
         }
 
         // Hard break.
-        if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
+        if let (Some(cc), Some(cs)) = (st.c_cohort, st.c_swindow) {
             let over_hard = self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32
                 >= self.base.cfg.hard_limit;
             let delim_hit =
@@ -854,15 +836,15 @@ where
                         cc,
                     );
                 }
-                *l_swindow = Some(cs);
-                *l_cohort = Some(cc);
-                *c_swindow = None;
-                *did_soft_lookback = false;
+                st.l_swindow = Some(cs);
+                st.l_cohort = Some(cc);
+                st.c_swindow = None;
+                st.did_soft_lookback = false;
             }
         }
 
         // No current window: allocate + init a fresh one.
-        if c_swindow.is_none() {
+        if st.c_swindow.is_none() {
             let sw = {
                 let base = &mut *self.base;
                 base.doc
@@ -870,9 +852,9 @@ where
                     .alloc_append_single_window(&mut base.doc.store)
             };
             self.base.engine().init_empty_single_window(sw);
-            *l_swindow = Some(sw);
+            st.l_swindow = Some(sw);
             // lCohort = cSWindow->cohorts[0];
-            *l_cohort = self
+            st.l_cohort = self
                 .base
                 .doc
                 .store
@@ -881,14 +863,14 @@ where
                 .cohorts
                 .first()
                 .copied();
-            *c_swindow = Some(sw);
-            *c_cohort = None;
+            st.c_swindow = Some(sw);
+            st.c_cohort = None;
             self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
-            *did_soft_lookback = false;
+            st.did_soft_lookback = false;
         }
 
         // Pending cCohort: append it.
-        if let (Some(cc), Some(cs)) = (*c_cohort, *c_swindow) {
+        if let (Some(cc), Some(cs)) = (st.c_cohort, st.c_swindow) {
             {
                 let base = &mut *self.base;
                 append_cohort(
@@ -899,26 +881,25 @@ where
                     cc,
                 );
             }
-            *l_cohort = Some(cc);
+            st.l_cohort = Some(cc);
         }
 
         // Drain a window if enough have queued up.
         if self.base.doc.stream.next.len() as u32 > self.base.cfg.num_windows {
             self.base.engine().shuffle_windows_down();
             self.base.engine().run_grammar_on_window_with(fmt, output);
-            if self.base.doc.num_windows.is_multiple_of(reset_after) {
+            if self.base.doc.num_windows.is_multiple_of(st.reset_after) {
                 self.base.engine().reset_indexes();
             }
             // verbose progress: discard sink.
-            let _ = lines;
         }
 
-        *c_cohort = None;
+        st.c_cohort = None;
 
         // Attach trailing text.
         if cleaned[0] != '\0' && line[0] != '\0' {
             let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
-            if let Some(lc) = *l_cohort {
+            if let Some(lc) = st.l_cohort {
                 self.base
                     .doc
                     .store
@@ -926,7 +907,7 @@ where
                     .get_mut(lc.0)
                     .text
                     .push_str(&line_str);
-            } else if let Some(ls) = *l_swindow {
+            } else if let Some(ls) = st.l_swindow {
                 self.base
                     .doc
                     .store
@@ -939,6 +920,24 @@ where
             }
         }
     }
+}
+
+/// The `runGrammarOnText` driver locals that the C++ `istext:` label body reads
+/// and writes, bundled so `FSTApplicator::istext` can borrow them as one unit.
+struct FstStreamState {
+    /// C++ `uint32_t resetAfter = ((num_windows + 4) * 2 + 1);` — window-count
+    /// period for `resetIndexes()`.
+    reset_after: u32,
+    /// C++ `bool did_soft_lookback`.
+    did_soft_lookback: bool,
+    /// C++ `SingleWindow* cSWindow`.
+    c_swindow: Option<SwId>,
+    /// C++ `Cohort* cCohort`.
+    c_cohort: Option<CohortId>,
+    /// C++ `SingleWindow* lSWindow`.
+    l_swindow: Option<SwId>,
+    /// C++ `Cohort* lCohort`.
+    l_cohort: Option<CohortId>,
 }
 
 /// FST print-vtable state shared by `FormatConverter` input and output paths.

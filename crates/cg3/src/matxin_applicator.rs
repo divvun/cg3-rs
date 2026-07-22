@@ -132,17 +132,12 @@ impl MatxinApplicator {
         self.null_flush = p_null_flush;
     }
 
-    // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.test-pr-fn]
-    // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.test-pr-fn]
-    /// C++ `void testPR(std::ostream& output)` — DECLARED-but-never-DEFINED in
-    /// `MatxinApplicator.hpp`. There is no body anywhere in the source tree and it
-    /// is never called, so it links only because its address is never taken. The
-    /// faithful port of this "unimplemented declared method" is a no-op stub; the
-    /// real functional-test debug routine lives only in `ApertiumApplicator::testPR`.
-    #[allow(dead_code)]
-    pub fn test_pr<W: Write>(&self, _output: &mut W) {
-        // No C++ definition exists; body intentionally empty.
-    }
+    // C++ `void testPR(std::ostream& output)` is DECLARED-but-never-DEFINED in
+    // `MatxinApplicator.hpp` and never called, so it has no behavior to port; it
+    // is omitted entirely (see the PORT DIVERGENCE note on
+    // matxin-applicator.cg3.matxin-applicator.test-pr-fn in
+    // docs/spec/port/src/MatxinApplicator.md). The real functional-test debug
+    // routine lives only in `ApertiumApplicator::testPR`.
 
     // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.merge-mappings-fn]
     // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.merge-mappings-fn]
@@ -372,10 +367,8 @@ impl MatxinApplicator {
                     }
                     let mut mappings: TagVector = Vec::new();
                     let mprefix = self.base.grammar.mapping_prefix;
-                    // faithful port: C++ index walk over [ri, taglist.size()), not 0..len
-                    #[allow(clippy::needless_range_loop)]
-                    for k in ri..taglist.len() {
-                        let iter = taglist[k];
+                    // faithful port: the C++ walks [ri, taglist.size()), not 0..len
+                    for &iter in taglist.iter().skip(ri) {
                         let t = self.base.grammar.single_tags_list.get(iter.0);
                         let is_mapping =
                             t.r#type.intersects(T_MAPPING) || t.tag.starts_with(mprefix);
@@ -708,8 +701,6 @@ impl MatxinApplicator {
     // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn]
     /// C++ `void MatxinApplicator::runGrammarOnText(std::istream& input,
     /// std::ostream& output)`.
-    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
-    // the ported reads were elided (see the deferred-I/O / driver notes).
     pub fn run_grammar_on_text<R, W>(
         &mut self,
         input: &mut R,
@@ -722,7 +713,6 @@ impl MatxinApplicator {
         crate::error::catch_fatal(|| self.run_grammar_on_text_impl(input, output))
     }
 
-    #[allow(unused_assignments, unused_variables)]
     fn run_grammar_on_text_impl<R, W>(&mut self, input: &mut R, output: &mut W)
     where
         R: std::io::Read + std::io::Seek,
@@ -751,7 +741,9 @@ impl MatxinApplicator {
             }
         }
 
-        let mut inchar: char = '\0';
+        // C++ `UChar inchar = 0;` — the `while ((inchar = u_fgetc(input)) …)`
+        // head assigns it before every read, so no initializer is needed here.
+        let mut inchar: char;
         let mut superblank = false;
         let mut incohort = false;
         let mut firstblank: UString = String::new();
@@ -773,7 +765,9 @@ impl MatxinApplicator {
 
         let mut c_swindow: Option<SwId> = None;
         let mut c_cohort: Option<CohortId> = None;
-        let mut c_reading: Option<ReadingId> = None;
+        // C++ `Reading* cReading = nullptr;` — re-nulled at the top of every
+        // cohort before any read, so no initializer is needed here.
+        let mut c_reading: Option<ReadingId>;
         let mut l_swindow: Option<SwId> = None;
 
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
@@ -1042,7 +1036,6 @@ impl MatxinApplicator {
                 }
                 if inchar == '$' {
                     let cr = alloc_reading(&mut self.base.doc.store, Some(cc));
-                    c_reading = Some(cr);
                     if let Some(parent) = self.base.doc.store.readings.get(cr.0).parent {
                         insert_if_exists(
                             &mut self.base.doc.store.cohorts.get_mut(parent.0).possible_sets,
@@ -1114,11 +1107,9 @@ impl MatxinApplicator {
                 self.base.engine().init_empty_cohort(cc);
             }
             self.add_endtag_all(cc);
-            c_reading = None;
-            c_cohort = None;
-            c_swindow = None;
+            // C++ nulls cReading/cCohort/cSWindow here; nothing reads them past
+            // this point, so the port's bindings simply go out of scope.
         }
-        let _ = (c_reading, c_cohort, c_swindow);
 
         // Run the grammar & print results.
         let _ = writeln!(output, "<corpus>");

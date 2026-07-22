@@ -221,4 +221,11 @@
 > pointer — and returns its `int` result code (SQLITE_OK on success). It
 > exists only so callers can write `sqlite3_exec(db, q)` with two
 > arguments instead of five.
+>
+> PORT DIVERGENCE (zero-allow ruling, plan node `allow-zero.parsers-io`): not
+> ported as an item. The wrapper exists in C++ only to shorten call sites;
+> the port's `Profiler::write` calls rusqlite's `Connection::execute_batch`
+> (the same no-callback, no-binding batch execution) directly for every
+> PRAGMA/DDL/transaction statement, so a wrapper would have no callers — the
+> uncalled fn that previously carried these ids is deleted.
 

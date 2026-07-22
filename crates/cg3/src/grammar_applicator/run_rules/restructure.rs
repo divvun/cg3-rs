@@ -1111,10 +1111,9 @@ impl crate::grammar_applicator::Engine<'_> {
             cohort_dep[0].1 = DEP_NO_PARENT;
             cohort_dep[n - 1].0 = DEP_NO_PARENT;
             cohort_dep[n - 1].1 = ui32(n - 1);
-            // faithful port: `i` is both the index and the stored value `ui32(i)`.
-            #[allow(clippy::needless_range_loop)]
-            for i in 1..n.saturating_sub(1) {
-                cohort_dep[i].1 = ui32(i);
+            // Interior cohorts: dep_parent = their own run index.
+            for (i, dep) in cohort_dep.iter_mut().enumerate().take(n - 1).skip(1) {
+                dep.1 = ui32(i);
             }
         }
 

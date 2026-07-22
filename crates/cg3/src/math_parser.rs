@@ -20,9 +20,6 @@
 //!   are reimplemented here as private local helpers and deliberately left
 //!   without `[spec:...]` annotations (their spec ids belong to those modules).
 
-// The `op`/`temp_token` locals mirror C++ default-initializations (`UChar op =
-// 0;`, `UStringView temp_token;`) that are overwritten before their first read.
-
 use std::f64::consts::PI;
 
 use crate::types::{UChar, UStringView};
@@ -120,14 +117,12 @@ impl<'a> MathParser<'a> {
 
     // [spec:cg3:def:math-parser.cg3.math-parser.eval-assign-fn]
     // [spec:cg3:sem:math-parser.cg3.math-parser.eval-assign-fn]
-    // The C++ initialises `temp_token` before the branch that may re-read it;
-    // Rust proves the initial value unread on the else path — transcribed as-is.
-    #[allow(unused_assignments)]
+    // The C++ declares `temp_token` at function scope, but only the VARIABLE
+    // branch ever reads it; it is scoped to that branch here.
     fn eval_assign(&mut self, result: &mut f64) -> Result<(), MathError> {
-        let mut temp_token: UStringView<'a> = "";
         if self.tok_type == TypeT::Variable as u8 {
             let t_ptr: UStringView<'a> = self.exp_ptr;
-            temp_token = self.token;
+            let temp_token: UStringView<'a> = self.token;
             // Quirk: `slot` is `token[0]-'A'` even for MIN/MAX (first letter
             // 'M' => 12) and for a lowercase single-letter name ('a'-'A' == 32),
             // which then indexes past the 26-slot `vars`. In C++ the OOB index
@@ -148,19 +143,24 @@ impl<'a> MathParser<'a> {
         self.eval_add_sub(result)
     }
 
+    /// The C++ comma-expression while-head `while (*token && (op = token[0],
+    /// op == a || op == b))`: `Some(op)` — the current token's first char —
+    /// when the token is non-empty and that char is `a` or `b`, else `None`
+    /// (loop exit). Same evaluation order: emptiness first, then the char test.
+    fn peek_op(&self, a: UChar, b: UChar) -> Option<UChar> {
+        if self.token.is_empty() {
+            return None;
+        }
+        let op = first_char(self.token);
+        (op == a || op == b).then_some(op)
+    }
+
     // [spec:cg3:def:math-parser.cg3.math-parser.eval-add-sub-fn]
     // [spec:cg3:sem:math-parser.cg3.math-parser.eval-add-sub-fn]
-    // `op` is assigned inside the while-condition block (the C++ comma-expr
-    // loop head); the '\0' init is never read — transcribed as-is.
-    #[allow(unused_assignments)]
     fn eval_add_sub(&mut self, result: &mut f64) -> Result<(), MathError> {
-        let mut op: UChar = '\0';
         let mut temp: f64 = 0.0;
         self.eval_mul_div(result)?;
-        while !self.token.is_empty() && {
-            op = first_char(self.token);
-            op == '+' || op == '-'
-        } {
+        while let Some(op) = self.peek_op('+', '-') {
             self.get_token()?;
             self.eval_mul_div(&mut temp)?;
             match op {
@@ -174,17 +174,10 @@ impl<'a> MathParser<'a> {
 
     // [spec:cg3:def:math-parser.cg3.math-parser.eval-mul-div-fn]
     // [spec:cg3:sem:math-parser.cg3.math-parser.eval-mul-div-fn]
-    // `op` as in `eval_add_sub`: assigned in the while-condition block, the
-    // '\0' init never read — transcribed as-is.
-    #[allow(unused_assignments)]
     fn eval_mul_div(&mut self, result: &mut f64) -> Result<(), MathError> {
-        let mut op: UChar = '\0';
         let mut temp: f64 = 0.0;
         self.eval_exp(result)?;
-        while !self.token.is_empty() && {
-            op = first_char(self.token);
-            op == '*' || op == '/'
-        } {
+        while let Some(op) = self.peek_op('*', '/') {
             self.get_token()?;
             self.eval_exp(&mut temp)?;
             match op {

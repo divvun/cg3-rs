@@ -115,23 +115,6 @@ pub struct Profiler {
     pub rule_contexts: BTreeMap<(u32, u32), usize>,
 }
 
-// [spec:cg3:def:profiler.cg3.sqlite3-exec-fn]
-// [spec:cg3:sem:profiler.cg3.sqlite3-exec-fn]
-/// C++ `inline auto sqlite3_exec(sqlite3* db, const char* sql)` — a thin
-/// convenience wrapper (namespace `CG3`, shadowing the global) that forwards to
-/// the C API `::sqlite3_exec(db, sql, nullptr, nullptr, nullptr)`: run one or more
-/// SQL statements with no per-row callback, no callback arg, and no error-message
-/// out-pointer, returning the result code. The rusqlite equivalent is
-/// [`Connection::execute_batch`] (no callback, no bindings), which
-/// `Profiler::write` calls directly for every PRAGMA/DDL/transaction statement
-/// — so this wrapper has no callers in the port (targeted `dead_code` allow;
-/// kept as the annotation home for the ported C++ inline).
-#[cfg(feature = "profiler")]
-#[allow(dead_code)]
-fn sqlite3_exec(db: &Connection, sql: &str) -> Result<(), rusqlite::Error> {
-    db.execute_batch(sql)
-}
-
 impl Profiler {
     // [spec:cg3:def:profiler.cg3.profiler.add-string-fn]
     // [spec:cg3:sem:profiler.cg3.profiler.add-string-fn]

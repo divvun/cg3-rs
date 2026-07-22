@@ -150,9 +150,10 @@ fn constructor_trait_surface_and_compat_mode() {
 // sorted first in every stored trie path.
 // freq_sorter itself: the C++ functor's single live use is the inlined
 // highest-frequency-first sort in parseTagList (and the eager-set-op path);
-// in the port the struct is a faithful but uncalled reproduction (private,
-// #[allow(dead_code)]), so its ctor/operator() ids are attached to this test,
-// which drives the exact inlined comparator logic and asserts its ordering.
+// the port inlines that sort and does not carry the functor as a struct (see
+// the PORT DIVERGENCE note in TextualParser.md), so its ctor/operator() ids
+// are attached to this test, which drives the exact inlined comparator logic
+// and asserts its ordering.
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-list-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.add-tag-fn/test]
@@ -655,7 +656,7 @@ fn binary_grammar_roundtrip_unserializes_tries() {
         .expect("spawn cg-comp");
     assert!(status.success(), "cg-comp failed");
 
-    let mut bg = BinaryGrammar::binary_grammar(Grammar::default());
+    let mut bg = BinaryGrammar::new(Grammar::default());
     let rv = bg.parse_grammar_filename(bin.to_str().unwrap()).unwrap();
     let _ = std::fs::remove_file(&bin);
     assert_eq!(rv, 0, "binary grammar failed to load");

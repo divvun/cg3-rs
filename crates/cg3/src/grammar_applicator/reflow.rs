@@ -219,9 +219,6 @@ impl Engine<'_> {
     /// C++ `bool wouldParentChildLoop(const Cohort* parent, const Cohort*
     /// child)` — would attaching `child` under `parent` form a cycle. Mirror of
     /// `isChildOf` but climbing from `parent`, looking for `child`.
-    // faithful port: mirrors the C++ wouldParentChildLoop condition dispatch
-    // (distinct predicates that happen to share `retval` bodies).
-    #[allow(clippy::if_same_then_else)]
     pub fn would_parent_child_loop(&mut self, parent: CohortId, child: CohortId) -> bool {
         let mut retval = false;
         let parent_gn = self.doc.store.cohorts.get(parent.0).global_number;
@@ -231,9 +228,9 @@ impl Engine<'_> {
 
         if parent_gn == child_gn {
             retval = true;
-        } else if Some(parent_gn) == child_dp {
-            retval = false;
-        } else if Some(parent_gn) == parent_dp {
+        } else if Some(parent_gn) == child_dp || Some(parent_gn) == parent_dp {
+            // Two distinct C++ branches (parent is already the child's parent /
+            // parent is attached to itself), both "no loop would form".
             retval = false;
         } else if parent_dp == Some(child_gn) {
             retval = true;

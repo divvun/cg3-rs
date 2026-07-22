@@ -13,7 +13,6 @@
 
 // Test builders set a few fields on a `T::default()` incrementally, which reads
 // clearer here than a struct literal with a long `..Default::default()` tail.
-#![allow(clippy::field_reassign_with_default)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -26,7 +25,7 @@ use cg3::cohort::{
 };
 use cg3::cohort_iterator::{
     ChildrenIterator, CohortIterator, CohortSetIter, DepAncestorIter, DepDescendentIter,
-    DepParentIter, MultiCohortIterator, TopologyLeftIter, TopologyRightIter,
+    DepParentIter, IterArenas, MultiCohortIterator, TopologyLeftIter, TopologyRightIter,
 };
 use cg3::contextual_test::{ContextualTest, POS_RIGHTMOST, POS_SELF, POS_SPAN_BOTH, copy_cntx};
 use cg3::grammar::Grammar;
@@ -81,6 +80,17 @@ fn setup_window(n: u32) -> (RuntimeStore, Win, SwId, Vec<CohortId>) {
         ids.push(c);
     }
     (store, w, sw, ids)
+}
+
+/// The bundled [`IterArenas`] view over the shared-setup store/grammar/registry
+/// that the dependency iterators' `new`/`advance`/`reset` take.
+fn iter_arenas<'a>(store: &'a RuntimeStore, g: &'a Grammar, w: &'a Win) -> IterArenas<'a> {
+    IterArenas {
+        cohorts: &store.cohorts,
+        windows: &store.single_windows,
+        grammar: g,
+        registry: &w.cohorts,
+    }
 }
 
 // ===========================================================================
@@ -414,34 +424,18 @@ fn dep_parent_iterator() {
     let mut g = Grammar::default();
     let ctx = g.allocate_contextual_test();
 
-    let mut it = DepParentIter::new(
-        Some(c3),
-        Some(ctx),
-        false,
-        &store.cohorts,
-        &store.single_windows,
-        &g,
-        &w.cohorts,
-    );
+    let mut it = DepParentIter::new(Some(c3), Some(ctx), false, iter_arenas(&store, &g, &w));
     assert_eq!(
         it.base.current(),
         Some(c2),
         "ctor pre-advances onto the parent"
     );
-    it.advance(&store.cohorts, &store.single_windows, &g, &w.cohorts);
+    it.advance(iter_arenas(&store, &g, &w));
     assert_eq!(it.base.current(), Some(c1));
-    it.advance(&store.cohorts, &store.single_windows, &g, &w.cohorts); // c1 has DEP_NO_PARENT
+    it.advance(iter_arenas(&store, &g, &w)); // c1 has DEP_NO_PARENT
     assert_eq!(it.base.current(), None);
 
-    it.reset(
-        Some(c3),
-        Some(ctx),
-        false,
-        &store.cohorts,
-        &store.single_windows,
-        &g,
-        &w.cohorts,
-    );
+    it.reset(Some(c3), Some(ctx), false, iter_arenas(&store, &g, &w));
     assert_eq!(
         it.base.current(),
         Some(c2),
@@ -450,32 +444,16 @@ fn dep_parent_iterator() {
 
     // Cycle guard: c1 -> c3 closes a loop; the duplicate m_seen hit ends it.
     store.cohorts.get_mut(c1.0).dep_parent = Some(GlobalNumber(3));
-    it.reset(
-        Some(c3),
-        Some(ctx),
-        false,
-        &store.cohorts,
-        &store.single_windows,
-        &g,
-        &w.cohorts,
-    );
+    it.reset(Some(c3), Some(ctx), false, iter_arenas(&store, &g, &w));
     assert_eq!(it.base.current(), Some(c2));
-    it.advance(&store.cohorts, &store.single_windows, &g, &w.cohorts);
+    it.advance(iter_arenas(&store, &g, &w));
     assert_eq!(it.base.current(), Some(c1));
-    it.advance(&store.cohorts, &store.single_windows, &g, &w.cohorts);
+    it.advance(iter_arenas(&store, &g, &w));
     assert_eq!(it.base.current(), None, "cycle terminated by m_seen");
 
     // CT_REMOVED parent kills the walk outright.
     store.cohorts.get_mut(c2.0).r#type |= CT_REMOVED;
-    let it = DepParentIter::new(
-        Some(c3),
-        Some(ctx),
-        false,
-        &store.cohorts,
-        &store.single_windows,
-        &g,
-        &w.cohorts,
-    );
+    let it = DepParentIter::new(Some(c3), Some(ctx), false, iter_arenas(&store, &g, &w));
     assert_eq!(it.base.current(), None);
 }
 
@@ -505,15 +483,7 @@ fn dep_descendent_and_ancestor_iterators() {
     let ctx_rr = g.allocate_contextual_test();
     g.contexts_arena[ctx_rr.0].pos = POS_RIGHTMOST;
 
-    let mut di = DepDescendentIter::new(
-        Some(c1),
-        Some(ctx),
-        false,
-        &store.cohorts,
-        &store.single_windows,
-        &g,
-        &w.cohorts,
-    );
+    let mut di = DepDescendentIter::new(Some(c1), Some(ctx), false, iter_arenas(&store, &g, &w));
     assert_eq!(di.base.current(), Some(c2), "direct + transitive, sorted");
     di.advance();
     assert_eq!(di.base.current(), Some(c3));
@@ -522,26 +492,10 @@ fn dep_descendent_and_ancestor_iterators() {
     di.advance();
     assert_eq!(di.base.current(), None);
     // reset with POS_SELF: the origin joins the set (c1 sorts first).
-    di.reset(
-        Some(c1),
-        Some(ctx_self),
-        false,
-        &store.cohorts,
-        &store.single_windows,
-        &g,
-        &w.cohorts,
-    );
+    di.reset(Some(c1), Some(ctx_self), false, iter_arenas(&store, &g, &w));
     assert_eq!(di.base.current(), Some(c1));
 
-    let mut ai = DepAncestorIter::new(
-        Some(c4),
-        Some(ctx),
-        false,
-        &store.cohorts,
-        &store.single_windows,
-        &g,
-        &w.cohorts,
-    );
+    let mut ai = DepAncestorIter::new(Some(c4), Some(ctx), false, iter_arenas(&store, &g, &w));
     assert_eq!(
         ai.base.current(),
         Some(c1),
@@ -552,15 +506,7 @@ fn dep_descendent_and_ancestor_iterators() {
     ai.advance();
     assert_eq!(ai.base.current(), None);
     // reset with POS_RIGHTMOST reverses the chain.
-    ai.reset(
-        Some(c4),
-        Some(ctx_rr),
-        false,
-        &store.cohorts,
-        &store.single_windows,
-        &g,
-        &w.cohorts,
-    );
+    ai.reset(Some(c4), Some(ctx_rr), false, iter_arenas(&store, &g, &w));
     assert_eq!(ai.base.current(), Some(c2));
 }
 
@@ -649,11 +595,13 @@ fn reading_alloc_copy_free_clear() {
     // has no membership by construction.)
     let child = alloc_reading(&mut store, None);
     store.readings.get_mut(child.0).number = 7;
-    let mut src = Reading::default();
-    src.number = 500;
-    src.immutable = true;
-    src.active = true;
-    src.next = Some(child);
+    let src = Reading {
+        number: 500,
+        immutable: true,
+        active: true,
+        next: Some(child),
+        ..Default::default()
+    };
     let fresh = alloc_reading_copy(&mut store, &src);
     {
         let f = store.readings.get(fresh.0);
@@ -667,9 +615,11 @@ fn reading_alloc_copy_free_clear() {
     // Copy-alloc, pooled branch: a reused slot forces immutable/active false.
     let junk_id = alloc_reading(&mut store, None);
     free_reading(&mut store, Some(junk_id));
-    let mut src2 = Reading::default();
-    src2.immutable = true;
-    src2.active = true;
+    let src2 = Reading {
+        immutable: true,
+        active: true,
+        ..Default::default()
+    };
     let pooled = alloc_reading_copy(&mut store, &src2);
     // Wave 4 (GenArena): same slot, bumped generation (stale junk_id detected).
     assert_eq!(
@@ -947,27 +897,35 @@ fn tag_parse_raw_and_numeric() {
     assert_eq!(t.comparison_hash, g.single_tags_list[mark.0].hash.get());
 
     // parseNumeric operators and values.
-    let mut t = Tag::default();
-    t.tag = "<w>=12>".to_string();
+    let mut t = Tag {
+        tag: "<w>=12>".to_string(),
+        ..Default::default()
+    };
     t.parse_numeric(false);
     assert_eq!(t.comparison_op, COps::OpGreaterequals);
     assert_eq!(t.comparison_val, 12.0);
     assert!(t.r#type.intersects(T_NUMERICAL));
     assert_eq!(t.comparison_hash, hash_value_ustring("w", 0));
 
-    let mut t = Tag::default();
-    t.tag = "<w<3>".to_string();
+    let mut t = Tag {
+        tag: "<w<3>".to_string(),
+        ..Default::default()
+    };
     t.parse_numeric(false);
     assert_eq!(t.comparison_op, COps::OpLessthan);
     assert_eq!(t.comparison_val, 3.0);
 
-    let mut t = Tag::default();
-    t.tag = "<w=MAX>".to_string();
+    let mut t = Tag {
+        tag: "<w=MAX>".to_string(),
+        ..Default::default()
+    };
     t.parse_numeric(false);
     assert_eq!(t.comparison_val, NUMERIC_MAX);
 
-    let mut t = Tag::default();
-    t.tag = "<w=abc>".to_string();
+    let mut t = Tag {
+        tag: "<w=abc>".to_string(),
+        ..Default::default()
+    };
     t.parse_numeric(false);
     assert!(
         !t.r#type.intersects(T_NUMERICAL),
@@ -988,8 +946,10 @@ fn tag_parse_raw_and_numeric() {
 // [spec:cg3:sem:tag.cg3.tag.to-u-string-fn/test]
 #[test]
 fn tag_ctor_rehash_markused_vs_tostring() {
-    let mut t = Tag::default();
-    t.tag = "x".to_string();
+    let mut t = Tag {
+        tag: "x".to_string(),
+        ..Default::default()
+    };
     let base = t.rehash();
     assert_eq!(t.plain_hash.get(), hash_value_ustring("x", 0));
     assert_eq!(base, t.plain_hash, "no flags, no seed: hash == plain_hash");
@@ -1018,12 +978,16 @@ fn tag_ctor_rehash_markused_vs_tostring() {
 
     // toUString: regex tag gets /…/r wrapping; escape mode backslashes specials;
     // a non-empty tag_raw short-circuits everything.
-    let mut rt = Tag::default();
-    rt.tag = "x".to_string();
-    rt.r#type = T_REGEXP;
+    let rt = Tag {
+        tag: "x".to_string(),
+        r#type: T_REGEXP,
+        ..Default::default()
+    };
     assert_eq!(rt.to_u_string(false), "/x/r");
-    let mut et = Tag::default();
-    et.tag = "a b(c)".to_string();
+    let mut et = Tag {
+        tag: "a b(c)".to_string(),
+        ..Default::default()
+    };
     assert_eq!(et.to_u_string(true), "a\\ b\\(c\\)");
     assert_eq!(et.to_u_string(false), "a b(c)");
     et.tag_raw = "RAW".to_string();
@@ -1103,10 +1067,12 @@ fn contextual_test_ctor_rehash_equals_copy() {
     assert!(d.pos.is_empty());
 
     let mut arena: Arena<ContextualTest> = Arena::new();
-    let mut ct = ContextualTest::default();
-    ct.pos = POS_SPAN_BOTH;
-    ct.target = SetNumber(77);
-    ct.offset = -2;
+    let ct = ContextualTest {
+        pos: POS_SPAN_BOTH,
+        target: SetNumber(77),
+        offset: -2,
+        ..Default::default()
+    };
     let a = CtxId(arena.alloc(ct.clone()));
     let h = ContextualTest::rehash(&mut arena, a);
     assert_ne!(h, 0);
@@ -1152,9 +1118,11 @@ fn contextual_test_ctor_rehash_equals_copy() {
     );
 
     // copy_cntx: fields copied; is_used and ors deliberately untouched.
-    let mut trg = ContextualTest::default();
-    trg.is_used = true;
-    trg.ors.push(CtxId(9));
+    let mut trg = ContextualTest {
+        is_used: true,
+        ors: vec![CtxId(9)],
+        ..Default::default()
+    };
     let src = &arena[b.0];
     copy_cntx(src, &mut trg);
     assert_eq!(trg.target, src.target);

@@ -24,7 +24,9 @@
 //! iterator only holds ids, so `self` (iterator state) and the passed arenas
 //! never alias, and a caller holding `&mut` on the readings arena (the
 //! `Matcher` view) can still drive them. (Stage-B: the C++ `Window*` narrowed
-//! to the `CohortRegistry` view that owns `cohort_map`.)
+//! to the `CohortRegistry` view that owns `cohort_map`.) The dependency
+//! iterators dereference all four views, so their `new`/`advance`/`reset` take
+//! them bundled as one [`IterArenas`].
 
 use crate::arena::{CohortId, CtxId, GenArena, SwId};
 use crate::cohort::{CT_ENCLOSED, CT_REMOVED, Cohort};
@@ -34,6 +36,20 @@ use crate::contextual_test::{
 use crate::grammar::Grammar;
 use crate::single_window::SingleWindow;
 use crate::window::CohortRegistry;
+
+/// The read-only views the dependency iterators dereference, bundled as one
+/// borrowed view: the cohort arena (`local_number`/`parent`/`dep_*`), the
+/// single-window arena (window `number` comparisons), the grammar
+/// (`m_test->pos`), and the cohort registry (`cohort_map`, resolving
+/// `dep_parent`/`dep_children` global-numbers). The C++ iterators reach all
+/// four through the `Cohort*`/`Window*` object graph.
+#[derive(Copy, Clone)]
+pub struct IterArenas<'a> {
+    pub cohorts: &'a GenArena<Cohort>,
+    pub windows: &'a GenArena<SingleWindow>,
+    pub grammar: &'a Grammar,
+    pub registry: &'a CohortRegistry,
+}
 
 // [spec:cg3:def:cohort-iterator.cg3.cohort-iterator]
 /// C++ `class CohortIterator` — the base input-iterator over cohorts.
@@ -389,16 +405,13 @@ impl DepParentIter {
         cohort: Option<CohortId>,
         test: Option<CtxId>,
         span: bool,
-        cohorts: &GenArena<Cohort>,
-        windows: &GenArena<SingleWindow>,
-        grammar: &Grammar,
-        registry: &CohortRegistry,
+        arenas: IterArenas<'_>,
     ) -> Self {
         let mut it = DepParentIter {
             base: CohortIterator::new(cohort, test, span),
             m_seen: Vec::new(),
         };
-        it.advance(cohorts, windows, grammar, registry);
+        it.advance(arenas);
         it
     }
 
@@ -406,13 +419,13 @@ impl DepParentIter {
     // [spec:cg3:sem:cohort-iterator.cg3.dep-parent-iter.dep-parent-iter-fn]
     /// C++ `operator++`: one step up the dep tree. The cycle guard `m_seen`
     /// stores the chain of previously-CURRENT cohorts (the child, not `p`).
-    pub fn advance(
-        &mut self,
-        cohorts: &GenArena<Cohort>,
-        windows: &GenArena<SingleWindow>,
-        grammar: &Grammar,
-        registry: &CohortRegistry,
-    ) {
+    pub fn advance(&mut self, arenas: IterArenas<'_>) {
+        let IterArenas {
+            cohorts,
+            windows,
+            grammar,
+            registry,
+        } = arenas;
         if self.base.m_cohort.is_none() || self.base.m_test.is_none() {
             return;
         }
@@ -452,22 +465,18 @@ impl DepParentIter {
 
     // [spec:cg3:def:cohort-iterator.cg3.dep-parent-iter.reset-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.dep-parent-iter.reset-fn]
-    // The C++ reset signature plus the four split-borrow views the advance
-    // needs; bundling them would obscure the 1:1 C++ mapping.
-    #[allow(clippy::too_many_arguments)]
+    /// The C++ reset signature plus the [`IterArenas`] view the re-advance
+    /// dereferences.
     pub fn reset(
         &mut self,
         cohort: Option<CohortId>,
         test: Option<CtxId>,
         span: bool,
-        cohorts: &GenArena<Cohort>,
-        windows: &GenArena<SingleWindow>,
-        grammar: &Grammar,
-        registry: &CohortRegistry,
+        arenas: IterArenas<'_>,
     ) {
         self.base.reset(cohort, test, span);
         self.m_seen.clear();
-        self.advance(cohorts, windows, grammar, registry);
+        self.advance(arenas);
     }
 }
 
@@ -478,17 +487,14 @@ impl DepDescendentIter {
         cohort: Option<CohortId>,
         test: Option<CtxId>,
         span: bool,
-        cohorts: &GenArena<Cohort>,
-        windows: &GenArena<SingleWindow>,
-        grammar: &Grammar,
-        registry: &CohortRegistry,
+        arenas: IterArenas<'_>,
     ) -> Self {
         let mut it = DepDescendentIter {
             base: CohortIterator::new(cohort, test, span),
             m_descendents: Vec::new(),
             m_ai: 0,
         };
-        it.reset(cohort, test, span, cohorts, windows, grammar, registry);
+        it.reset(cohort, test, span, arenas);
         it
     }
 
@@ -505,17 +511,19 @@ impl DepDescendentIter {
 
     // [spec:cg3:def:cohort-iterator.cg3.dep-descendent-iter.reset-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.dep-descendent-iter.reset-fn]
-    #[allow(clippy::too_many_arguments)]
     pub fn reset(
         &mut self,
         cohort: Option<CohortId>,
         test: Option<CtxId>,
         span: bool,
-        cohorts: &GenArena<Cohort>,
-        windows: &GenArena<SingleWindow>,
-        grammar: &Grammar,
-        registry: &CohortRegistry,
+        arenas: IterArenas<'_>,
     ) {
+        let IterArenas {
+            cohorts,
+            windows,
+            grammar,
+            registry,
+        } = arenas;
         self.base.reset(cohort, test, span);
         self.m_descendents.clear();
         self.base.m_cohort = None;
@@ -604,17 +612,14 @@ impl DepAncestorIter {
         cohort: Option<CohortId>,
         test: Option<CtxId>,
         span: bool,
-        cohorts: &GenArena<Cohort>,
-        windows: &GenArena<SingleWindow>,
-        grammar: &Grammar,
-        registry: &CohortRegistry,
+        arenas: IterArenas<'_>,
     ) -> Self {
         let mut it = DepAncestorIter {
             base: CohortIterator::new(cohort, test, span),
             m_ancestors: Vec::new(),
             m_ai: 0,
         };
-        it.reset(cohort, test, span, cohorts, windows, grammar, registry);
+        it.reset(cohort, test, span, arenas);
         it
     }
 
@@ -631,7 +636,6 @@ impl DepAncestorIter {
 
     // [spec:cg3:def:cohort-iterator.cg3.dep-ancestor-iter.reset-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.dep-ancestor-iter.reset-fn]
-    #[allow(clippy::too_many_arguments)]
     /// Rebuilds `m_ancestors`. QUIRK/cycle risk (reproduced, NOT fixed): when a
     /// node is span-filtered (`good == false`) it is skipped but the loop still
     /// climbs through it; the only terminators are a `cohort_map` miss or a
@@ -641,11 +645,14 @@ impl DepAncestorIter {
         cohort: Option<CohortId>,
         test: Option<CtxId>,
         span: bool,
-        cohorts: &GenArena<Cohort>,
-        windows: &GenArena<SingleWindow>,
-        grammar: &Grammar,
-        registry: &CohortRegistry,
+        arenas: IterArenas<'_>,
     ) {
+        let IterArenas {
+            cohorts,
+            windows,
+            grammar,
+            registry,
+        } = arenas;
         self.base.reset(cohort, test, span);
         self.m_ancestors.clear();
         self.base.m_cohort = None;

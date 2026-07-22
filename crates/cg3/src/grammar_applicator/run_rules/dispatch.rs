@@ -1076,9 +1076,6 @@ impl crate::grammar_applicator::Engine<'_> {
     /// K_SUBSTITUTE: remove the `sublist` tags from the subreading (marking the
     /// spot with `substtag`) then splice in the `maplist` tags at that spot.
     /// Faithful port of the substitute action (append-any special-cased).
-    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
-    // the ported reads were elided (see the deferred-I/O / driver notes).
-    #[allow(unused_assignments, unused_variables)]
     fn rr_substitute(&mut self, st: &mut RRState, rule: RuleId, rnumber: u32, rsub_reading: i32) {
         let cohort = self.get_apply_to().cohort.unwrap();
         let sr = self.get_apply_to().subreading.unwrap();
@@ -1172,10 +1169,9 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             self.trace(rnumber, rsub_reading);
             self.doc.store.readings.get_mut(sr.0).noprint = false;
-            if tpos >= self.doc.store.readings.get(sr.0).tags_list.len() {
-                tpos = self.doc.store.readings.get(sr.0).tags_list.len() - 1;
-            }
-            tpos += 1;
+            // C++ clamps then increments tpos here (`if (tpos >= size()) tpos =
+            // size() - 1; ++tpos;`) but both stores are dead: every read below
+            // happens after the `tpos = idx` reassignment in the splice loop.
             let mut mappings = TagList::new();
             let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
             let map_tags = match maplist {

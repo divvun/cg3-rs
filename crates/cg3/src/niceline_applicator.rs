@@ -100,8 +100,6 @@ impl<'a> NicelineApplicator<'a> {
     /// native `String`s filled by `get_line_clean`; the C++ `UChar*` pointer
     /// walks become BYTE-offset `usize` cursors read via `inlines::char_at`
     /// (which yields `'\0'` past the end, matching the NUL-terminated buffer).
-    // Faithful-port mirrors: assignments kept 1:1 with the C++ text even where
-    // the ported reads were elided (see the deferred-I/O / driver notes).
     pub fn run_grammar_on_text<F, R, W>(
         &mut self,
         fmt: &mut F,
@@ -116,7 +114,6 @@ impl<'a> NicelineApplicator<'a> {
         crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
     }
 
-    #[allow(unused_assignments, unused_variables)]
     fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
@@ -136,12 +133,13 @@ impl<'a> NicelineApplicator<'a> {
         self.base.index();
 
         let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
-        let mut lines: u32 = 0;
+        // C++ `uint32_t lines` feeds only the verbose Progress line, whose
+        // emission is deferred with the I/O layer; no counter is kept here.
 
         let mut c_swindow: Option<SwId> = None;
         let mut c_cohort: Option<CohortId> = None;
-        #[allow(unused_assignments)]
-        let mut c_reading: Option<ReadingId> = None;
+        // C++ `cReading` is only ever assigned in this driver (every read of it
+        // happens through the local reading id), so no binding is kept for it.
 
         let mut l_swindow: Option<SwId> = None;
         let mut l_cohort: Option<CohortId> = None;
@@ -152,7 +150,6 @@ impl<'a> NicelineApplicator<'a> {
 
         // C++ `while (!input.eof())`: loop until get_line_clean stops producing.
         loop {
-            lines += 1;
             let mut packoff = get_line_clean(&mut line, &mut cleaned, input, true);
 
             // C++ `while (!input.eof())`: a blank line (packoff == 0 but
@@ -351,7 +348,6 @@ impl<'a> NicelineApplicator<'a> {
                     space += 1;
                     while crate::inlines::char_at(&cleaned, space) != '\0' {
                         let cr = crate::reading::alloc_reading(&mut self.base.doc.store, Some(cc));
-                        c_reading = Some(cr);
                         crate::inlines::insert_if_exists(
                             &mut self.base.doc.store.cohorts.get_mut(cc.0).possible_sets,
                             self.base.grammar.sets_any.as_ref(),
@@ -535,12 +531,8 @@ impl<'a> NicelineApplicator<'a> {
                 let tid = tag_by_hash(&self.base.grammar, te);
                 self.base.engine().add_tag_to_reading(r, tid);
             }
-            #[allow(unused_assignments)]
-            {
-                c_reading = None;
-                c_cohort = None;
-                c_swindow = None;
-            }
+            // C++ nulls cReading/cCohort/cSWindow here; nothing reads them past
+            // this point, so the port's bindings simply go out of scope.
         }
         while self.base.engine().rotate_next().is_some() {
             self.base.engine().run_grammar_on_window_with(fmt, output);

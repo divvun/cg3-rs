@@ -47,11 +47,10 @@ fn at(token: &[UChar], k: usize) -> UChar {
 
 // [spec:cg3:def:icu-uoptions.u-parse-args-fn]
 // [spec:cg3:sem:icu-uoptions.u-parse-args-fn]
-// faithful port: the option-search loops index `options[0..optionCount]` and
-// capture the matched index `j` (bound is the passed count, not `.len()`),
-// mirroring the C++ `for (j=0; j<optionCount; ++j)` scans.
+// faithful port: the option searches scan `options[0..optionCount]` (the passed
+// count, not `.len()`) and capture the matched index, mirroring the C++
+// `for (j=0; j<optionCount; ++j)` scans.
 /// C++ `u_parseArgs`.
-#[allow(clippy::needless_range_loop)]
 pub fn u_parse_args(
     argc: i32,
     argv: &mut [Vec<UChar>],
@@ -80,15 +79,10 @@ pub fn u_parse_args(
                     // search for the option string (uprv_strcmp in the dead
                     // file; strcmp in the live header) — exact match
                     let name: String = argv[iu][arg_off..].iter().collect();
-                    let mut option: Option<usize> = None;
-                    for j in 0..option_count as usize {
-                        if let Some(ln) = options[j].long_name
-                            && name == ln
-                        {
-                            option = Some(j);
-                            break;
-                        }
-                    }
+                    let option = options
+                        .iter()
+                        .take(option_count as usize)
+                        .position(|o| o.long_name.is_some_and(|ln| name == ln));
                     let opt = match option {
                         Some(j) => j,
                         // no option matches
@@ -115,13 +109,10 @@ pub fn u_parse_args(
                 // process one or more short options
                 loop {
                     // search for the option letter
-                    let mut option: Option<usize> = None;
-                    for j in 0..option_count as usize {
-                        if c == options[j].short_name {
-                            option = Some(j);
-                            break;
-                        }
-                    }
+                    let option = options
+                        .iter()
+                        .take(option_count as usize)
+                        .position(|o| c == o.short_name);
                     let opt = match option {
                         Some(j) => j,
                         // no option matches

@@ -173,13 +173,13 @@ fn inprocess_binary_roundtrip() {
         "T_Templates must produce contextual tests"
     );
 
-    let mut writer = BinaryGrammar::binary_grammar(grammar);
+    let mut writer = BinaryGrammar::new(grammar);
     writer.set_compatible(true); // C++ setCompatible: empty body, flag discarded
     let mut blob: Vec<u8> = Vec::new();
     assert_eq!(writer.write_binary_grammar(&mut blob).unwrap(), 0);
     assert_eq!(&blob[..4], b"CG3B", "magic bytes");
 
-    let mut reader = BinaryGrammar::binary_grammar(Grammar::default());
+    let mut reader = BinaryGrammar::new(Grammar::default());
     assert_eq!(
         reader.parse_grammar_buffer(&blob).unwrap(),
         0,
@@ -252,7 +252,7 @@ fn legacy_10043_rejected() {
     let rev = u32::from_be_bytes([blob[4], blob[5], blob[6], blob[7]]);
     assert_eq!(rev, 10043, "fixture is the legacy revision");
 
-    let mut reader = BinaryGrammar::binary_grammar(Grammar::default());
+    let mut reader = BinaryGrammar::new(Grammar::default());
     reader.set_verbosity(1); // enables the legacy-revision warning branch
     assert_eq!(
         reader.parse_grammar_buffer(&blob).unwrap(),

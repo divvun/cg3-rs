@@ -910,4 +910,103 @@ children (
             }
         )
     }
+
+    {
+        id allow-zero
+        title "Zero #[allow] in the crate: every remaining allow is hiding a smell or a bug (operator ruling 2026-07-22, superseding keep-with-justification) — restructure the goto-flow lexers, reshape the wide signatures, rewrite the index walks as iterators, simplify the transcribed boolean shapes, delete the dead stubs with spec divergence notes; acceptance is rg \"allow(\" over crates/cg3 returning empty, gated by byte-identical output on the amplified workloads"
+        priority 2
+        children (
+            {
+                id allow-zero.applicators
+                title "Applicators + tools: restructure the six stream-driver lexers' goto-flow assignments (unused_assignments/unused_variables), bundle the wide print signatures, iterator-ize the index walks, delete matxin test_pr with a spec note — apertium/matxin/niceline/plaintext/jsonl/fst applicators, cg_proc/cg_conv/cg_mwesplit/cg_merge_annotations/vislcg3 tools, icu_uoptions"
+                priority 2
+                log (
+                    {
+                        at 2026-07-22T14:07:48.064246Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T14:38:00.208134Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
+            }
+
+            {
+                id allow-zero.engine
+                title "Engine: restructure the run_grammar/dispatch/single_rule flow assignments, bundle the cohort_iterator + run_contextual_test wide signatures into borrowed view/param structs, fix the reflow if_same_then_else and restructure index walk, fix the run_contextual_test doc formatting instead of gagging the doc lints"
+                priority 2
+                log (
+                    {
+                        at 2026-07-22T14:07:50.36951Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T14:38:02.178521Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
+            }
+
+            {
+                id allow-zero.parsers-io
+                title "Parsers + grammar I/O + misc: math_parser comma-expr loops made honest, binary_grammar absurd comparisons + ctor names expressed truthfully, grammar_writer nonminimal bool + range walk, textual_parser range walk + freq_sorter/ParseError.0 dead-shape resolution, parser_helpers/uextras walks, delete the profiler sqlite3_exec and relabeller trie_copy stubs with spec notes"
+                priority 2
+                log (
+                    {
+                        at 2026-07-22T14:07:52.591646Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T14:38:03.942947Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
+            }
+
+            {
+                id allow-zero.tests
+                title "Tests: eliminate tests/common dead_code (prune globally-unused helpers, restructure so each test bin includes only what it uses), rewrite model_core's field-reassign setup as struct literals, fix the stale grammar_parser comment"
+                priority 2
+                log (
+                    {
+                        at 2026-07-22T14:07:54.551616Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T14:38:05.575197Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
+            }
+        )
+        log (
+            {
+                at 2026-07-22T14:37:54.650258Z
+                author "brendan@necessary.nu"
+                kind @note
+                text "COMPLETE: rg \"allow(\" over crates/cg3 returns empty — zero allows of any kind, src and tests. What the allows were actually hiding, per the ruling's prediction: an always-false `stop` flag in cg-proc's getopt loop; write-only `c_reading` bindings in three stream drivers; three `let _ =` artifacts laundering dead stores; a dead `did_test` recomputation in run_single_rule_body that is DEAD UPSTREAM TOO (C++ runRules.cpp resets did_test per reading before its only read, making the `else { good = test_good }` branch unreachable — latent upstream quirk, verified against the reference); a `len - 1` underflow-panic hazard in rr_substitute's dead tpos clamp (C++ wrapped; now deleted); two vestigial allows covering nothing (relabeller — the fn was never dead; parser_helpers module gag). Param bundles introduced: ApertiumStreamState, FstStreamState, IterArenas (pub), TestArgs, GotReadingScope — each modeled on the C++ lambda-capture/label-scope it replaces. Deleted with spec PORT DIVERGENCE notes: matxin test_pr (+ its stub driver test — suite counts now 158/162), read_contextual_test_10043 stub, profiler sqlite3_exec, textual_parser FreqSorter; ParseError is a unit struct (C++ catch(int) never reads the value). Ctors renamed BinaryGrammar::new / GrammarWriter::new. tests/common split (golden-only filters to common/filters.rs); model_core rewritten to struct literals. Verified: gates x5 witnessed, 10/10 vislcg3 byte-compares (5 grammars x plain/trace) + cg-conv/cg-proc compares identical vs the pre-change baseline binaries, per-agent AND on the final merged tree."
+            }
+        )
+    }
 )

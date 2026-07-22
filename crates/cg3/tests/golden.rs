@@ -21,13 +21,14 @@
 //! `cg-proc` corpus is in `apertium.rs`.
 
 mod common;
+#[path = "common/filters.rs"]
+mod filters;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use common::{
-    cg_sort, diff_b_equal, read_args, repo_root, run_capture, stabilize_relations, untrace,
-};
+use common::{diff_b_equal, repo_root, run_capture};
+use filters::{cg_sort, read_args, stabilize_relations, untrace};
 
 /// Directories whose behaviour is exercised by a dedicated test rather than the
 /// generic four sub-tests here (they need cg-relabel/cg-proc/an external process

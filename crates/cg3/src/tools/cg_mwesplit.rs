@@ -45,9 +45,8 @@ fn options_mwe() -> [UOption; Opt::NumOptionsMwe as usize] {
 // [spec:cg3:def:cg-mwesplit.main-fn]
 // [spec:cg3:sem:cg-mwesplit.main-fn]
 /// C++ `int main(int argc, char** argv)`.
-// faithful port: `for (i=0; i<NUM_OPTIONS_MWE; ++i)` walks the enum-sized option
-// table by index (bound is the enum constant, not `.len()`), mirroring the C++.
-#[allow(clippy::needless_range_loop)]
+// faithful port: the C++ `for (i=0; i<NUM_OPTIONS_MWE; ++i)` scans cover the
+// whole table — its length IS the enum constant (`[UOption; NumOptionsMwe]`).
 pub fn main_mwesplit(args: &[String]) -> i32 {
     // UErrorCode status = U_ZERO_ERROR;
     let status: i32 = 0;
@@ -72,21 +71,21 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
         out.push_str("Options:\n");
 
         let mut longest = 0usize;
-        for i in 0..Opt::NumOptionsMwe as usize {
-            if !options_mwe[i].description.is_empty() {
-                longest = longest.max(options_mwe[i].long_name.map_or(0, |s| s.len()));
+        for o in options_mwe.iter() {
+            if !o.description.is_empty() {
+                longest = longest.max(o.long_name.map_or(0, |s| s.len()));
             }
         }
-        for i in 0..Opt::NumOptionsMwe as usize {
-            let desc = &options_mwe[i].description;
+        for o in options_mwe.iter() {
+            let desc = &o.description;
             if !desc.is_empty() && !desc.starts_with('!') {
                 out.push(' ');
-                if options_mwe[i].short_name != '\0' {
-                    out.push_str(&format!("-{},", options_mwe[i].short_name));
+                if o.short_name != '\0' {
+                    out.push_str(&format!("-{},", o.short_name));
                 } else {
                     out.push_str("   ");
                 }
-                let ln = options_mwe[i].long_name.unwrap_or("");
+                let ln = o.long_name.unwrap_or("");
                 out.push_str(&format!(" --{}", ln));
                 let mut ldiff = longest - ln.len();
                 while ldiff > 0 {

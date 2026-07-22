@@ -451,10 +451,8 @@ where
                     // Add tags from ri forward to end.
                     let mut mappings: TagList = Vec::new();
                     let mprefix = self.base.grammar.mapping_prefix;
-                    // faithful port: C++ index walk over [ri, taglist.size()), not 0..len
-                    #[allow(clippy::needless_range_loop)]
-                    for k in ri..taglist.len() {
-                        let iter = taglist[k];
+                    // faithful port: the C++ walks [ri, taglist.size()), not 0..len
+                    for &iter in taglist.iter().skip(ri) {
                         let t = self.base.grammar.single_tags_list.get(iter.0);
                         let is_mapping =
                             t.r#type.intersects(T_MAPPING) || t.tag.starts_with(mprefix);
@@ -579,7 +577,6 @@ where
         crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
     }
 
-    #[allow(unused_assignments, unused_variables)]
     fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
@@ -605,13 +602,25 @@ where
             }
         }
 
-        let mut c: char = '\0';
-        let mut in_blank = false;
-        let mut in_wblank = false;
-        let mut in_cohort = false;
-        let mut blank: UString = String::new();
-        let mut wblank: UString = String::new();
-        let mut token: UString = String::new();
+        // C++ `UChar c = 0;` — the `while ((c = u_fgetc(input)) …)` head assigns
+        // it before every read, so no initializer is needed here.
+        let mut c: char;
+        // The C++ locals the `flush` lambda captures by reference.
+        let mut st = ApertiumStreamState {
+            in_blank: false,
+            in_wblank: false,
+            in_cohort: false,
+            blank: String::new(),
+            wblank: String::new(),
+            token: String::new(),
+            c_swindow: None,
+            c_cohort: None,
+            l_swindow: None,
+            l_cohort: None,
+            variables_set: crate::flat_unordered_map::Uint32FlatHashMap::default(),
+            variables_rem: crate::flat_unordered_set::Uint32FlatHashSet::default(),
+            variables_output: crate::sorted_vector::Uint32SortedVector::new(),
+        };
 
         self.base.index();
 
@@ -628,16 +637,7 @@ where
             self.base.grammar.single_tags_list.get(t.0).hash
         };
 
-        let mut c_swindow: Option<SwId> = None;
-        let mut c_cohort: Option<CohortId> = None;
-        let mut l_swindow: Option<SwId> = None;
-        let mut l_cohort: Option<CohortId> = None;
-
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
-
-        let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::default();
-        let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::default();
-        let mut variables_output = crate::sorted_vector::Uint32SortedVector::new();
 
         ux_strip_bom(input);
 
@@ -654,58 +654,41 @@ where
 
             if c == '\\' {
                 let n = u_fgetc(input);
-                if !in_cohort {
-                    blank.push(c);
-                    blank.push(n);
+                if !st.in_cohort {
+                    st.blank.push(c);
+                    st.blank.push(n);
                 } else {
-                    token.push(c);
-                    token.push(n);
+                    st.token.push(c);
+                    st.token.push(n);
                 }
                 continue;
             }
 
             if c == '\0' {
-                self.flush(
-                    fmt,
-                    true,
-                    &mut in_blank,
-                    &mut in_wblank,
-                    &mut in_cohort,
-                    &mut blank,
-                    &mut token,
-                    &mut l_swindow,
-                    &mut l_cohort,
-                    &mut c_swindow,
-                    &mut c_cohort,
-                    &mut variables_set,
-                    &mut variables_rem,
-                    &mut variables_output,
-                    c,
-                    output,
-                );
+                self.flush(fmt, true, &mut st, c, output);
                 continue;
             }
 
-            if !in_cohort && c == '[' {
-                if in_blank {
-                    in_wblank = true;
+            if !st.in_cohort && c == '[' {
+                if st.in_blank {
+                    st.in_wblank = true;
                 }
-                in_blank = true;
-            } else if !in_blank && c == '^' {
-                in_cohort = true;
+                st.in_blank = true;
+            } else if !st.in_blank && c == '^' {
+                st.in_cohort = true;
             }
 
-            if !in_cohort {
-                blank.push(c);
+            if !st.in_cohort {
+                st.blank.push(c);
             } else {
-                token.push(c);
+                st.token.push(c);
             }
 
-            if in_wblank && c == ']' {
-                in_wblank = false;
-            } else if in_blank && c == ']' {
-                in_blank = false;
-                let bchars: Vec<char> = blank.chars().collect();
+            if st.in_wblank && c == ']' {
+                st.in_wblank = false;
+            } else if st.in_blank && c == ']' {
+                st.in_blank = false;
+                let bchars: Vec<char> = st.blank.chars().collect();
                 if bchars.len() > 14
                     && bchars.get(1) == Some(&'<')
                     && bchars.get(bchars.len() - 2) == Some(&'>')
@@ -714,15 +697,15 @@ where
                     // trailing '>]' (no trailing '>').
                     let cleaned: Vec<char> = bchars[1..bchars.len() - 2].to_vec();
                     self.parse_stream_var(
-                        c_swindow,
+                        st.c_swindow,
                         &cleaned,
-                        &mut variables_set,
-                        &mut variables_rem,
-                        &mut variables_output,
+                        &mut st.variables_set,
+                        &mut st.variables_rem,
+                        &mut st.variables_output,
                     );
                 }
-            } else if !in_blank && c == '$' {
-                if !in_cohort {
+            } else if !st.in_blank && c == '$' {
+                if !st.in_cohort {
                     tracing::error!(
                         "Error: $ found without prior ^ on line {}.",
                         self.base.doc.num_lines
@@ -730,24 +713,24 @@ where
                     // CG3Quit(1) — abort in C++; keep going in the port.
                     return;
                 }
-                in_cohort = false;
+                st.in_cohort = false;
 
                 // Word-bound-blank extraction.
-                if !blank.is_empty() {
-                    wblank.clear();
-                    let bchars: Vec<char> = blank.chars().collect();
+                if !st.blank.is_empty() {
+                    st.wblank.clear();
+                    let bchars: Vec<char> = st.blank.chars().collect();
                     let b = find_sub(&bchars, &['[', '[']);
                     let e = b.and_then(|bi| find_sub_from(&bchars, &[']', ']'], bi));
                     if let (Some(bi), Some(ei)) = (b, e) {
                         // NOT the bare closing `[[/]]` blank.
                         if !(ei == bi + 3 && bchars.get(bi + 2) == Some(&'/')) {
-                            wblank = bchars[bi..].iter().collect();
-                            blank = bchars[..bi].iter().collect();
+                            st.wblank = bchars[bi..].iter().collect();
+                            st.blank = bchars[..bi].iter().collect();
                         }
                     }
                 }
-                if !wblank.is_empty() {
-                    let wchars: Vec<char> = wblank.chars().collect();
+                if !st.wblank.is_empty() {
+                    let wchars: Vec<char> = st.wblank.chars().collect();
                     let n = wchars.len();
                     if wchars[n - 1] != ']' || (n < 2 || wchars[n - 2] != ']') {
                         tracing::error!(
@@ -759,33 +742,33 @@ where
                 }
 
                 // Attach leftover blank to the nearest text sink.
-                if let Some(cc) = c_cohort {
+                if let Some(cc) = st.c_cohort {
                     let t = &mut self.base.doc.store.cohorts.get_mut(cc.0).text;
-                    t.push_str(&blank);
-                    blank.clear();
-                } else if let Some(lc) = l_cohort {
+                    t.push_str(&st.blank);
+                    st.blank.clear();
+                } else if let Some(lc) = st.l_cohort {
                     self.base
                         .doc
                         .store
                         .cohorts
                         .get_mut(lc.0)
                         .text
-                        .push_str(&blank);
-                    blank.clear();
-                } else if let Some(ls) = l_swindow {
+                        .push_str(&st.blank);
+                    st.blank.clear();
+                } else if let Some(ls) = st.l_swindow {
                     self.base
                         .doc
                         .store
                         .single_windows
                         .get_mut(ls.0)
                         .text
-                        .push_str(&blank);
-                    blank.clear();
+                        .push_str(&st.blank);
+                    st.blank.clear();
                 }
 
                 // Create a window if none.
-                if c_swindow.is_none() {
-                    self.ensure_endtag(l_swindow);
+                if st.c_swindow.is_none() {
+                    self.ensure_endtag(st.l_swindow);
                     let sw = {
                         let base = &mut *self.base;
                         base.doc
@@ -795,40 +778,40 @@ where
                     self.base.engine().init_empty_single_window(sw);
                     // Move the variable collections into the window (C++
                     // `cSWindow->variables_set = variables_set; ...clear()`).
-                    let set_pairs = collect_map(&variables_set);
-                    let rem_items = collect_set(&variables_rem);
-                    let out_items = variables_output.as_slice().to_vec();
+                    let set_pairs = collect_map(&st.variables_set);
+                    let rem_items = collect_set(&st.variables_rem);
+                    let out_items = st.variables_output.as_slice().to_vec();
                     {
                         let sww = self.base.doc.store.single_windows.get_mut(sw.0);
                         sww.variables_set.insert_range(set_pairs);
                         sww.variables_rem.insert_range(rem_items);
                         sww.variables_output.insert_range(&out_items);
                     }
-                    variables_set.clear(0);
-                    variables_rem.clear(0);
-                    variables_output.clear();
-                    c_swindow = Some(sw);
-                    l_swindow = Some(sw);
-                    self.base.doc.store.single_windows.get_mut(sw.0).text = blank.clone();
-                    blank.clear();
+                    st.variables_set.clear(0);
+                    st.variables_rem.clear(0);
+                    st.variables_output.clear();
+                    st.c_swindow = Some(sw);
+                    st.l_swindow = Some(sw);
+                    self.base.doc.store.single_windows.get_mut(sw.0).text = st.blank.clone();
+                    st.blank.clear();
                     self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
                 }
-                let cs = c_swindow.unwrap();
+                let cs = st.c_swindow.unwrap();
 
                 // Allocate the cohort.
                 let cc = alloc_cohort(&mut self.base.doc.store, Some(cs));
-                l_cohort = Some(cc);
-                c_cohort = Some(cc);
+                st.l_cohort = Some(cc);
+                st.c_cohort = Some(cc);
                 let gn = self.base.doc.cohorts.next_cohort_number();
                 self.base.doc.store.cohorts.get_mut(cc.0).global_number = gn;
                 self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
-                self.base.doc.store.cohorts.get_mut(cc.0).text = blank.clone();
-                blank.clear();
-                self.base.doc.store.cohorts.get_mut(cc.0).wblank = wblank.clone();
-                wblank.clear();
+                self.base.doc.store.cohorts.get_mut(cc.0).text = st.blank.clone();
+                st.blank.clear();
+                self.base.doc.store.cohorts.get_mut(cc.0).wblank = st.wblank.clone();
+                st.wblank.clear();
 
                 // Parse the wordform.
-                let tchars: Vec<char> = token.chars().collect();
+                let tchars: Vec<char> = st.token.chars().collect();
                 let mut p = 1usize; // skip '^'
                 let mut wf = String::from("\"<");
                 while p < tchars.len() && tchars[p] != '/' && tchars[p] != '<' && tchars[p] != '$' {
@@ -993,13 +976,13 @@ where
                             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                             self.base.engine().add_tag_to_reading(r, et);
                         }
-                        l_swindow = Some(cs);
-                        c_swindow = None;
-                        c_cohort = None;
+                        st.l_swindow = Some(cs);
+                        st.c_swindow = None;
+                        st.c_cohort = None;
                         did_delim = true;
                     }
                 }
-                if c_cohort.is_some() {
+                if st.c_cohort.is_some() {
                     let cohorts_size =
                         self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32;
                     let hard = cohorts_size >= self.base.cfg.hard_limit;
@@ -1028,9 +1011,9 @@ where
                             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
                             self.base.engine().add_tag_to_reading(r, et);
                         }
-                        l_swindow = Some(cs);
-                        c_swindow = None;
-                        c_cohort = None;
+                        st.l_swindow = Some(cs);
+                        st.c_swindow = None;
+                        st.c_cohort = None;
                         did_delim = true;
                     }
                 }
@@ -1042,28 +1025,11 @@ where
                         self.base.engine().reset_indexes();
                     }
                 }
-                token.clear();
+                st.token.clear();
             }
         }
 
-        self.flush(
-            fmt,
-            false,
-            &mut in_blank,
-            &mut in_wblank,
-            &mut in_cohort,
-            &mut blank,
-            &mut token,
-            &mut l_swindow,
-            &mut l_cohort,
-            &mut c_swindow,
-            &mut c_cohort,
-            &mut variables_set,
-            &mut variables_rem,
-            &mut variables_output,
-            c,
-            output,
-        );
+        self.flush(fmt, false, &mut st, c, output);
     }
 
     /// C++ `ensure_endtag` lambda: if `lSWindow` exists, has cohorts, and the last
@@ -1097,47 +1063,36 @@ where
     }
 
     /// C++ `flush(bool n)` lambda from `runGrammarOnText`. Drains all pending
-    /// windows, prints them, and resets the driver state.
-    #[allow(clippy::too_many_arguments)]
+    /// windows, prints them, and resets the driver state (the lambda's
+    /// by-reference captures, passed as [`ApertiumStreamState`]).
     fn flush<F, W>(
         &mut self,
         fmt: &mut F,
         n: bool,
-        in_blank: &mut bool,
-        in_wblank: &mut bool,
-        in_cohort: &mut bool,
-        blank: &mut UString,
-        token: &mut UString,
-        l_swindow: &mut Option<SwId>,
-        l_cohort: &mut Option<CohortId>,
-        c_swindow: &mut Option<SwId>,
-        c_cohort: &mut Option<CohortId>,
-        variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
-        variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
-        variables_output: &mut crate::sorted_vector::Uint32SortedVector,
+        st: &mut ApertiumStreamState,
         c: char,
         output: &mut W,
     ) where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: Write,
     {
-        self.ensure_endtag(*l_swindow);
+        self.ensure_endtag(st.l_swindow);
 
         let back_swindow = if n { self.base.doc.stream.back() } else { None };
         if let Some(bs) = back_swindow {
             self.base.doc.store.single_windows.get_mut(bs.0).flush_after = true;
         }
 
-        if !blank.is_empty() {
-            if let Some(lc) = *l_cohort {
+        if !st.blank.is_empty() {
+            if let Some(lc) = st.l_cohort {
                 self.base
                     .doc
                     .store
                     .cohorts
                     .get_mut(lc.0)
                     .text
-                    .push_str(blank);
-            } else if let Some(ls) = *l_swindow {
+                    .push_str(&st.blank);
+            } else if let Some(ls) = st.l_swindow {
                 let last = self
                     .base
                     .doc
@@ -1154,7 +1109,7 @@ where
                         .cohorts
                         .get_mut(back.0)
                         .text
-                        .push_str(blank);
+                        .push_str(&st.blank);
                 } else {
                     self.base
                         .doc
@@ -1162,12 +1117,12 @@ where
                         .single_windows
                         .get_mut(ls.0)
                         .text
-                        .push_str(blank);
+                        .push_str(&st.blank);
                 }
             } else {
-                fmt.print_plain_text_line(&mut self.base.engine(), blank, output);
+                fmt.print_plain_text_line(&mut self.base.engine(), &st.blank, output);
             }
-            blank.clear();
+            st.blank.clear();
         }
 
         // Run the grammar & print results.
@@ -1200,19 +1155,51 @@ where
         }
         u_fflush(output);
 
-        *in_blank = false;
-        *in_wblank = false;
-        *in_cohort = false;
-        *l_swindow = None;
-        *l_cohort = None;
-        *c_swindow = None;
-        *c_cohort = None;
-        token.clear();
-        variables_rem.clear(0);
-        variables_set.clear(0);
-        variables_output.clear();
+        st.in_blank = false;
+        st.in_wblank = false;
+        st.in_cohort = false;
+        st.l_swindow = None;
+        st.l_cohort = None;
+        st.c_swindow = None;
+        st.c_cohort = None;
+        st.token.clear();
+        st.variables_rem.clear(0);
+        st.variables_set.clear(0);
+        st.variables_output.clear();
         self.base.doc.variables.clear(0);
     }
+}
+
+/// The `runGrammarOnText` driver locals that the C++ `flush` lambda captures by
+/// reference (`auto flush = [&](bool n = false)`), bundled so
+/// [`ApertiumApplicator::flush`] can borrow them as one unit.
+struct ApertiumStreamState {
+    /// C++ `bool inBlank`.
+    in_blank: bool,
+    /// C++ `bool inWblank`.
+    in_wblank: bool,
+    /// C++ `bool inCohort`.
+    in_cohort: bool,
+    /// C++ `UString blank`.
+    blank: UString,
+    /// C++ `UString wblank`.
+    wblank: UString,
+    /// C++ `UString token`.
+    token: UString,
+    /// C++ `SingleWindow* cSWindow`.
+    c_swindow: Option<SwId>,
+    /// C++ `Cohort* cCohort`.
+    c_cohort: Option<CohortId>,
+    /// C++ `SingleWindow* lSWindow`.
+    l_swindow: Option<SwId>,
+    /// C++ `Cohort* lCohort`.
+    l_cohort: Option<CohortId>,
+    /// C++ `uint32FlatHashMap variables_set`.
+    variables_set: crate::flat_unordered_map::Uint32FlatHashMap,
+    /// C++ `uint32FlatHashSet variables_rem`.
+    variables_rem: crate::flat_unordered_set::Uint32FlatHashSet,
+    /// C++ `uint32SortedVector variables_output`.
+    variables_output: crate::sorted_vector::Uint32SortedVector,
 }
 
 /// Apertium's print-vtable state. This lets an Apertium input driver borrow the

@@ -24,6 +24,18 @@
 > so both keys must be present) and returns
 > `tag_freq[a] > tag_freq[b]` (a orders before b when strictly more
 > frequent). Used with `std::sort` for cheap trie compression.
+>
+> PORT DIVERGENCE (zero-allow ruling, plan node `allow-zero.parsers-io`),
+> covering `textual-parser.cg3.freq-sorter`, `.freq-sorter-fn`, and
+> `.operator-fn`: the functor is not ported as a struct. Its live uses are
+> inlined at the two C++ `std::sort(..., fs)` sites in `do_grammar_actions`
+> (`parseTagList` and the eager-set-op path):
+> `tv.sort_by(|&a, &b| tag_freq[&b].cmp(&tag_freq[&a]))` over a
+> `BTreeMap<TagId, usize>` — the same highest-frequency-first order with
+> both keys required present (missing key = panic, as the C++ end-check-free
+> deref). The uncalled struct reproduction that previously carried these ids
+> is deleted; the list_set_parsing_and_composite_tag_ordering spec test
+> asserts the inlined comparator's ordering.
 
 > [spec:cg3:def:textual-parser.cg3.is-mapping-list-fn]
 > bool is_mapping_list(Grammar* result, Set* s)

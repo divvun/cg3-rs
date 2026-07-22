@@ -72,7 +72,7 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Option<Grammar> {
 
     if is_cg3b(head) {
         // parser.reset(new BinaryGrammar(*grammar, ux_stderr));
-        let mut parser = BinaryGrammar::binary_grammar(grammar);
+        let mut parser = BinaryGrammar::new(grammar);
         if !matches!(parser.parse_grammar_filename(filename), Ok(0)) {
             tracing::error!("Error: Grammar could not be parsed!");
             return None;
@@ -146,7 +146,7 @@ pub fn main_relabel(args: &[String]) -> i32 {
     // std::ofstream gout(argv[3], ...); if (gout) { BinaryGrammar writer; writer.writeBinaryGrammar(gout); }
     match File::create(&args[3]) {
         Ok(mut gout) => {
-            let mut writer = BinaryGrammar::binary_grammar(grammar);
+            let mut writer = BinaryGrammar::new(grammar);
             if let Err(e) = writer.write_binary_grammar(&mut gout) {
                 crate::error::cg3_exit(e.exit_code());
             }
