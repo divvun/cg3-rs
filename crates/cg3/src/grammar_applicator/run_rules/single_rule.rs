@@ -3,7 +3,7 @@
 //! Split out of the wave-2 monolithic `run_rules.rs` (wave 4, w4-file-split-fmt).
 
 use crate::arena::{CohortId, CtxId, RuleId, SetId, SwId, TagId};
-use crate::cohort::{CT_ENCLOSED, CT_IGNORED, CT_NUM_CURRENT, CT_REMOVED, CohortSet};
+use crate::cohort::{CT_ENCLOSED, CT_IGNORED, CT_REMOVED, CohortSet};
 use crate::contextual_test::{POS_NO_PASS_ORIGIN, POS_PASS_ORIGIN};
 use crate::inlines::ui32;
 use crate::rule::{
@@ -806,7 +806,6 @@ impl crate::grammar_applicator::Engine<'_> {
                 || state_num_ignored != now_ignored
             {
                 anything_changed = true;
-                self.doc.store.cohorts.get_mut(cohort.0).r#type &= !CT_NUM_CURRENT;
             }
 
             // No valid targets → drop this cohort from the rule set.

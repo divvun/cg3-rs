@@ -819,7 +819,7 @@ pub struct Engine<'a> {
 /// `generateVarstringTag`/`addTag`, the context-frame accessors). The C++ runs
 /// this tree on the same mutable god object as the rule actions; the port's
 /// field-level borrows are the proof that matching only *reads* the document
-/// model, with exactly two narrow, cache/transient-shaped write capabilities:
+/// model, with exactly one narrow, transient-shaped write capability:
 ///
 /// * [`readings`](Matcher::readings) is the one `&mut` arena hole. Convention:
 ///   the matcher may only alloc/free TRANSIENT slots — the `get_sub_reading`
@@ -828,14 +828,11 @@ pub struct Engine<'a> {
 ///   `reflowTextuals` re-derivation reached through runtime `addTag` interning
 ///   (`tags_textual` is derived data). It never edits a document reading's
 ///   model state.
-/// * [`cohorts`](Matcher::cohorts) is `&mut` ONLY for the C++
-///   `Cohort::getMin`/`getMax` numeric-tag memo (`num_min`/`num_max` +
-///   `CT_NUM_CURRENT`), reached via `test_tag_numerical`. That cache is written
-///   on first use exactly as in the C++ (`updateMinMax` is non-const there
-///   too); no other cohort field is written by the tree.
 ///
-/// Everything else the tree touches on the document — the single-window arena,
-/// the [`WindowStream`](crate::window::WindowStream) spanning links, the
+/// Everything else the tree touches on the document — the cohort arena (the
+/// C++ wrote its getMin/getMax memo here; the port computes numeric min/max on
+/// demand, see `cohort::min_max_for_key`), the single-window arena, the
+/// [`WindowStream`](crate::window::WindowStream) spanning links, the
 /// [`CohortRegistry`](crate::window::CohortRegistry) `cohort_map`, the global
 /// `variables`, the `num_lines` counter — is held by shared reference.
 /// Match STATE goes to [`scratch`](Matcher::scratch) (captures, unification,
@@ -849,9 +846,8 @@ pub struct Engine<'a> {
 /// forwarders below, each of which split-borrows a fresh view per call.
 pub struct Matcher<'a> {
     pub cfg: &'a EngineConfig,
-    /// `doc.store.cohorts` — read-only EXCEPT the getMin/getMax numeric memo
-    /// (see the type-level doc).
-    pub cohorts: &'a mut GenArena<crate::cohort::Cohort>,
+    /// `doc.store.cohorts` — read-only.
+    pub cohorts: &'a GenArena<crate::cohort::Cohort>,
     /// `doc.store.single_windows` — read-only.
     pub single_windows: &'a GenArena<crate::single_window::SingleWindow>,
     /// `doc.store.readings` — the transient-slot `&mut` hole (see the
@@ -894,7 +890,7 @@ impl Engine<'_> {
         } = store;
         Matcher {
             cfg: self.cfg,
-            cohorts,
+            cohorts: &*cohorts,
             single_windows,
             readings,
             stream,

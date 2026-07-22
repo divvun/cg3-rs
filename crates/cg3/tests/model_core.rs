@@ -20,9 +20,9 @@ use std::process::Command;
 
 use cg3::arena::{Arena, CohortId, CtxId, SwId};
 use cg3::cohort::{
-    CT_ENCLOSED, CT_NUM_CURRENT, CT_RELATED, CT_REMOVED, Cohort, alloc_cohort,
-    allocate_append_reading, append_reading, append_reading_to, cohort_clear, cohort_dtor, detach,
-    free_cohort, get_max, get_min, set_related, unignore_all, update_min_max,
+    CT_ENCLOSED, CT_RELATED, CT_REMOVED, Cohort, alloc_cohort, allocate_append_reading,
+    append_reading, append_reading_to, cohort_clear, cohort_dtor, detach, free_cohort, get_max,
+    get_min, set_related, unignore_all,
 };
 use cg3::cohort_iterator::{
     ChildrenIterator, CohortIterator, CohortSetIter, DepAncestorIter, DepDescendentIter,
@@ -169,8 +169,8 @@ fn cohort_alloc_detach_clear_dtor_free() {
 }
 
 // appendReading (member-list + external-list overloads: number staged from the
-// post-push size when still 0; CT_NUM_CURRENT cleared) and
-// allocateAppendReading (fresh reading parented to the cohort, staged number).
+// post-push size when still 0) and allocateAppendReading (fresh reading
+// parented to the cohort, staged number).
 // [spec:cg3:sem:cohort.cg3.cohort.append-reading-fn/test]
 // [spec:cg3:sem:cohort.cg3.cohort.allocate-append-reading-fn/test]
 #[test]
@@ -178,16 +178,11 @@ fn cohort_append_readings() {
     let (mut store, _w, _sw, ids) = setup_window(1);
     let c = ids[0];
 
-    store.cohorts.get_mut(c.0).r#type |= CT_NUM_CURRENT;
     let r1 = alloc_reading(&mut store, None); // parent None -> number 0
     assert_eq!(store.readings.get(r1.0).number, 0);
     append_reading(&mut store, c, r1);
     // post-push size 1 -> 1*1000+1000 = 2000
     assert_eq!(store.readings.get(r1.0).number, 2000);
-    assert!(
-        !store.cohorts.get(c.0).r#type.intersects(CT_NUM_CURRENT),
-        "append clears CT_NUM_CURRENT"
-    );
 
     let r2 = alloc_reading(&mut store, None);
     append_reading(&mut store, c, r2);
@@ -208,9 +203,10 @@ fn cohort_append_readings() {
     assert_eq!(store.cohorts.get(c.0).readings.len(), 3);
 }
 
-// updateMinMax (per-comparison-hash strict min/max over `readings` only, cached
-// behind CT_NUM_CURRENT), getMin/getMax (cache refresh + NUMERIC_MIN/MAX
-// fallback for an absent key).
+// getMin/getMax: per-comparison-hash strict min/max over the `readings` list
+// only, computed on demand (the C++ CT_NUM_CURRENT memo is deleted — see
+// `min_max_for_key` — so a mutation is visible immediately, no invalidation
+// dance), with NUMERIC_MIN/MAX fallback for an absent key.
 // [spec:cg3:sem:cohort.cg3.cohort.update-min-max-fn/test]
 // [spec:cg3:sem:cohort.cg3.cohort.get-min-fn/test]
 // [spec:cg3:sem:cohort.cg3.cohort.get-max-fn/test]
@@ -232,40 +228,37 @@ fn cohort_numeric_min_max() {
     store.readings.get_mut(r1.0).tags_numerical.insert(h5, t5);
     store.readings.get_mut(r2.0).tags_numerical.insert(h10, t10);
 
-    update_min_max(&mut store.cohorts, &store.readings, &g, c);
-    assert!(store.cohorts.get(c.0).r#type.intersects(CT_NUM_CURRENT));
-    assert_eq!(
-        get_min(&mut store.cohorts, &store.readings, &g, c, key),
-        5.0
-    );
-    assert_eq!(
-        get_max(&mut store.cohorts, &store.readings, &g, c, key),
-        10.0
-    );
+    assert_eq!(get_min(&store.cohorts, &store.readings, &g, c, key), 5.0);
+    assert_eq!(get_max(&store.cohorts, &store.readings, &g, c, key), 10.0);
     // Absent key -> sentinel extremes.
     assert_eq!(
-        get_min(&mut store.cohorts, &store.readings, &g, c, 0xDEAD),
+        get_min(&store.cohorts, &store.readings, &g, c, 0xDEAD),
         NUMERIC_MIN
     );
     assert_eq!(
-        get_max(&mut store.cohorts, &store.readings, &g, c, 0xDEAD),
+        get_max(&store.cohorts, &store.readings, &g, c, 0xDEAD),
         NUMERIC_MAX
     );
 
-    // Cache: adding a smaller value is invisible until CT_NUM_CURRENT drops.
+    // On-demand: a newly-added smaller value is visible at once.
     let t1 = g.allocate_tag("<n=1>");
     let h1 = g.single_tags_list[t1.0].hash.get();
     store.readings.get_mut(r1.0).tags_numerical.insert(h1, t1);
     assert_eq!(
-        get_min(&mut store.cohorts, &store.readings, &g, c, key),
-        5.0,
-        "stale cache honoured"
-    );
-    store.cohorts.get_mut(c.0).r#type &= !CT_NUM_CURRENT;
-    assert_eq!(
-        get_min(&mut store.cohorts, &store.readings, &g, c, key),
+        get_min(&store.cohorts, &store.readings, &g, c, key),
         1.0,
-        "recomputed after inval"
+        "no memo: recomputed per query"
+    );
+    // Only the `readings` list participates: a deleted reading's tags do not.
+    let rdel = alloc_reading(&mut store, Some(c));
+    let t0 = g.allocate_tag("<n=-7>");
+    let h0 = g.single_tags_list[t0.0].hash.get();
+    store.readings.get_mut(rdel.0).tags_numerical.insert(h0, t0);
+    store.cohorts.get_mut(c.0).deleted.push(rdel);
+    assert_eq!(
+        get_min(&store.cohorts, &store.readings, &g, c, key),
+        1.0,
+        "deleted list excluded from the fold"
     );
 }
 

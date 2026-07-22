@@ -60,4 +60,5 @@ assertions (
     {id matcher-doc-split.matched-flags, kind @complete, author "brendan@necessary.nu", at 2026-07-22T12:01:12.359089Z}
     {id matcher-doc-split.bag-readings, kind @complete, author "brendan@necessary.nu", at 2026-07-22T12:08:03.792297Z}
     {id matcher-doc-split.matcher-view, kind @complete, author "brendan@necessary.nu", at 2026-07-22T12:51:31.071872Z}
+    {id matcher-doc-split.num-memo, kind @complete, author "brendan@necessary.nu", at 2026-07-22T13:09:11.090772Z}
 )

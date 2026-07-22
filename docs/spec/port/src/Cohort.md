@@ -33,7 +33,7 @@
 >   ReadingList deleted;
 >   ReadingList delayed;
 >   ReadingList ignored;
->   num_t num_max, num_min;
+>   num_t num_max, num_min;  // PORT DIVERGENCE: not ported — memo deleted (matcher-doc-split.num-memo)
 >   uint32SortedVector dep_children;
 >   boost::dynamic_bitset<> possible_sets;
 >   RelationCtn relations;
@@ -154,6 +154,16 @@
 > Calls `updateMinMax()` to refresh the cache, then returns
 > `num_min[key]` if `key` is present in the `num_min` map, otherwise the
 > constant NUMERIC_MIN (= −(2^48) as a double, i.e. −281474976710656.0).
+>
+> PORT DIVERGENCE (operator decision, plan node
+> `matcher-doc-split.num-memo`): the `num_min`/`num_max` maps, the `num_t`
+> typedef, the `CT_NUM_CURRENT` validity bit, and `updateMinMax`'s memo
+> behavior are NOT ported — getMin/getMax compute the strict min/max of
+> `comparison_val` for the ONE requested `comparison_hash` on demand, over the
+> `readings` list only (`min_max_for_key`), with the same NUMERIC_MIN/MAX
+> fallbacks. Same values in all cases; the memo's seven scattered invalidation
+> clears go away, and the cohorts arena is shared (read-only) in the `Matcher`
+> view. Interleaved A/B measured the memo at 3-8% on amplified toy workloads.
 
 > [spec:cg3:def:cohort.cg3.cohort.num-t]
 > typedef bc::flat_map<uint32_t, double> num_t

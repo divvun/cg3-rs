@@ -509,7 +509,6 @@ impl super::Engine<'_> {
             readings.get_mut(read.0).number =
                 crate::inlines::ui32(sz.wrapping_mul(1000).wrapping_add(1000));
         }
-        cohort.r#type &= !crate::cohort::CT_NUM_CURRENT;
     }
 
     #[allow(unused_assignments, unused_variables)]

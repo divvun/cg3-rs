@@ -16,7 +16,7 @@
 //!
 //! Container substitutions:
 //! * `bc::flat_map` (boost ordered, sorted-by-key flat map) → [`BTreeMap`]
-//!   (same key ordering) for `RelationCtn` and `num_t`.
+//!   (same key ordering) for `RelationCtn`.
 //! * `std::unordered_map` → [`std::collections::HashMap`] for
 //!   `uint32ToCohortsMap`.
 
@@ -41,7 +41,8 @@ bitflags::bitflags! {
         const ENCLOSED = 1 << 0;
         const RELATED = 1 << 1;
         const REMOVED = 1 << 2;
-        const NUM_CURRENT = 1 << 3;
+        // bit 3 is the C++ CT_NUM_CURRENT getMin/getMax memo validity flag —
+        // not ported (the memo is deleted; min/max are computed on demand).
         const DEP_DONE = 1 << 4;
         const AP_UNKNOWN = 1 << 5;
         const IGNORED = 1 << 6;
@@ -52,7 +53,6 @@ bitflags::bitflags! {
 pub const CT_ENCLOSED: CohortType = CohortType::ENCLOSED;
 pub const CT_RELATED: CohortType = CohortType::RELATED;
 pub const CT_REMOVED: CohortType = CohortType::REMOVED;
-pub const CT_NUM_CURRENT: CohortType = CohortType::NUM_CURRENT;
 pub const CT_DEP_DONE: CohortType = CohortType::DEP_DONE;
 pub const CT_AP_UNKNOWN: CohortType = CohortType::AP_UNKNOWN;
 pub const CT_IGNORED: CohortType = CohortType::IGNORED;
@@ -74,9 +74,9 @@ pub type RelationCtn = BTreeMap<u32, uint32SortedVector>;
 pub type CohortVector = Vec<CohortId>;
 
 // [spec:cg3:def:cohort.cg3.cohort.num-t]
-/// C++ `typedef bc::flat_map<uint32_t, double> num_t` (member typedef of
-/// `Cohort`). Ordered flat map → [`BTreeMap`]; `double` → `f64`.
-pub type num_t = BTreeMap<u32, f64>;
+// C++ `typedef bc::flat_map<uint32_t, double> num_t` — the getMin/getMax memo
+// maps' member typedef. Not ported: the memo is deleted (see `min_max_for_key`),
+// so nothing carries the type.
 
 /// Comparator placeholder for [`CohortSet`] (C++ `struct compare_Cohort;`,
 /// forward-declared, defined in `Cohort.cpp`). Body deferred — see report.
@@ -138,8 +138,6 @@ pub struct Cohort {
     pub deleted: ReadingList,
     pub delayed: ReadingList,
     pub ignored: ReadingList,
-    pub num_max: num_t,
-    pub num_min: num_t,
     pub dep_children: uint32SortedVector,
     /// C++ `boost::dynamic_bitset<> possible_sets`.
     pub possible_sets: flags_t,
@@ -173,8 +171,6 @@ impl Default for Cohort {
             deleted: ReadingList::new(),
             delayed: ReadingList::new(),
             ignored: ReadingList::new(),
-            num_max: num_t::new(),
-            num_min: num_t::new(),
             dep_children: uint32SortedVector::new(),
             possible_sets: flags_t::new(),
             relations: RelationCtn::new(),
@@ -365,8 +361,6 @@ pub fn cohort_clear(
 
         c.text.clear();
         c.wblank.clear();
-        c.num_max.clear();
-        c.num_min.clear();
         c.dep_children.clear();
         c.possible_sets.clear();
         c.relations.clear();
@@ -424,10 +418,12 @@ pub fn detach(store: &mut RuntimeStore, this: CohortId) {
 /// 2-arg overload whose `ReadingList& readings` parameter shadows the member,
 /// letting it target ANY reading list. STORE-TAKING FREE FN (it reads/writes the
 /// appended `Reading`'s `number`). `list` is the external target list (e.g. the
-/// staging `ReadingList` at `GrammarApplicator_runGrammar.cpp:416`).
+/// staging `ReadingList` at `GrammarApplicator_runGrammar.cpp:416`). The cohort
+/// param is retained for the C++ method shape; its only use upstream was the
+/// deleted getMin/getMax memo invalidation (see `min_max_for_key`).
 pub fn append_reading_to(
     store: &mut RuntimeStore,
-    this: CohortId,
+    _this: CohortId,
     read: ReadingId,
     list: &mut ReadingList,
 ) {
@@ -436,7 +432,6 @@ pub fn append_reading_to(
     if store.readings.get(read.0).number == 0 {
         store.readings.get_mut(read.0).number = ui32(sz.wrapping_mul(1000).wrapping_add(1000));
     }
-    store.cohorts.get_mut(this.0).r#type &= !CT_NUM_CURRENT;
 }
 
 /// C++ 1-arg overload `void Cohort::appendReading(Reading* read)` — forwards to
@@ -454,16 +449,15 @@ pub fn append_reading(store: &mut RuntimeStore, this: CohortId, read: ReadingId)
     if readings.get(read.0).number == 0 {
         readings.get_mut(read.0).number = ui32(sz.wrapping_mul(1000).wrapping_add(1000));
     }
-    cohort.r#type &= !CT_NUM_CURRENT;
 }
 
 // [spec:cg3:def:cohort.cg3.cohort.allocate-append-reading-fn]
 // [spec:cg3:sem:cohort.cg3.cohort.allocate-append-reading-fn]
 /// C++ `Reading* Cohort::allocateAppendReading()` — allocates a fresh reading
 /// owned by this cohort (`alloc_reading(this)`), push_back's it onto the member
-/// `readings`, sets `number` from the post-push size ONLY when it is still 0
+/// `readings`, and sets `number` from the post-push size ONLY when it is still 0
 /// (dead in practice: `alloc_reading(this)` already stages a non-zero `number`
-/// from the pre-push count — reproduced literally), and clears `CT_NUM_CURRENT`.
+/// from the pre-push count — reproduced literally).
 pub fn allocate_append_reading(store: &mut RuntimeStore, this: CohortId) -> ReadingId {
     let read = alloc_reading(store, Some(this));
     let RuntimeStore {
@@ -475,7 +469,6 @@ pub fn allocate_append_reading(store: &mut RuntimeStore, this: CohortId) -> Read
     if readings.get(read.0).number == 0 {
         readings.get_mut(read.0).number = ui32(sz.wrapping_mul(1000).wrapping_add(1000));
     }
-    cohort.r#type &= !CT_NUM_CURRENT;
     read
 }
 
@@ -497,94 +490,81 @@ pub fn allocate_append_reading_copy(
     if readings.get(read.0).number == 0 {
         readings.get_mut(read.0).number = ui32(sz.wrapping_mul(1000).wrapping_add(1000));
     }
-    cohort.r#type &= !CT_NUM_CURRENT;
     read
 }
 
 // [spec:cg3:def:cohort.cg3.cohort.update-min-max-fn]
 // [spec:cg3:sem:cohort.cg3.cohort.update-min-max-fn]
-/// C++ (private) `void Cohort::updateMinMax()` — recomputes the per-
-/// comparison-hash numeric min/max cache. ARENA + GRAMMAR TAKING FREE FN: it
-/// WRITES the cohort's `num_min`/`num_max`/`CT_NUM_CURRENT` cache and reads each
-/// reading's `tags_numerical` (readings arena) whose values are `Tag`s (grammar
-/// arena) for `comparison_hash`/`comparison_val`. The split-arena signature is
-/// what lets the `Matcher` view (which holds the cohorts arena `&mut` for
-/// exactly this cache) call it.
-///
-/// Returns immediately when `CT_NUM_CURRENT` is set. Otherwise clears both maps,
-/// then over ONLY the `readings` list stores, per `tag->comparison_hash`, the
-/// strict min into `num_min` and the strict max into `num_max` (the C++
-/// `find(...) == end() || val < map[...]` short-circuit means an absent key is
-/// simply inserted, never default-read). Sets `CT_NUM_CURRENT` at the end.
-pub fn update_min_max(
-    cohorts: &mut GenArena<Cohort>,
+/// C++ (private) `void Cohort::updateMinMax()`, DIVERGENCE (operator decision,
+/// plan node `matcher-doc-split.num-memo`): the C++ maintains per-cohort
+/// `num_min`/`num_max` maps guarded by a `CT_NUM_CURRENT` validity flag that
+/// seven scattered mutation sites had to clear; the port computes the min/max
+/// for the ONE requested `comparison_hash` on demand instead (interleaved A/B
+/// put the memo's benefit at 3-8% on amplified toy workloads — below the
+/// complexity line, and it was the last write keeping the cohorts arena `&mut`
+/// in the `Matcher` view). Same fold, same values: over ONLY the `readings`
+/// list, for each `tags_numerical` tag whose `comparison_hash` is `key`, track
+/// the strict min and max of `comparison_val` (first-value-in on equality,
+/// exactly the C++ `find(...) == end() || val < map[...]` short-circuit).
+fn min_max_for_key(
+    cohorts: &GenArena<Cohort>,
     readings: &GenArena<Reading>,
     grammar: &Grammar,
     this: CohortId,
-) {
-    if cohorts.get(this.0).r#type.intersects(CT_NUM_CURRENT) {
-        return;
-    }
-    {
-        let c = cohorts.get_mut(this.0);
-        c.num_min.clear();
-        c.num_max.clear();
-    }
-    let reading_ids: Vec<ReadingId> = cohorts.get(this.0).readings.clone();
-    for rid in reading_ids {
-        let tags_numerical = &readings.get(rid.0).tags_numerical;
-        for &tid in tags_numerical.values() {
+    key: u32,
+) -> (Option<f64>, Option<f64>) {
+    let mut mn: Option<f64> = None;
+    let mut mx: Option<f64> = None;
+    for &rid in &cohorts.get(this.0).readings {
+        for &tid in readings.get(rid.0).tags_numerical.values() {
             let tag = grammar.single_tags_list.get(tid.0);
-            let ch = tag.comparison_hash;
-            let cv = tag.comparison_val;
-            let c = cohorts.get_mut(this.0);
-            if !c.num_min.contains_key(&ch) || cv < c.num_min[&ch] {
-                c.num_min.insert(ch, cv);
+            if tag.comparison_hash != key {
+                continue;
             }
-            if !c.num_max.contains_key(&ch) || cv > c.num_max[&ch] {
-                c.num_max.insert(ch, cv);
+            let cv = tag.comparison_val;
+            if mn.is_none_or(|v| cv < v) {
+                mn = Some(cv);
+            }
+            if mx.is_none_or(|v| cv > v) {
+                mx = Some(cv);
             }
         }
     }
-    cohorts.get_mut(this.0).r#type |= CT_NUM_CURRENT;
+    (mn, mx)
 }
 
 // [spec:cg3:def:cohort.cg3.cohort.get-min-fn]
 // [spec:cg3:sem:cohort.cg3.cohort.get-min-fn]
-/// C++ `double Cohort::getMin(uint32_t key)` — refreshes the cache via
-/// [`update_min_max`] then returns `num_min[key]` if present, else
-/// [`NUMERIC_MIN`]. Free fn (it calls the arena+grammar-taking `update_min_max`).
+/// C++ `double Cohort::getMin(uint32_t key)` — the minimum `comparison_val`
+/// among this cohort's readings for `key`, else [`NUMERIC_MIN`] (computed on
+/// demand; see [`min_max_for_key`] for the deleted-memo divergence).
 pub fn get_min(
-    cohorts: &mut GenArena<Cohort>,
+    cohorts: &GenArena<Cohort>,
     readings: &GenArena<Reading>,
     grammar: &Grammar,
     this: CohortId,
     key: u32,
 ) -> f64 {
-    update_min_max(cohorts, readings, grammar, this);
-    match cohorts.get(this.0).num_min.get(&key) {
-        Some(&v) => v,
-        None => NUMERIC_MIN,
-    }
+    min_max_for_key(cohorts, readings, grammar, this, key)
+        .0
+        .unwrap_or(NUMERIC_MIN)
 }
 
 // [spec:cg3:def:cohort.cg3.cohort.get-max-fn]
 // [spec:cg3:sem:cohort.cg3.cohort.get-max-fn]
-/// C++ `double Cohort::getMax(uint32_t key)` — refreshes the cache via
-/// [`update_min_max`] then returns `num_max[key]` if present, else
-/// [`NUMERIC_MAX`].
+/// C++ `double Cohort::getMax(uint32_t key)` — the maximum `comparison_val`
+/// among this cohort's readings for `key`, else [`NUMERIC_MAX`] (computed on
+/// demand; see [`min_max_for_key`] for the deleted-memo divergence).
 pub fn get_max(
-    cohorts: &mut GenArena<Cohort>,
+    cohorts: &GenArena<Cohort>,
     readings: &GenArena<Reading>,
     grammar: &Grammar,
     this: CohortId,
     key: u32,
 ) -> f64 {
-    update_min_max(cohorts, readings, grammar, this);
-    match cohorts.get(this.0).num_max.get(&key) {
-        Some(&v) => v,
-        None => NUMERIC_MAX,
-    }
+    min_max_for_key(cohorts, readings, grammar, this, key)
+        .1
+        .unwrap_or(NUMERIC_MAX)
 }
 
 // [spec:cg3:def:cohort.cg3.cohort.set-related-fn]

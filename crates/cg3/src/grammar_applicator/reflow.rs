@@ -54,7 +54,7 @@
 
 use super::{Engine, Matcher};
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
-use crate::cohort::{CT_DEP_DONE, CT_ENCLOSED, CT_IGNORED, CT_NUM_CURRENT, CT_REMOVED};
+use crate::cohort::{CT_DEP_DONE, CT_ENCLOSED, CT_IGNORED, CT_REMOVED};
 use crate::inlines::{erase, hash_value, insert_if_exists, ui32};
 use crate::reading::{Reading, ReadingList, alloc_reading_copy, free_reading, reading_rehash};
 use crate::tag::{
@@ -821,7 +821,6 @@ impl Engine<'_> {
                 .get_mut(reading.0)
                 .tags_numerical
                 .insert(thash.get(), tag);
-            self.doc.store.cohorts.get_mut(parent.unwrap().0).r#type &= !CT_NUM_CURRENT;
         }
         if self.doc.store.readings.get(reading.0).baseform.is_none()
             && (ttype.intersects(T_BASEFORM))
@@ -986,8 +985,6 @@ impl Engine<'_> {
             self.doc.store.readings.get_mut(reading.0).baseform = None;
         }
         reading_rehash(&mut self.doc.store.readings, self.grammar, reading);
-        let parent = self.doc.store.readings.get(reading.0).parent.unwrap();
-        self.doc.store.cohorts.get_mut(parent.0).r#type &= !CT_NUM_CURRENT;
     }
 
     // =======================================================================

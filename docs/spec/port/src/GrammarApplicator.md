@@ -217,10 +217,12 @@
 > family, `generateVarstringTag`/`addTag`, `get_attach_to`/`get_mark`/
 > `set_mark`/`check_unif_tags`) lives on the `Matcher` sub-view of `Engine`
 > (`Engine::matcher()`), whose field-level borrows hold the document read-only
-> apart from two narrow write capabilities (`readings` transient-slot
-> alloc/free + `reflowTextuals`' derived `tags_textual`; the `cohorts`
-> getMin/getMax numeric memo). Signatures and behavior are otherwise per the
-> C++; action-layer callers go through thin `Engine` forwarders.
+> apart from one narrow write capability (`readings` transient-slot
+> alloc/free + `reflowTextuals`' derived `tags_textual`); the cohorts arena is
+> fully shared since the getMin/getMax numeric memo is deleted
+> (`matcher-doc-split.num-memo`, see Cohort.md). Signatures and behavior are
+> otherwise per the C++; action-layer callers go through thin `Engine`
+> forwarders.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
 > void addProfilingExample(T& item)

@@ -196,14 +196,14 @@ pub fn tag_set_subset_of_t_set(
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.test-tag-numerical-fn]
 /// C++ free fn `uint32_t test_tag_numerical(const Reading&, const Tag& tag,
 /// const Tag& itag)`. Kept a free fn (arena model): `reading.parent->getMin/getMax`
-/// WRITE the cohort's num-min/max cache and read the readings + grammar arenas,
-/// so exactly those are threaded in (`Reading&` → `ReadingId`) — the split that
-/// lets the `Matcher` view call it. Compares the query numeric tag against a
-/// reading's numeric tag, returning `itag.hash` on a match else 0. `compval`
-/// derives from the query `tag`; the threshold `V` and operator `B` from the
-/// reading's `itag`.
+/// read the cohorts + readings + grammar arenas (min/max computed on demand —
+/// the C++ memo is deleted, see `cohort::min_max_for_key`), so exactly those
+/// are threaded in (`Reading&` → `ReadingId`). Compares the query numeric tag
+/// against a reading's numeric tag, returning `itag.hash` on a match else 0.
+/// `compval` derives from the query `tag`; the threshold `V` and operator `B`
+/// from the reading's `itag`.
 pub fn test_tag_numerical(
-    cohorts: &mut GenArena<crate::cohort::Cohort>,
+    cohorts: &GenArena<crate::cohort::Cohort>,
     readings: &GenArena<crate::reading::Reading>,
     grammar: &Grammar,
     reading: ReadingId,

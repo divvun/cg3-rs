@@ -772,6 +772,34 @@ children (
                     }
                 )
             }
+
+            {
+                id matcher-doc-split.num-memo
+                title "Complete the fence: benchmark then resolve the Cohort getMin/getMax numeric memo (num_min/num_max + CT_NUM_CURRENT, 7 scattered invalidation clears) — if noise, delete it and compute min/max on demand, flipping Matcher.cohorts from &mut to & so the whole cohort arena is compiler-proven read-only during matching"
+                priority 2
+                log (
+                    {
+                        at 2026-07-22T12:56:25.667071Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T13:09:05.153361Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Benchmark (interleaved A/B, min of 4, memo-read-disabled binary vs base, incl. the amplified T_NumericalTags MIN/MAX fixture): the memo is worth 3-8% — real but small, and per the standing operator ruling (\"we can implement better optimisations if we ever need them\") it is DELETED rather than evicted: num_min/num_max fields, the num_t typedef, the CT_NUM_CURRENT bit, all 7 scattered invalidation clears, and update_min_max's memo behavior are gone; get_min/get_max compute the strict min/max for the requested comparison_hash on demand over the readings list (min_max_for_key, carrying the update-min-max spec ids). CohortType keeps bit 3 as a documented gap so the other bits stay C++-aligned. Matcher.cohorts flipped &mut → & — the fence is COMPLETE: the readings arena's transient-slot convention is now the ONLY document write capability in the matcher view. Byte-identical vs pre-change binary on five workloads x plain+trace (10/10), incl. the numeric fixture. If a real grammar ever needs the 3-8% back, the recorded path is a scratch-resident memo (RuleScratch-keyed, invalidated at the same 7 engine sites), not a document-resident one."
+                    }
+
+                    {
+                        at 2026-07-22T13:09:11.090772Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
+            }
         )
     }
 )
