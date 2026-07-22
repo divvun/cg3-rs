@@ -661,4 +661,58 @@ children (
             }
         )
     }
+
+    {
+        id matcher-doc-split
+        title "Separate pure match logic from mutable content: evict rule-scoped match bookkeeping from the Document so the matcher reads {cfg, doc} shared and writes only {scratch, grammar-interning}, ending with a compiler-enforced read-only document during matching"
+        priority 2
+        children (
+            {
+                id matcher-doc-split.possible-sets-prune
+                title "Benchmark then (if noise) delete the matcher's one possible_sets negative write (match_set.rs careful-prune, C++ matchSet.cpp:1048 reset) — same assumed-non-matching pattern as the condemned visited-set; possible_sets remains a reflow/parser-maintained index the matcher only reads"
+                priority 2
+                log (
+                    {
+                        at 2026-07-22T11:34:04.23118Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T11:39:22.59769Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Benchmark verdict (interleaved A/B, min of 4 rounds, prune-write-disabled binary vs pristine): T_Dependency 4.84 vs 4.79, T_RegExp 4.35 vs 4.18, T_Unification 2.28 vs 2.22, T_Templates 0.80 vs 0.75 — the prune is equal-or-slower than not pruning on every workload, output byte-identical everywhere. Deleted per the standing assumed-non-matching rule (same as index_ruleCohort_no). The matcher is now a pure READER of possible_sets; the index is maintained solely by reflow + the stream parsers."
+                    }
+
+                    {
+                        at 2026-07-22T11:39:27.640627Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
+            }
+
+            {
+                id matcher-doc-split.matched-flags
+                title "Evict matched_target/matched_tests from Reading into RuleScratch id-sets: rule-scoped booleans stored on document readings, written by the matcher, read by SELECT/IFF finalisation, cleared everywhere — including the bag-merge propagation (run_rules/window.rs) and the readings_plain replay (single_rule.rs)"
+                priority 2
+            }
+
+            {
+                id matcher-doc-split.bag-readings
+                title "Rehome the temp bag readings (sub-reading ANY merge) out of the document reading arena: run_contextual_test allocs+frees a merged bag in doc.store mid-match; give scratch its own pool or match the bag by value"
+                priority 2
+            }
+
+            {
+                id matcher-doc-split.matcher-view
+                title "Introduce the Matcher<'_> split-borrow view {cfg: &, doc: &Document, scratch: &mut, grammar: &mut} and move the predicate/test tree (match_set.rs, run_contextual_test.rs, the window.rs match helpers) onto it — the compiler then proves matching cannot modify the document"
+                priority 2
+                deps (matcher-doc-split.possible-sets-prune matcher-doc-split.matched-flags matcher-doc-split.bag-readings)
+            }
+        )
+    }
 )

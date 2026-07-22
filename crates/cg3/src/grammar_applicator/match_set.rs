@@ -1422,30 +1422,19 @@ impl Engine<'_> {
             .map(|c| !c.matched_target && c.options.intersects(POS_NOT))
             .unwrap_or(false);
         if do_tl {
-            let ctx = context.as_deref_mut().unwrap();
+            let ctx = context.unwrap();
             retval = self.does_set_match_cohort_test_linked(cohort, set, ctx);
         }
 
-        // possible_sets pruning.
-        if let Some(ctx) = context.as_deref()
-            && !ctx.matched_target
-            && !ctx.options.intersects(POS_ACTIVE | POS_INACTIVE)
-        {
-            let in_sets_any = match &self.grammar.sets_any {
-                Some(sa) => (set as usize) < sa.len() && sa[set as usize],
-                None => false,
-            };
-            if !in_sets_any {
-                let was_sub = ctx
-                    .test
-                    .map(|t| self.grammar.contexts_arena[t.0].offset_sub != 0)
-                    .unwrap_or(false);
-                let ps_len = self.doc.store.cohorts.get(cohort.0).possible_sets.len();
-                if !was_sub && (set as usize) < ps_len {
-                    self.doc.store.cohorts.get_mut(cohort.0).possible_sets[set as usize] = false;
-                }
-            }
-        }
+        // DIVERGENCE (operator decision, plan node
+        // `matcher-doc-split.possible-sets-prune`): the C++ possible_sets
+        // pruning that sat here (`cohort.possible_sets.reset(set)` on a failed
+        // non-ACTIVE/INACTIVE match, matchSet.cpp:1048) is deleted, not ported —
+        // the same assumed-non-matching pattern as the dropped
+        // index_ruleCohort_no visited-set, and interleaved A/B put its benefit
+        // at noise level. `possible_sets` remains the conservative may-match
+        // index maintained by reflow and the stream parsers; the matcher only
+        // READS it.
 
         retval
     }

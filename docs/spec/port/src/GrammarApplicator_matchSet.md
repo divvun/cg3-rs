@@ -196,6 +196,16 @@
 > != 0)`; if `!was_sub && set < cohort.possible_sets.size()`, clear the bit
 > `cohort.possible_sets.reset(set)` so future tests of this set on this cohort
 > short-circuit. Return `retval`.
+>
+> PORT DIVERGENCE (operator decision, plan node
+> `matcher-doc-split.possible-sets-prune`): the possible_sets pruning step is
+> NOT ported — it is the same assumed-non-matching pattern as the deleted
+> `index_ruleCohort_no` visited-set, and interleaved benchmarking put its
+> benefit at noise level. In the port `possible_sets` is maintained only by
+> reflow and the stream parsers (a conservative may-match index); the matcher
+> reads it but never writes it, so a failed careful match leaves the bit set
+> and future tests simply re-evaluate. All reads (the early-out guards above
+> and the runRules target pre-filter) are unchanged.
 
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn]
 > inline bool GrammarApplicator::doesSetMatchCohort_testLinked(Cohort& cohort, const Set& theset, dSMC_Context* context)
