@@ -31,7 +31,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use crate::arena::{CohortId, CtxId, ReadingId, RuleId, TagId};
+use crate::arena::{CohortId, CtxId, GenArena, ReadingId, RuleId, SetId, SwId, TagId};
 use crate::cohort_iterator::{
     CohortIterator, DepAncestorIter, DepDescendentIter, DepParentIter, TopologyLeftIter,
     TopologyRightIter,
@@ -798,7 +798,8 @@ impl GrammarApplicator {
 /// receiver. Peeled method clusters (Stage-C decomposition) live in `impl
 /// Engine<'_>` blocks in the partial modules that own their C++ translation
 /// unit; a method takes the narrowest borrow subset it needs by pattern-binding
-/// the fields it touches.
+/// the fields it touches. The predicate/test tree lives one level further down,
+/// on the [`Matcher`] sub-view ([`Engine::matcher`]).
 pub struct Engine<'a> {
     pub cfg: &'a EngineConfig,
     pub doc: &'a mut Document,
@@ -810,4 +811,208 @@ pub struct Engine<'a> {
     /// `generate_varstring_tag`. Held `&mut` so that single write path can
     /// intern into the tag arenas; every other peeled method only reads it.
     pub grammar: &'a mut crate::grammar::Grammar,
+}
+
+/// Split-borrow sub-view of [`Engine`] for the predicate/test tree — the
+/// `matchSet.cpp` + `runContextualTest.cpp` method knot plus the match-support
+/// helpers it transitively calls (`get_sub_reading`, `doesWordformsMatch`,
+/// `generateVarstringTag`/`addTag`, the context-frame accessors). The C++ runs
+/// this tree on the same mutable god object as the rule actions; the port's
+/// field-level borrows are the proof that matching only *reads* the document
+/// model, with exactly two narrow, cache/transient-shaped write capabilities:
+///
+/// * [`readings`](Matcher::readings) is the one `&mut` arena hole. Convention:
+///   the matcher may only alloc/free TRANSIENT slots — the `get_sub_reading`
+///   `GSR_ANY` amalgam (freed per cohort via the engine's `subs_any_clear`) and
+///   the `match_bag_of_tags` bag clone (freed before returning) — plus the
+///   `reflowTextuals` re-derivation reached through runtime `addTag` interning
+///   (`tags_textual` is derived data). It never edits a document reading's
+///   model state.
+/// * [`cohorts`](Matcher::cohorts) is `&mut` ONLY for the C++
+///   `Cohort::getMin`/`getMax` numeric-tag memo (`num_min`/`num_max` +
+///   `CT_NUM_CURRENT`), reached via `test_tag_numerical`. That cache is written
+///   on first use exactly as in the C++ (`updateMinMax` is non-const there
+///   too); no other cohort field is written by the tree.
+///
+/// Everything else the tree touches on the document — the single-window arena,
+/// the [`WindowStream`](crate::window::WindowStream) spanning links, the
+/// [`CohortRegistry`](crate::window::CohortRegistry) `cohort_map`, the global
+/// `variables`, the `num_lines` counter — is held by shared reference.
+/// Match STATE goes to [`scratch`](Matcher::scratch) (captures, unification,
+/// memo indexes, matched-flag sets) and tag interning to
+/// [`grammar`](Matcher::grammar) (append-only, per the [`Engine`] convention).
+/// `Engine.doc.deps` and `Engine.diag` are not represented: the tree never
+/// reads dependency bookkeeping directly (dep tests resolve through
+/// `cohort_map` and per-cohort `dep_*` fields) and has no live profiler hook.
+///
+/// Action-layer code never holds a `Matcher`; it calls the thin `Engine`
+/// forwarders below, each of which split-borrows a fresh view per call.
+pub struct Matcher<'a> {
+    pub cfg: &'a EngineConfig,
+    /// `doc.store.cohorts` — read-only EXCEPT the getMin/getMax numeric memo
+    /// (see the type-level doc).
+    pub cohorts: &'a mut GenArena<crate::cohort::Cohort>,
+    /// `doc.store.single_windows` — read-only.
+    pub single_windows: &'a GenArena<crate::single_window::SingleWindow>,
+    /// `doc.store.readings` — the transient-slot `&mut` hole (see the
+    /// type-level doc).
+    pub readings: &'a mut GenArena<crate::reading::Reading>,
+    /// `doc.stream` — window spanning (previous/current/next), read-only.
+    pub stream: &'a crate::window::WindowStream,
+    /// `doc.cohorts` — the global cohort registry (`cohort_map`), read-only.
+    pub registry: &'a crate::window::CohortRegistry,
+    /// `doc.variables` — the run-time global variables, read-only (the matcher
+    /// only tests them; SETVARIABLE is an action).
+    pub variables: &'a Uint32FlatHashMap,
+    /// `doc.num_lines` — read by the runtime `addTag` error path.
+    pub num_lines: &'a u32,
+    /// Declared match state: captures, unification, memo indexes, the
+    /// matched-flag sets, iterator pools, the context stack.
+    pub scratch: &'a mut RuleScratch,
+    /// Tag interning (append-only), per the [`Engine::grammar`] convention;
+    /// also the `POS_TMPL_OVERRIDE` save/restore on `contexts_arena`.
+    pub grammar: &'a mut crate::grammar::Grammar,
+}
+
+impl Engine<'_> {
+    /// Splits this view into the [`Matcher`] sub-view for the predicate/test
+    /// tree, by disjoint field borrows of `doc`/`doc.store` (see [`Matcher`]
+    /// for the capability contract each field carries).
+    pub fn matcher(&mut self) -> Matcher<'_> {
+        let Document {
+            store,
+            stream,
+            cohorts: registry,
+            variables,
+            num_lines,
+            ..
+        } = &mut *self.doc;
+        let crate::store::RuntimeStore {
+            cohorts,
+            readings,
+            single_windows,
+        } = store;
+        Matcher {
+            cfg: self.cfg,
+            cohorts,
+            single_windows,
+            readings,
+            stream,
+            registry,
+            variables,
+            num_lines,
+            scratch: self.scratch,
+            grammar: self.grammar,
+        }
+    }
+}
+
+// The action layer's entry points into the [`Matcher`] tree: thin forwarders
+// that split-borrow a fresh sub-view per call. Signatures are the C++ ones
+// (annotated on the `impl Matcher` bodies); only what run_rules / run_grammar /
+// reflow / the stream applicators actually call is forwarded.
+impl Engine<'_> {
+    pub fn does_set_match_reading(
+        &mut self,
+        reading: ReadingId,
+        set: u32,
+        bypass_index: bool,
+        unif_mode: bool,
+    ) -> bool {
+        self.matcher()
+            .does_set_match_reading(reading, set, bypass_index, unif_mode)
+    }
+
+    pub fn does_set_match_cohort_normal(
+        &mut self,
+        cohort: CohortId,
+        set: u32,
+        context: Option<&mut dSMC_Context>,
+    ) -> bool {
+        self.matcher()
+            .does_set_match_cohort_normal(cohort, set, context)
+    }
+
+    pub fn does_tag_match_reading(
+        &mut self,
+        reading: ReadingId,
+        tag: &crate::tag::Tag,
+        unif_mode: bool,
+        bypass_index: bool,
+    ) -> u32 {
+        self.matcher()
+            .does_tag_match_reading(reading, tag, unif_mode, bypass_index)
+    }
+
+    pub fn does_tag_match_regexp(
+        &mut self,
+        test: u32,
+        tag: &crate::tag::Tag,
+        bypass_index: bool,
+    ) -> u32 {
+        self.matcher()
+            .does_tag_match_regexp(test, tag, bypass_index)
+    }
+
+    pub fn does_tag_match_icase(
+        &mut self,
+        test: u32,
+        tag: &crate::tag::Tag,
+        bypass_index: bool,
+    ) -> u32 {
+        self.matcher().does_tag_match_icase(test, tag, bypass_index)
+    }
+
+    pub fn get_tags_matching(
+        &mut self,
+        reading: ReadingId,
+        the_tags: &TagList,
+        rv_tags: &mut TagList,
+    ) {
+        self.matcher().get_tags_matching(reading, the_tags, rv_tags)
+    }
+
+    pub fn run_contextual_test(
+        &mut self,
+        sw: Option<SwId>,
+        position: u32,
+        test: CtxId,
+        deep: Option<&mut Option<CohortId>>,
+        origin: Option<CohortId>,
+    ) -> Option<CohortId> {
+        self.matcher()
+            .run_contextual_test(sw, position, test, deep, origin)
+    }
+
+    pub fn get_sub_reading(&mut self, tr: ReadingId, sub_reading: i32) -> Option<ReadingId> {
+        self.matcher().get_sub_reading(tr, sub_reading)
+    }
+
+    pub fn does_wordforms_match(&mut self, cword: Option<TagId>, rword: Option<TagId>) -> bool {
+        self.matcher().does_wordforms_match(cword, rword)
+    }
+
+    pub fn generate_varstring_tag(&mut self, tag: &crate::tag::Tag) -> TagId {
+        self.matcher().generate_varstring_tag(tag)
+    }
+
+    pub fn add_tag(&mut self, txt: &str, r#type: crate::tag::TagType) -> TagId {
+        self.matcher().add_tag(txt, r#type)
+    }
+
+    pub(crate) fn get_tag_list_of_set(&mut self, set: SetId, unif_mode: bool) -> TagList {
+        self.matcher().get_tag_list_of_set(set, unif_mode)
+    }
+
+    pub(crate) fn get_tag_list_of_set_number(&mut self, number: u32, unif_mode: bool) -> TagList {
+        self.matcher().get_tag_list_of_set_number(number, unif_mode)
+    }
+
+    pub fn get_attach_to(&mut self) -> ReadingSpec {
+        self.matcher().get_attach_to()
+    }
+
+    pub fn set_mark(&mut self, cohort: Option<CohortId>) {
+        self.matcher().set_mark(cohort)
+    }
 }

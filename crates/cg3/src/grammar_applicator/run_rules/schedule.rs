@@ -193,9 +193,19 @@ impl crate::grammar_applicator::Engine<'_> {
                 .as_slice()
                 .to_vec();
             v.sort_by(|&a, &b| {
-                if crate::single_window::less_cohort(&self.doc.store, a, b) {
+                if crate::single_window::less_cohort(
+                    &self.doc.store.cohorts,
+                    &self.doc.store.single_windows,
+                    a,
+                    b,
+                ) {
                     std::cmp::Ordering::Less
-                } else if crate::single_window::less_cohort(&self.doc.store, b, a) {
+                } else if crate::single_window::less_cohort(
+                    &self.doc.store.cohorts,
+                    &self.doc.store.single_windows,
+                    b,
+                    a,
+                ) {
                     std::cmp::Ordering::Greater
                 } else {
                     std::cmp::Ordering::Equal
@@ -380,25 +390,10 @@ impl crate::grammar_applicator::Engine<'_> {
 }
 
 impl crate::grammar_applicator::Engine<'_> {
-    /// C++ `subs_any.emplace_back(...)` bookkeeping helper. Peeled onto the
-    /// split-borrow `Engine<'_>` view: it is called from `get_sub_reading`,
-    /// which the contextual matcher knot reaches.
-    ///
-    /// RECONCILIATION (see `get_sub_reading` doc + report): the C++ `subs_any` is
-    /// a `std::deque<Reading>` of amalgamated sub-readings; in the arena model the
-    /// amalgam is allocated in `self.doc.store.readings` and only its `ReadingId` is
-    /// tracked here, so `subs_any` must become `Vec<ReadingId>` (a NOTED mod.rs
-    /// field change — currently `VecDeque<Reading>`). `clear(subs_any)` at each
-    /// cohort frees these ids back to the readings arena.
-    pub(crate) fn subs_any_push(&mut self, rid: ReadingId) {
-        self.scratch.subs_any.push(rid);
-    }
-}
-
-impl crate::grammar_applicator::Engine<'_> {
     /// `clear(subs_any)` — free every amalgamated sub-reading back to the readings
     /// arena and empty the tracking vector. RECONCILIATION: matches the required
-    /// `Vec<ReadingId>` shape of `subs_any` (see [`Self::subs_any_push`]).
+    /// `Vec<ReadingId>` shape of `subs_any` (ids pushed by the GSR_ANY amalgam
+    /// build in `Matcher::get_sub_reading`).
     pub(crate) fn subs_any_clear(&mut self) {
         let ids: Vec<ReadingId> = self.scratch.subs_any.to_vec();
         for rid in ids {

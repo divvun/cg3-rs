@@ -362,24 +362,29 @@ pub fn reading_copy(store: &mut RuntimeStore, r: &Reading) -> Reading {
 /// C++ `uint32_t Reading::rehash()` — recomputes and caches `hash`/`hash_plain`
 /// for the reading at `id` and returns the new `hash`.
 ///
-/// STORE + GRAMMAR TAKING FREE FN (not `&mut self`): the fold needs
+/// READINGS-ARENA + GRAMMAR TAKING FREE FN (not `&mut self`): the fold needs
 /// `mapping->hash` (a `Tag` in the grammar arena) and the `next->rehash()`
-/// recursion needs the reading arena.
+/// recursion needs the reading arena — and ONLY that arena, so the `Matcher`
+/// view's `&mut` readings hole can rehash its transient amalgam.
 ///
 /// NOTE: the Wave-2 task brief's description of this fn ("baseform + parent-hash
 /// XOR + bloom rebuild") does not match `Reading::rehash`; the actual algorithm
 /// (per `Reading.cpp` / the `rehash-fn` sem) is the tags-fold + mapping + next
 /// chain below.
-pub fn reading_rehash(store: &mut RuntimeStore, grammar: &Grammar, id: ReadingId) -> u32 {
+pub fn reading_rehash(
+    readings: &mut crate::arena::GenArena<Reading>,
+    grammar: &Grammar,
+    id: ReadingId,
+) -> u32 {
     // mapping->hash, resolved once (None when there is no mapping tag).
-    let mapping = store.readings.get(id.0).mapping;
+    let mapping = readings.get(id.0).mapping;
     let mapping_hash = mapping.map(|tid| grammar.single_tags_list.get(tid.0).hash);
 
     // hash = 0; hash_plain = 0; then fold the sorted tags, skipping the mapping
     // tag's own hash (if !mapping || mapping->hash != iter).
     let mut hash: u32 = 0;
     {
-        let r = store.readings.get(id.0);
+        let r = readings.get(id.0);
         for &iter in r.tags.iter() {
             let fold = match mapping_hash {
                 None => true,
@@ -394,14 +399,14 @@ pub fn reading_rehash(store: &mut RuntimeStore, grammar: &Grammar, id: ReadingId
     if let Some(mh) = mapping_hash {
         hash = hash_value(mh.get(), hash);
     }
-    let next = store.readings.get(id.0).next;
+    let next = readings.get(id.0).next;
     if let Some(next_id) = next {
-        reading_rehash(store, grammar, next_id);
-        let next_hash = store.readings.get(next_id.0).hash;
+        reading_rehash(readings, grammar, next_id);
+        let next_hash = readings.get(next_id.0).hash;
         hash = hash_value(next_hash, hash);
     }
     {
-        let r = store.readings.get_mut(id.0);
+        let r = readings.get_mut(id.0);
         r.hash = hash;
         r.hash_plain = hash_plain;
     }

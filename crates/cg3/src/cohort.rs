@@ -22,7 +22,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use crate::arena::{CohortId, ReadingId, SwId, TagId};
+use crate::arena::{CohortId, GenArena, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, ui32};
 use crate::reading::{Reading, ReadingList, alloc_reading, alloc_reading_copy, free_reading};
@@ -504,19 +504,24 @@ pub fn allocate_append_reading_copy(
 // [spec:cg3:def:cohort.cg3.cohort.update-min-max-fn]
 // [spec:cg3:sem:cohort.cg3.cohort.update-min-max-fn]
 /// C++ (private) `void Cohort::updateMinMax()` — recomputes the per-
-/// comparison-hash numeric min/max cache. STORE + GRAMMAR TAKING FREE FN: it
-/// reads each reading's `tags_numerical` (readings arena) whose values are `Tag`s
-/// (grammar arena) for `comparison_hash`/`comparison_val`.
+/// comparison-hash numeric min/max cache. ARENA + GRAMMAR TAKING FREE FN: it
+/// WRITES the cohort's `num_min`/`num_max`/`CT_NUM_CURRENT` cache and reads each
+/// reading's `tags_numerical` (readings arena) whose values are `Tag`s (grammar
+/// arena) for `comparison_hash`/`comparison_val`. The split-arena signature is
+/// what lets the `Matcher` view (which holds the cohorts arena `&mut` for
+/// exactly this cache) call it.
 ///
 /// Returns immediately when `CT_NUM_CURRENT` is set. Otherwise clears both maps,
 /// then over ONLY the `readings` list stores, per `tag->comparison_hash`, the
 /// strict min into `num_min` and the strict max into `num_max` (the C++
 /// `find(...) == end() || val < map[...]` short-circuit means an absent key is
 /// simply inserted, never default-read). Sets `CT_NUM_CURRENT` at the end.
-pub fn update_min_max(store: &mut RuntimeStore, grammar: &Grammar, this: CohortId) {
-    let RuntimeStore {
-        cohorts, readings, ..
-    } = store;
+pub fn update_min_max(
+    cohorts: &mut GenArena<Cohort>,
+    readings: &GenArena<Reading>,
+    grammar: &Grammar,
+    this: CohortId,
+) {
     if cohorts.get(this.0).r#type.intersects(CT_NUM_CURRENT) {
         return;
     }
@@ -548,10 +553,16 @@ pub fn update_min_max(store: &mut RuntimeStore, grammar: &Grammar, this: CohortI
 // [spec:cg3:sem:cohort.cg3.cohort.get-min-fn]
 /// C++ `double Cohort::getMin(uint32_t key)` — refreshes the cache via
 /// [`update_min_max`] then returns `num_min[key]` if present, else
-/// [`NUMERIC_MIN`]. Free fn (it calls the store+grammar-taking `update_min_max`).
-pub fn get_min(store: &mut RuntimeStore, grammar: &Grammar, this: CohortId, key: u32) -> f64 {
-    update_min_max(store, grammar, this);
-    match store.cohorts.get(this.0).num_min.get(&key) {
+/// [`NUMERIC_MIN`]. Free fn (it calls the arena+grammar-taking `update_min_max`).
+pub fn get_min(
+    cohorts: &mut GenArena<Cohort>,
+    readings: &GenArena<Reading>,
+    grammar: &Grammar,
+    this: CohortId,
+    key: u32,
+) -> f64 {
+    update_min_max(cohorts, readings, grammar, this);
+    match cohorts.get(this.0).num_min.get(&key) {
         Some(&v) => v,
         None => NUMERIC_MIN,
     }
@@ -562,9 +573,15 @@ pub fn get_min(store: &mut RuntimeStore, grammar: &Grammar, this: CohortId, key:
 /// C++ `double Cohort::getMax(uint32_t key)` — refreshes the cache via
 /// [`update_min_max`] then returns `num_max[key]` if present, else
 /// [`NUMERIC_MAX`].
-pub fn get_max(store: &mut RuntimeStore, grammar: &Grammar, this: CohortId, key: u32) -> f64 {
-    update_min_max(store, grammar, this);
-    match store.cohorts.get(this.0).num_max.get(&key) {
+pub fn get_max(
+    cohorts: &mut GenArena<Cohort>,
+    readings: &GenArena<Reading>,
+    grammar: &Grammar,
+    this: CohortId,
+    key: u32,
+) -> f64 {
+    update_min_max(cohorts, readings, grammar, this);
+    match cohorts.get(this.0).num_max.get(&key) {
         Some(&v) => v,
         None => NUMERIC_MAX,
     }

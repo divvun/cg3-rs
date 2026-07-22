@@ -232,22 +232,38 @@ fn cohort_numeric_min_max() {
     store.readings.get_mut(r1.0).tags_numerical.insert(h5, t5);
     store.readings.get_mut(r2.0).tags_numerical.insert(h10, t10);
 
-    update_min_max(&mut store, &g, c);
+    update_min_max(&mut store.cohorts, &store.readings, &g, c);
     assert!(store.cohorts.get(c.0).r#type.intersects(CT_NUM_CURRENT));
-    assert_eq!(get_min(&mut store, &g, c, key), 5.0);
-    assert_eq!(get_max(&mut store, &g, c, key), 10.0);
+    assert_eq!(
+        get_min(&mut store.cohorts, &store.readings, &g, c, key),
+        5.0
+    );
+    assert_eq!(
+        get_max(&mut store.cohorts, &store.readings, &g, c, key),
+        10.0
+    );
     // Absent key -> sentinel extremes.
-    assert_eq!(get_min(&mut store, &g, c, 0xDEAD), NUMERIC_MIN);
-    assert_eq!(get_max(&mut store, &g, c, 0xDEAD), NUMERIC_MAX);
+    assert_eq!(
+        get_min(&mut store.cohorts, &store.readings, &g, c, 0xDEAD),
+        NUMERIC_MIN
+    );
+    assert_eq!(
+        get_max(&mut store.cohorts, &store.readings, &g, c, 0xDEAD),
+        NUMERIC_MAX
+    );
 
     // Cache: adding a smaller value is invisible until CT_NUM_CURRENT drops.
     let t1 = g.allocate_tag("<n=1>");
     let h1 = g.single_tags_list[t1.0].hash.get();
     store.readings.get_mut(r1.0).tags_numerical.insert(h1, t1);
-    assert_eq!(get_min(&mut store, &g, c, key), 5.0, "stale cache honoured");
+    assert_eq!(
+        get_min(&mut store.cohorts, &store.readings, &g, c, key),
+        5.0,
+        "stale cache honoured"
+    );
     store.cohorts.get_mut(c.0).r#type &= !CT_NUM_CURRENT;
     assert_eq!(
-        get_min(&mut store, &g, c, key),
+        get_min(&mut store.cohorts, &store.readings, &g, c, key),
         1.0,
         "recomputed after inval"
     );
@@ -376,18 +392,18 @@ fn topology_iterators() {
 
     // Left from c3: skips enclosed c2, lands on c1; then walks off the front.
     let mut li = TopologyLeftIter::new(Some(c3), Some(ctx0), false);
-    li.advance(&store, &g);
+    li.advance(&store.cohorts, &g);
     assert_eq!(li.base.current(), Some(c1), "enclosed cohort skipped");
-    li.advance(&store, &g);
+    li.advance(&store.cohorts, &g);
     assert_eq!(li.base.current(), None);
 
     // Right from c3 without span: c4 is in the next window -> boundary -> end.
     let mut ri = TopologyRightIter::new(Some(c3), Some(ctx0), false);
-    ri.advance(&store, &g);
+    ri.advance(&store.cohorts, &g);
     assert_eq!(ri.base.current(), None, "window boundary without span");
     // With POS_SPAN_BOTH the boundary may be crossed.
     let mut ri = TopologyRightIter::new(Some(c3), Some(ctx_span), false);
-    ri.advance(&store, &g);
+    ri.advance(&store.cohorts, &g);
     assert_eq!(ri.base.current(), Some(c4), "spanning test crosses windows");
 }
 
@@ -405,18 +421,34 @@ fn dep_parent_iterator() {
     let mut g = Grammar::default();
     let ctx = g.allocate_contextual_test();
 
-    let mut it = DepParentIter::new(Some(c3), Some(ctx), false, &store, &g, &w.cohorts);
+    let mut it = DepParentIter::new(
+        Some(c3),
+        Some(ctx),
+        false,
+        &store.cohorts,
+        &store.single_windows,
+        &g,
+        &w.cohorts,
+    );
     assert_eq!(
         it.base.current(),
         Some(c2),
         "ctor pre-advances onto the parent"
     );
-    it.advance(&store, &g, &w.cohorts);
+    it.advance(&store.cohorts, &store.single_windows, &g, &w.cohorts);
     assert_eq!(it.base.current(), Some(c1));
-    it.advance(&store, &g, &w.cohorts); // c1 has DEP_NO_PARENT
+    it.advance(&store.cohorts, &store.single_windows, &g, &w.cohorts); // c1 has DEP_NO_PARENT
     assert_eq!(it.base.current(), None);
 
-    it.reset(Some(c3), Some(ctx), false, &store, &g, &w.cohorts);
+    it.reset(
+        Some(c3),
+        Some(ctx),
+        false,
+        &store.cohorts,
+        &store.single_windows,
+        &g,
+        &w.cohorts,
+    );
     assert_eq!(
         it.base.current(),
         Some(c2),
@@ -425,16 +457,32 @@ fn dep_parent_iterator() {
 
     // Cycle guard: c1 -> c3 closes a loop; the duplicate m_seen hit ends it.
     store.cohorts.get_mut(c1.0).dep_parent = Some(GlobalNumber(3));
-    it.reset(Some(c3), Some(ctx), false, &store, &g, &w.cohorts);
+    it.reset(
+        Some(c3),
+        Some(ctx),
+        false,
+        &store.cohorts,
+        &store.single_windows,
+        &g,
+        &w.cohorts,
+    );
     assert_eq!(it.base.current(), Some(c2));
-    it.advance(&store, &g, &w.cohorts);
+    it.advance(&store.cohorts, &store.single_windows, &g, &w.cohorts);
     assert_eq!(it.base.current(), Some(c1));
-    it.advance(&store, &g, &w.cohorts);
+    it.advance(&store.cohorts, &store.single_windows, &g, &w.cohorts);
     assert_eq!(it.base.current(), None, "cycle terminated by m_seen");
 
     // CT_REMOVED parent kills the walk outright.
     store.cohorts.get_mut(c2.0).r#type |= CT_REMOVED;
-    let it = DepParentIter::new(Some(c3), Some(ctx), false, &store, &g, &w.cohorts);
+    let it = DepParentIter::new(
+        Some(c3),
+        Some(ctx),
+        false,
+        &store.cohorts,
+        &store.single_windows,
+        &g,
+        &w.cohorts,
+    );
     assert_eq!(it.base.current(), None);
 }
 
@@ -464,7 +512,15 @@ fn dep_descendent_and_ancestor_iterators() {
     let ctx_rr = g.allocate_contextual_test();
     g.contexts_arena[ctx_rr.0].pos = POS_RIGHTMOST;
 
-    let mut di = DepDescendentIter::new(Some(c1), Some(ctx), false, &store, &g, &w.cohorts);
+    let mut di = DepDescendentIter::new(
+        Some(c1),
+        Some(ctx),
+        false,
+        &store.cohorts,
+        &store.single_windows,
+        &g,
+        &w.cohorts,
+    );
     assert_eq!(di.base.current(), Some(c2), "direct + transitive, sorted");
     di.advance();
     assert_eq!(di.base.current(), Some(c3));
@@ -473,10 +529,26 @@ fn dep_descendent_and_ancestor_iterators() {
     di.advance();
     assert_eq!(di.base.current(), None);
     // reset with POS_SELF: the origin joins the set (c1 sorts first).
-    di.reset(Some(c1), Some(ctx_self), false, &store, &g, &w.cohorts);
+    di.reset(
+        Some(c1),
+        Some(ctx_self),
+        false,
+        &store.cohorts,
+        &store.single_windows,
+        &g,
+        &w.cohorts,
+    );
     assert_eq!(di.base.current(), Some(c1));
 
-    let mut ai = DepAncestorIter::new(Some(c4), Some(ctx), false, &store, &g, &w.cohorts);
+    let mut ai = DepAncestorIter::new(
+        Some(c4),
+        Some(ctx),
+        false,
+        &store.cohorts,
+        &store.single_windows,
+        &g,
+        &w.cohorts,
+    );
     assert_eq!(
         ai.base.current(),
         Some(c1),
@@ -487,7 +559,15 @@ fn dep_descendent_and_ancestor_iterators() {
     ai.advance();
     assert_eq!(ai.base.current(), None);
     // reset with POS_RIGHTMOST reverses the chain.
-    ai.reset(Some(c4), Some(ctx_rr), false, &store, &g, &w.cohorts);
+    ai.reset(
+        Some(c4),
+        Some(ctx_rr),
+        false,
+        &store.cohorts,
+        &store.single_windows,
+        &g,
+        &w.cohorts,
+    );
     assert_eq!(ai.base.current(), Some(c2));
 }
 
@@ -509,13 +589,13 @@ fn cohort_set_multi_and_children_iterators() {
 
     let mut csi = CohortSetIter::new(Some(c1), Some(ctx), false);
     assert_eq!(csi.m_origcohort, Some(c1));
-    csi.add_cohort(&store, c2);
-    csi.add_cohort(&store, c1); // sorted before c2, cursor rewound to begin()
+    csi.add_cohort(&store.cohorts, &store.single_windows, c2);
+    csi.add_cohort(&store.cohorts, &store.single_windows, c1); // sorted before c2, cursor rewound to begin()
     assert_eq!(csi.m_cohortset, vec![c1, c2]);
     assert_eq!(csi.m_cohortsetiter, 0);
-    csi.advance(&store, &g);
+    csi.advance(&store.cohorts, &store.single_windows, &g);
     assert_eq!(csi.base.current(), Some(c1), "same window, pos 0 accepted");
-    csi.advance(&store, &g);
+    csi.advance(&store.cohorts, &store.single_windows, &g);
     assert_eq!(
         csi.base.current(),
         Some(c1),
@@ -532,7 +612,7 @@ fn cohort_set_multi_and_children_iterators() {
     store.cohorts.get_mut(c1.0).dep_children.insert(2);
     let mut ch = ChildrenIterator::new(Some(c1), Some(ctx), false);
     assert_eq!(ch.m_depth, 0);
-    ch.advance(&store);
+    ch.advance(&store.cohorts);
     assert_eq!(ch.m_depth, 1);
     assert!(
         ch.base.m_cohortiter.is_some(),
@@ -660,7 +740,7 @@ fn reading_rehash_and_cmp_number() {
         rd.tags.insert(hm);
         rd.mapping = Some(tm);
     }
-    let got = reading_rehash(&mut store, &g, r);
+    let got = reading_rehash(&mut store.readings, &g, r);
 
     // Expected: fold sorted tag hashes skipping the mapping hash, then fold it.
     let mut sorted = vec![ha, hb, hm];
@@ -685,7 +765,7 @@ fn reading_rehash_and_cmp_number() {
     let sub = alloc_reading(&mut store, None);
     store.readings.get_mut(sub.0).tags.insert(ha);
     store.readings.get_mut(r.0).next = Some(sub);
-    let got2 = reading_rehash(&mut store, &g, r);
+    let got2 = reading_rehash(&mut store.readings, &g, r);
     let sub_hash = store.readings.get(sub.0).hash;
     assert_eq!(sub_hash, hash_value(ha, 0));
     assert_eq!(got2, hash_value(sub_hash, exp));
@@ -1205,15 +1285,18 @@ fn single_window_alloc_append_clear_destroy() {
     );
 
     // less_Cohort / compare_Cohort: local_number first, window number tie-break.
-    assert!(less_cohort(&store, ca, ca2), "local 0 < local 1");
-    assert!(!less_cohort(&store, ca2, ca));
     assert!(
-        less_cohort(&store, ca, cb),
+        less_cohort(&store.cohorts, &store.single_windows, ca, ca2),
+        "local 0 < local 1"
+    );
+    assert!(!less_cohort(&store.cohorts, &store.single_windows, ca2, ca));
+    assert!(
+        less_cohort(&store.cohorts, &store.single_windows, ca, cb),
         "tie on local 0 -> window 1 < window 2"
     );
     let cmp = compare_Cohort;
-    assert!(cmp.call(&store, ca, cb));
-    assert!(!cmp.call(&store, cb, ca));
+    assert!(cmp.call(&store.cohorts, &store.single_windows, ca, cb));
+    assert!(!cmp.call(&store.cohorts, &store.single_windows, cb, ca));
 
     // clear: relation_map pruned (values <= last cohort's global number),
     // cohorts freed, fields reset.

@@ -52,7 +52,7 @@
 //!     variable `i` (recomputes the same `parent.dep_parent` lookup every
 //!     iteration).
 
-use super::Engine;
+use super::{Engine, Matcher};
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::{CT_DEP_DONE, CT_ENCLOSED, CT_IGNORED, CT_NUM_CURRENT, CT_REMOVED};
 use crate::inlines::{erase, hash_value, insert_if_exists, ui32};
@@ -702,7 +702,7 @@ impl Engine<'_> {
             self.add_tag_to_reading_rehash(reading, tid, false);
         }
 
-        reading_rehash(&mut self.doc.store, self.grammar, reading);
+        reading_rehash(&mut self.doc.store.readings, self.grammar, reading);
     }
 
     // =======================================================================
@@ -880,7 +880,7 @@ impl Engine<'_> {
             r.tags_plain_bloom.insert(thash.get());
         }
         if rehash {
-            reading_rehash(&mut self.doc.store, self.grammar, reading);
+            reading_rehash(&mut self.doc.store.readings, self.grammar, reading);
         }
 
         if self.grammar.has_bag_of_tags {
@@ -985,7 +985,7 @@ impl Engine<'_> {
         if self.doc.store.readings.get(reading.0).baseform == Some(utag) {
             self.doc.store.readings.get_mut(reading.0).baseform = None;
         }
-        reading_rehash(&mut self.doc.store, self.grammar, reading);
+        reading_rehash(&mut self.doc.store.readings, self.grammar, reading);
         let parent = self.doc.store.readings.get(reading.0).parent.unwrap();
         self.doc.store.cohorts.get_mut(parent.0).r#type &= !CT_NUM_CURRENT;
     }
@@ -1514,12 +1514,13 @@ impl Engine<'_> {
 }
 
 // ===========================================================================
-// Stage-C decomposition: the reflow fns reached from the contextual matcher
-// knot (`generate_varstring_tag` and the `reflowTextuals*` family it triggers
-// via `add_tag`), converted onto the split-borrow `Engine<'_>` view. Unpeeled
-// `&mut self` callers split at the call site via `self.engine().<method>(...)`.
+// The reflow fns reached from the contextual matcher knot
+// (`generate_varstring_tag` and the `reflowTextuals*` family it triggers via
+// the runtime `add_tag`), on the `Matcher<'_>` sub-view. `reflowTextuals*`
+// writes only derived reading state (`tags_textual` + bloom) — inside the
+// view's readings-arena capability.
 // ===========================================================================
-impl Engine<'_> {
+impl Matcher<'_> {
     // =======================================================================
     // generateVarstringTag
     // =======================================================================
@@ -1712,17 +1713,17 @@ impl Engine<'_> {
     /// `tags_textual` (and its bloom) by scanning `r.tags`, recursing into the
     /// `next` sub-reading chain first. ADD-only (does not clear first).
     pub fn reflow_textuals_reading(&mut self, r: ReadingId) {
-        if let Some(next) = self.doc.store.readings.get(r.0).next {
+        if let Some(next) = self.readings.get(r.0).next {
             self.reflow_textuals_reading(next);
         }
-        let tags: Vec<u32> = self.doc.store.readings.get(r.0).tags.as_slice().to_vec();
+        let tags: Vec<u32> = self.readings.get(r.0).tags.as_slice().to_vec();
         for it in tags {
             let tid = self.grammar.single_tags.find(it).get().1;
             if self.grammar.single_tags_list[tid.0]
                 .r#type
                 .intersects(T_TEXTUAL)
             {
-                let rr = self.doc.store.readings.get_mut(r.0);
+                let rr = self.readings.get_mut(r.0);
                 rr.tags_textual.insert(it);
                 rr.tags_textual_bloom.insert(it);
             }
@@ -1737,10 +1738,10 @@ impl Engine<'_> {
     /// `ignored`, `delayed` (in that order).
     pub fn reflow_textuals_cohort(&mut self, c: CohortId) {
         for list in [
-            self.doc.store.cohorts.get(c.0).readings.clone(),
-            self.doc.store.cohorts.get(c.0).deleted.clone(),
-            self.doc.store.cohorts.get(c.0).ignored.clone(),
-            self.doc.store.cohorts.get(c.0).delayed.clone(),
+            self.cohorts.get(c.0).readings.clone(),
+            self.cohorts.get(c.0).deleted.clone(),
+            self.cohorts.get(c.0).ignored.clone(),
+            self.cohorts.get(c.0).delayed.clone(),
         ] {
             for it in list {
                 self.reflow_textuals_reading(it);
@@ -1755,7 +1756,7 @@ impl Engine<'_> {
     /// C++ `void reflowTextuals_SingleWindow(SingleWindow& sw)` — over
     /// `sw.all_cohorts`.
     pub fn reflow_textuals_single_window(&mut self, sw: SwId) {
-        let cohorts = self.doc.store.single_windows.get(sw.0).all_cohorts.clone();
+        let cohorts = self.single_windows.get(sw.0).all_cohorts.clone();
         for it in cohorts {
             self.reflow_textuals_cohort(it);
         }
@@ -1767,15 +1768,15 @@ impl Engine<'_> {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-textuals-fn]
     /// C++ `void reflowTextuals()` — `previous`, then `current`, then `next`.
     pub fn reflow_textuals(&mut self) {
-        for i in 0..self.doc.stream.previous.len() {
-            let sw = self.doc.stream.previous[i];
+        for i in 0..self.stream.previous.len() {
+            let sw = self.stream.previous[i];
             self.reflow_textuals_single_window(sw);
         }
-        if let Some(cur) = self.doc.stream.current {
+        if let Some(cur) = self.stream.current {
             self.reflow_textuals_single_window(cur);
         }
-        for i in 0..self.doc.stream.next.len() {
-            let sw = self.doc.stream.next[i];
+        for i in 0..self.stream.next.len() {
+            let sw = self.stream.next[i];
             self.reflow_textuals_single_window(sw);
         }
     }

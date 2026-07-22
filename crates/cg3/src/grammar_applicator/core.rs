@@ -51,7 +51,7 @@ use crate::tag_trie::trie_get_tag_list_append;
 use crate::types::{GlobalNumber, TagHash};
 use crate::uextras::{u_fflush, u_fputc, ux_strCaseCompare};
 
-use super::{Engine, tmpl_context_t};
+use super::{Engine, Matcher, tmpl_context_t};
 
 // ===========================================================================
 // Local port infrastructure.
@@ -1812,7 +1812,7 @@ fn sort_readings(store: &RuntimeStore, list: &mut [ReadingId]) {
     });
 }
 
-impl Engine<'_> {
+impl Matcher<'_> {
     // =======================================================================
     // addTag (Tag* internal overload + UChar*/type public overload)
     // =======================================================================
@@ -1984,11 +1984,11 @@ impl Engine<'_> {
 /// `template<typename State> parseTag(...)` — used by
 /// [`GrammarApplicator::add_tag`]'s `T_VARSTRING` branch so runtime-generated
 /// tags go through the full parser (regex compile, prefixes, suffixes,
-/// numerics) instead of the raw path. Implemented on the split-borrow
-/// [`Engine`](super::Engine) view: the varstring branch is reached from the
-/// peeled contextual matcher knot, so `parse_tag(..., self, ...)` threads an
-/// `Engine`.
-impl crate::parser_helpers::ParseTagState for Engine<'_> {
+/// numerics) instead of the raw path. Implemented on the [`Matcher`]
+/// (super::Matcher) sub-view: the varstring branch is reached from the
+/// contextual matcher knot, so `parse_tag(..., self, ...)` threads a
+/// `Matcher`.
+impl crate::parser_helpers::ParseTagState for Matcher<'_> {
     fn grammar(&self) -> &Grammar {
         &*self.grammar
     }
@@ -2011,7 +2011,7 @@ impl crate::parser_helpers::ParseTagState for Engine<'_> {
         {
             ("RT RULE", self.grammar.rule_by_number[rid.0].line)
         } else {
-            ("RT INPUT", self.doc.num_lines)
+            ("RT INPUT", *self.num_lines)
         };
         tracing::error!("Error: parseTag failed at {label} {line}");
     }

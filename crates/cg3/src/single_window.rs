@@ -10,7 +10,8 @@
 //! (the compare_Cohort ordering needs the runtime store and is applied by the
 //! engine layer).
 
-use crate::arena::{CohortId, SwId};
+use crate::arena::{CohortId, GenArena, SwId};
+use crate::cohort::Cohort;
 use crate::flat_unordered_map::Uint32FlatHashMap;
 use crate::flat_unordered_set::Uint32FlatHashSet;
 use crate::inlines::ui32;
@@ -343,15 +344,22 @@ pub fn append_cohort(
 // [spec:cg3:sem:single-window.cg3.less-cohort-fn]
 /// C++ `inline bool less_Cohort(const Cohort* a, const Cohort* b)` — strict-less
 /// comparator: if `local_number`s tie, order by the owning single-window's
-/// `number`; otherwise order by `local_number`. STORE-TAKING free fn (read-only)
-/// because it dereferences both cohorts and their parent single-windows.
-pub fn less_cohort(store: &RuntimeStore, a: CohortId, b: CohortId) -> bool {
-    let ca = store.cohorts.get(a.0);
-    let cb = store.cohorts.get(b.0);
+/// `number`; otherwise order by `local_number`. ARENA-TAKING free fn (read-only):
+/// it dereferences both cohorts and their parent single-windows, and takes
+/// exactly those two arenas so callers holding `&mut` on the readings arena
+/// (the `Matcher` view) can still compare.
+pub fn less_cohort(
+    cohorts: &GenArena<Cohort>,
+    windows: &GenArena<SingleWindow>,
+    a: CohortId,
+    b: CohortId,
+) -> bool {
+    let ca = cohorts.get(a.0);
+    let cb = cohorts.get(b.0);
     if ca.local_number == cb.local_number {
         // a->parent->number < b->parent->number
-        let an = store.single_windows.get(ca.parent.unwrap().0).number;
-        let bn = store.single_windows.get(cb.parent.unwrap().0).number;
+        let an = windows.get(ca.parent.unwrap().0).number;
+        let bn = windows.get(cb.parent.unwrap().0).number;
         return an < bn;
     }
     ca.local_number < cb.local_number
@@ -361,9 +369,15 @@ impl compare_Cohort {
     // [spec:cg3:def:single-window.cg3.compare-cohort.operator-fn]
     // [spec:cg3:sem:single-window.cg3.compare-cohort.operator-fn]
     /// C++ `bool operator()(const Cohort* a, const Cohort* b) const` — returns
-    /// `less_Cohort(a, b)`. Takes the store to resolve the ids (the C++ functor
-    /// is stateless).
-    pub fn call(&self, store: &RuntimeStore, a: CohortId, b: CohortId) -> bool {
-        less_cohort(store, a, b)
+    /// `less_Cohort(a, b)`. Takes the cohort/single-window arenas to resolve the
+    /// ids (the C++ functor is stateless).
+    pub fn call(
+        &self,
+        cohorts: &GenArena<Cohort>,
+        windows: &GenArena<SingleWindow>,
+        a: CohortId,
+        b: CohortId,
+    ) -> bool {
+        less_cohort(cohorts, windows, a, b)
     }
 }

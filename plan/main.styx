@@ -725,15 +725,52 @@ children (
 
             {
                 id matcher-doc-split.bag-readings
-                title "Rehome the temp bag readings (sub-reading ANY merge) out of the document reading arena: run_contextual_test allocs+frees a merged bag in doc.store mid-match; give scratch its own pool or match the bag by value"
+                title "Investigate rehoming the temp bag/amalgam readings out of the document arena — REJECTED: the GSR_ANY amalgam escapes the matcher into the apply/selected/trace layers (single_rule.rs threads it as the target reading), so eviction would force a two-namespace reading id through the whole engine; the shared arena IS the port of the C++ Reading& unification. Resolved by drawing the Matcher view boundary around a readings-arena &mut instead"
                 priority 2
+                log (
+                    {
+                        at 2026-07-22T12:07:58.95975Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Operator decision (2026-07-22): step cancelled after investigation. Evidence: get_sub_reading's GSR_ANY amalgam id is consumed at single_rule.rs:421/690 and dispatch.rs:48/57 as the rule's target reading — it flows into apply_to, the selected/removed lists, and trace, i.e. the ACTION layer, not just matching; match_bag_of_tags (run_contextual_test.rs) is matcher-confined but resolves through the same subtree. Evicting bags to a scratch pool therefore requires a Doc|Bag id enum through matcher AND action layers — engine-wide churn, zero behavior change, two resolution paths where the C++ has one (its Reading& unifies scratch and document readings; the port's single arena is the faithful analogue). Superseded by the matcher-view boundary: store.readings stays &mut in the view (transient-slot lifecycle only, documented), everything else in the document is shared."
+                    }
+
+                    {
+                        at 2026-07-22T12:08:03.792297Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Done (nplan_complete)"
+                    }
+                )
             }
 
             {
                 id matcher-doc-split.matcher-view
-                title "Introduce the Matcher<'_> split-borrow view {cfg: &, doc: &Document, scratch: &mut, grammar: &mut} and move the predicate/test tree (match_set.rs, run_contextual_test.rs, the window.rs match helpers) onto it — the compiler then proves matching cannot modify the document"
+                title "Introduce the Matcher<'_> split-borrow view — {cfg, store.cohorts, store.single_windows, stream, registry, deps: shared; store.readings: &mut (transient bag/amalgam slot lifecycle only, the one documented hole); scratch, diag, grammar: &mut} — and move the predicate/test tree onto it, with thin Engine forwarders for action-layer entry points; the compiler then proves matching cannot touch cohorts, windows, deps, registry, or the stream"
                 priority 2
                 deps (matcher-doc-split.possible-sets-prune matcher-doc-split.matched-flags matcher-doc-split.bag-readings)
+                log (
+                    {
+                        at 2026-07-22T12:08:05.350414Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T12:51:24.269203Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Implemented by subagent, independently verified by lead (compile, fence check, --trace byte-compares, all witnessed gates). One design deviation from the approved sketch, honestly surfaced: the view's `cohorts` field is &mut, not & — does_tag_match_reading's numerical branch reaches cohort::get_min/get_max whose update_min_max writes the C++ Cohort::getMin/getMax memo (num_min/num_max + CT_NUM_CURRENT, non-const upstream too). Kept for faithfulness; documented as the SECOND hole alongside readings (transient bag/amalgam slots + reflow_textuals). Compiler-proven read-only during matching: single_windows, stream, registry, variables; deps and diag are not in the view at all (the tree never touches them — profiler hooks turned out to be action-layer only). 15 Engine forwarders; iterator signatures narrowed (no cohort_iterator path reads readings). FOLLOW-UP CANDIDATE: the num_min/num_max cohort memo is the same cache-in-document class as possible_sets/matched-flags — evict to scratch or measure-and-delete would let cohorts become & and complete the fence."
+                    }
+
+                    {
+                        at 2026-07-22T12:51:31.071872Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
             }
         )
     }

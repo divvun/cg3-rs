@@ -398,7 +398,7 @@ impl super::Engine<'_> {
                 // In the split-borrow view `grammar` and `doc.store` are already
                 // disjoint `&mut`s, so the C++-era `mem::take` borrow dance the
                 // monolithic `&mut self` needed is gone.
-                crate::reading::reading_rehash(&mut self.doc.store, self.grammar, b);
+                crate::reading::reading_rehash(&mut self.doc.store.readings, self.grammar, b);
             }
         }
         indents.push((indent, c_reading));

@@ -1,11 +1,11 @@
-//! `src/GrammarApplicator_runContextualTest.cpp` impl of `GrammarApplicator` —
-//! the central contextual-test dispatcher and its dependency/parenthesis/
-//! relation/single-test helpers. Literal, bug-for-bug Wave-2 port.
+//! `src/GrammarApplicator_runContextualTest.cpp` — the central contextual-test
+//! dispatcher and its dependency/parenthesis/relation/single-test helpers,
+//! implemented on the [`Matcher`] split-borrow sub-view (plan node
+//! `matcher-doc-split.matcher-view`; capability contract on [`Matcher`]).
+//! Literal, bug-for-bug port.
 //!
-//! ============================================================================
-//! CROSS-PARTIAL / SCAFFOLD DEPENDENCIES (NOT edited here — see task report)
-//! ============================================================================
-//! SIBLING GrammarApplicator methods CALLED here but DEFINED in other partials:
+//! SIBLING methods CALLED here but DEFINED in other partials (also on
+//! `impl Matcher`):
 //!   - match_set: does_set_match_cohort_normal / does_set_match_cohort_careful
 //!    (`(&mut self, cohort: CohortId, set: u32,
 //!    context: Option<&mut dSMC_Context>) -> bool`),
@@ -22,7 +22,8 @@
 //!    -> Option<ReadingId>`) — used indirectly via the cohort
 //!    matchers, not called here.
 //!
-//! EXPOSED here (run_rules / match_set call these):
+//! EXPOSED here (match_set calls it directly; run_rules through the `Engine`
+//! forwarder in mod.rs):
 //!   - run_contextual_test(&mut self, sw: Option<SwId>, position: u32,
 //!         test: CtxId, deep: Option<*mut Option<CohortId>>,
 //!         origin: Option<CohortId>) -> Option<CohortId>
@@ -35,7 +36,7 @@
 //!   `Option<SwId>` LOCAL (`sw`): reassignments hop windows exactly as the C++
 //!   does, and never escape. `size_t position` → `u32` (a cohort `local_number`).
 //! * `sWindow->parent->cohort_map` (the owning `Window`'s map) → the applicator's
-//!   inline `self.doc.cohorts.cohort_map` — the port holds one `Window` per engine.
+//!   inline `self.registry.cohort_map` — the port holds one `Window` per engine.
 //! * The C++ `CohortIterator*` base-pointer virtual dispatch (`++(*it)`, `**it`)
 //!   is modelled by [`ItSel`]: the six iterator pools have distinct concrete
 //!   `advance`/`current` signatures (some take store/grammar/window), so the
@@ -58,8 +59,8 @@
 // without being a real rendering problem.
 #![allow(clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)]
 
-use crate::arena::{CohortId, CtxId, SwId};
-use crate::cohort::{CT_RELATED, CT_REMOVED};
+use crate::arena::{CohortId, CtxId, GenArena, SwId};
+use crate::cohort::{CT_RELATED, CT_REMOVED, Cohort};
 use crate::cohort_iterator::{
     CohortIterator, DepAncestorIter, DepDescendentIter, DepParentIter, TopologyLeftIter,
     TopologyRightIter,
@@ -74,22 +75,22 @@ use crate::contextual_test::{
     POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH,
 };
 use crate::inlines::{make_64, si32};
-use crate::single_window::less_cohort;
-use crate::store::RuntimeStore;
+use crate::single_window::{SingleWindow, less_cohort};
 use crate::tag::T_VARSTRING;
 use crate::types::GlobalNumber;
 
 use crate::sorted_vector::uint32SortedVector;
 
-use super::{Engine, TRV_BARRIER, TRV_BREAK, TRV_BREAK_DEFAULT, dSMC_Context};
+use super::{Matcher, TRV_BARRIER, TRV_BREAK, TRV_BREAK_DEFAULT, dSMC_Context};
 
 /// Which iterator pool `runContextualTest` selected for the generic-iterator
 /// arm (the C++ `CohortIterator* it`). The pools have incompatible concrete
 /// `advance`/`current` signatures, so instead of a base pointer we remember the
-/// choice + its `ci_depths` key and re-dispatch. `Plain`/`Left`/`Right` take
-/// only `&store,&grammar`; the dep iterators additionally take `&window`; the
-/// dep-parent iterator MUTATES on advance (its `m_seen` cycle guard) and the two
-/// precomputed dep iterators (`Glob`/`Ancestor`) hold their own vectors.
+/// choice + its `ci_depths` key and re-dispatch. `Left`/`Right` advance on the
+/// cohort arena + grammar; the dep-parent iterator additionally takes the
+/// single-window arena + registry and MUTATES on advance (its `m_seen` cycle
+/// guard); the two precomputed dep iterators (`Glob`/`Ancestor`) hold their
+/// own vectors.
 #[derive(Copy, Clone)]
 enum ItSel {
     Plain(u32),
@@ -100,39 +101,49 @@ enum ItSel {
     DepAncestor(u32),
 }
 
-// --- Store-aware `CohortSet` helpers (runRelationTest builds a `CohortSet`) ---
+// --- Arena-aware `CohortSet` helpers (runRelationTest builds a `CohortSet`) ---
 // A C++ `CohortSet` (`sorted_vector<Cohort*, compare_Cohort>`) is a
 // `Vec<CohortId>`; the `compare_Cohort` order (`less_Cohort` — by `local_number`,
-// tie-broken by owning-window `number`) needs the store, so the sorted,
-// dup-suppressing operations run against the store here (mirrors the private
-// `cs_*` helpers in `cohort_iterator.rs`).
+// tie-broken by owning-window `number`) needs the cohort/single-window arenas,
+// so the sorted, dup-suppressing operations run against those arenas here
+// (mirrors the private `cs_*` helpers in `cohort_iterator.rs`).
 
-fn cs_lower_bound(store: &RuntimeStore, v: &[CohortId], t: CohortId) -> usize {
-    v.partition_point(|&x| less_cohort(store, x, t))
+fn cs_lower_bound(
+    cohorts: &GenArena<Cohort>,
+    windows: &GenArena<SingleWindow>,
+    v: &[CohortId],
+    t: CohortId,
+) -> usize {
+    v.partition_point(|&x| less_cohort(cohorts, windows, x, t))
 }
 
 // Wave 4 (w4-file-split-fmt): the verbatim Reading field-copy is
 // consolidated in `crate::reading::clone_verbatim`.
 use crate::reading::clone_verbatim as clone_reading;
 
-fn cs_insert(store: &RuntimeStore, v: &mut Vec<CohortId>, t: CohortId) -> bool {
+fn cs_insert(
+    cohorts: &GenArena<Cohort>,
+    windows: &GenArena<SingleWindow>,
+    v: &mut Vec<CohortId>,
+    t: CohortId,
+) -> bool {
     if v.is_empty() {
         v.push(t);
         return true;
     }
-    let it = cs_lower_bound(store, v, t);
+    let it = cs_lower_bound(cohorts, windows, v, t);
     if it == v.len() {
         v.push(t);
         return true;
     }
-    if less_cohort(store, v[it], t) || less_cohort(store, t, v[it]) {
+    if less_cohort(cohorts, windows, v[it], t) || less_cohort(cohorts, windows, t, v[it]) {
         v.insert(it, t);
         return true;
     }
     false
 }
 
-impl Engine<'_> {
+impl Matcher<'_> {
     /// C++ constructor sets `ci_depths(6, 0)`; the scaffold `new()` leaves it
     /// empty. Grow-to-6 lazily so the six pooled-iterator counters are always
     /// indexable (a no-op once `ci_depths` is 6-wide). NOTE: the real
@@ -233,7 +244,7 @@ impl Engine<'_> {
             let scan = test_pos.intersects(POS_SCANALL | POS_SCANFIRST);
             if (test_offset != 0 || scan)
                 && Some(org) == cohort
-                && self.doc.store.cohorts.get(org.0).local_number != 0
+                && self.cohorts.get(org.0).local_number != 0
             {
                 cohort = None;
                 *rvs |= TRV_BREAK;
@@ -316,12 +327,12 @@ impl Engine<'_> {
         deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
     ) -> (Option<CohortId>, bool) {
-        let len = self.doc.store.single_windows.get(sw.0).cohorts.len() as i32;
+        let len = self.single_windows.get(sw.0).cohorts.len() as i32;
         if i < 0 || i >= len {
             *rvs |= TRV_BREAK;
             return (None, false);
         }
-        let cohort = self.doc.store.single_windows.get(sw.0).cohorts[i as usize];
+        let cohort = self.single_windows.get(sw.0).cohorts[i as usize];
         self.run_single_test(cohort, test, rvs, deep, origin)
     }
 
@@ -334,7 +345,7 @@ impl Engine<'_> {
         cohort: CohortId,
         pos: crate::contextual_test::PosFlags,
     ) -> [Option<Vec<crate::arena::ReadingId>>; 4] {
-        let c = self.doc.store.cohorts.get(cohort.0);
+        let c = self.cohorts.get(cohort.0);
         let mut lists: [Option<Vec<crate::arena::ReadingId>>; 4] =
             [Some(c.readings.clone()), None, None, None];
         if pos.intersects(POS_LOOK_DELETED) {
@@ -378,11 +389,11 @@ impl Engine<'_> {
         }
 
         // std::sort(cs, cs + 4, compare_Cohort());
-        let store = &self.doc.store;
+        let (cohorts, windows) = (&self.cohorts, &self.single_windows);
         cs.sort_by(|&a, &b| {
-            if less_cohort(store, a, b) {
+            if less_cohort(cohorts, windows, a, b) {
                 std::cmp::Ordering::Less
-            } else if less_cohort(store, b, a) {
+            } else if less_cohort(cohorts, windows, b, a) {
                 std::cmp::Ordering::Greater
             } else {
                 std::cmp::Ordering::Equal
@@ -398,8 +409,8 @@ impl Engine<'_> {
         if test_pos.intersects(POS_SCANFIRST | POS_SCANALL | POS_ABSOLUTE) {
             good = true;
         } else {
-            let cs0_ln = self.doc.store.cohorts.get(cs[0].0).local_number;
-            let cs3_ln = self.doc.store.cohorts.get(cs[3].0).local_number;
+            let cs0_ln = self.cohorts.get(cs[0].0).local_number;
+            let cs3_ln = self.cohorts.get(cs[3].0).local_number;
             if (test_offset > 0 && si32(cs0_ln) - si32(position) == test_offset)
                 || (test_offset < 0 && si32(cs3_ln) - si32(position) == test_offset)
             {
@@ -408,15 +419,15 @@ impl Engine<'_> {
         }
         // Deep result left the window (no span flag).
         if !test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT | POS_SPAN_RIGHT) {
-            let cdeep_parent = self.doc.store.cohorts.get(cdeep.0).parent;
+            let cdeep_parent = self.cohorts.get(cdeep.0).parent;
             if cdeep_parent != Some(sw) {
                 good = false;
             }
         }
         // Origin-straddle vetoes (raw unsigned local_number).
         if !test_pos.intersects(POS_PASS_ORIGIN) {
-            let cs0_ln = self.doc.store.cohorts.get(cs[0].0).local_number;
-            let cs3_ln = self.doc.store.cohorts.get(cs[3].0).local_number;
+            let cs0_ln = self.cohorts.get(cs[0].0).local_number;
+            let cs3_ln = self.cohorts.get(cs[3].0).local_number;
             if (test_offset < 0 && cs3_ln > position) || (test_offset > 0 && cs0_ln < position) {
                 good = false;
             }
@@ -569,7 +580,7 @@ impl Engine<'_> {
                 }
             }
             if let Some(jc) = j {
-                let c = self.doc.store.cohorts.get(jc.0);
+                let c = self.cohorts.get(jc.0);
                 sw = c.parent;
                 position = c.local_number;
             } else {
@@ -621,7 +632,7 @@ impl Engine<'_> {
             let sw_id = sw.unwrap();
 
             if test_pos.intersects(POS_PASS_ORIGIN) {
-                origin = Some(self.doc.store.single_windows.get(sw_id.0).cohorts[0]);
+                origin = Some(self.single_windows.get(sw_id.0).cohorts[0]);
             }
             if let Some(d) = deep.as_deref_mut() {
                 *d = Some(cid);
@@ -641,42 +652,45 @@ impl Engine<'_> {
             if (test_pos.intersects(POS_DEP_PARENT)) && (test_pos.intersects(POS_DEP_GLOB)) {
                 let key = self.scratch.ci_depths[5];
                 self.scratch.ci_depths[5] += 1;
-                let (store, grammar, window) = self.split_for_iters();
+                let (cohorts, windows, grammar, registry) = self.split_for_iters();
                 let iter = DepAncestorIter::new(
                     Some(cid),
                     Some(test),
                     self.cfg.always_span,
-                    store,
+                    cohorts,
+                    windows,
                     grammar,
-                    window,
+                    registry,
                 );
                 self.scratch.depAncestorIters.insert(key, iter);
                 it = Some(ItSel::DepAncestor(key));
             } else if test_pos.intersects(POS_DEP_PARENT) {
                 let key = self.scratch.ci_depths[3];
                 self.scratch.ci_depths[3] += 1;
-                let (store, grammar, window) = self.split_for_iters();
+                let (cohorts, windows, grammar, registry) = self.split_for_iters();
                 let iter = DepParentIter::new(
                     Some(cid),
                     Some(test),
                     self.cfg.always_span,
-                    store,
+                    cohorts,
+                    windows,
                     grammar,
-                    window,
+                    registry,
                 );
                 self.scratch.depParentIters.insert(key, iter);
                 it = Some(ItSel::DepParent(key));
             } else if test_pos.intersects(POS_DEP_GLOB) {
                 let key = self.scratch.ci_depths[4];
                 self.scratch.ci_depths[4] += 1;
-                let (store, grammar, window) = self.split_for_iters();
+                let (cohorts, windows, grammar, registry) = self.split_for_iters();
                 let iter = DepDescendentIter::new(
                     Some(cid),
                     Some(test),
                     self.cfg.always_span,
-                    store,
+                    cohorts,
+                    windows,
                     grammar,
-                    window,
+                    registry,
                 );
                 self.scratch.depDescendentIters.insert(key, iter);
                 it = Some(ItSel::DepGlob(key));
@@ -686,7 +700,7 @@ impl Engine<'_> {
                 if let Some(nc) = nc {
                     cohort = Some(nc);
                     retval = true;
-                    sw = self.doc.store.cohorts.get(nc.0).parent;
+                    sw = self.cohorts.get(nc.0).parent;
                 } else {
                     retval = false;
                 }
@@ -716,13 +730,13 @@ impl Engine<'_> {
                 let test_target = self.grammar.contexts_arena[test.0].target.get();
                 let mut m = self.match_bag_of_tags(sw_id, test_target);
                 if !m && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT | POS_SPAN_RIGHT)) {
-                    let mut left = self.doc.store.single_windows.get(sw_id.0).previous;
-                    let mut right = self.doc.store.single_windows.get(sw_id.0).next;
+                    let mut left = self.single_windows.get(sw_id.0).previous;
+                    let mut right = self.single_windows.get(sw_id.0).next;
                     while left.is_some() || right.is_some() {
                         if left.is_some() && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) {
                             let lw = left.unwrap();
                             m = self.match_bag_of_tags(lw, test_target);
-                            left = self.doc.store.single_windows.get(lw.0).previous;
+                            left = self.single_windows.get(lw.0).previous;
                         } else {
                             left = None;
                         }
@@ -730,7 +744,7 @@ impl Engine<'_> {
                         {
                             let rw = right.unwrap();
                             m = self.match_bag_of_tags(rw, test_target);
-                            right = self.doc.store.single_windows.get(rw.0).next;
+                            right = self.single_windows.get(rw.0).next;
                         } else {
                             right = None;
                         }
@@ -817,7 +831,7 @@ impl Engine<'_> {
         } else if cohort.is_none() {
             // Truthy success with no natural cohort: window's cohort[0].
             let sw_id = sw.expect("runContextualTest: sentinel needs a window");
-            cohort = Some(self.doc.store.single_windows.get(sw_id.0).cohorts[0]);
+            cohort = Some(self.single_windows.get(sw_id.0).cohorts[0]);
         }
         cohort
     }
@@ -826,24 +840,15 @@ impl Engine<'_> {
     /// `make_64(parent->number, local_number)` bound update).
     fn extend_tmpl_bounds(&mut self, c: CohortId) {
         let (cwin, cln) = {
-            let co = self.doc.store.cohorts.get(c.0);
-            let win = self
-                .doc
-                .store
-                .single_windows
-                .get(co.parent.unwrap().0)
-                .number;
+            let co = self.cohorts.get(c.0);
+            let win = self.single_windows.get(co.parent.unwrap().0).number;
             (win, co.local_number)
         };
         let gpos = make_64(cwin, cln);
         let min_gpos = self.scratch.tmpl_cntx.min.map(|m| {
-            let mo = self.doc.store.cohorts.get(m.0);
+            let mo = self.cohorts.get(m.0);
             make_64(
-                self.doc
-                    .store
-                    .single_windows
-                    .get(mo.parent.unwrap().0)
-                    .number,
+                self.single_windows.get(mo.parent.unwrap().0).number,
                 mo.local_number,
             )
         });
@@ -851,13 +856,9 @@ impl Engine<'_> {
             self.scratch.tmpl_cntx.min = Some(c);
         }
         let max_gpos = self.scratch.tmpl_cntx.max.map(|m| {
-            let mo = self.doc.store.cohorts.get(m.0);
+            let mo = self.cohorts.get(m.0);
             make_64(
-                self.doc
-                    .store
-                    .single_windows
-                    .get(mo.parent.unwrap().0)
-                    .number,
+                self.single_windows.get(mo.parent.unwrap().0).number,
                 mo.local_number,
             )
         });
@@ -866,17 +867,23 @@ impl Engine<'_> {
         }
     }
 
-    /// Split `self` into the three read-only stores the dep iterators' ctors
-    /// need (`&store`, `&grammar`, `&cohorts`) without aliasing — the iterator
-    /// pools live on `self` separately from these three fields.
+    /// Split `self` into the four read-only views the dep iterators' ctors need
+    /// (cohort arena, single-window arena, grammar, cohort registry) without
+    /// aliasing — the iterator pools live on `self` separately from these fields.
     fn split_for_iters(
         &self,
     ) -> (
-        &RuntimeStore,
+        &GenArena<Cohort>,
+        &GenArena<SingleWindow>,
         &crate::grammar::Grammar,
         &crate::window::CohortRegistry,
     ) {
-        (&self.doc.store, self.grammar, &self.doc.cohorts)
+        (
+            self.cohorts,
+            self.single_windows,
+            self.grammar,
+            self.registry,
+        )
     }
 
     /// The C++ generic-iterator arm (`if (it) { ... }`): resets nothing here (the
@@ -907,12 +914,12 @@ impl Engine<'_> {
         if self_probe {
             seen += 1;
             let org = org_swin.expect("run_iter: POS_SELF probe needs the origin window");
-            let sw_len = self.doc.store.single_windows.get(org.0).cohorts.len();
+            let sw_len = self.single_windows.get(org.0).cohorts.len();
             assert!(
                 (position as usize) < sw_len,
                 "Somehow, the input position wasn't inside the current window."
             );
-            let self_c = self.doc.store.single_windows.get(org.0).cohorts[position as usize];
+            let self_c = self.single_windows.get(org.0).cohorts[position as usize];
             (nc, retval) =
                 self.run_single_test(self_c, test, &mut rvs, deep.as_deref_mut(), origin);
             if !retval && (rvs & TRV_BREAK_DEFAULT != 0) {
@@ -929,12 +936,16 @@ impl Engine<'_> {
                     None => break, // *it == CohortIterator(0)
                 };
                 seen += 1;
-                if (test_pos.intersects(POS_LEFT)) && less_cohort(&self.doc.store, current, itc) {
+                if (test_pos.intersects(POS_LEFT))
+                    && less_cohort(self.cohorts, self.single_windows, current, itc)
+                {
                     nc = None;
                     retval = false;
                     break;
                 }
-                if (test_pos.intersects(POS_RIGHT)) && !less_cohort(&self.doc.store, current, itc) {
+                if (test_pos.intersects(POS_RIGHT))
+                    && !less_cohort(self.cohorts, self.single_windows, current, itc)
+                {
                     nc = None;
                     retval = false;
                     break;
@@ -1013,21 +1024,23 @@ impl Engine<'_> {
                 }
             }
             ItSel::Left(k) => {
-                if let Some(mut i) = self.scratch.topologyLeftIters.remove(&k) {
-                    i.advance(&self.doc.store, self.grammar);
-                    self.scratch.topologyLeftIters.insert(k, i);
+                if let Some(i) = self.scratch.topologyLeftIters.get_mut(&k) {
+                    i.advance(self.cohorts, self.grammar);
                 }
             }
             ItSel::Right(k) => {
-                if let Some(mut i) = self.scratch.topologyRightIters.remove(&k) {
-                    i.advance(&self.doc.store, self.grammar);
-                    self.scratch.topologyRightIters.insert(k, i);
+                if let Some(i) = self.scratch.topologyRightIters.get_mut(&k) {
+                    i.advance(self.cohorts, self.grammar);
                 }
             }
             ItSel::DepParent(k) => {
-                if let Some(mut i) = self.scratch.depParentIters.remove(&k) {
-                    i.advance(&self.doc.store, self.grammar, &self.doc.cohorts);
-                    self.scratch.depParentIters.insert(k, i);
+                if let Some(i) = self.scratch.depParentIters.get_mut(&k) {
+                    i.advance(
+                        self.cohorts,
+                        self.single_windows,
+                        self.grammar,
+                        self.registry,
+                    );
                 }
             }
             ItSel::DepGlob(k) => {
@@ -1100,9 +1113,9 @@ impl Engine<'_> {
                 } else if lpos - i == 0 {
                     if (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) || self.cfg.always_span
                     {
-                        left = self.doc.store.single_windows.get(lw.0).previous;
+                        left = self.single_windows.get(lw.0).previous;
                         if let Some(nl) = left {
-                            lpos = i + self.doc.store.single_windows.get(nl.0).cohorts.len() as i32;
+                            lpos = i + self.single_windows.get(nl.0).cohorts.len() as i32;
                         }
                     } else {
                         left = None;
@@ -1127,12 +1140,12 @@ impl Engine<'_> {
                         left = None;
                     }
                 } else {
-                    let rlen = self.doc.store.single_windows.get(rw.0).cohorts.len() as i32;
+                    let rlen = self.single_windows.get(rw.0).cohorts.len() as i32;
                     if rpos + i == rlen - 1 {
                         if (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT))
                             || self.cfg.always_span
                         {
-                            right = self.doc.store.single_windows.get(rw.0).next;
+                            right = self.single_windows.get(rw.0).next;
                             rpos = (0 - i) - 1;
                         } else {
                             right = None;
@@ -1151,8 +1164,8 @@ impl Engine<'_> {
     /// position, const ContextualTest*, int32_t& pos)`. Resolves a plain
     /// positional test to a concrete cohort, hopping at most one window boundary
     /// (an overshoot yields `None`). `sWindow`/`pos` are in/out (`&mut`). Ported
-    /// as a method purely to reach `self.doc.store`/`self.grammar` (no `self` state is
-    /// otherwise touched).
+    /// as a method purely to reach `self.single_windows`/`self.grammar` (no
+    /// `self` state is otherwise touched).
     pub fn get_cohort_in_window(
         &self,
         sw: &mut Option<SwId>,
@@ -1172,8 +1185,8 @@ impl Engine<'_> {
         if (test_pos.intersects(POS_ABSOLUTE))
             && (test_pos.intersects(POS_SPAN_LEFT | POS_SPAN_RIGHT))
         {
-            let prev = self.doc.store.single_windows.get(cur.0).previous;
-            let next = self.doc.store.single_windows.get(cur.0).next;
+            let prev = self.single_windows.get(cur.0).previous;
+            let next = self.single_windows.get(cur.0).next;
             if prev.is_some() && (test_pos.intersects(POS_SPAN_LEFT)) {
                 *sw = prev;
             } else if next.is_some() && (test_pos.intersects(POS_SPAN_RIGHT)) {
@@ -1187,35 +1200,35 @@ impl Engine<'_> {
 
         if test_pos.intersects(POS_ABSOLUTE) {
             if test_offset < 0 {
-                *pos = self.doc.store.single_windows.get(cur.0).cohorts.len() as i32 + test_offset;
+                *pos = self.single_windows.get(cur.0).cohorts.len() as i32 + test_offset;
             } else {
                 *pos = test_offset;
             }
         }
 
-        let cur_len = self.doc.store.single_windows.get(cur.0).cohorts.len() as i32;
+        let cur_len = self.single_windows.get(cur.0).cohorts.len() as i32;
         if *pos >= 0 {
             if *pos >= cur_len
                 && (test_pos.intersects(POS_SPAN_RIGHT | POS_SPAN_BOTH))
-                && self.doc.store.single_windows.get(cur.0).next.is_some()
+                && self.single_windows.get(cur.0).next.is_some()
             {
-                cur = self.doc.store.single_windows.get(cur.0).next.unwrap();
+                cur = self.single_windows.get(cur.0).next.unwrap();
                 *sw = Some(cur);
                 *pos = 0;
             }
         } else {
             if (test_pos.intersects(POS_SPAN_LEFT | POS_SPAN_BOTH))
-                && self.doc.store.single_windows.get(cur.0).previous.is_some()
+                && self.single_windows.get(cur.0).previous.is_some()
             {
-                cur = self.doc.store.single_windows.get(cur.0).previous.unwrap();
+                cur = self.single_windows.get(cur.0).previous.unwrap();
                 *sw = Some(cur);
-                *pos = self.doc.store.single_windows.get(cur.0).cohorts.len() as i32 - 1;
+                *pos = self.single_windows.get(cur.0).cohorts.len() as i32 - 1;
             }
         }
 
-        let cur_len = self.doc.store.single_windows.get(cur.0).cohorts.len() as i32;
+        let cur_len = self.single_windows.get(cur.0).cohorts.len() as i32;
         if *pos >= 0 && *pos < cur_len {
-            cohort = Some(self.doc.store.single_windows.get(cur.0).cohorts[*pos as usize]);
+            cohort = Some(self.single_windows.get(cur.0).cohorts[*pos as usize]);
         }
         cohort
     }
@@ -1232,7 +1245,7 @@ impl Engine<'_> {
     pub fn run_dependency_test(
         &mut self,
         // C++ reads `sWindow->parent->cohort_map` throughout, which is the
-        // applicator's single inline `self.doc.cohorts` in the port; the `sWindow`
+        // applicator's single inline `self.registry` in the port; the `sWindow`
         // argument is therefore unused here (kept to mirror the C++ signature).
         _sw: SwId,
         current: CohortId,
@@ -1259,10 +1272,7 @@ impl Engine<'_> {
         };
 
         if test_pos.intersects(POS_DEP_DEEP) {
-            let key = (
-                test_hash,
-                self.doc.store.cohorts.get(current.0).global_number.get(),
-            );
+            let key = (test_hash, self.cohorts.get(current.0).global_number.get());
             if self.scratch.dep_deep_seen.contains(key) {
                 return None;
             }
@@ -1284,46 +1294,25 @@ impl Engine<'_> {
         // Select the walked dependency global-number set.
         let mut deps: Vec<u32>;
         if test_pos.intersects(POS_DEP_CHILD) {
-            deps = self
-                .doc
-                .store
-                .cohorts
-                .get(current.0)
-                .dep_children
-                .as_slice()
-                .to_vec();
+            deps = self.cohorts.get(current.0).dep_children.as_slice().to_vec();
         } else {
-            if self.doc.store.cohorts.get(current.0).dep_parent == Some(GlobalNumber(0)) {
-                let parent_sw = self.doc.store.cohorts.get(current.0).parent.unwrap();
-                let root = self.doc.store.single_windows.get(parent_sw.0).cohorts[0];
-                deps = self
-                    .doc
-                    .store
-                    .cohorts
-                    .get(root.0)
-                    .dep_children
-                    .as_slice()
-                    .to_vec();
+            if self.cohorts.get(current.0).dep_parent == Some(GlobalNumber(0)) {
+                let parent_sw = self.cohorts.get(current.0).parent.unwrap();
+                let root = self.single_windows.get(parent_sw.0).cohorts[0];
+                deps = self.cohorts.get(root.0).dep_children.as_slice().to_vec();
             } else {
-                let dep_parent = self.doc.store.cohorts.get(current.0).dep_parent;
+                let dep_parent = self.cohorts.get(current.0).dep_parent;
                 let mapped = dep_parent
-                    .and_then(|dp| self.doc.cohorts.cohort_map.get(&dp))
+                    .and_then(|dp| self.registry.cohort_map.get(&dp))
                     .copied();
                 match mapped {
-                    Some(pc) if !self.doc.store.cohorts.get(pc.0).dep_children.empty() => {
-                        deps = self
-                            .doc
-                            .store
-                            .cohorts
-                            .get(pc.0)
-                            .dep_children
-                            .as_slice()
-                            .to_vec();
+                    Some(pc) if !self.cohorts.get(pc.0).dep_children.empty() => {
+                        deps = self.cohorts.get(pc.0).dep_children.as_slice().to_vec();
                     }
                     _ => {
                         if self.cfg.verbosity_level > 0 {
                             let (ds, dp) = {
-                                let c = self.doc.store.cohorts.get(current.0);
+                                let c = self.cohorts.get(current.0);
                                 (c.dep_self, c.dep_parent)
                             };
                             tracing::warn!(
@@ -1341,16 +1330,16 @@ impl Engine<'_> {
         if test_pos.intersects(MASK_POS_LORR) {
             // Rebuild `deps` by scanning the whole cohort_map (slower container).
             let mut tmp_deps = uint32SortedVector::new();
-            let map: Vec<CohortId> = self.doc.cohorts.cohort_map.values().copied().collect();
+            let map: Vec<CohortId> = self.registry.cohort_map.values().copied().collect();
             for citer in map {
-                let gnum = self.doc.store.cohorts.get(citer.0).global_number.get();
+                let gnum = self.cohorts.get(citer.0).global_number.get();
                 if deps.contains(&gnum) {
                     if test_pos.intersects(POS_LEFT) {
-                        if less_cohort(&self.doc.store, citer, current) {
+                        if less_cohort(self.cohorts, self.single_windows, citer, current) {
                             tmp_deps.insert(gnum);
                         }
                     } else if test_pos.intersects(POS_RIGHT) {
-                        if less_cohort(&self.doc.store, current, citer) {
+                        if less_cohort(self.cohorts, self.single_windows, current, citer) {
                             tmp_deps.insert(gnum);
                         }
                     } else {
@@ -1359,7 +1348,7 @@ impl Engine<'_> {
                 }
             }
             if test_pos.intersects(POS_SELF) {
-                let gnum = self.doc.store.cohorts.get(current.0).global_number.get();
+                let gnum = self.cohorts.get(current.0).global_number.get();
                 tmp_deps.insert(gnum);
             }
             let mut tmp_vec = tmp_deps.as_slice().to_vec();
@@ -1369,27 +1358,16 @@ impl Engine<'_> {
             deps = tmp_vec;
         }
 
-        let cur_gnum = self.doc.store.cohorts.get(current.0).global_number.get();
+        let cur_gnum = self.cohorts.get(current.0).global_number.get();
         for dter in deps {
             if dter == cur_gnum && (!test_pos.intersects(POS_SELF)) {
                 continue;
             }
-            let mapped = self
-                .doc
-                .cohorts
-                .cohort_map
-                .get(&GlobalNumber(dter))
-                .copied();
+            let mapped = self.registry.cohort_map.get(&GlobalNumber(dter)).copied();
             let cohort = match mapped {
                 None => {
                     if self.cfg.verbosity_level > 0 {
-                        let ds = self
-                            .doc
-                            .store
-                            .cohorts
-                            .get(current.0)
-                            .dep_self
-                            .map_or(0, |g| g.get());
+                        let ds = self.cohorts.get(current.0).dep_self.map_or(0, |g| g.get());
                         if test_pos.intersects(POS_DEP_CHILD) {
                             tracing::warn!(
                                 "Warning: Child dependency {} -> {} does not exist - ignoring.",
@@ -1408,36 +1386,19 @@ impl Engine<'_> {
                 }
                 Some(c) => c,
             };
-            if self
-                .doc
-                .store
-                .cohorts
-                .get(cohort.0)
-                .r#type
-                .intersects(CT_REMOVED)
-            {
+            if self.cohorts.get(cohort.0).r#type.intersects(CT_REMOVED) {
                 continue;
             }
             let mut good = true;
             let (cur_parent, coh_parent) = {
                 (
-                    self.doc.store.cohorts.get(current.0).parent,
-                    self.doc.store.cohorts.get(cohort.0).parent,
+                    self.cohorts.get(current.0).parent,
+                    self.cohorts.get(cohort.0).parent,
                 )
             };
             if cur_parent != coh_parent {
-                let cur_win = self
-                    .doc
-                    .store
-                    .single_windows
-                    .get(cur_parent.unwrap().0)
-                    .number;
-                let coh_win = self
-                    .doc
-                    .store
-                    .single_windows
-                    .get(coh_parent.unwrap().0)
-                    .number;
+                let cur_win = self.single_windows.get(cur_parent.unwrap().0).number;
+                let coh_win = self.single_windows.get(coh_parent.unwrap().0).number;
                 if ((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) && coh_win < cur_win)
                     || ((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) && coh_win > cur_win)
                 {
@@ -1463,7 +1424,7 @@ impl Engine<'_> {
             } else if rvs & TRV_BARRIER != 0 {
                 continue;
             } else if test_pos.intersects(POS_DEP_DEEP) {
-                let coh_parent = self.doc.store.cohorts.get(cohort.0).parent.unwrap();
+                let coh_parent = self.cohorts.get(cohort.0).parent.unwrap();
                 let tmc = self.run_dependency_test(
                     coh_parent,
                     cohort,
@@ -1497,7 +1458,7 @@ impl Engine<'_> {
         deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
     ) -> Option<CohortId> {
-        let ln = self.doc.store.cohorts.get(current.0).local_number;
+        let ln = self.cohorts.get(current.0).local_number;
         if ln < self.scratch.par_left_pos || ln > self.scratch.par_right_pos {
             return None;
         }
@@ -1506,9 +1467,9 @@ impl Engine<'_> {
         let mut rvs: u8 = 0;
         let test_pos = self.grammar.contexts_arena[test.0].pos;
         let cohort = if test_pos.intersects(POS_LEFT_PAR) {
-            self.doc.store.single_windows.get(sw.0).cohorts[self.scratch.par_left_pos as usize]
+            self.single_windows.get(sw.0).cohorts[self.scratch.par_left_pos as usize]
         } else {
-            self.doc.store.single_windows.get(sw.0).cohorts[self.scratch.par_right_pos as usize]
+            self.single_windows.get(sw.0).cohorts[self.scratch.par_right_pos as usize]
         };
         let (_, retval) = self.run_single_test(cohort, test, &mut rvs, deep, origin);
         if retval {
@@ -1527,7 +1488,7 @@ impl Engine<'_> {
     pub fn run_relation_test(
         &mut self,
         // C++ takes `sWindow` but only reads `sWindow->parent->cohort_map`, which
-        // is the applicator's single inline `self.doc.cohorts` in the port — so the
+        // is the applicator's single inline `self.registry` in the port — so the
         // window parameter is unused here (kept to mirror the C++ signature).
         _sw: SwId,
         current: CohortId,
@@ -1536,7 +1497,7 @@ impl Engine<'_> {
         origin: Option<CohortId>,
     ) -> Option<CohortId> {
         {
-            let c = self.doc.store.cohorts.get(current.0);
+            let c = self.cohorts.get(current.0);
             if (!c.r#type.intersects(CT_RELATED)) || c.relations.is_empty() {
                 return None;
             }
@@ -1568,8 +1529,6 @@ impl Engine<'_> {
 
         // Snapshot the relation map (u32 name-hash -> sorted target global numbers).
         let relations: Vec<(u32, Vec<u32>)> = self
-            .doc
-            .store
             .cohorts
             .get(current.0)
             .relations
@@ -1580,8 +1539,8 @@ impl Engine<'_> {
         if rtag_hash.get() == self.grammar.tag_any {
             for (_name, targets) in &relations {
                 for &citer in targets {
-                    if let Some(&c) = self.doc.cohorts.cohort_map.get(&GlobalNumber(citer)) {
-                        cs_insert(&self.doc.store, &mut rels, c);
+                    if let Some(&c) = self.registry.cohort_map.get(&GlobalNumber(citer)) {
+                        cs_insert(self.cohorts, self.single_windows, &mut rels, c);
                     }
                 }
             }
@@ -1596,20 +1555,11 @@ impl Engine<'_> {
             let rtag = self.grammar.single_tags_list[rtag_id.0].clone();
             for (name, targets) in &relations {
                 for &citer in targets {
-                    if self
-                        .doc
-                        .cohorts
-                        .cohort_map
-                        .contains_key(&GlobalNumber(citer))
+                    if self.registry.cohort_map.contains_key(&GlobalNumber(citer))
                         && self.does_tag_match_regexp(*name, &rtag, caps != 0) != 0
                     {
-                        let c = *self
-                            .doc
-                            .cohorts
-                            .cohort_map
-                            .get(&GlobalNumber(citer))
-                            .unwrap();
-                        cs_insert(&self.doc.store, &mut rels, c);
+                        let c = *self.registry.cohort_map.get(&GlobalNumber(citer)).unwrap();
+                        cs_insert(self.cohorts, self.single_windows, &mut rels, c);
                         let cur = self.scratch.context_stack.last().unwrap().regexgrp_ct;
                         let capped = (regexgrpz as i32 + caps).clamp(0, u8::MAX as i32) as u8;
                         self.scratch.context_stack.last_mut().unwrap().regexgrp_ct =
@@ -1620,8 +1570,8 @@ impl Engine<'_> {
         } else {
             if let Some((_name, targets)) = relations.iter().find(|(k, _)| *k == rtag_hash.get()) {
                 for &citer in targets {
-                    if let Some(&c) = self.doc.cohorts.cohort_map.get(&GlobalNumber(citer)) {
-                        cs_insert(&self.doc.store, &mut rels, c);
+                    if let Some(&c) = self.registry.cohort_map.get(&GlobalNumber(citer)) {
+                        cs_insert(self.cohorts, self.single_windows, &mut rels, c);
                     }
                 }
             }
@@ -1629,15 +1579,15 @@ impl Engine<'_> {
 
         // Order/filter `rels`.
         if test_pos.intersects(POS_LEFT) {
-            let lb = cs_lower_bound(&self.doc.store, &rels, current);
+            let lb = cs_lower_bound(self.cohorts, self.single_windows, &rels, current);
             rels = rels[..lb].to_vec();
         }
         if test_pos.intersects(POS_RIGHT) {
-            let lb = cs_lower_bound(&self.doc.store, &rels, current);
+            let lb = cs_lower_bound(self.cohorts, self.single_windows, &rels, current);
             rels = rels[lb..].to_vec();
         }
         if test_pos.intersects(POS_SELF) {
-            cs_insert(&self.doc.store, &mut rels, current);
+            cs_insert(self.cohorts, self.single_windows, &mut rels, current);
         }
         if (test_pos.intersects(POS_LEFTMOST)) && !rels.is_empty() {
             let c = rels[0];
@@ -1681,10 +1631,10 @@ impl Engine<'_> {
     /// embedded-value `Reading&` of the C++ `doesSetMatchReading(sWindow->
     /// bag_of_tags, test->target, true)` has no arena identity.
     fn match_bag_of_tags(&mut self, sw: SwId, target: u32) -> bool {
-        let bag = clone_reading(&self.doc.store.single_windows.get(sw.0).bag_of_tags);
-        let rid = self.doc.store.readings.alloc(bag);
+        let bag = clone_reading(&self.single_windows.get(sw.0).bag_of_tags);
+        let rid = self.readings.alloc(bag);
         let m = self.does_set_match_reading(crate::arena::ReadingId(rid), target, true, false);
-        self.doc.store.readings.free_slot(rid);
+        self.readings.free_slot(rid);
         m
     }
 }

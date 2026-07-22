@@ -1,41 +1,28 @@
-//! `src/GrammarApplicator_matchSet.cpp` impl of GrammarApplicator (the
-//! regex/set/tag/cohort matchers). Literal, bug-for-bug Wave-2 port.
+//! `src/GrammarApplicator_matchSet.cpp` (the regex/set/tag/cohort matchers) —
+//! implemented on the [`Matcher`] split-borrow sub-view (plan node
+//! `matcher-doc-split.matcher-view`): the runtime arenas resolve through the
+//! view's fields (`self.readings` / `self.cohorts` / `self.single_windows`),
+//! which is the type-level proof that matching reads the document (the two
+//! narrow write capabilities are documented on [`Matcher`]). Literal,
+//! bug-for-bug port.
 //!
-//! ============================================================================
-//! CROSS-PARTIAL / SCAFFOLD DEPENDENCIES (NOT edited here — see task report)
-//! ============================================================================
-//! * REQUIRED mod.rs FIELD (missing from the current scaffold): the applicator
-//!   must own `pub store: RuntimeStore` (`crate::store::RuntimeStore`). The
-//!   cohort/reading matchers resolve `ReadingId`/`CohortId` via `self.doc.store`
-//!   exactly as the task brief states (`self.doc.store.readings[rid.0]`). Add:
-//!   pub store: crate::store::RuntimeStore,
-//!   (default `RuntimeStore::new()` in `GrammarApplicator::new`).
+//! SIBLING methods called here but DEFINED in other partials (all on
+//! `impl Matcher` in their C++ translation unit's module):
+//!     - reflow:   `generate_varstring_tag`
+//!     - run_rules: `get_sub_reading`
+//!     - context:  `get_mark`, `get_attach_to`, `check_unif_tags`
+//!     - runCtx:   `run_contextual_test`
 //!
-//! * SIBLING GrammarApplicator methods CALLED here but DEFINED in other
-//!   partials (do NOT define them here — that would duplicate). Expected
-//!   signatures (arena-model adaptations of the C++ pointer forms):
-//!     - reflow:   fn generate_varstring_tag(&mut self, tag: &Tag) -> TagId
-//!       (C++ `generateVarstringTag(const Tag*) -> const Tag*`)
-//!     - core/ctx: fn get_sub_reading(&mut self, r: ReadingId, offset_sub: i32)
-//!       -> Option<ReadingId>   (C++ `get_sub_reading(Reading*, int32_t)`)
-//!     - core/ctx: fn get_mark(&self) -> Option<CohortId>
-//!     - core/ctx: fn get_attach_to(&self) -> &ReadingSpec   (uses `.cohort`)
-//!     - runCtx:   fn run_contextual_test(&mut self, sw: Option<SwId>,
-//!       local: u32, test: CtxId,
-//!       deep: Option<*mut Option<CohortId>>,
-//!       origin: Option<CohortId>) -> Option<CohortId>
-//!     - runCtx:   fn check_unif_tags(&mut self, set_number: u32,
-//!       key: UnifKey) -> bool
-//!
-//! EXPOSED for the other engine agents (they call these):
+//! EXPOSED here (runCtx calls them directly; run_rules / run_grammar / the
+//! stream applicators go through the `Engine` forwarders in mod.rs):
 //!     does_set_match_reading, does_set_match_reading_tags,
 //!     does_set_match_reading_trie, does_tag_match_reading, does_tag_match_regexp,
 //!     does_tag_match_icase, does_regexp_match_reading, does_regexp_match_line,
 //!     does_set_match_cohort_normal, does_set_match_cohort_careful,
 //!     does_set_match_cohort_helper, does_set_match_cohort_test_linked,
 //!     get_tags_matching — all take `reading`/`cohort` as arena ids (ReadingId /
-//!     CohortId), never `&Reading`/`&Cohort` (the arena lives inside `self`, so a
-//!     `&Reading` borrowed from `self.doc.store` cannot coexist with `&mut self`).
+//!     CohortId), never `&Reading`/`&Cohort` (the arenas live inside `self`, so a
+//!     `&Reading` borrowed from `self.readings` cannot coexist with `&mut self`).
 //!
 //! REGEX MAPPING (ICU `uregex_find(-1)` == UNANCHORED search): a tag's
 //! `regexp: Option<regex::Regex>` was compiled at parse time (`/.../` unanchored,
@@ -79,6 +66,7 @@
 
 use regex::Regex;
 
+use crate::arena::GenArena;
 use crate::arena::{CohortId, ReadingId, TagId};
 use crate::cohort;
 use crate::contextual_test::{
@@ -91,7 +79,6 @@ use crate::math_parser::MathParser;
 use crate::rule::RF_CAPTURE_UNIF;
 use crate::set::{ST_ANY, ST_CHILD_UNIFY, ST_SET_UNIFY, ST_SPECIAL, ST_TAG_UNIFY};
 use crate::sorted_vector::uint32SortedVector;
-use crate::store::RuntimeStore;
 use crate::tag::{
     C_OPS, T_ATTACHTO, T_BASEFORM, T_CASE_INSENSITIVE, T_CONTEXT, T_ENCL, T_FAILFAST,
     T_LOCAL_VARIABLE, T_MARK, T_META, T_NUMERIC_MATH, T_NUMERICAL, T_PAR_LEFT, T_PAR_RIGHT,
@@ -101,7 +88,7 @@ use crate::tag::{
 use crate::tag_trie::{trie_node_t, trie_t};
 use crate::types::{SetNumber, TagHash, UString};
 
-use super::{Engine, UnifKey, dSMC_Context, regexgrps_t};
+use super::{Matcher, UnifKey, dSMC_Context, regexgrps_t};
 
 // C++ Strings.hpp set-operator enum values (`S_IGNORE, S_OR=3, S_PLUS, S_MINUS,
 // ... S_FAILFAST=8`). Only the four `doesSetMatchReading` uses are reproduced.
@@ -209,12 +196,15 @@ pub fn tag_set_subset_of_t_set(
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.test-tag-numerical-fn]
 /// C++ free fn `uint32_t test_tag_numerical(const Reading&, const Tag& tag,
 /// const Tag& itag)`. Kept a free fn (arena model): `reading.parent->getMin/getMax`
-/// need `store: &mut RuntimeStore` + `grammar: &Grammar`, so both are threaded in
-/// (`Reading&` → `ReadingId`). Compares the query numeric tag against a reading's
-/// numeric tag, returning `itag.hash` on a match else 0. `compval` derives from
-/// the query `tag`; the threshold `V` and operator `B` from the reading's `itag`.
+/// WRITE the cohort's num-min/max cache and read the readings + grammar arenas,
+/// so exactly those are threaded in (`Reading&` → `ReadingId`) — the split that
+/// lets the `Matcher` view call it. Compares the query numeric tag against a
+/// reading's numeric tag, returning `itag.hash` on a match else 0. `compval`
+/// derives from the query `tag`; the threshold `V` and operator `B` from the
+/// reading's `itag`.
 pub fn test_tag_numerical(
-    store: &mut RuntimeStore,
+    cohorts: &mut GenArena<crate::cohort::Cohort>,
+    readings: &GenArena<crate::reading::Reading>,
     grammar: &Grammar,
     reading: ReadingId,
     tag: &Tag,
@@ -225,13 +215,13 @@ pub fn test_tag_numerical(
     if tag.comparison_hash != itag.comparison_hash {
         return TagHash(0);
     }
-    let parent = store.readings.get(reading.0).parent.unwrap();
+    let parent = readings.get(reading.0).parent.unwrap();
     let mut compval = tag.comparison_val;
     // `tag.comparison_offset` aliases the `dep_parent` union member (tag.rs).
     let comparison_offset = tag.comparison_offset() as usize;
     if tag.r#type.intersects(T_NUMERIC_MATH) && comparison_offset != 0 {
-        let mn = cohort::get_min(store, grammar, parent, tag.comparison_hash);
-        let mx = cohort::get_max(store, grammar, parent, tag.comparison_hash);
+        let mn = cohort::get_min(cohorts, readings, grammar, parent, tag.comparison_hash);
+        let mx = cohort::get_max(cohorts, readings, grammar, parent, tag.comparison_hash);
         let mut mp = MathParser::new(mn, mx);
         // exp = view(tag.tag).remove_prefix(comparison_offset).remove_suffix(1)
         let chars: Vec<char> = tag.tag.chars().collect();
@@ -244,9 +234,9 @@ pub fn test_tag_numerical(
             }
         }
     } else if compval <= NUMERIC_MIN {
-        compval = cohort::get_min(store, grammar, parent, tag.comparison_hash);
+        compval = cohort::get_min(cohorts, readings, grammar, parent, tag.comparison_hash);
     } else if compval >= NUMERIC_MAX {
-        compval = cohort::get_max(store, grammar, parent, tag.comparison_hash);
+        compval = cohort::get_max(cohorts, readings, grammar, parent, tag.comparison_hash);
     }
 
     let a = tag.comparison_op;
@@ -326,13 +316,12 @@ fn group_count(tag: &Tag) -> i32 {
 }
 
 // ===========================================================================
-// The match-set matcher cluster, converted onto the split-borrow `Engine<'_>`
-// view (Stage-C decomposition): the contextual-test knot's does_set_match_*
-// family plus the already-peeled tag/regexp leaves. Sibling calls stay
-// method-like; unpeeled `&mut self` methods split at the call site via
-// `self.engine().<method>(...)`.
+// The match-set matcher cluster, on the `Matcher<'_>` sub-view: the
+// contextual-test knot's does_set_match_* family plus the tag/regexp leaves.
+// Sibling calls stay method-like; the action layer enters through the `Engine`
+// forwarders in mod.rs.
 // ===========================================================================
-impl Engine<'_> {
+impl Matcher<'_> {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
     // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn]
@@ -353,7 +342,7 @@ impl Engine<'_> {
 
         if !tag.r#type.intersects(T_SPECIAL) || tag.r#type.intersects(T_FAILFAST) {
             // (1) plain / fail-fast tag
-            let r = self.doc.store.readings.get(reading.0);
+            let r = self.readings.get(reading.0);
             let mut raw_in = r.tags_plain_bloom.matches(tag.hash.get());
             if tag.r#type.intersects(T_FAILFAST) {
                 raw_in = r.tags_plain.find(tag.plain_hash.get()) != r.tags_plain.end();
@@ -380,9 +369,9 @@ impl Engine<'_> {
             // (4) META regex against the cohort's parenthetical text
             if let Some(re) = tag.regexp.as_ref() {
                 let text = {
-                    let pc = self.doc.store.readings.get(reading.0).parent;
+                    let pc = self.readings.get(reading.0).parent;
                     match pc {
-                        Some(cid) => self.doc.store.cohorts.get(cid.0).text.clone(),
+                        Some(cid) => self.cohorts.get(cid.0).text.clone(),
                         None => UString::new(),
                     }
                 };
@@ -422,8 +411,6 @@ impl Engine<'_> {
         } else if tag.r#type.intersects(T_CASE_INSENSITIVE) {
             // (6) case-insensitive
             let textual: Vec<u32> = self
-                .doc
-                .store
                 .readings
                 .get(reading.0)
                 .tags_textual
@@ -438,13 +425,7 @@ impl Engine<'_> {
         } else if tag.r#type.intersects(T_REGEXP_ANY) {
             // (7) <.*>/".*" any-forms
             if tag.r#type.intersects(T_BASEFORM) {
-                let bf = self
-                    .doc
-                    .store
-                    .readings
-                    .get(reading.0)
-                    .baseform
-                    .unwrap_or(TagHash(0));
+                let bf = self.readings.get(reading.0).baseform.unwrap_or(TagHash(0));
                 m = bf.get();
                 if unif_mode {
                     if self.scratch.unif_last_baseform != TagHash(0) {
@@ -457,8 +438,8 @@ impl Engine<'_> {
                 }
             } else if tag.r#type.intersects(T_WORDFORM) {
                 let wf_hash = {
-                    let cid = self.doc.store.readings.get(reading.0).parent.unwrap();
-                    let wf = self.doc.store.cohorts.get(cid.0).wordform.unwrap();
+                    let cid = self.readings.get(reading.0).parent.unwrap();
+                    let wf = self.cohorts.get(cid.0).wordform.unwrap();
                     self.grammar.single_tags_list[wf.0].hash
                 };
                 m = wf_hash.get();
@@ -473,8 +454,6 @@ impl Engine<'_> {
                 }
             } else {
                 let textual: Vec<u32> = self
-                    .doc
-                    .store
                     .readings
                     .get(reading.0)
                     .tags_textual
@@ -507,8 +486,6 @@ impl Engine<'_> {
         } else if tag.r#type.intersects(T_NUMERICAL) {
             // (8) numerical — LAST matching numerical tag wins (no break)
             let nums: Vec<TagId> = self
-                .doc
-                .store
                 .readings
                 .get(reading.0)
                 .tags_numerical
@@ -517,7 +494,14 @@ impl Engine<'_> {
                 .collect();
             for tid in nums {
                 let itag = self.grammar.single_tags_list[tid.0].clone();
-                let rv = test_tag_numerical(&mut self.doc.store, self.grammar, reading, tag, &itag);
+                let rv = test_tag_numerical(
+                    self.cohorts,
+                    self.readings,
+                    self.grammar,
+                    reading,
+                    tag,
+                    &itag,
+                );
                 if rv != TagHash(0) {
                     m = rv.get();
                 }
@@ -525,21 +509,14 @@ impl Engine<'_> {
         } else if tag.r#type.intersects(T_VARIABLE | T_LOCAL_VARIABLE) {
             // (9) variable existence / value comparison
             m = 0;
-            let cid = self.doc.store.readings.get(reading.0).parent.unwrap();
-            let sw_opt = self.doc.store.cohorts.get(cid.0).parent;
+            let cid = self.readings.get(reading.0).parent.unwrap();
+            let sw_opt = self.cohorts.get(cid.0).parent;
             let use_global =
-                sw_opt == self.doc.stream.current || (!tag.r#type.intersects(T_LOCAL_VARIABLE));
+                sw_opt == self.stream.current || (!tag.r#type.intersects(T_LOCAL_VARIABLE));
             let var_entries: Vec<(u32, u32)> = if use_global {
-                collect_fum(&self.doc.variables)
+                collect_fum(self.variables)
             } else {
-                collect_fum(
-                    &self
-                        .doc
-                        .store
-                        .single_windows
-                        .get(sw_opt.unwrap().0)
-                        .variables_set,
-                )
+                collect_fum(&self.single_windows.get(sw_opt.unwrap().0).variables_set)
             };
 
             let key_info = {
@@ -605,10 +582,10 @@ impl Engine<'_> {
             // (10)
             if self.scratch.par_left_tag != TagHash(0) {
                 let (ln, has) = {
-                    let r = self.doc.store.readings.get(reading.0);
+                    let r = self.readings.get(reading.0);
                     let cid = r.parent.unwrap();
                     let has = r.tags.find(self.scratch.par_left_tag.get()) != r.tags.end();
-                    (self.doc.store.cohorts.get(cid.0).local_number, has)
+                    (self.cohorts.get(cid.0).local_number, has)
                 };
                 if ln == self.scratch.par_left_pos && has {
                     m = self.grammar.tag_any;
@@ -618,10 +595,10 @@ impl Engine<'_> {
             // (11)
             if self.scratch.par_right_tag != TagHash(0) {
                 let (ln, has) = {
-                    let r = self.doc.store.readings.get(reading.0);
+                    let r = self.readings.get(reading.0);
                     let cid = r.parent.unwrap();
                     let has = r.tags.find(self.scratch.par_right_tag.get()) != r.tags.end();
-                    (self.doc.store.cohorts.get(cid.0).local_number, has)
+                    (self.cohorts.get(cid.0).local_number, has)
                 };
                 if ln == self.scratch.par_right_pos && has {
                     m = self.grammar.tag_any;
@@ -629,48 +606,42 @@ impl Engine<'_> {
             }
         } else if tag.r#type.intersects(T_ENCL) {
             // (12) enclosure: the cohort right after reading.parent is enclosed
-            let cid = self.doc.store.readings.get(reading.0).parent.unwrap();
+            let cid = self.readings.get(reading.0).parent.unwrap();
             let (sw_id, local_number) = {
-                let c = self.doc.store.cohorts.get(cid.0);
+                let c = self.cohorts.get(cid.0);
                 (c.parent.unwrap(), c.local_number as usize)
             };
-            let all = self
-                .doc
-                .store
-                .single_windows
-                .get(sw_id.0)
-                .all_cohorts
-                .clone();
+            let all = self.single_windows.get(sw_id.0).all_cohorts.clone();
             // std::find(begin + local_number, end, reading.parent), then ++c.
             let mut idx = local_number;
             while idx < all.len() && all[idx] != cid {
                 idx += 1;
             }
             let cpos = idx + 1;
-            if cpos < all.len() && self.doc.store.cohorts.get(all[cpos].0).enclosed != 0 {
+            if cpos < all.len() && self.cohorts.get(all[cpos].0).enclosed != 0 {
                 m = 1;
             }
         } else if tag.r#type.intersects(T_TARGET) {
             // (13)
-            let pc = self.doc.store.readings.get(reading.0).parent;
+            let pc = self.readings.get(reading.0).parent;
             if self.scratch.rule_target.is_some() && pc == self.scratch.rule_target {
                 m = self.grammar.tag_any;
             }
         } else if tag.r#type.intersects(T_MARK) {
             // (14)
-            let pc = self.doc.store.readings.get(reading.0).parent;
+            let pc = self.readings.get(reading.0).parent;
             if pc == self.get_mark() {
                 m = self.grammar.tag_any;
             }
         } else if tag.r#type.intersects(T_ATTACHTO) {
             // (15)
-            let pc = self.doc.store.readings.get(reading.0).parent;
+            let pc = self.readings.get(reading.0).parent;
             if pc == self.get_attach_to().cohort {
                 m = self.grammar.tag_any;
             }
         } else if tag.r#type.intersects(T_SAME_BASIC) {
             // (16)
-            let hp = self.doc.store.readings.get(reading.0).hash_plain;
+            let hp = self.readings.get(reading.0).hash_plain;
             if hp == self.scratch.same_basic {
                 m = self.grammar.tag_any;
             }
@@ -679,7 +650,7 @@ impl Engine<'_> {
             if self.scratch.context_stack.len() > 1 {
                 let idx = self.scratch.context_stack.len() - 2;
                 let crp = tag.context_ref_pos();
-                let pc = self.doc.store.readings.get(reading.0).parent;
+                let pc = self.readings.get(reading.0).parent;
                 let list = &self.scratch.context_stack[idx].context;
                 if crp as usize <= list.len() && pc == list[(crp - 1) as usize] {
                     m = self.grammar.tag_any;
@@ -834,14 +805,7 @@ impl Engine<'_> {
         // first-level keys (both ascending by hash). `entries` is snapshotted with
         // a short borrow; node flags are re-read fresh per hit (never held across a
         // `&mut self` re-entry). `path` is the root-to-node key of the [`UnifKey`].
-        let plain: Vec<u32> = self
-            .doc
-            .store
-            .readings
-            .get(reading.0)
-            .tags_plain
-            .as_slice()
-            .to_vec();
+        let plain: Vec<u32> = self.readings.get(reading.0).tags_plain.as_slice().to_vec();
         let entries: Vec<(TagId, u32)> = {
             match self.trie_level_at(set_number, false, &[]) {
                 Some(t) if !plain.is_empty() => {
@@ -933,7 +897,7 @@ impl Engine<'_> {
         unif_mode: bool,
     ) -> bool {
         if !bypass_index && !unif_mode {
-            let rhash = self.doc.store.readings.get(reading.0).hash;
+            let rhash = self.readings.get(reading.0).hash;
             if self.scratch.index_readingSet_no[set as usize].contains(rhash) {
                 return false;
             }
@@ -1099,10 +1063,10 @@ impl Engine<'_> {
 
         // Cache the result.
         if retval {
-            let rhash = self.doc.store.readings.get(reading.0).hash;
+            let rhash = self.readings.get(reading.0).hash;
             self.scratch.index_readingSet_yes[set as usize].insert(rhash);
         } else if !stype.intersects(ST_TAG_UNIFY) && !unif_mode {
-            let rhash = self.doc.store.readings.get(reading.0).hash;
+            let rhash = self.readings.get(reading.0).hash;
             self.scratch.index_readingSet_no[set as usize].insert(rhash);
         }
         retval
@@ -1142,7 +1106,7 @@ impl Engine<'_> {
             if !context.did_test {
                 let lpos = self.grammar.contexts_arena[l.0].pos;
                 let (cparent, clocal) = {
-                    let c = self.doc.store.cohorts.get(cohort.0);
+                    let c = self.cohorts.get(cohort.0);
                     (c.parent, c.local_number)
                 };
                 let res = if lpos.intersects(POS_NO_PASS_ORIGIN) {
@@ -1336,14 +1300,14 @@ impl Engine<'_> {
         let guard = !(context.is_none()
             || (opts.intersects(POS_LOOK_DELETED | POS_LOOK_DELAYED | POS_LOOK_IGNORED | POS_NOT)));
         if guard {
-            let ps = &self.doc.store.cohorts.get(cohort.0).possible_sets;
+            let ps = &self.cohorts.get(cohort.0).possible_sets;
             if set as usize >= ps.len() || !ps[set as usize] {
                 return retval;
             }
         }
 
         // wread pre-check.
-        let wread = self.doc.store.cohorts.get(cohort.0).wread;
+        let wread = self.cohorts.get(cohort.0).wread;
         if let Some(wr) = wread {
             let in_barrier = context.as_deref().map(|c| c.in_barrier).unwrap_or(false);
             if context.is_none() || !in_barrier {
@@ -1379,7 +1343,7 @@ impl Engine<'_> {
                         None => continue,
                     }
                 }
-                let active = self.doc.store.readings.get(reading.0).active;
+                let active = self.readings.get(reading.0).active;
                 if let Some(ctx) = context.as_deref() {
                     if !active && ctx.options.intersects(POS_ACTIVE) {
                         continue;
@@ -1459,7 +1423,7 @@ impl Engine<'_> {
         let guard = !(context.is_none()
             || (opts.intersects(POS_LOOK_DELETED | POS_LOOK_DELAYED | POS_LOOK_IGNORED | POS_NOT)));
         if guard {
-            let ps = &self.doc.store.cohorts.get(cohort.0).possible_sets;
+            let ps = &self.cohorts.get(cohort.0).possible_sets;
             if set as usize >= ps.len() || !ps[set as usize] {
                 return retval;
             }
@@ -1483,7 +1447,7 @@ impl Engine<'_> {
                         None => continue,
                     }
                 }
-                let active = self.doc.store.readings.get(reading.0).active;
+                let active = self.readings.get(reading.0).active;
                 if let Some(ctx) = context.as_deref() {
                     if !active && ctx.options.intersects(POS_ACTIVE) {
                         continue;
@@ -1525,7 +1489,7 @@ impl Engine<'_> {
         cohort: CohortId,
         context: Option<&dSMC_Context>,
     ) -> [Option<Vec<ReadingId>>; 4] {
-        let c = self.doc.store.cohorts.get(cohort.0);
+        let c = self.cohorts.get(cohort.0);
         let mut lists: [Option<Vec<ReadingId>>; 4] = [Some(c.readings.clone()), None, None, None];
         if let Some(ctx) = context {
             if ctx.options.intersects(POS_LOOK_DELETED) {
@@ -1649,7 +1613,7 @@ impl Engine<'_> {
         let gc = group_count(tag);
         let mut m: u32 = 0;
         let (tsh, ts) = {
-            let r = self.doc.store.readings.get(reading.0);
+            let r = self.readings.get(reading.0);
             (r.tags_string_hash, r.tags_string.clone())
         };
         let ih = make_64(tsh, tag.hash.get());
@@ -1713,8 +1677,6 @@ impl Engine<'_> {
             return self.does_regexp_match_line(reading, tag, bypass_index);
         }
         let textual: Vec<u32> = self
-            .doc
-            .store
             .readings
             .get(reading.0)
             .tags_textual
@@ -1742,7 +1704,7 @@ impl Engine<'_> {
         the_tags: &TagList,
         rv_tags: &mut TagList,
     ) {
-        let tags_list: Vec<u32> = self.doc.store.readings.get(reading.0).tags_list.clone();
+        let tags_list: Vec<u32> = self.readings.get(reading.0).tags_list.clone();
         for &tid in the_tags {
             let tag = self.grammar.single_tags_list[tid.0].clone();
             for &tt in &tags_list {
@@ -1762,18 +1724,12 @@ impl Engine<'_> {
                 } else if (tag.r#type.intersects(T_REGEXP_ANY)) && (itype.intersects(T_TEXTUAL)) {
                     if tag.r#type.intersects(T_BASEFORM) {
                         if itype.intersects(T_BASEFORM) {
-                            m = self
-                                .doc
-                                .store
-                                .readings
-                                .get(reading.0)
-                                .baseform
-                                .map_or(0, |h| h.get());
+                            m = self.readings.get(reading.0).baseform.map_or(0, |h| h.get());
                         }
                     } else if tag.r#type.intersects(T_WORDFORM) {
                         if itype.intersects(T_WORDFORM) {
-                            let cid = self.doc.store.readings.get(reading.0).parent.unwrap();
-                            let wf = self.doc.store.cohorts.get(cid.0).wordform.unwrap();
+                            let cid = self.readings.get(reading.0).parent.unwrap();
+                            let wf = self.cohorts.get(cid.0).wordform.unwrap();
                             m = self.grammar.single_tags_list[wf.0].hash.get();
                         }
                     } else if !itype.intersects(T_BASEFORM | T_WORDFORM) {
@@ -1784,8 +1740,15 @@ impl Engine<'_> {
                     }
                 } else if (tag.r#type.intersects(T_NUMERICAL)) && (itype.intersects(T_NUMERICAL)) {
                     let itag = self.grammar.single_tags_list[itag_id.0].clone();
-                    m = test_tag_numerical(&mut self.doc.store, self.grammar, reading, &tag, &itag)
-                        .get();
+                    m = test_tag_numerical(
+                        self.cohorts,
+                        self.readings,
+                        self.grammar,
+                        reading,
+                        &tag,
+                        &itag,
+                    )
+                    .get();
                 } else if tag.hash == ihash {
                     m = ihash.get();
                 }

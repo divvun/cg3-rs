@@ -1,10 +1,14 @@
-//! `src/GrammarApplicator_context.cpp` impl of `GrammarApplicator`.
-//!
-//! The rule-application context accessors. `context_stack` is a stack (`Vec`) of
+//! `src/GrammarApplicator_context.cpp` — the rule-application context
+//! accessors. `context_stack` is a stack (`Vec`) of
 //! [`Rule_Context`](super::Rule_Context) frames; the "current" context is its
 //! `back()` (Rust `last()`). Each frame records, for the rule currently firing,
 //! its matched `target`, its explicit `attach_to`, its `mark` cohort, and the
 //! per-frame unification state. These six methods read/write the top frame.
+//! The four the predicate/test tree consumes (`get_attach_to`, `get_mark`,
+//! `set_mark`, `check_unif_tags`) live on the [`Matcher`] sub-view; the two
+//! only the action layer uses (`set_attach_to`, `get_apply_to`) stay on
+//! [`Engine`], and `Engine` forwarders in mod.rs re-expose `get_attach_to` /
+//! `set_mark` for its callers.
 //!
 //! ARENA MODEL: `Cohort*` → [`CohortId`], `Reading*` → [`ReadingId`], and the
 //! returned C++ `ReadingSpec` (a `{cohort, reading, subreading}` triple) is
@@ -16,7 +20,7 @@
 //! identity, ported to the address-free [`UnifKey`](super::UnifKey) — value
 //! equality of `(special, path)`, an exact bijection with the entry address.
 
-use super::{Engine, ReadingSpec, UnifKey, unif_tags_t};
+use super::{Engine, Matcher, ReadingSpec, UnifKey, unif_tags_t};
 use crate::arena::{CohortId, ReadingId};
 
 impl Engine<'_> {
@@ -66,7 +70,9 @@ impl Engine<'_> {
             self.scratch.context_stack.last().unwrap().target.clone()
         }
     }
+}
 
+impl Matcher<'_> {
     // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.get-attach-to-fn]
     // [spec:cg3:sem:grammar-applicator-context.cg3.grammar-applicator.get-attach-to-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.get-attach-to-fn]

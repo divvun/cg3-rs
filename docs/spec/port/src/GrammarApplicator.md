@@ -209,6 +209,18 @@
 > exactly five named fields — the five subsystems `cfg` (`EngineConfig`), `doc`
 > (`Document`), `scratch` (`RuleScratch`), `diag` (`Diagnostics`), and the
 > owned `grammar` (`Grammar`) — and holds no other flat state.
+>
+> PORT DIVERGENCE (impl re-homing, plan node
+> `matcher-doc-split.matcher-view`): the matchSet.cpp +
+> runContextualTest.cpp method tree (and the match-support helpers it
+> transitively calls: `get_sub_reading`, `doesWordformsMatch`, the `getTagList`
+> family, `generateVarstringTag`/`addTag`, `get_attach_to`/`get_mark`/
+> `set_mark`/`check_unif_tags`) lives on the `Matcher` sub-view of `Engine`
+> (`Engine::matcher()`), whose field-level borrows hold the document read-only
+> apart from two narrow write capabilities (`readings` transient-slot
+> alloc/free + `reflowTextuals`' derived `tags_textual`; the `cohorts`
+> getMin/getMax numeric memo). Signatures and behavior are otherwise per the
+> C++; action-layer callers go through thin `Engine` forwarders.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
 > void addProfilingExample(T& item)

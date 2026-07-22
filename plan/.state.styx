@@ -58,4 +58,6 @@ assertions (
     {id drop-dead-match-counters, kind @complete, author "brendan@necessary.nu", at 2026-07-22T11:18:53.610833Z}
     {id matcher-doc-split.possible-sets-prune, kind @complete, author "brendan@necessary.nu", at 2026-07-22T11:39:27.640627Z}
     {id matcher-doc-split.matched-flags, kind @complete, author "brendan@necessary.nu", at 2026-07-22T12:01:12.359089Z}
+    {id matcher-doc-split.bag-readings, kind @complete, author "brendan@necessary.nu", at 2026-07-22T12:08:03.792297Z}
+    {id matcher-doc-split.matcher-view, kind @complete, author "brendan@necessary.nu", at 2026-07-22T12:51:31.071872Z}
 )

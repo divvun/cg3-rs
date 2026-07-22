@@ -62,36 +62,11 @@ impl crate::grammar_applicator::Engine<'_> {
         }
     }
 
-    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.does-wordforms-match-fn]
-    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.does-wordforms-match-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-wordforms-match-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-wordforms-match-fn]
-    /// C++ `bool doesWordformsMatch(const Tag* cword, const Tag* rword)`.
-    /// `cword`/`rword` are the cohort's and rule's wordform tags (nullable →
-    /// `Option<TagId>`).
-    pub fn does_wordforms_match(&mut self, cword: Option<TagId>, rword: Option<TagId>) -> bool {
-        if let Some(rw) = rword
-            && Some(rw) != cword
-        {
-            // `rword` (a Tag in the grammar arena) is cloned out so the
-            // `&mut self` matcher calls do not alias the grammar borrow.
-            let rword_tag = self.grammar.single_tags_list.get(rw.0).clone();
-            let chash = cword
-                .map(|c| self.grammar.single_tags_list.get(c.0).hash)
-                .map_or(0, |h| h.get());
-            if rword_tag.r#type.intersects(crate::tag::T_REGEXP) {
-                if self.does_tag_match_regexp(chash, &rword_tag, false) == 0 {
-                    return false;
-                }
-            } else if rword_tag.r#type.intersects(crate::tag::T_CASE_INSENSITIVE) {
-                if self.does_tag_match_icase(chash, &rword_tag, false) == 0 {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        true
+    /// Action-layer access to the `Reading` verbatim field copy (the C++
+    /// `*reading = *tr`) — the same one-line `clone_verbatim` wrapper over the
+    /// readings arena as `Matcher::clone_reading_value`.
+    pub(crate) fn clone_reading_value(&self, id: ReadingId) -> Reading {
+        crate::reading::clone_verbatim(self.doc.store.readings.get(id.0))
     }
 
     // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.update-rule-to-cohorts-fn]
@@ -223,7 +198,12 @@ impl crate::grammar_applicator::Engine<'_> {
         let mut hi = slice.len();
         while lo < hi {
             let mid = (lo + hi) / 2;
-            if crate::single_window::less_cohort(&self.doc.store, slice[mid], c) {
+            if crate::single_window::less_cohort(
+                &self.doc.store.cohorts,
+                &self.doc.store.single_windows,
+                slice[mid],
+                c,
+            ) {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -240,16 +220,26 @@ impl crate::grammar_applicator::Engine<'_> {
         }
         let store = &self.doc.store;
         let last = slice.len() - 1;
-        if crate::single_window::less_cohort(store, slice[last], c) {
+        if crate::single_window::less_cohort(&store.cohorts, &store.single_windows, slice[last], c)
+        {
             return slice.len();
         }
-        if crate::single_window::less_cohort(store, c, slice[0]) {
+        if crate::single_window::less_cohort(&store.cohorts, &store.single_windows, c, slice[0]) {
             return slice.len();
         }
         let it = self.cs_lower_bound_slice(slice, c);
         if it != slice.len()
-            && (crate::single_window::less_cohort(store, slice[it], c)
-                || crate::single_window::less_cohort(store, c, slice[it]))
+            && (crate::single_window::less_cohort(
+                &store.cohorts,
+                &store.single_windows,
+                slice[it],
+                c,
+            ) || crate::single_window::less_cohort(
+                &store.cohorts,
+                &store.single_windows,
+                c,
+                slice[it],
+            ))
         {
             return slice.len();
         }
@@ -381,15 +371,45 @@ impl crate::grammar_applicator::Engine<'_> {
 }
 
 // ===========================================================================
-// Stage-C decomposition: the `getTagList` read family + `get_sub_reading` /
-// `clone_reading_value`, reached from the contextual matcher knot
-// (`generate_varstring_tag` → `get_tag_list`; `does_set_match_*` →
-// `get_sub_reading`), converted onto the split-borrow `Engine<'_>` view.
-// The `getTagList` overloads form a `&self` call chain and so peel as a unit;
-// unpeeled `&mut self` callers split at the call site via
-// `self.<method>(...)`.
+// The match-support helpers on the `Matcher<'_>` sub-view: the `getTagList`
+// read family + `get_sub_reading` / `clone_reading_value`,
+// reached from the contextual matcher knot (`generate_varstring_tag` →
+// `get_tag_list`; `does_set_match_*` → `get_sub_reading`). The action layer
+// enters through the `Engine` forwarders in mod.rs.
 // ===========================================================================
-impl crate::grammar_applicator::Engine<'_> {
+impl crate::grammar_applicator::Matcher<'_> {
+    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.does-wordforms-match-fn]
+    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.does-wordforms-match-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-wordforms-match-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-wordforms-match-fn]
+    /// C++ `bool doesWordformsMatch(const Tag* cword, const Tag* rword)`.
+    /// `cword`/`rword` are the cohort's and rule's wordform tags (nullable →
+    /// `Option<TagId>`).
+    pub fn does_wordforms_match(&mut self, cword: Option<TagId>, rword: Option<TagId>) -> bool {
+        if let Some(rw) = rword
+            && Some(rw) != cword
+        {
+            // `rword` (a Tag in the grammar arena) is cloned out so the
+            // `&mut self` matcher calls do not alias the grammar borrow.
+            let rword_tag = self.grammar.single_tags_list.get(rw.0).clone();
+            let chash = cword
+                .map(|c| self.grammar.single_tags_list.get(c.0).hash)
+                .map_or(0, |h| h.get());
+            if rword_tag.r#type.intersects(crate::tag::T_REGEXP) {
+                if self.does_tag_match_regexp(chash, &rword_tag, false) == 0 {
+                    return false;
+                }
+            } else if rword_tag.r#type.intersects(crate::tag::T_CASE_INSENSITIVE) {
+                if self.does_tag_match_icase(chash, &rword_tag, false) == 0 {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
     /// C++ `TagList getTagList(const Set& theSet, bool unif_mode) const` — the
     /// returning overload: constructs a fresh list, fills it, returns it.
     pub fn get_tag_list_ret(&self, the_set: &Set, unif_mode: bool) -> TagList {
@@ -515,13 +535,13 @@ impl crate::grammar_applicator::Engine<'_> {
         }
 
         if sub_reading == GSR_ANY {
-            if self.doc.store.readings.get(tr.0).next.is_none() {
+            if self.readings.get(tr.0).next.is_none() {
                 return Some(tr);
             }
             // reading = fresh; *reading = *tr; reading->next = nullptr.
             let amalgam = self.clone_reading_value(tr);
-            let rid = ReadingId(self.doc.store.readings.alloc(amalgam));
-            self.doc.store.readings.get_mut(rid.0).next = None;
+            let rid = ReadingId(self.readings.alloc(amalgam));
+            self.readings.get_mut(rid.0).next = None;
             // The C++ `*reading = *tr` also copies tr's matched flags; those are
             // scratch-resident sets, so seed the amalgam's membership here (a
             // full bool copy — it also erases anything a recycled id carried).
@@ -529,20 +549,22 @@ impl crate::grammar_applicator::Engine<'_> {
             let mtst = self.scratch.matched_tests.contains(&tr);
             self.scratch.set_matched_target(rid, mt);
             self.scratch.set_matched_tests(rid, mtst);
-            self.subs_any_push(rid);
+            // subs_any.emplace_back: track the amalgam id so the engine's
+            // `subs_any_clear` frees the slot at the next cohort.
+            self.scratch.subs_any.push(rid);
 
             let mut cur = tr;
-            while let Some(next) = self.doc.store.readings.get(cur.0).next {
+            while let Some(next) = self.readings.get(cur.0).next {
                 cur = next;
                 // tags_list: push 0 then extend with cur.tags_list
-                let cur_tags_list = self.doc.store.readings.get(cur.0).tags_list.clone();
+                let cur_tags_list = self.readings.get(cur.0).tags_list.clone();
                 {
-                    let r = self.doc.store.readings.get_mut(rid.0);
+                    let r = self.readings.get_mut(rid.0);
                     r.tags_list.push(0);
                     r.tags_list.extend(cur_tags_list.iter().copied());
                 }
                 let (tags, tags_plain, tags_textual) = {
-                    let cr = self.doc.store.readings.get(cur.0);
+                    let cr = self.readings.get(cur.0);
                     (
                         cr.tags.as_slice().to_vec(),
                         cr.tags_plain.as_slice().to_vec(),
@@ -550,7 +572,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     )
                 };
                 {
-                    let r = self.doc.store.readings.get_mut(rid.0);
+                    let r = self.readings.get_mut(rid.0);
                     for t in tags {
                         r.tags.insert(t);
                         r.tags_bloom.insert(t);
@@ -564,9 +586,9 @@ impl crate::grammar_applicator::Engine<'_> {
                         r.tags_textual_bloom.insert(t);
                     }
                 }
-                let cur_num = self.doc.store.readings.get(cur.0).tags_numerical.clone();
+                let cur_num = self.readings.get(cur.0).tags_numerical.clone();
                 let (mapped, mapping) = {
-                    let cr = self.doc.store.readings.get(cur.0);
+                    let cr = self.readings.get(cur.0);
                     (cr.mapped, cr.mapping)
                 };
                 // OR in the sub-reading's matched flags (scratch membership).
@@ -576,7 +598,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 if self.scratch.matched_tests.contains(&cur) {
                     self.scratch.matched_tests.insert(rid);
                 }
-                let r = self.doc.store.readings.get_mut(rid.0);
+                let r = self.readings.get_mut(rid.0);
                 for (k, v) in cur_num {
                     r.tags_numerical.insert(k, v);
                 }
@@ -587,7 +609,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     r.mapping = mapping;
                 }
             }
-            crate::reading::reading_rehash(&mut self.doc.store, self.grammar, rid);
+            crate::reading::reading_rehash(self.readings, self.grammar, rid);
             return Some(rid);
         }
 
@@ -595,7 +617,7 @@ impl crate::grammar_applicator::Engine<'_> {
             let mut cur = Some(tr);
             let mut i = 0;
             while i < sub_reading && cur.is_some() {
-                cur = self.doc.store.readings.get(cur.unwrap().0).next;
+                cur = self.readings.get(cur.unwrap().0).next;
                 i += 1;
             }
             return cur;
@@ -605,16 +627,16 @@ impl crate::grammar_applicator::Engine<'_> {
         let mut ntr = 0i32;
         let mut ttr = Some(tr);
         while let Some(t) = ttr {
-            ttr = self.doc.store.readings.get(t.0).next;
+            ttr = self.readings.get(t.0).next;
             ntr -= 1;
         }
         let mut cur = Some(tr);
-        if self.doc.store.readings.get(tr.0).next.is_none() {
+        if self.readings.get(tr.0).next.is_none() {
             cur = None;
         }
         let mut i = ntr;
         while i < sub_reading && cur.is_some() {
-            cur = self.doc.store.readings.get(cur.unwrap().0).next;
+            cur = self.readings.get(cur.unwrap().0).next;
             i += 1;
         }
         cur
@@ -623,7 +645,7 @@ impl crate::grammar_applicator::Engine<'_> {
     /// Verbatim field copy of a stored `Reading` (the C++ `*reading = *tr`).
     /// `Reading` derives only `Default`, so the fields are copied explicitly.
     pub(crate) fn clone_reading_value(&self, id: ReadingId) -> Reading {
-        crate::reading::clone_verbatim(self.doc.store.readings.get(id.0))
+        crate::reading::clone_verbatim(self.readings.get(id.0))
     }
 }
 
