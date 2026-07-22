@@ -252,7 +252,10 @@
 > and the next sub-set matches, set `match=false`; any other op throws
 > std::runtime_error("Set operator not implemented!"). Increment `i` inside the
 > while. After the while: if `match`, `++match_sub`, `retval=true`, break; if
-> `failfast`, `++match_sub`, `retval=false`, break. After the SET loop,
+> `failfast`, `++match_sub`, `retval=false`, break (PORT DIVERGENCE: the
+> `match_sub`/`match_single` increments here and in doesTagMatchReading are not
+> ported — write-only counters upstream; plan node `drop-dead-match-counters`).
+> After the SET loop,
 > propagate a unified tag: if (`unif_mode` OR `theset.type & ST_TAG_UNIFY`) and
 > context_stack non-empty, look through `theset.sets` for the first entry
 > present in `context_stack.back().unif_tags`; if found (`tag`), write that

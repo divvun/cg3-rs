@@ -653,33 +653,25 @@ impl Default for RuleScratch {
 }
 
 // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator]
-/// The profiler / statistics state extracted from the C++ `GrammarApplicator`
-/// members (the `diag` bucket of the field triage). This is a Stage-B re-homing:
-/// it has no C++ analog as a type; the members map 1:1 onto the diag-bucket
-/// fields of `GrammarApplicator`, keeping their names, types, defaults, and
-/// per-field C++ reference comments.
+/// The profiler state extracted from the C++ `GrammarApplicator` members (the
+/// `diag` bucket of the field triage). This is a Stage-B re-homing: it has no
+/// C++ analog as a type.
+///
+/// DIVERGENCE (operator decision, plan node `drop-dead-match-counters`): the
+/// C++ `match_single`/`match_comp`/`match_sub` counters are deleted, not
+/// ported — they are write-only in the reference too (declared, incremented,
+/// never read; `match_comp` never even incremented), the same dead-upstream
+/// class as `--dry-run`.
 pub struct Diagnostics {
     /// C++ `Profiler* profiler` — the raw pointer to main's Profiler becomes
     /// OWNED `Option<Profiler>`: the driver (vislcg3) moves the profiler in
     /// before the run and takes it back out afterwards to write the database.
     pub profiler: Option<crate::profiler::Profiler>,
-
-    pub match_single: u32,
-    pub match_comp: u32,
-    pub match_sub: u32,
 }
 
 impl Diagnostics {
-    /// Every field at its C++ default-member-initialiser value (the initialisers
-    /// moved verbatim out of the former `GrammarApplicator::new`).
     pub fn new() -> Self {
-        Diagnostics {
-            profiler: None,
-
-            match_single: 0,
-            match_comp: 0,
-            match_sub: 0,
-        }
+        Diagnostics { profiler: None }
     }
 }
 

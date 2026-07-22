@@ -688,7 +688,6 @@ impl Engine<'_> {
         }
 
         if m != 0 {
-            self.diag.match_single += 1;
             retval = m;
         }
         retval
@@ -1064,12 +1063,10 @@ impl Engine<'_> {
                     i += 1;
                 }
                 if m {
-                    self.diag.match_sub += 1;
                     retval = true;
                     break;
                 }
                 if failfast {
-                    self.diag.match_sub += 1;
                     retval = false;
                     break;
                 }

@@ -633,4 +633,32 @@ children (
             }
         )
     }
+
+    {
+        id drop-dead-match-counters
+        title "Delete the match_single/match_comp/match_sub matcher stats counters: write-only in the C++ reference too (declared, incremented, never read; match_comp never even incremented) — the same dead-upstream class as --dry-run; Diagnostics collapses to the profiler alone"
+        priority 2
+        log (
+            {
+                at 2026-07-22T11:18:37.414424Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan_start)"
+            }
+
+            {
+                at 2026-07-22T11:18:48.49305Z
+                author "brendan@necessary.nu"
+                kind @decision
+                text "Operator decision (2026-07-22), superseding the engine-decomp-era \"match stats counters KEPT as unwired diag state\": verified in the reference tree that match_single/match_comp/match_sub are declared (GrammarApplicator.hpp:275) and incremented (GrammarApplicator_matchSet.cpp:594,830,835) but READ BY NOTHING anywhere in the C++ — dead upstream, same class as --dry-run, so the standing \"faithful no-op = delete\" rule applies. This also emerged from the matcher de-mut investigation: these bumps were one of the two non-semantic &mut sources in the matcher tree. The other candidate refactor (memo caches behind Cell to make predicates &self) was REJECTED as unbuildable-as-sold: does_tag_match_regexp/does_regexp_match_line run capture_regex inside the predicate (semantic — feeds varstrings), does_set_match_reading records unification bindings, and does_tag_match_reading interns varstring tags into the grammar — the matcher chain's &mut self is semantically forced and therefore honest; Cell-ing the memos would change no signatures and was dropped as pointless churn."
+            }
+
+            {
+                at 2026-07-22T11:18:53.610833Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Doing → Done (nplan_complete)"
+            }
+        )
+    }
 )

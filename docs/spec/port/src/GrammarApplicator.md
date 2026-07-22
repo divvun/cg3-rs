@@ -87,7 +87,7 @@
 >   std::map<uint32_t, DepParentIter> depParentIters;
 >   std::map<uint32_t, DepDescendentIter> depDescendentIters;
 >   std::map<uint32_t, DepAncestorIter> depAncestorIters;
->   uint32_t match_single = 0, match_comp = 0, match_sub = 0;
+>   uint32_t match_single = 0, match_comp = 0, match_sub = 0;  // PORT DIVERGENCE: not ported — write-only upstream (drop-dead-match-counters)
 >   uint32_t begintag = 0, endtag = 0, substtag = 0;
 >   Tag *tag_begin = nullptr;
 >   uint32_t par_left_tag = 0, par_right_tag = 0;
@@ -202,9 +202,10 @@
 > `index_readingSet_yes`, `index_readingSet_no`, `index_ruleCohort_no`,
 > `reset_cohorts_for_loop`, `finish_reading_loop`, `finish_cohort_loop`,
 > `in_nested`, `used_regex`, and `subs_any` (50 members). Into `Diagnostics`
-> (the profiler / statistics state): `profiler`, `match_single`, `match_comp`,
-> and `match_sub` (4 members; `match_single`/`match_sub`/`match_comp` are kept
-> as unwired stats counters per operator decision). After v4 the applicator is
+> (the profiler state): `profiler` (the `match_single`/`match_comp`/`match_sub`
+> stats counters were initially kept unwired, then DELETED — operator decision,
+> plan node `drop-dead-match-counters`: they are write-only in the C++ too,
+> declared and incremented but never read). After v4 the applicator is
 > exactly five named fields — the five subsystems `cfg` (`EngineConfig`), `doc`
 > (`Document`), `scratch` (`RuleScratch`), `diag` (`Diagnostics`), and the
 > owned `grammar` (`Grammar`) — and holds no other flat state.

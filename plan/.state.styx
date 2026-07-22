@@ -55,4 +55,5 @@ assertions (
     {id option-wiring.out-matxin, kind @complete, author "brendan@necessary.nu", at 2026-07-20T17:55:43.178692Z}
     {id option-wiring.show-tag-hashes, kind @complete, author "brendan@necessary.nu", at 2026-07-20T17:55:46.16162Z}
     {id drop-rule-cohort-index, kind @complete, author "brendan@necessary.nu", at 2026-07-22T11:12:12.566265Z}
+    {id drop-dead-match-counters, kind @complete, author "brendan@necessary.nu", at 2026-07-22T11:18:53.610833Z}
 )
