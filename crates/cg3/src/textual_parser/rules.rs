@@ -2,8 +2,6 @@
 //!
 //! Split out of the wave-2 monolithic `textual_parser.rs` (wave 4, w4-file-split-fmt).
 
-#![allow(clippy::too_many_arguments)]
-
 use crate::arena::RuleId;
 use crate::ast::{ASTHelper, ASTType};
 use crate::contextual_test::{GsrSpecials, POS_JUMP, PosJumpPos};

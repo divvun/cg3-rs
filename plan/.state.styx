@@ -64,4 +64,5 @@ assertions (
     {id idiom-names.dead-code, kind @complete, author "brendan@necessary.nu", at 2026-07-22T13:24:05.035599Z}
     {id idiom-names.types, kind @complete, author "brendan@necessary.nu", at 2026-07-22T13:50:00.614026Z}
     {id idiom-names.fns-fields, kind @complete, author "brendan@necessary.nu", at 2026-07-22T13:58:05.276452Z}
+    {id idiom-names.allow-sweep, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:01:10.560837Z}
 )

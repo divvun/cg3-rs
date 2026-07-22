@@ -2,8 +2,6 @@
 //!
 //! Split out of the wave-2 monolithic `textual_parser.rs` (wave 4, w4-file-split-fmt).
 
-#![allow(clippy::too_many_arguments)]
-
 use std::collections::BTreeMap;
 use std::panic::{self, AssertUnwindSafe};
 

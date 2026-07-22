@@ -34,8 +34,6 @@
 //! * **`gbuffers[0]` scratch.** The shared UString token scratch becomes a local
 //!   `String` per extraction.
 
-#![allow(clippy::too_many_arguments)]
-
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write;
 use std::panic::{self};

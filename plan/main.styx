@@ -885,6 +885,28 @@ children (
                 title "Sweep the remaining ~30 targeted allows: remove the module-level duplicates made redundant by the crate-level drops, keep genuinely-justified sites (faithful enum-table index walks, reproduced dead comparisons) with a one-line reason each, and assess the unused_assignments driver sites (flow restructuring, not renames); bump to 0.3.0"
                 priority 2
                 deps (idiom-names.fns-fields)
+                log (
+                    {
+                        at 2026-07-22T13:58:39.442962Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T14:01:02.396932Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Sweep outcome: the three module-level too_many_arguments allows in textual_parser/{mod,driver,rules}.rs were covering ZERO warnings (dead gags left over from before the arena-signature work) — deleted outright. math_parser's module-level unused_assignments narrowed to three item-targeted allows with one-line reasons (the C++ comma-expression while-loop heads and the branch-reassigned temp_token, transcribed as-is). Remaining inventory assessed and KEPT as justified item-targeted sites: ~13 needless_range_loop (faithful enum-table index walks), ~10 too_many_arguments (C++ signatures post arena-split; cohort_iterator/run_ctx/parsers), ~15 unused_assignments/unused_variables on the stream-driver lexers (root cause: the C++ goto/label flows leave assignments Rust proves unread; restructuring those lexers is real divergence risk for zero behavior value — deferred deliberately), 6 dead_code (all annotation-home stubs audited in idiom-names.dead-code), 2 self_named_constructors + 2 absurd_extreme_comparisons + 1 nonminimal_bool + 1 if_same_then_else (reproduced C++ shapes), module-level doc-style allows in run_contextual_test (doc formatting of ported comment blocks) and test-style allows in tests (standard). Version bumped 0.2.0 → 0.3.0 (public type/fn renames)."
+                    }
+
+                    {
+                        at 2026-07-22T14:01:10.560837Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
             }
         )
     }

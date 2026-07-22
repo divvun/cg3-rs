@@ -22,7 +22,6 @@
 
 // The `op`/`temp_token` locals mirror C++ default-initializations (`UChar op =
 // 0;`, `UStringView temp_token;`) that are overwritten before their first read.
-#![allow(unused_assignments)]
 
 use std::f64::consts::PI;
 
@@ -121,6 +120,9 @@ impl<'a> MathParser<'a> {
 
     // [spec:cg3:def:math-parser.cg3.math-parser.eval-assign-fn]
     // [spec:cg3:sem:math-parser.cg3.math-parser.eval-assign-fn]
+    // The C++ initialises `temp_token` before the branch that may re-read it;
+    // Rust proves the initial value unread on the else path — transcribed as-is.
+    #[allow(unused_assignments)]
     fn eval_assign(&mut self, result: &mut f64) -> Result<(), MathError> {
         let mut temp_token: UStringView<'a> = "";
         if self.tok_type == TypeT::Variable as u8 {
@@ -148,6 +150,9 @@ impl<'a> MathParser<'a> {
 
     // [spec:cg3:def:math-parser.cg3.math-parser.eval-add-sub-fn]
     // [spec:cg3:sem:math-parser.cg3.math-parser.eval-add-sub-fn]
+    // `op` is assigned inside the while-condition block (the C++ comma-expr
+    // loop head); the '\0' init is never read — transcribed as-is.
+    #[allow(unused_assignments)]
     fn eval_add_sub(&mut self, result: &mut f64) -> Result<(), MathError> {
         let mut op: UChar = '\0';
         let mut temp: f64 = 0.0;
@@ -169,6 +174,9 @@ impl<'a> MathParser<'a> {
 
     // [spec:cg3:def:math-parser.cg3.math-parser.eval-mul-div-fn]
     // [spec:cg3:sem:math-parser.cg3.math-parser.eval-mul-div-fn]
+    // `op` as in `eval_add_sub`: assigned in the while-condition block, the
+    // '\0' init never read — transcribed as-is.
+    #[allow(unused_assignments)]
     fn eval_mul_div(&mut self, result: &mut f64) -> Result<(), MathError> {
         let mut op: UChar = '\0';
         let mut temp: f64 = 0.0;
