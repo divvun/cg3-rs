@@ -570,22 +570,22 @@ fn reading_alloc_copy_free_clear() {
         "null parent -> number 0"
     );
 
-    // Copy-alloc, fresh-slot branch: immutable/active KEPT, matched_* cleared,
-    // number+100, next chain deep-cloned.
+    // Copy-alloc, fresh-slot branch: immutable/active KEPT, number+100, next
+    // chain deep-cloned. (The C++ init list also forces matched_* false; those
+    // flags are RuleScratch membership sets keyed by ReadingId, so a fresh id
+    // has no membership by construction.)
     let child = alloc_reading(&mut store, None);
     store.readings.get_mut(child.0).number = 7;
     let mut src = Reading::default();
     src.number = 500;
     src.immutable = true;
     src.active = true;
-    src.matched_target = true;
     src.next = Some(child);
     let fresh = alloc_reading_copy(&mut store, &src);
     {
         let f = store.readings.get(fresh.0);
         assert_eq!(f.number, 600);
         assert!(f.immutable && f.active, "new-slot branch keeps the flags");
-        assert!(!f.matched_target, "matched_* always cleared");
         let fc = f.next.expect("next chain deep-cloned");
         assert_ne!(fc, child, "clone, not an alias");
         assert_eq!(store.readings.get(fc.0).number, 107);
@@ -613,7 +613,6 @@ fn reading_alloc_copy_free_clear() {
     // Copy ctor by value (Reading::Reading(const Reading&)).
     let copied = reading_copy(&mut store, &src);
     assert_eq!(copied.number, 600);
-    assert!(!copied.matched_target);
     assert_ne!(copied.next, Some(child), "next deep-cloned into a new slot");
 
     // clear: resets everything and frees the next chain.

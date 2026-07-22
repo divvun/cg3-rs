@@ -45,18 +45,19 @@ pub type tags_numerical_t = BTreeMap<u32, TagId>;
 // [spec:cg3:def:reading.cg3.reading]
 /// A single reading (analysis) of a cohort.
 ///
-/// The seven C++ `uint8_t : 1` bitfields become individual `bool` fields
-/// (`mapped`, `deleted`, `noprint`, `matched_target`, `matched_tests`,
-/// `immutable`, `active`); `clear()` resets them all to false and `Default`
-/// yields that same blank state.
+/// Five of the seven C++ `uint8_t : 1` bitfields become individual `bool`
+/// fields (`mapped`, `deleted`, `noprint`, `immutable`, `active`); `clear()`
+/// resets them all to false and `Default` yields that same blank state. The
+/// other two (`matched_target`, `matched_tests`) are rule-application-scoped
+/// bookkeeping, re-homed as `ReadingId` membership sets on the engine's
+/// `RuleScratch` (plan node `matcher-doc-split.matched-flags`): the matchers
+/// write scratch, not the document.
 #[derive(Default)]
 pub struct Reading {
     // --- C++ `uint8_t : 1` bitfields (no in-class initializer) ---
     pub mapped: bool,
     pub deleted: bool,
     pub noprint: bool,
-    pub matched_target: bool,
-    pub matched_tests: bool,
     pub immutable: bool,
     pub active: bool,
 
@@ -112,16 +113,16 @@ pub struct Reading {
 
 /// Copy the copy-constructor member-initializer fields of `r` (shared by the
 /// copy ctor and `alloc_reading_copy`). Reproduces the C++ `Reading(const
-/// Reading&)` init list: `matched_target`/`matched_tests` forced false,
-/// `immutable`/`active` COPIED, `number = r.number + 100`, `next` shallow-copied
-/// (deep clone handled by the caller). NOT a manifest symbol — port infra.
+/// Reading&)` init list: `immutable`/`active` COPIED, `number = r.number + 100`,
+/// `next` shallow-copied (deep clone handled by the caller). The C++ list also
+/// forces `matched_target`/`matched_tests` false — with the scratch-resident
+/// flag sets that holds automatically: the copy gets a fresh `ReadingId`, which
+/// has no membership. NOT a manifest symbol — port infra.
 fn copy_ctor_fields(r: &Reading) -> Reading {
     Reading {
         mapped: r.mapped,
         deleted: r.deleted,
         noprint: r.noprint,
-        matched_target: false,
-        matched_tests: false,
         immutable: r.immutable,
         active: r.active,
         baseform: r.baseform,
@@ -147,15 +148,17 @@ fn copy_ctor_fields(r: &Reading) -> Reading {
 
 /// Verbatim field-for-field copy (like `operator=`). Used only to detach a
 /// sub-reading source out of the arena before recursing, so the recursive call
-/// can borrow the store mutably without aliasing. NOT the copy ctor (it does not
-/// bump `number` or clear `matched_*`), and NOT a manifest symbol — port infra.
+/// can borrow the store mutably without aliasing. NOT the copy ctor (it does
+/// not bump `number`), and NOT a manifest symbol — port infra. The C++
+/// `operator=` also copies `matched_target`/`matched_tests`; those flags are
+/// scratch-resident `ReadingId` sets now, so where the copy's flag state is
+/// observable (the `get_sub_reading(GSR_ANY)` amalgam) the engine seeds the
+/// membership at the call site.
 pub(crate) fn clone_verbatim(r: &Reading) -> Reading {
     Reading {
         mapped: r.mapped,
         deleted: r.deleted,
         noprint: r.noprint,
-        matched_target: r.matched_target,
-        matched_tests: r.matched_tests,
         immutable: r.immutable,
         active: r.active,
         baseform: r.baseform,
@@ -222,8 +225,9 @@ pub fn alloc_reading(store: &mut RuntimeStore, p: Option<CohortId>) -> ReadingId
 /// semantics (`immutable`/`active` COPIED from `o`); then if the alloc reused a
 /// freed ("pooled") slot, `immutable` and `active` are FORCED to false — exactly
 /// the C++ pooled branch — while a brand-new slot keeps the copied values (the
-/// `new Reading(o)` branch). Both branches set `number = o.number + 100`, clear
-/// `matched_*`, and deep-clone the whole `next` sub-reading chain.
+/// `new Reading(o)` branch). Both branches set `number = o.number + 100`, start
+/// with blank `matched_*` state (the fresh id has no scratch membership), and
+/// deep-clone the whole `next` sub-reading chain.
 ///
 /// The parent slot is allocated (and its pooled/new fate decided) BEFORE the
 /// `next` chain is deep-cloned, matching the C++ order (`pool.get()` for the
@@ -294,14 +298,16 @@ pub fn free_reading(store: &mut RuntimeStore, r: Option<ReadingId>) {
 /// arena slots, so the store is required. Field-reset order matches the C++
 /// exactly: scalars/blooms/`mapping`/`parent`, then `free_reading(next)` (+ the
 /// redundant `next = nullptr`), then the containers and `tags_string_hash`.
+/// The C++ list also resets `matched_target`/`matched_tests`; those live as
+/// `ReadingId` sets on `RuleScratch`, where a freed id's leftover membership is
+/// unreachable — `ReadingId`s are generational, so the recycled slot's next
+/// occupant carries a different id (see the `RuleScratch` field docs).
 pub fn reading_clear(store: &mut RuntimeStore, id: ReadingId) {
     {
         let r = store.readings.get_mut(id.0);
         r.mapped = false;
         r.deleted = false;
         r.noprint = false;
-        r.matched_target = false;
-        r.matched_tests = false;
         r.immutable = false;
         r.active = false;
         r.baseform = None;
@@ -338,8 +344,8 @@ pub fn reading_clear(store: &mut RuntimeStore, id: ReadingId) {
 ///
 /// STORE-TAKING FREE FN (the deep-clone of `next` allocates from the pool).
 /// Produces a `Reading` value whose fields follow the copy-ctor init list
-/// (`matched_*` cleared, `immutable`/`active` COPIED, `number = r.number + 100`,
-/// hashes copied verbatim), and whose `next` — if any — is a fresh deep clone of
+/// (`immutable`/`active` COPIED, `number = r.number + 100`, hashes copied
+/// verbatim), and whose `next` — if any — is a fresh deep clone of
 /// the source chain via `allocateReading(*next)`
 /// (→ [`Reading::allocate_reading_copy`]).
 pub fn reading_copy(store: &mut RuntimeStore, r: &Reading) -> Reading {

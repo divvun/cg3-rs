@@ -1232,7 +1232,8 @@ impl Engine<'_> {
             retval = true;
             if let Some(ctx) = context.as_deref_mut() {
                 if ctx.options.intersects(POS_ATTACH_TO) {
-                    self.doc.store.readings.get_mut(reading.0).matched_target = true;
+                    // reading.matched_target = true (scratch-resident flag).
+                    self.scratch.matched_target.insert(reading);
                 }
                 ctx.matched_target = true;
             }
@@ -1260,7 +1261,9 @@ impl Engine<'_> {
                     retval = self.does_set_match_cohort_test_linked(cohort, set, ctx);
                 }
                 if attach {
-                    self.doc.store.readings.get_mut(reading.0).matched_tests = retval;
+                    // reading.matched_tests = retval — retval can be FALSE, so
+                    // this is a real bool store (insert-or-remove), not a mark.
+                    self.scratch.set_matched_tests(reading, retval);
                     if retval && !self.scratch.context_stack.is_empty() {
                         let f = self.scratch.context_stack.last_mut().unwrap();
                         f.attach_to.cohort = Some(cohort);

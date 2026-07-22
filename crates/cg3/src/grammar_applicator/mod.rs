@@ -29,7 +29,7 @@
 //! stay raw pointers, matching the C++ 1:1 (as [`crate::scoped_stack`] already
 //! does).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::arena::{CohortId, CtxId, ReadingId, RuleId, TagId};
 use crate::cohort_iterator::{
@@ -540,6 +540,22 @@ pub struct RuleScratch {
 
     pub readings_plain: readings_plain_t,
 
+    /// C++ `Reading::matched_target` / `Reading::matched_tests` (`uint8_t : 1`
+    /// bitfields on `Reading`), re-homed here as `ReadingId` membership sets
+    /// (plan node `matcher-doc-split.matched-flags`): the flags are rule-scoped
+    /// bookkeeping — written by the matchers during target/test evaluation and
+    /// consumed by the same rule's SELECT/IFF finalisation — so they belong to
+    /// the rule scratch, not the document model. Every C++ `reading.matched_* =
+    /// v` store maps to insert (true) / remove (false) at the same site, every
+    /// read to `contains`; they are membership-tested only, never iterated.
+    /// A fresh `Reading` in C++ always starts with false flags; that holds here
+    /// because `ReadingId`s are GENERATIONAL — a recycled arena slot's next
+    /// occupant carries a different id, so it cannot inherit a freed reading's
+    /// leftover membership. Leftover entries for freed ids are pruned once per
+    /// window (see `run_grammar_on_single_window`) to keep the sets bounded.
+    pub matched_target: HashSet<ReadingId>,
+    pub matched_tests: HashSet<ReadingId>,
+
     /// C++ `bc::flat_map<uint32_t, unif_tags_t*> unif_tags_rs` — values are
     /// indices into `unif_tags_store`.
     pub unif_tags_rs: BTreeMap<u32, usize>,
@@ -615,6 +631,9 @@ impl RuleScratch {
 
             readings_plain: Default::default(),
 
+            matched_target: Default::default(),
+            matched_tests: Default::default(),
+
             unif_tags_rs: Default::default(),
             unif_tags_store: Default::default(),
             unif_sets_rs: Default::default(),
@@ -643,6 +662,33 @@ impl RuleScratch {
 
             subs_any: Vec::new(),
         }
+    }
+
+    /// The C++ `reading.matched_target = v` bitfield store: `true` inserts,
+    /// `false` removes (so a stale membership is overwritten either way).
+    pub(crate) fn set_matched_target(&mut self, id: ReadingId, v: bool) {
+        if v {
+            self.matched_target.insert(id);
+        } else {
+            self.matched_target.remove(&id);
+        }
+    }
+
+    /// The C++ `reading.matched_tests = v` bitfield store; see
+    /// [`Self::set_matched_target`].
+    pub(crate) fn set_matched_tests(&mut self, id: ReadingId, v: bool) {
+        if v {
+            self.matched_tests.insert(id);
+        } else {
+            self.matched_tests.remove(&id);
+        }
+    }
+
+    /// The paired C++ `reading.matched_target = false; reading.matched_tests =
+    /// false;` clear that opens every rule evaluation of a reading.
+    pub(crate) fn clear_matched(&mut self, id: ReadingId) {
+        self.matched_target.remove(&id);
+        self.matched_tests.remove(&id);
     }
 }
 

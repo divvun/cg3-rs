@@ -459,7 +459,7 @@ impl crate::grammar_applicator::Engine<'_> {
     fn apply_to_matched_tests(&self) -> bool {
         self.get_apply_to()
             .subreading
-            .map(|sr| self.doc.store.readings.get(sr.0).matched_tests)
+            .map(|sr| self.scratch.matched_tests.contains(&sr))
             .unwrap_or(false)
     }
 

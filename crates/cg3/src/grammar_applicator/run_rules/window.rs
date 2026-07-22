@@ -522,6 +522,13 @@ impl crate::grammar_applicator::Engine<'_> {
             let amalgam = self.clone_reading_value(tr);
             let rid = ReadingId(self.doc.store.readings.alloc(amalgam));
             self.doc.store.readings.get_mut(rid.0).next = None;
+            // The C++ `*reading = *tr` also copies tr's matched flags; those are
+            // scratch-resident sets, so seed the amalgam's membership here (a
+            // full bool copy — it also erases anything a recycled id carried).
+            let mt = self.scratch.matched_target.contains(&tr);
+            let mtst = self.scratch.matched_tests.contains(&tr);
+            self.scratch.set_matched_target(rid, mt);
+            self.scratch.set_matched_tests(rid, mtst);
             self.subs_any_push(rid);
 
             let mut cur = tr;
@@ -558,10 +565,17 @@ impl crate::grammar_applicator::Engine<'_> {
                     }
                 }
                 let cur_num = self.doc.store.readings.get(cur.0).tags_numerical.clone();
-                let (mapped, mapping, mt, mtst) = {
+                let (mapped, mapping) = {
                     let cr = self.doc.store.readings.get(cur.0);
-                    (cr.mapped, cr.mapping, cr.matched_target, cr.matched_tests)
+                    (cr.mapped, cr.mapping)
                 };
+                // OR in the sub-reading's matched flags (scratch membership).
+                if self.scratch.matched_target.contains(&cur) {
+                    self.scratch.matched_target.insert(rid);
+                }
+                if self.scratch.matched_tests.contains(&cur) {
+                    self.scratch.matched_tests.insert(rid);
+                }
                 let r = self.doc.store.readings.get_mut(rid.0);
                 for (k, v) in cur_num {
                     r.tags_numerical.insert(k, v);
@@ -571,12 +585,6 @@ impl crate::grammar_applicator::Engine<'_> {
                 }
                 if mapping.is_some() {
                     r.mapping = mapping;
-                }
-                if mt {
-                    r.matched_target = true;
-                }
-                if mtst {
-                    r.matched_tests = true;
                 }
             }
             crate::reading::reading_rehash(&mut self.doc.store, self.grammar, rid);
@@ -626,6 +634,21 @@ impl crate::grammar_applicator::Engine<'_> {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-single-window-fn]
     /// C++ `uint32_t runGrammarOnSingleWindow(SingleWindow& current)`.
     pub fn run_grammar_on_single_window(&mut self, current: SwId) -> u32 {
+        // Hygiene for the scratch-resident matched-flag sets: drop entries whose
+        // reading ids no longer resolve (freed slots). Reads only ever use live
+        // ids — the generational `ReadingId` makes a freed id's leftover entry
+        // unreachable — so this changes nothing observable; it just keeps the
+        // sets bounded by the live readings.
+        {
+            let readings = &self.doc.store.readings;
+            self.scratch
+                .matched_target
+                .retain(|id| readings.try_get(id.0).is_some());
+            self.scratch
+                .matched_tests
+                .retain(|id| readings.try_get(id.0).is_some());
+        }
+
         if !self.grammar.before_sections.is_empty() && !self.cfg.no_before_sections {
             let rules = self.cfg.runsections.get(&-1).cloned().unwrap_or_default();
             let rv = self.run_rules_on_single_window(current, &rules);

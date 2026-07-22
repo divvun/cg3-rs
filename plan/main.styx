@@ -699,6 +699,28 @@ children (
                 id matcher-doc-split.matched-flags
                 title "Evict matched_target/matched_tests from Reading into RuleScratch id-sets: rule-scoped booleans stored on document readings, written by the matcher, read by SELECT/IFF finalisation, cleared everywhere — including the bag-merge propagation (run_rules/window.rs) and the readings_plain replay (single_rule.rs)"
                 priority 2
+                log (
+                    {
+                        at 2026-07-22T11:40:38.103173Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan_start)"
+                    }
+
+                    {
+                        at 2026-07-22T12:01:06.308533Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Implemented by subagent, independently verified by lead. Representation: two HashSet&lt;ReadingId&gt; on RuleScratch + set_matched_target/set_matched_tests (bool-store semantics: false = remove) + clear_matched. Recycled-slot safety: (1) readings live in a GenArena, so a reused slot yields a different ReadingId (8-bit generation); (2) every read site traced to a dominating same-rule write/clear — the one cross-rule read (GSR_ANY OR-in over chain sub-readings) is C++-faithful since the C++ bools also persist on live readings; (3) defense-in-depth retain() prune per window + full insert-or-remove seed of the GSR_ANY amalgam. C++ copy-ctor forced the flags false (automatic now — fresh id has no membership); clone_verbatim's one flag-observable caller (the amalgam) seeds membership at the call site. match_set.rs and run_contextual_test.rs now contain zero readings.get_mut for these flags. Byte-identical vs pristine on all four workloads plus --trace (agent ran 4+trace; lead re-ran trace on T_Dependency/T_Unification)."
+                    }
+
+                    {
+                        at 2026-07-22T12:01:12.359089Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan_complete)"
+                    }
+                )
             }
 
             {

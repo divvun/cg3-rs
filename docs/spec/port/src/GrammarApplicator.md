@@ -420,6 +420,15 @@
 > later by the Normal matcher). On a NON-match with a child-unify context, restore
 > (swap back) the snapshotted `unif_tags` and/or `unif_sets` if they changed, and
 > restore `regexgrp_ct = orz`. Return retval.
+>
+> PORT DIVERGENCE (representation re-homing, plan node
+> `matcher-doc-split.matched-flags`): the Reading-resident `reading.matched_target`
+> / `reading.matched_tests` bitfields read and written here (and everywhere in
+> this document — the runSingleRule clears/copies, the get_sub_reading OR-in,
+> the runSingleTest attach-to clears) are `ReadingId`-keyed membership sets on
+> `RuleScratch`: each `reading.matched_* = v` store maps 1:1 to insert (true) /
+> remove (false), each read to a membership test; behavior identical. The
+> `context->matched_*` frame fields are plain bools, unchanged.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-normal-fn]
 > bool doesSetMatchCohortNormal(Cohort& cohort, const uint32_t set, dSMC_Context* context = nullptr)

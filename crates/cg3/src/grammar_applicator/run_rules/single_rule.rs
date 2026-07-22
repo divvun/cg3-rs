@@ -421,9 +421,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 let reading = match self.get_sub_reading(reading_i, rsub_reading) {
                     Some(r) => r,
                     None => {
-                        let rr = self.doc.store.readings.get_mut(reading_i.0);
-                        rr.matched_target = false;
-                        rr.matched_tests = false;
+                        self.scratch.clear_matched(reading_i);
                         i += 1;
                         continue;
                     }
@@ -433,11 +431,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     f.target.reading = Some(reading_i);
                     f.target.subreading = Some(reading);
                 }
-                {
-                    let r = self.doc.store.readings.get_mut(reading.0);
-                    r.matched_target = false;
-                    r.matched_tests = false;
-                }
+                self.scratch.clear_matched(reading);
 
                 let (r_mapped, r_noprint, r_immutable, r_hash_plain, r_hash, r_number) = {
                     let r = self.doc.store.readings.get(reading.0);
@@ -478,9 +472,8 @@ impl crate::grammar_applicator::Engine<'_> {
                         num_active += 1;
                     }
                     if r#type == K_SELECT {
-                        let r = self.doc.store.readings.get_mut(reading.0);
-                        r.matched_target = true;
-                        r.matched_tests = true;
+                        self.scratch.matched_target.insert(reading);
+                        self.scratch.matched_tests.insert(reading);
                         reading_contexts.push(self.scratch.context_stack.last().unwrap().clone());
                     }
                     num_iff += 1;
@@ -495,15 +488,13 @@ impl crate::grammar_applicator::Engine<'_> {
                     && !self.scratch.readings_plain.is_empty()
                     && let Some(&cached) = self.scratch.readings_plain.get(&r_hash_plain)
                 {
-                    let (mt, mtst) = {
-                        let cr = self.doc.store.readings.get(cached.0);
-                        (cr.matched_target, cr.matched_tests)
-                    };
-                    {
-                        let r = self.doc.store.readings.get_mut(reading.0);
-                        r.matched_target = mt;
-                        r.matched_tests = mtst;
-                    }
+                    // Copy the cached reading's matched flags — a full bool
+                    // copy, absence included (the cached reading may have
+                    // matched neither target nor tests).
+                    let mt = self.scratch.matched_target.contains(&cached);
+                    let mtst = self.scratch.matched_tests.contains(&cached);
+                    self.scratch.set_matched_target(reading, mt);
+                    self.scratch.set_matched_tests(reading, mtst);
                     if mtst {
                         num_active += 1;
                     }
@@ -587,7 +578,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         regex_prop = false;
                     }
                     self.scratch.rule_target = Some(cohort);
-                    self.doc.store.readings.get_mut(reading.0).matched_target = true;
+                    self.scratch.matched_target.insert(reading);
                     matched_target = true;
                     let mut good = true;
                     if !did_test {
@@ -699,9 +690,8 @@ impl crate::grammar_applicator::Engine<'_> {
                                     if let Some(sr) = self.get_sub_reading(rj, rsub_reading)
                                         && self.doc.store.readings.get(sr.0).immutable
                                     {
-                                        let r = self.doc.store.readings.get_mut(sr.0);
-                                        r.matched_target = true;
-                                        r.matched_tests = true;
+                                        self.scratch.matched_target.insert(sr);
+                                        self.scratch.matched_tests.insert(sr);
                                         num_active += 1;
                                         num_iff += 1;
                                     }
@@ -709,7 +699,7 @@ impl crate::grammar_applicator::Engine<'_> {
                                 }
                             }
                         }
-                        self.doc.store.readings.get_mut(reading.0).matched_tests = true;
+                        self.scratch.matched_tests.insert(reading);
                         num_active += 1;
                         if self.diag.profiler.is_some() {
                             // Profiler::Key k{ET_RULE, rule.number + 1}; ++entries[k].num_match
@@ -777,13 +767,12 @@ impl crate::grammar_applicator::Engine<'_> {
                     }
                 }
                 if reading != reading_i {
-                    let (mt, mtst) = {
-                        let r = self.doc.store.readings.get(reading.0);
-                        (r.matched_target, r.matched_tests)
-                    };
-                    let ri = self.doc.store.readings.get_mut(reading_i.0);
-                    ri.matched_target = mt;
-                    ri.matched_tests = mtst;
+                    // Copy the sub-reading's matched flags back onto the top
+                    // reading — a full bool copy, absence included.
+                    let mt = self.scratch.matched_target.contains(&reading);
+                    let mtst = self.scratch.matched_tests.contains(&reading);
+                    self.scratch.set_matched_target(reading_i, mt);
+                    self.scratch.set_matched_tests(reading_i, mtst);
                 }
                 let rgc_ct = self.scratch.context_stack.last().unwrap().regexgrp_ct;
                 if rgc_ct != 0 {
@@ -850,8 +839,10 @@ impl crate::grammar_applicator::Engine<'_> {
             for ctx in reading_contexts.into_iter() {
                 let (mt, mtst) = {
                     let sr = ctx.target.subreading.unwrap();
-                    let r = self.doc.store.readings.get(sr.0);
-                    (r.matched_target, r.matched_tests)
+                    (
+                        self.scratch.matched_target.contains(&sr),
+                        self.scratch.matched_tests.contains(&sr),
+                    )
                 };
                 if !mt {
                     continue;

@@ -276,4 +276,11 @@
 > a sibling overload taking (sWindow, index i): if i is out of range it sets
 > rvs|=TRV_BREAK, *retval=false and returns 0, else it forwards
 > sWindow->cohorts[i] to this function.
+>
+> PORT DIVERGENCE (representation re-homing, plan node
+> `matcher-doc-split.matched-flags`): the per-reading `matched_target`/
+> `matched_tests` clears in the POS_ATTACH_TO branch above operate on the
+> `ReadingId`-keyed membership sets on `RuleScratch` (the Reading-resident
+> bitfields are re-homed there); behavior identical. `context.matched_*`
+> (the dSMC_Context fields) are plain bools, unchanged.
 

@@ -194,9 +194,7 @@ impl Engine<'_> {
             let lists = self.rst_gather_lists(cid, test_pos);
             for list in lists.into_iter().flatten() {
                 for reading in list {
-                    let r = self.doc.store.readings.get_mut(reading.0);
-                    r.matched_target = false;
-                    r.matched_tests = false;
+                    self.scratch.clear_matched(reading);
                 }
             }
         }

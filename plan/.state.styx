@@ -57,4 +57,5 @@ assertions (
     {id drop-rule-cohort-index, kind @complete, author "brendan@necessary.nu", at 2026-07-22T11:12:12.566265Z}
     {id drop-dead-match-counters, kind @complete, author "brendan@necessary.nu", at 2026-07-22T11:18:53.610833Z}
     {id matcher-doc-split.possible-sets-prune, kind @complete, author "brendan@necessary.nu", at 2026-07-22T11:39:27.640627Z}
+    {id matcher-doc-split.matched-flags, kind @complete, author "brendan@necessary.nu", at 2026-07-22T12:01:12.359089Z}
 )

@@ -43,8 +43,8 @@
 >   uint8_t mapped : 1;
 >   uint8_t deleted : 1;
 >   uint8_t noprint : 1;
->   uint8_t matched_target : 1;
->   uint8_t matched_tests : 1;
+>   uint8_t matched_target : 1;  // PORT DIVERGENCE: re-homed (with matched_tests) to ReadingId-keyed membership sets on RuleScratch (plan node matcher-doc-split.matched-flags) — rule-scoped bookkeeping, not document state; behavior identical
+>   uint8_t matched_tests : 1;  // PORT DIVERGENCE: see matched_target
 >   uint8_t immutable : 1;
 >   uint8_t active : 1;
 >   uint32_t baseform = 0;

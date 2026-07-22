@@ -160,6 +160,14 @@
 > differs from saved `usets`, `swap` `usets` back. Finally, if `!retval` and
 > context_stack non-empty, restore `context_stack.back().regexgrp_ct = orz`
 > (discard capture groups produced by the failed attempt). Return `retval`.
+>
+> PORT DIVERGENCE (representation re-homing, plan node
+> `matcher-doc-split.matched-flags`): the Reading-resident `reading.matched_target`
+> / `reading.matched_tests` stores here (and everywhere in this document) go to
+> `ReadingId`-keyed membership sets on `RuleScratch` — each `reading.matched_* =
+> v` maps 1:1 to insert (true) / remove (false), each read to a membership test;
+> behavior identical, the matcher no longer writes the document. The
+> `context->matched_*` frame fields are plain bools, unchanged.
 
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-normal-fn]
 > bool GrammarApplicator::doesSetMatchCohortNormal(Cohort& cohort, const uint32_t set, dSMC_Context* context)

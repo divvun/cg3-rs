@@ -36,6 +36,13 @@
 > `sub_reading` (i.e. count from the deepest end, where -1 is the last
 > sub-reading) and return it. Returns nullptr when the requested depth doesn't
 > exist.
+>
+> PORT DIVERGENCE (representation re-homing, plan node
+> `matcher-doc-split.matched-flags`): the Reading-resident `matched_target`/
+> `matched_tests` bitfields (the OR-in above, and the runSingleRule
+> clears/sets/copies below) are `ReadingId`-keyed membership sets on
+> `RuleScratch` — each `reading.matched_* = v` store maps 1:1 to insert (true) /
+> remove (false), each read to a membership test; behavior identical.
 
 > [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.get-tag-list-fn]
 > void GrammarApplicator::getTagList(const Set& theSet, TagList& theTags, bool unif_mode) const
