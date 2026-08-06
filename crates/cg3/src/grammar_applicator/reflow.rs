@@ -747,7 +747,11 @@ impl Engine<'_> {
                 t.plain_hash,
                 t.tag.chars().next().unwrap_or('\0'),
                 t.dep_self,
-                t.dep_parent(),
+                if t.r#type.intersects(T_DEPENDENCY | T_RELATION) {
+                    t.dep_parent()
+                } else {
+                    0
+                },
                 t.comparison_hash,
             )
         };
@@ -1784,3 +1788,64 @@ impl Engine<'_> {
 // Wave 4 (w4-file-split-fmt): the verbatim Reading field-copy is
 // consolidated in `crate::reading::clone_verbatim`.
 use crate::reading::clone_verbatim as clone_reading_value;
+
+#[cfg(test)]
+mod tests {
+    use crate::cohort::alloc_cohort;
+    use crate::grammar::Grammar;
+    use crate::grammar_applicator::GrammarApplicator;
+    use crate::reading::alloc_reading;
+    use crate::single_window::alloc_swindow;
+    use crate::tag::{T_DEPENDENCY, T_NUMERIC_MATH, TagUnion};
+    use crate::types::GlobalNumber;
+
+    #[test]
+    fn add_tag_to_reading_ignores_dep_parent_for_non_dependency_tags() {
+        let mut ga = GrammarApplicator::new(Grammar::default());
+        let mut engine = ga.engine();
+
+        // Parentless reading is enough for this regression: the old bug
+        // panicked before any parent-dependent branch was reached.
+        let reading = alloc_reading(&mut engine.doc.store, None);
+        let tag = engine.add_tag("NUMCMP", T_NUMERIC_MATH);
+        engine.grammar.single_tags_list[tag.0].extra = TagUnion::ComparisonOffset(0);
+
+        let expected_hash = engine.grammar.single_tags_list[tag.0].hash.get();
+
+        // Regression: this used to panic by unconditionally reading dep_parent()
+        // from a tag whose union role is ComparisonOffset.
+        let _ = engine.add_tag_to_reading_rehash(reading, tag, false);
+
+        assert!(engine
+            .doc
+            .store
+            .readings
+            .get(reading.0)
+            .tags_list
+            .contains(&expected_hash));
+    }
+
+    #[test]
+    fn add_tag_to_reading_reads_dep_parent_for_dependency_tags() {
+        let mut ga = GrammarApplicator::new(Grammar::default());
+        ga.cfg.parse_dep = true;
+        let mut engine = ga.engine();
+
+        let sw = alloc_swindow(&mut engine.doc.store, None);
+        let cohort = alloc_cohort(&mut engine.doc.store, Some(sw));
+        let reading = alloc_reading(&mut engine.doc.store, Some(cohort));
+
+        let tag = engine.add_tag("#7->3", T_DEPENDENCY);
+        {
+            let t = &mut engine.grammar.single_tags_list[tag.0];
+            t.dep_self = 7;
+            t.set_dep_parent(3);
+        }
+
+        let _ = engine.add_tag_to_reading_rehash(reading, tag, false);
+
+        let c = engine.doc.store.cohorts.get(cohort.0);
+        assert_eq!(c.dep_self, Some(GlobalNumber(7)));
+        assert_eq!(c.dep_parent, Some(GlobalNumber(3)));
+    }
+}
