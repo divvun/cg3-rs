@@ -61,6 +61,37 @@ fn run_vislcg3_expect(dir: &Path, grammar: &Path, out_name: &str) {
     );
 }
 
+// [spec:cg3:req:main.divvun-version-banner/test]
+#[test]
+fn vislcg3_version_identifies_divvun_build() {
+    let want = format!(
+        "Divvun CG-3 Disambiguator version {}\n\
+Copyright (C) 2026 UiT The Arctic University of Norway\n\
+Copyright (C) 2007-2025 GrammarSoft ApS. Licensed under GPLv3+\n\
+Source: {}\n",
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_REPOSITORY")
+    );
+
+    for arg in ["-V", "--version"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_vislcg3"))
+            .arg(arg)
+            .output()
+            .expect("spawn vislcg3");
+        assert!(
+            out.status.success(),
+            "vislcg3 {arg} exited with {}",
+            out.status
+        );
+        assert!(out.stderr.is_empty(), "vislcg3 {arg} wrote to stderr");
+        assert_eq!(
+            String::from_utf8(out.stdout).unwrap(),
+            want,
+            "vislcg3 {arg}"
+        );
+    }
+}
+
 // [spec:cg3:sem:main.main-fn/test]
 // The full vislcg3 main: option parsing (args.txt), textual grammar load,
 // reindex, and the applicator run over test/T_Select's input, byte-checked

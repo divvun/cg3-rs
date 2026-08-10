@@ -105,7 +105,14 @@ pub fn enable_debug_logging(enabled: bool) {
     }
 }
 
-// --- Shared version constants (C++ `version.hpp`) ------------------------------
+// --- Divvun package identity ---------------------------------------------------
+
+/// Release metadata supplied by Cargo from this package's manifest.
+pub const DIVVUN_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const DIVVUN_REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
+pub const DIVVUN_COPYRIGHT_STRING: &str = "Copyright (C) 2026 UiT The Arctic University of Norway";
+
+// --- Shared upstream version constants (C++ `version.hpp`) --------------------
 
 /// ICU `UErrorCode` values used as tool exit codes (per the flagged-bug
 /// convention "exit codes = raw ICU UErrorCode"). `U_ZERO_ERROR == 0`;

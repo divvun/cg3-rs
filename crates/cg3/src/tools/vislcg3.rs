@@ -28,12 +28,13 @@ use crate::profiler::Profiler;
 use crate::textual_parser::TextualParser;
 
 use super::{
-    CG3_COPYRIGHT_STRING, CG3_REVISION, CG3_TOO_OLD, CG3_VERSION_MAJOR, CG3_VERSION_MINOR,
-    CG3_VERSION_PATCH, U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, to_uargv,
+    CG3_COPYRIGHT_STRING, CG3_TOO_OLD, DIVVUN_COPYRIGHT_STRING, DIVVUN_REPOSITORY, DIVVUN_VERSION,
+    U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, to_uargv,
 };
 
 // [spec:cg3:def:main.main-fn]
 // [spec:cg3:sem:main.main-fn]
+// [spec:cg3:req:main.divvun-version-banner]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_run(args: &[String]) -> i32 {
     // clock_t main_timer = clock(); — timers dropped (verbose timing lines below
@@ -86,10 +87,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
     // --version / --help print the version line to stdout.
     if occ(&options, Opt::Version) || occ(&options, Opt::Help1) || occ(&options, Opt::Help2) {
-        println!(
-            "VISL CG-3 Disambiguator version {}.{}.{}.{}",
-            CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
-        );
+        println!("Divvun CG-3 Disambiguator version {DIVVUN_VERSION}");
     }
 
     if argc < 0 {
@@ -100,7 +98,9 @@ pub fn main_run(args: &[String]) -> i32 {
     }
 
     if occ(&options, Opt::Version) {
-        println!("{}", CG3_COPYRIGHT_STRING);
+        println!("{DIVVUN_COPYRIGHT_STRING}");
+        println!("{CG3_COPYRIGHT_STRING}");
+        println!("Source: {DIVVUN_REPOSITORY}");
         return U_ZERO_ERROR;
     }
 

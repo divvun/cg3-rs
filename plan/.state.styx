@@ -71,3 +71,11 @@ assertions (
     {id allow-zero.tests, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:38:05.575197Z}
     {id issue-2-version-banner.spec, kind @complete, author "brendan@necessary.nu", at 2026-08-10T09:46:49.640872Z}
 )
+
+impl_evidence (
+    {id issue-2-version-banner.impl, covered_rules (
+        main.divvun-version-banner
+    ), covered_claims (
+        {impl_name target-impl, rule main.divvun-version-banner}
+    )}
+)

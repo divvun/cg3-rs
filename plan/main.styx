@@ -1051,7 +1051,18 @@ children (
                 id issue-2-version-banner.impl
                 title "Render the specified vislcg3 --version banner from Cargo package metadata and pin its complete stdout with a CLI regression test"
                 kind @fix
+                implements {
+                    target-impl ([spec:cg3:req:main.divvun-version-banner])
+                }
                 deps (issue-2-version-banner.spec)
+                log (
+                    {
+                        at 2026-08-10T09:48:46.245795Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
         )
     }
