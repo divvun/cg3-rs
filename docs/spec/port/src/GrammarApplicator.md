@@ -1794,6 +1794,12 @@
 > [spec:cg3:def:grammar-applicator.cg3.unif-sets-t]
 > typedef bc::flat_map<uint32_t, uint32SortedVector> unif_sets_t
 
+> [spec:cg3:def:grammar-applicator.cg3.unif-key]
+> PORT DIVERGENCE (address-free identity, plan node `unsafe-zero`): `UnifKey`
+> is `{ special: bool, path: Vec<TagId> }`, where `special` selects the set's
+> ordinary or special trie and `path` is the root-to-node sequence of tag IDs.
+> Within one set, this pair identifies exactly one trie node and replaces the
+> C++ `const void*` entry identity stored by `unif_tags_t`.
+
 > [spec:cg3:def:grammar-applicator.cg3.unif-tags-t]
 > typedef bc::flat_map<uint32_t, const void*> unif_tags_t
-

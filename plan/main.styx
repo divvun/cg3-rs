@@ -593,6 +593,9 @@ children (
         title "Zero unsafe: re-key unification identity off values — unif_tags_t stores a semantic key (set, which-trie, top-level TagId) instead of trie-node addresses; getTagList resolves keys through the grammar; the matcher chain drops its detached-lifetime trie refs for short borrows (range-cursor iteration), deleting the last unsafe block in match_set"
         priority 0
         kind @refactor
+        implements {
+            target-impl ([spec:cg3:def:grammar-applicator.cg3.unif-key])
+        }
         log (
             {
                 at 2026-07-19T23:28:27.420796Z
