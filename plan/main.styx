@@ -1044,6 +1044,14 @@ children (
                         kind @status
                         text "Doing → Done (nplan complete)"
                     }
+
+                    {
+                        at 2026-08-10T09:53:21.387596Z
+                        author "brendan@necessary.nu"
+                        kind @errata
+                        text "The +1 revision of main.main-fn changed the version-banner semantics but the existing target implementation and test annotations remained attested at v0. Follow-up issue-2-main-rule-repin re-attests those sites at v1."
+                        after_done true
+                    }
                 )
             }
 
@@ -1063,6 +1071,24 @@ children (
                         text "Todo → Doing (nplan start)"
                     }
                 )
+            }
+        )
+    }
+
+    {
+        id issue-2-main-rule-repin
+        title "Re-attest the existing vislcg3 main implementation and integration test at main.main-fn v1 after the Divvun banner semantics revision"
+        kind @docs
+        implements {
+            target-impl ([spec:cg3:def:main.main-fn] [spec:cg3:sem:main.main-fn])
+        }
+        deps (issue-2-version-banner.impl)
+        log (
+            {
+                at 2026-08-10T09:53:21.453394Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
             }
         )
     }

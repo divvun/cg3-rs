@@ -92,7 +92,7 @@ Source: {}\n",
     }
 }
 
-// [spec:cg3:sem:main.main-fn/test]
+// [spec:cg3:sem:main.main-fn+1/test]
 // The full vislcg3 main: option parsing (args.txt), textual grammar load,
 // reindex, and the applicator run over test/T_Select's input, byte-checked
 // against the fixture's expected.txt (runall.pl sub-test 1).

@@ -78,4 +78,9 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule main.divvun-version-banner}
     )}
+    {id issue-2-main-rule-repin, covered_rules (
+        main.main-fn
+    ), covered_claims (
+        {impl_name target-impl, rule main.main-fn}
+    )}
 )
