@@ -744,7 +744,11 @@ impl Engine<'_> {
                 t.plain_hash,
                 t.tag.chars().next().unwrap_or('\0'),
                 t.dep_self,
-                t.dep_parent(),
+                if t.r#type.intersects(T_DEPENDENCY | T_RELATION) {
+                    t.dep_parent()
+                } else {
+                    0
+                },
                 t.comparison_hash,
             )
         };

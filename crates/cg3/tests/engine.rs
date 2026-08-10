@@ -559,6 +559,110 @@ fn engine_reflow_readings_and_mappings() {
     );
 }
 
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn/test]
+// [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn/test]
+#[test]
+fn add_tag_reflow_ignores_non_dependency_union_roles() {
+    use cg3::grammar::Grammar;
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::reading::alloc_reading;
+    use cg3::tag::{T_NUMERIC_MATH, Tag};
+
+    let mut app = GrammarApplicator::new(Grammar::default());
+    let mut engine = app.engine();
+    let reading = alloc_reading(&mut engine.doc.store, None);
+
+    let mut numeric = Tag {
+        tag: "<number=1+2>".to_owned(),
+        ..Tag::default()
+    };
+    numeric.parse_numeric(true);
+    assert!(numeric.r#type.intersects(T_NUMERIC_MATH));
+    assert_ne!(numeric.comparison_offset(), 0);
+    let tag = engine.grammar.add_tag(numeric);
+    let hash = engine.grammar.single_tags_list[tag.0].hash.get();
+
+    engine.add_tag_to_reading_rehash(reading, tag, false);
+
+    assert!(
+        engine
+            .doc
+            .store
+            .readings
+            .get(reading.0)
+            .tags_list
+            .contains(&hash)
+    );
+}
+
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn/test]
+// [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn/test]
+#[test]
+fn add_tag_reflow_preserves_dependency_parent() {
+    use cg3::cohort::alloc_cohort;
+    use cg3::grammar::Grammar;
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::reading::alloc_reading;
+    use cg3::single_window::alloc_swindow;
+    use cg3::tag::{T_DEPENDENCY, TagType};
+    use cg3::types::GlobalNumber;
+
+    let mut app = GrammarApplicator::new(Grammar::default());
+    app.cfg.parse_dep = true;
+    let mut engine = app.engine();
+    let window = alloc_swindow(&mut engine.doc.store, None);
+    let cohort = alloc_cohort(&mut engine.doc.store, Some(window));
+    let reading = alloc_reading(&mut engine.doc.store, Some(cohort));
+    let tag = engine.add_tag("#7->3", TagType::empty());
+    assert!(
+        engine.grammar.single_tags_list[tag.0]
+            .r#type
+            .intersects(T_DEPENDENCY)
+    );
+
+    engine.add_tag_to_reading_rehash(reading, tag, false);
+
+    let cohort = engine.doc.store.cohorts.get(cohort.0);
+    assert_eq!(cohort.dep_self, Some(GlobalNumber(7)));
+    assert_eq!(cohort.dep_parent, Some(GlobalNumber(3)));
+}
+
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn/test]
+// [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn/test]
+#[test]
+fn add_tag_reflow_preserves_relation_target() {
+    use cg3::cohort::alloc_cohort;
+    use cg3::grammar::Grammar;
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::reading::alloc_reading;
+    use cg3::single_window::alloc_swindow;
+    use cg3::tag::{T_RELATION, TagType};
+
+    let mut grammar = Grammar::default();
+    grammar.has_relations = true;
+    let mut app = GrammarApplicator::new(grammar);
+    let mut engine = app.engine();
+    let window = alloc_swindow(&mut engine.doc.store, None);
+    let cohort = alloc_cohort(&mut engine.doc.store, Some(window));
+    let reading = alloc_reading(&mut engine.doc.store, Some(cohort));
+    let tag = engine.add_tag("R:linked:3", TagType::empty());
+    let relation = &engine.grammar.single_tags_list[tag.0];
+    assert!(relation.r#type.intersects(T_RELATION));
+    assert_eq!(relation.dep_parent(), 3);
+    let relation_hash = relation.comparison_hash;
+
+    engine.add_tag_to_reading_rehash(reading, tag, false);
+
+    let targets = engine
+        .doc
+        .store
+        .cohorts
+        .get(cohort.0)
+        .relations_input
+        .get(&relation_hash);
+    assert!(targets.is_some_and(|targets| targets.contains(3)));
+}
+
 // ===========================================================================
 // 10. Dependency engine. T_Dependency's input carries #x->y dependency lines
 // (--unicode-tags -D), parsed into the window via reflowDependencyWindow, with

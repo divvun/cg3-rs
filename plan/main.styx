@@ -1092,4 +1092,23 @@ children (
             }
         )
     }
+
+    {
+        id fix-tag-union-reflow
+        title "Guard TagUnion dep_parent reads in add-tag reflow and cover dependency, relation, and non-dependency paths"
+        priority 0
+        kind @fix
+        implements {
+            target-impl ([spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn] [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn])
+        }
+        deps (w4-tag-union-enum)
+        log (
+            {
+                at 2026-08-10T10:19:22.461043Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+        )
+    }
 )
