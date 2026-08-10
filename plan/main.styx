@@ -9,6 +9,7 @@ children (
     {
         id wave-4-idiomatize
         title "Wave 4: idiomatize the literal Rust port (sem rules + 159-test corpus as oracle)"
+        kind @refactor
         children (
             {
                 id w4-deglobalize-ast
@@ -253,6 +254,7 @@ children (
     {
         id engine-decomp
         title "Decompose the GrammarApplicator god object: EngineConfig/Document/RuleScratch/Diagnostics subsystems + Engine<'_> split-borrow view; state decomposed while the C++ function inventory stays 1:1 (upstream diff-porting preserved)"
+        kind @refactor
         children (
             {
                 id engine-decomp.window-api
@@ -511,6 +513,7 @@ children (
     {
         id option-wiring
         title "Resolve the parse-and-ignore CLI options: delete the three that do nothing in the reference too (--dry-run, --out-matxin, --show-tag-hashes) and rewire --debug at the diagnostics layer; drop the unread GrammarApplicator fields"
+        kind @fix
         children (
             {
                 id option-wiring.dry-run
@@ -589,6 +592,7 @@ children (
         id unsafe-zero
         title "Zero unsafe: re-key unification identity off values — unif_tags_t stores a semantic key (set, which-trie, top-level TagId) instead of trie-node addresses; getTagList resolves keys through the grammar; the matcher chain drops its detached-lifetime trie refs for short borrows (range-cursor iteration), deleting the last unsafe block in match_set"
         priority 0
+        kind @refactor
         log (
             {
                 at 2026-07-19T23:28:27.420796Z
@@ -610,6 +614,7 @@ children (
         id drop-rule-cohort-index
         title "Delete the index_ruleCohort_no visited-set: the fixpoint scheduler's (rule,cohort) skip-marker whose validity rests on 19 hand-placed clears and a raw 32-bit key (a collision silently suppresses a rule evaluation); interleaved A/B measured its benefit at noise level (-9%..+5%), so drop it and re-optimise properly if a real-grammar workload ever demands it"
         priority 2
+        kind @refactor
         log (
             {
                 at 2026-07-22T11:08:01.129227Z
@@ -638,6 +643,7 @@ children (
         id drop-dead-match-counters
         title "Delete the match_single/match_comp/match_sub matcher stats counters: write-only in the C++ reference too (declared, incremented, never read; match_comp never even incremented) — the same dead-upstream class as --dry-run; Diagnostics collapses to the profiler alone"
         priority 2
+        kind @refactor
         log (
             {
                 at 2026-07-22T11:18:37.414424Z
@@ -666,6 +672,7 @@ children (
         id matcher-doc-split
         title "Separate pure match logic from mutable content: evict rule-scoped match bookkeeping from the Document so the matcher reads {cfg, doc} shared and writes only {scratch, grammar-interning}, ending with a compiler-enforced read-only document during matching"
         priority 2
+        kind @refactor
         children (
             {
                 id matcher-doc-split.possible-sets-prune
@@ -807,6 +814,7 @@ children (
         id idiom-names
         title "Finish the idiomization the wave-2 naming policy deferred: drop the three crate-level allows (dead_code, non_camel_case_types, non_snake_case), delete what the compiler reveals, rename the ~61 C++-typedef-named types and the mixed-case fns/fields to idiomatic Rust (C++ name preserved in each doc comment, per the crate's existing method convention), and reduce the scattered allow residue to individually-justified sites; API renames land as 0.3.0"
         priority 2
+        kind @refactor
         children (
             {
                 id idiom-names.dead-code
@@ -915,6 +923,7 @@ children (
         id allow-zero
         title "Zero #[allow] in the crate: every remaining allow is hiding a smell or a bug (operator ruling 2026-07-22, superseding keep-with-justification) — restructure the goto-flow lexers, reshape the wide signatures, rewrite the index walks as iterators, simplify the transcribed boolean shapes, delete the dead stubs with spec divergence notes; acceptance is rg \"allow(\" over crates/cg3 returning empty, gated by byte-identical output on the amplified workloads"
         priority 2
+        kind @refactor
         children (
             {
                 id allow-zero.applicators
@@ -1006,6 +1015,43 @@ children (
                 author "brendan@necessary.nu"
                 kind @note
                 text "COMPLETE: rg \"allow(\" over crates/cg3 returns empty — zero allows of any kind, src and tests. What the allows were actually hiding, per the ruling's prediction: an always-false `stop` flag in cg-proc's getopt loop; write-only `c_reading` bindings in three stream drivers; three `let _ =` artifacts laundering dead stores; a dead `did_test` recomputation in run_single_rule_body that is DEAD UPSTREAM TOO (C++ runRules.cpp resets did_test per reading before its only read, making the `else { good = test_good }` branch unreachable — latent upstream quirk, verified against the reference); a `len - 1` underflow-panic hazard in rr_substitute's dead tpos clamp (C++ wrapped; now deleted); two vestigial allows covering nothing (relabeller — the fn was never dead; parser_helpers module gag). Param bundles introduced: ApertiumStreamState, FstStreamState, IterArenas (pub), TestArgs, GotReadingScope — each modeled on the C++ lambda-capture/label-scope it replaces. Deleted with spec PORT DIVERGENCE notes: matxin test_pr (+ its stub driver test — suite counts now 158/162), read_contextual_test_10043 stub, profiler sqlite3_exec, textual_parser FreqSorter; ParseError is a unit struct (C++ catch(int) never reads the value). Ctors renamed BinaryGrammar::new / GrammarWriter::new. tests/common split (golden-only filters to common/filters.rs); model_core rewritten to struct literals. Verified: gates x5 witnessed, 10/10 vislcg3 byte-compares (5 grammars x plain/trace) + cg-conv/cg-proc compares identical vs the pre-change baseline binaries, per-agent AND on the final merged tree."
+            }
+        )
+    }
+
+    {
+        id issue-2-version-banner
+        title "Identify vislcg3 releases as Divvun builds using Cargo package metadata, publish the Rust source URL, and add UiT ownership to the version banner"
+        kind @fix
+        children (
+            {
+                id issue-2-version-banner.spec
+                title "Specify the Divvun product name, Cargo crate version, UiT 2026 copyright, retained GrammarSoft legal notice, and canonical cg3-rs source URL in vislcg3 --version output"
+                kind @docs
+                deps (w4-library-errors)
+                sealed true
+                log (
+                    {
+                        at 2026-08-10T09:45:16.132173Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-10T09:46:49.640872Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
+            }
+
+            {
+                id issue-2-version-banner.impl
+                title "Render the specified vislcg3 --version banner from Cargo package metadata and pin its complete stdout with a CLI regression test"
+                kind @fix
+                deps (issue-2-version-banner.spec)
             }
         )
     }

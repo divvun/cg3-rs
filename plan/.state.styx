@@ -69,4 +69,5 @@ assertions (
     {id allow-zero.engine, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:38:02.178521Z}
     {id allow-zero.parsers-io, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:38:03.942947Z}
     {id allow-zero.tests, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:38:05.575197Z}
+    {id issue-2-version-banner.spec, kind @complete, author "brendan@necessary.nu", at 2026-08-10T09:46:49.640872Z}
 )
