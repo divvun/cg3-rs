@@ -15,12 +15,10 @@
 //!
 //! Dissolved with the raw pointer: the `proxy` type itself and its
 //! `operator->`/`operator*`/`operator C&`/destructor
-//! ([spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy]
-//! [spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy.proxy-fn]
-//! [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.proxy-fn]
-//! [spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy.operator-fn]
-//! [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.operator-fn]) — the owned
-//! value IS the proxy now; `put`/drop is the destructor.
+//! (`[spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy]`,
+//! `[spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy.proxy-fn]`,
+//! `[spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy.operator-fn]`). The
+//! owned value IS the proxy now; `put`/drop is the destructor.
 //!
 //! The `C: clear()` requirement reuses [`crate::pool::Poolable`] so a concrete
 //! type usable in both a `Pool` and a `ScopedStack` needs only one `clear`.
@@ -42,6 +40,9 @@ impl<C: Poolable> ScopedStack<C> {
 
     // [spec:cg3:def:scoped-stack.cg3.scoped-stack.get-fn]
     // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.get-fn]
+    // Safe owned-value replacement for proxy acquisition and access.
+    // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.proxy-fn]
+    // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.operator-fn]
     /// A cleared scratch `C` — a recycled spare when available (its capacity
     /// retained from a previous user, contents cleared), else a fresh default.
     pub fn get(&mut self) -> C
@@ -51,6 +52,8 @@ impl<C: Poolable> ScopedStack<C> {
         self.cs.pop().unwrap_or_default()
     }
 
+    // Safe owned-value replacement for proxy release.
+    // [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.proxy-fn]
     /// Return a scratch object (the C++ `~proxy()`): clear it and keep it as a
     /// spare. Dropping the value instead is allowed (capacity loss only).
     pub fn put(&mut self, mut c: C) {

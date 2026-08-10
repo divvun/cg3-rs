@@ -152,6 +152,9 @@ children (
             {
                 id w4-unsafe-elimination
                 title "Unsafe elimination (target near-zero outside flat containers): run_rules Box<dyn FnMut>+raw-this callbacks (30 blocks), mem::take store swap dance (10 sites), scoped_stack *mut proxy, inlines Linked/reverse and voidp, trie borrow-laundering"
+                implements {
+                    target-impl ([spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.proxy-fn] [spec:cg3:sem:scoped-stack.cg3.scoped-stack.proxy.operator-fn])
+                }
                 log (
                     {
                         at 2026-07-19T22:55:36.580241Z

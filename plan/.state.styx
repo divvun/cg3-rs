@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-10T10:59:38.048388Z
+last_sync_at 2026-08-10T11:01:29.807733Z
 
 rule_versions (
     {id grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn, version 0}
@@ -8,6 +8,8 @@ rule_versions (
     {id grammar-applicator.cg3.unif-key, version 0}
     {id main.divvun-version-banner, version 0}
     {id main.main-fn, version 1}
+    {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
+    {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
 )
 
 derived_priorities (
@@ -114,5 +116,15 @@ impl_evidence (
         {impl_name target-impl, rule grammar-applicator.cg3.unif-key}
     ), rule_versions_seen (
         {id grammar-applicator.cg3.unif-key, version 0}
+    )}
+    {id w4-unsafe-elimination, covered_rules (
+        scoped-stack.cg3.scoped-stack.proxy.operator-fn
+        scoped-stack.cg3.scoped-stack.proxy.proxy-fn
+    ), covered_claims (
+        {impl_name target-impl, rule scoped-stack.cg3.scoped-stack.proxy.operator-fn}
+        {impl_name target-impl, rule scoped-stack.cg3.scoped-stack.proxy.proxy-fn}
+    ), rule_versions_seen (
+        {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
+        {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
 )
