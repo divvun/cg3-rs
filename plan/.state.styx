@@ -145,4 +145,9 @@ impl_evidence (
         {impl_name target-impl, rule cg-relabel.end-program-fn}
         {impl_name target-impl, rule tools.divvun-version-banner}
     )}
+    {id version-banner-build-provenance.impl, covered_rules (
+        tools.build-provenance
+    ), covered_claims (
+        {impl_name target-impl, rule tools.build-provenance}
+    )}
 )

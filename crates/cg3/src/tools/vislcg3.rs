@@ -28,13 +28,13 @@ use crate::profiler::Profiler;
 use crate::textual_parser::TextualParser;
 
 use super::{
-    CG3_COPYRIGHT_STRING, CG3_TOO_OLD, DIVVUN_COPYRIGHT_STRING, DIVVUN_REPOSITORY, DIVVUN_VERSION,
-    U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, to_uargv,
+    CG3_COPYRIGHT_STRING, CG3_TOO_OLD, DIVVUN_COPYRIGHT_STRING, DIVVUN_REPOSITORY,
+    U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, print_divvun_version_line, to_uargv,
 };
 
-// [spec:cg3:def:main.main-fn+2]
-// [spec:cg3:sem:main.main-fn+2]
-// [spec:cg3:req:main.divvun-version-banner+1]
+// [spec:cg3:def:main.main-fn+3]
+// [spec:cg3:sem:main.main-fn+3]
+// [spec:cg3:req:main.divvun-version-banner+2]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_run(args: &[String]) -> i32 {
     // clock_t main_timer = clock(); — timers dropped (verbose timing lines below
@@ -87,7 +87,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
     // --version / --help print the version line to stdout.
     if occ(&options, Opt::Version) || occ(&options, Opt::Help1) || occ(&options, Opt::Help2) {
-        println!("Divvun CG-3 Disambiguator v{DIVVUN_VERSION}");
+        print_divvun_version_line("Disambiguator");
     }
 
     if argc < 0 {

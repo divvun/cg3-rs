@@ -61,13 +61,22 @@ fn run_vislcg3_expect(dir: &Path, grammar: &Path, out_name: &str) {
     );
 }
 
+fn divvun_version_line(product: &str) -> String {
+    format!(
+        "Divvun CG-3 {product} v{} ({} {})",
+        env!("CARGO_PKG_VERSION"),
+        env!("CG3_BUILD_DATE"),
+        env!("CG3_GIT_HASH")
+    )
+}
+
 fn assert_divvun_version(binary_name: &str, binary: &str, product: &str, args: &[&str]) {
     let want = format!(
-        "Divvun CG-3 {product} v{}\n\
+        "{}\n\
 Copyright (C) 2026 UiT The Arctic University of Norway\n\
 Copyright (C) 2007-2025 GrammarSoft ApS. Licensed under GPLv3+\n\
 Source: {}\n",
-        env!("CARGO_PKG_VERSION"),
+        divvun_version_line(product),
         env!("CARGO_PKG_REPOSITORY")
     );
 
@@ -90,8 +99,8 @@ Source: {}\n",
     }
 }
 
-// [spec:cg3:req:main.divvun-version-banner+1/test]
-// [spec:cg3:req:tools.divvun-version-banner+1/test]
+// [spec:cg3:req:main.divvun-version-banner+2/test]
+// [spec:cg3:req:tools.divvun-version-banner+2/test]
 // [spec:cg3:sem:cg-proc.main-fn+1/test]
 #[test]
 fn all_tools_versions_identify_divvun_builds() {
@@ -149,7 +158,27 @@ fn all_tools_versions_identify_divvun_builds() {
     }
 }
 
-// [spec:cg3:sem:main.main-fn+2/test]
+// [spec:cg3:sem:main.main-fn+3/test]
+#[test]
+fn vislcg3_help_uses_build_provenance() {
+    let out = Command::new(env!("CARGO_BIN_EXE_vislcg3"))
+        .arg("--help")
+        .output()
+        .expect("spawn vislcg3");
+    assert!(
+        out.status.success(),
+        "vislcg3 --help exited with {}",
+        out.status
+    );
+    assert!(out.stderr.is_empty(), "vislcg3 --help wrote to stderr");
+    assert!(
+        String::from_utf8(out.stdout)
+            .unwrap()
+            .starts_with(&format!("{}\n", divvun_version_line("Disambiguator")))
+    );
+}
+
+// [spec:cg3:sem:main.main-fn+3/test]
 // The full vislcg3 main: option parsing (args.txt), textual grammar load,
 // reindex, and the applicator run over test/T_Select's input, byte-checked
 // against the fixture's expected.txt (runall.pl sub-test 1).
@@ -184,7 +213,7 @@ fn cg_comp_main_compiles_t_select() {
     let _ = std::fs::remove_file(&bin);
 }
 
-// [spec:cg3:sem:cg-comp.end-program-fn+2/test]
+// [spec:cg3:sem:cg-comp.end-program-fn+3/test]
 // cg-comp's endProgram: wrong argc (no args) prints the version + usage banner
 // to stdout and exits EXIT_FAILURE.
 #[test]
@@ -194,9 +223,8 @@ fn cg_comp_end_program_usage() {
         .expect("spawn cg-comp");
     assert_eq!(out.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let version = env!("CARGO_PKG_VERSION");
     assert!(
-        stdout.contains(&format!("Divvun CG-3 Compiler v{version}")),
+        stdout.contains(&divvun_version_line("Compiler")),
         "missing banner: {stdout}"
     );
     assert!(
@@ -273,7 +301,7 @@ fn cg_proc_main_runs_apertium_t_select() {
     );
 }
 
-// [spec:cg3:sem:cg-proc.end-program-fn+2/test]
+// [spec:cg3:sem:cg-proc.end-program-fn+3/test]
 // cg-proc's endProgram: with no grammar argument main falls through to the
 // usage path — version + option summary on stdout, exit EXIT_FAILURE.
 #[test]
@@ -283,9 +311,8 @@ fn cg_proc_end_program_usage() {
         .expect("spawn cg-proc");
     assert_eq!(out.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let version = env!("CARGO_PKG_VERSION");
     assert!(
-        stdout.contains(&format!("Divvun CG-3 Disambiguator v{version}")),
+        stdout.contains(&divvun_version_line("Disambiguator")),
         "missing banner: {stdout}"
     );
     assert!(stdout.contains("USAGE: cg-proc"), "missing usage: {stdout}");
@@ -334,7 +361,7 @@ fn cg_relabel_main_relabels_t_relabel_list() {
     let _ = std::fs::remove_file(&bin_out);
 }
 
-// [spec:cg3:sem:cg-relabel.end-program-fn+2/test]
+// [spec:cg3:sem:cg-relabel.end-program-fn+3/test]
 // cg-relabel's endProgram: wrong argc prints the version + usage banner to
 // stdout and exits EXIT_FAILURE.
 #[test]
@@ -344,9 +371,8 @@ fn cg_relabel_end_program_usage() {
         .expect("spawn cg-relabel");
     assert_eq!(out.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let version = env!("CARGO_PKG_VERSION");
     assert!(
-        stdout.contains(&format!("Divvun CG-3 Relabeller v{version}")),
+        stdout.contains(&divvun_version_line("Relabeller")),
         "missing banner: {stdout}"
     );
     assert!(

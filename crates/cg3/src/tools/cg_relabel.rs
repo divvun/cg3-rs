@@ -16,8 +16,8 @@ use crate::textual_parser::TextualParser;
 
 use super::{basename, print_divvun_version_line};
 
-// [spec:cg3:def:cg-relabel.end-program-fn+2]
-// [spec:cg3:sem:cg-relabel.end-program-fn+2]
+// [spec:cg3:def:cg-relabel.end-program-fn+3]
+// [spec:cg3:sem:cg-relabel.end-program-fn+3]
 /// C++ `void endProgram(char* name)`.
 fn end_program(name: Option<&str>) -> ! {
     if let Some(name) = name {
