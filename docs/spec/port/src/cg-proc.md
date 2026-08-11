@@ -3,10 +3,11 @@
 > [spec:cg3:def:cg-proc.end-program-fn]
 > void endProgram(char* name)
 
-> [spec:cg3:sem:cg-proc.end-program-fn]
+> [spec:cg3:sem:cg-proc.end-program-fn+1]
 > Prints usage/help for `cg-proc` and terminates. Unlike the other tools it
-> always prints (no `name`-null guard on the body). Prints to stdout: `"VISL
-> CG-3 Disambiguator version <MAJOR>.<MINOR>.<PATCH>.<REVISION>\n"`, then
+> always prints (no `name`-null guard on the body). Prints to stdout: `"Divvun
+> CG-3 Disambiguator version <crate-version>\n"` (from the Cargo package
+> version; a Rust-port divergence from the C++ version constants), then
 > `"<basename(name)>: process a stream with a constraint grammar"`, then
 > `"USAGE: <basename(name)> [-t] [-s] [-d] [-g] [-r rule] grammar_file
 > [input_file [output_file]]"`, then `"Options:"` and a per-flag description
@@ -21,7 +22,7 @@
 > [spec:cg3:def:cg-proc.main-fn]
 > int main(int argc, char* argv[])
 
-> [spec:cg3:sem:cg-proc.main-fn]
+> [spec:cg3:sem:cg-proc.main-fn+1]
 > Entry point for `cg-proc`, the Apertium/Matxin/binary/VISL stream processor.
 > Unlike the other tools it parses its OWN short flags with POSIX
 > `getopt`/`getopt_long` (not `u_parseArgs`), then loads a (preferably binary)
@@ -43,7 +44,9 @@
 > - `'g'`: `delimit_lexical_units=false`, `surface_readings=true`.
 > - `'1'`: `only_first=true`.
 > - `'w'`: `wordform_case=true`.
-> - `'v'`: print the version banner to stdout and `exit(EXIT_SUCCESS)`.
+> - `'v'`: print the complete four-line Divvun banner required by
+>   `[spec:cg3:req:tools.divvun-version-banner]` to stdout and
+>   `exit(EXIT_SUCCESS)`.
 > - `'z'`: no-op (comment: null-flush is default).
 > - `'h'`/default: `endProgram(argv[0])`.
 > - BUG (faithfulness): the long-option table marks `--disambiguation` and
@@ -94,4 +97,3 @@
 > Run: `try { switch(cmd){ case 'd': default: applicator->runGrammarOnText(
 > *ux_stdin, *ux_stdout); } } catch (std::exception& e) { std::cerr << e.what();
 > exit(1); }`. Finally `u_cleanup()`. No explicit return (falls off end → 0).
-

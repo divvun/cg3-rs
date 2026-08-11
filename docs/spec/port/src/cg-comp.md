@@ -3,11 +3,12 @@
 > [spec:cg3:def:cg-comp.end-program-fn]
 > void endProgram(char* name)
 
-> [spec:cg3:sem:cg-comp.end-program-fn]
+> [spec:cg3:sem:cg-comp.end-program-fn+1]
 > Prints usage/help for `cg-comp` and terminates the process. If `name` is
-> non-null, prints to stdout: `"VISL CG-3 Compiler version
-> <MAJOR>.<MINOR>.<PATCH>.<REVISION>\n"` (from the CG3_VERSION_* / CG3_REVISION
-> macros), then `"<basename(name)>: compile a binary grammar from a text
+> non-null, prints to stdout: `"Divvun CG-3 Compiler version
+> <crate-version>\n"` (from the Cargo package version; a Rust-port divergence
+> from the C++ CG3_VERSION_* / CG3_REVISION macros), then
+> `"<basename(name)>: compile a binary grammar from a text
 > file"`, then `"USAGE: <basename(name)> grammar_file output_file"` (each via
 > `std::cout << ... << std::endl`; `basename` is POSIX `libgen` basename on
 > non-Windows). Regardless of whether `name` was null, calls
@@ -51,4 +52,3 @@
 > - `u_cleanup()`. `return status` (the ICU `UErrorCode`, which is
 >   `U_ZERO_ERROR`==0 on success). Note: returning the raw `UErrorCode` enum as
 >   the process exit code.
-

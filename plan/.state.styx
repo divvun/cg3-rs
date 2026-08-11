@@ -84,6 +84,7 @@ assertions (
     {id allow-zero.tests, kind @complete, author "brendan@necessary.nu", at 2026-07-22T14:38:05.575197Z}
     {id issue-2-version-banner.spec, kind @complete, author "brendan@necessary.nu", at 2026-08-10T09:46:49.640872Z}
     {id all-tools-version-banner.spec, kind @complete, author "brendan@necessary.nu", at 2026-08-11T22:05:41.779915Z}
+    {id all-tools-version-banner.port-spec, kind @complete, author "brendan@necessary.nu", at 2026-08-11T22:08:15.116785Z}
 )
 
 impl_evidence (

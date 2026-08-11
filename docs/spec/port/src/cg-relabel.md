@@ -30,10 +30,11 @@
 > [spec:cg3:def:cg-relabel.end-program-fn]
 > void endProgram(char* name)
 
-> [spec:cg3:sem:cg-relabel.end-program-fn]
+> [spec:cg3:sem:cg-relabel.end-program-fn+1]
 > Prints usage/help for `cg-relabel` and terminates. If `name` is non-null,
-> prints to stdout: `"VISL CG-3 Relabeller version
-> <MAJOR>.<MINOR>.<PATCH>.<REVISION>\n"`, then `"<basename(name)>: relabel a
+> prints to stdout: `"Divvun CG-3 Relabeller version <crate-version>\n"`
+> (from the Cargo package version; a Rust-port divergence from the C++ version
+> constants), then `"<basename(name)>: relabel a
 > binary grammar using a relabelling file"`, then `"USAGE: <basename(name)>
 > input_grammar_file relabel_rule_file output_grammar_file"`. Regardless of
 > `name`, calls `exit(EXIT_FAILURE)`.
@@ -66,4 +67,3 @@
 > - EDGE (faithfulness): there is NO null check on the loader results — if
 >   `cg3_grammar_load` returns `0`, the `unique_ptr` wraps null and `*grammar` /
 >   `*relabel_grammar` dereferences null, crashing.
-

@@ -1158,9 +1158,45 @@ children (
                 title "Route every binary version flag through the shared Divvun banner and verify exact output"
                 kind @fix
                 implements {
-                    target-impl ([spec:cg3:req:tools.divvun-version-banner])
+                    target-impl (
+                        [spec:cg3:req:tools.divvun-version-banner]
+                        [spec:cg3:sem:cg-comp.end-program-fn]
+                        [spec:cg3:sem:cg-proc.end-program-fn]
+                        [spec:cg3:sem:cg-proc.main-fn]
+                        [spec:cg3:sem:cg-relabel.end-program-fn]
+                    )
                 }
-                deps (all-tools-version-banner.spec issue-2-version-banner.impl)
+                deps (all-tools-version-banner.port-spec issue-2-version-banner.impl)
+            }
+
+            {
+                id all-tools-version-banner.port-spec
+                title "Revise legacy usage and cg-proc version semantics to the Divvun package identity"
+                kind @docs
+                deps (all-tools-version-banner.spec)
+                sealed true
+                log (
+                    {
+                        at 2026-08-11T22:07:28.17389Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-11T22:08:15.014963Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "sealed — decomposition asserted complete (nplan seal)"
+                    }
+
+                    {
+                        at 2026-08-11T22:08:15.116785Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
         )
     }
