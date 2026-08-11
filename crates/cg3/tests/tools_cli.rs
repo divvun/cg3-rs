@@ -61,11 +61,9 @@ fn run_vislcg3_expect(dir: &Path, grammar: &Path, out_name: &str) {
     );
 }
 
-// [spec:cg3:req:main.divvun-version-banner/test]
-#[test]
-fn vislcg3_version_identifies_divvun_build() {
+fn assert_divvun_version(binary_name: &str, binary: &str, product: &str, args: &[&str]) {
     let want = format!(
-        "Divvun CG-3 Disambiguator version {}\n\
+        "Divvun CG-3 {product} version {}\n\
 Copyright (C) 2026 UiT The Arctic University of Norway\n\
 Copyright (C) 2007-2025 GrammarSoft ApS. Licensed under GPLv3+\n\
 Source: {}\n",
@@ -73,21 +71,80 @@ Source: {}\n",
         env!("CARGO_PKG_REPOSITORY")
     );
 
-    for arg in ["-V", "--version"] {
-        let out = Command::new(env!("CARGO_BIN_EXE_vislcg3"))
+    for arg in args {
+        let out = Command::new(binary)
             .arg(arg)
             .output()
-            .expect("spawn vislcg3");
+            .unwrap_or_else(|e| panic!("spawn {binary_name}: {e}"));
         assert!(
             out.status.success(),
-            "vislcg3 {arg} exited with {}",
+            "{binary_name} {arg} exited with {}",
             out.status
         );
-        assert!(out.stderr.is_empty(), "vislcg3 {arg} wrote to stderr");
+        assert!(out.stderr.is_empty(), "{binary_name} {arg} wrote to stderr");
         assert_eq!(
             String::from_utf8(out.stdout).unwrap(),
             want,
-            "vislcg3 {arg}"
+            "{binary_name} {arg}"
+        );
+    }
+}
+
+// [spec:cg3:req:main.divvun-version-banner/test]
+// [spec:cg3:req:tools.divvun-version-banner/test]
+// [spec:cg3:sem:cg-proc.main-fn+1/test]
+#[test]
+fn all_tools_versions_identify_divvun_builds() {
+    assert_divvun_version(
+        "vislcg3",
+        env!("CARGO_BIN_EXE_vislcg3"),
+        "Disambiguator",
+        &["-V", "--version"],
+    );
+    assert_divvun_version(
+        "cg-comp",
+        env!("CARGO_BIN_EXE_cg-comp"),
+        "Compiler",
+        &["--version"],
+    );
+    assert_divvun_version(
+        "cg-conv",
+        env!("CARGO_BIN_EXE_cg-conv"),
+        "Format Converter",
+        &["--version"],
+    );
+    assert_divvun_version(
+        "cg-mwesplit",
+        env!("CARGO_BIN_EXE_cg-mwesplit"),
+        "MWE Splitter",
+        &["--version"],
+    );
+    assert_divvun_version(
+        "cg-proc",
+        env!("CARGO_BIN_EXE_cg-proc"),
+        "Disambiguator",
+        &["-v", "--version"],
+    );
+    assert_divvun_version(
+        "cg-relabel",
+        env!("CARGO_BIN_EXE_cg-relabel"),
+        "Relabeller",
+        &["--version"],
+    );
+
+    #[cfg(feature = "profiler")]
+    {
+        assert_divvun_version(
+            "cg-annotate",
+            env!("CARGO_BIN_EXE_cg-annotate"),
+            "Profiler Annotator",
+            &["--version"],
+        );
+        assert_divvun_version(
+            "cg-merge-annotations",
+            env!("CARGO_BIN_EXE_cg-merge-annotations"),
+            "Annotation Merger",
+            &["--version"],
         );
     }
 }
@@ -127,7 +184,7 @@ fn cg_comp_main_compiles_t_select() {
     let _ = std::fs::remove_file(&bin);
 }
 
-// [spec:cg3:sem:cg-comp.end-program-fn/test]
+// [spec:cg3:sem:cg-comp.end-program-fn+1/test]
 // cg-comp's endProgram: wrong argc (no args) prints the version + usage banner
 // to stdout and exits EXIT_FAILURE.
 #[test]
@@ -137,8 +194,9 @@ fn cg_comp_end_program_usage() {
         .expect("spawn cg-comp");
     assert_eq!(out.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&out.stdout);
+    let version = env!("CARGO_PKG_VERSION");
     assert!(
-        stdout.contains("VISL CG-3 Compiler version"),
+        stdout.contains(&format!("Divvun CG-3 Compiler version {version}")),
         "missing banner: {stdout}"
     );
     assert!(
@@ -178,7 +236,7 @@ fn cg_conv_main_converts_niceline_stream() {
     );
 }
 
-// [spec:cg3:sem:cg-proc.main-fn/test]
+// [spec:cg3:sem:cg-proc.main-fn+1/test]
 // cg-proc main: getopt loop (-d), binary grammar load, ApertiumApplicator run
 // over the Apertium stream fixture (the test/Apertium/T_Select run.pl protocol:
 // cg-comp then `cg-proc -d grammar.bin input.txt output.txt`).
@@ -215,7 +273,7 @@ fn cg_proc_main_runs_apertium_t_select() {
     );
 }
 
-// [spec:cg3:sem:cg-proc.end-program-fn/test]
+// [spec:cg3:sem:cg-proc.end-program-fn+1/test]
 // cg-proc's endProgram: with no grammar argument main falls through to the
 // usage path — version + option summary on stdout, exit EXIT_FAILURE.
 #[test]
@@ -225,8 +283,9 @@ fn cg_proc_end_program_usage() {
         .expect("spawn cg-proc");
     assert_eq!(out.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&out.stdout);
+    let version = env!("CARGO_PKG_VERSION");
     assert!(
-        stdout.contains("VISL CG-3 Disambiguator version"),
+        stdout.contains(&format!("Divvun CG-3 Disambiguator version {version}")),
         "missing banner: {stdout}"
     );
     assert!(stdout.contains("USAGE: cg-proc"), "missing usage: {stdout}");
@@ -275,7 +334,7 @@ fn cg_relabel_main_relabels_t_relabel_list() {
     let _ = std::fs::remove_file(&bin_out);
 }
 
-// [spec:cg3:sem:cg-relabel.end-program-fn/test]
+// [spec:cg3:sem:cg-relabel.end-program-fn+1/test]
 // cg-relabel's endProgram: wrong argc prints the version + usage banner to
 // stdout and exits EXIT_FAILURE.
 #[test]
@@ -285,8 +344,9 @@ fn cg_relabel_end_program_usage() {
         .expect("spawn cg-relabel");
     assert_eq!(out.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&out.stdout);
+    let version = env!("CARGO_PKG_VERSION");
     assert!(
-        stdout.contains("VISL CG-3 Relabeller version"),
+        stdout.contains(&format!("Divvun CG-3 Relabeller version {version}")),
         "missing banner: {stdout}"
     );
     assert!(

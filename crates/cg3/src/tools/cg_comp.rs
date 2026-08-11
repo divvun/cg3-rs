@@ -13,20 +13,17 @@ use crate::grammar::Grammar;
 use crate::inlines::{cg3_quit, is_cg3b};
 use crate::textual_parser::TextualParser;
 
-use super::{CG3_REVISION, CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, basename};
+use super::{basename, print_divvun_version_line};
 
-// [spec:cg3:def:cg-comp.end-program-fn]
-// [spec:cg3:sem:cg-comp.end-program-fn]
+// [spec:cg3:def:cg-comp.end-program-fn+1]
+// [spec:cg3:sem:cg-comp.end-program-fn+1]
 /// C++ `void endProgram(char* name)`. Prints the version + usage banner (when
 /// `name` is non-null) and exits with `EXIT_FAILURE`. In the port `name` is the
 /// program-name argv[0]; the C++ `if (name)` guard is always true for a real
 /// invocation, but is preserved for parity by taking `Option<&str>`.
 fn end_program(name: Option<&str>) -> ! {
     if let Some(name) = name {
-        println!(
-            "VISL CG-3 Compiler version {}.{}.{}.{}",
-            CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
-        );
+        print_divvun_version_line("Compiler");
         println!(
             "{}: compile a binary grammar from a text file",
             basename(name)

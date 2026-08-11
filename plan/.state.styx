@@ -129,4 +129,17 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id all-tools-version-banner.impl, covered_rules (
+        cg-comp.end-program-fn
+        cg-proc.end-program-fn
+        cg-proc.main-fn
+        cg-relabel.end-program-fn
+        tools.divvun-version-banner
+    ), covered_claims (
+        {impl_name target-impl, rule cg-comp.end-program-fn}
+        {impl_name target-impl, rule cg-proc.end-program-fn}
+        {impl_name target-impl, rule cg-proc.main-fn}
+        {impl_name target-impl, rule cg-relabel.end-program-fn}
+        {impl_name target-impl, rule tools.divvun-version-banner}
+    )}
 )

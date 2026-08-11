@@ -35,18 +35,15 @@ use crate::options::{
 use crate::options_parser::{parse_opts, parse_opts_env};
 use crate::textual_parser::TextualParser;
 
-use super::{CG3_REVISION, CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, basename};
+use super::{basename, print_divvun_version, print_divvun_version_line};
 
-// [spec:cg3:def:cg-proc.end-program-fn]
-// [spec:cg3:sem:cg-proc.end-program-fn]
+// [spec:cg3:def:cg-proc.end-program-fn+1]
+// [spec:cg3:sem:cg-proc.end-program-fn+1]
 /// C++ `void endProgram(char* name)`. Prints the version + full usage banner and
 /// exits `EXIT_FAILURE`. The `HAVE_GETOPT_LONG` variant of the banner is used
 /// (the ported getopt below is the long variant).
 fn end_program(name: &str) -> ! {
-    println!(
-        "VISL CG-3 Disambiguator version {}.{}.{}.{}",
-        CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
-    );
+    print_divvun_version_line("Disambiguator");
     println!(
         "{}: process a stream with a constraint grammar",
         basename(name)
@@ -252,8 +249,8 @@ fn atoi(arg: Option<&str>) -> i32 {
     }
 }
 
-// [spec:cg3:def:cg-proc.main-fn]
-// [spec:cg3:sem:cg-proc.main-fn]
+// [spec:cg3:def:cg-proc.main-fn+1]
+// [spec:cg3:sem:cg-proc.main-fn+1]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_proc(args: &[String]) -> i32 {
     let mut trace = false;
@@ -306,10 +303,7 @@ pub fn main_proc(args: &[String]) -> i32 {
             '1' => only_first = true,
             'w' => wordform_case = true,
             'v' => {
-                println!(
-                    "VISL CG-3 Disambiguator version {}.{}.{}.{}",
-                    CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
-                );
+                print_divvun_version("Disambiguator");
                 // C++ exit(EXIT_SUCCESS) — unwound through the CLI boundary so
                 // no process::exit lives outside src/bin.
                 crate::error::cg3_exit(0);

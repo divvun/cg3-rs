@@ -14,17 +14,14 @@ use crate::inlines::{cg3_quit, is_cg3b};
 use crate::relabeller::Relabeller;
 use crate::textual_parser::TextualParser;
 
-use super::{CG3_REVISION, CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, basename};
+use super::{basename, print_divvun_version_line};
 
-// [spec:cg3:def:cg-relabel.end-program-fn]
-// [spec:cg3:sem:cg-relabel.end-program-fn]
+// [spec:cg3:def:cg-relabel.end-program-fn+1]
+// [spec:cg3:sem:cg-relabel.end-program-fn+1]
 /// C++ `void endProgram(char* name)`.
 fn end_program(name: Option<&str>) -> ! {
     if let Some(name) = name {
-        println!(
-            "VISL CG-3 Relabeller version {}.{}.{}.{}",
-            CG3_VERSION_MAJOR, CG3_VERSION_MINOR, CG3_VERSION_PATCH, CG3_REVISION
-        );
+        print_divvun_version_line("Relabeller");
         println!(
             "{}: relabel a binary grammar using a relabelling file",
             basename(name)

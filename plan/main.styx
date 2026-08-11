@@ -1167,6 +1167,22 @@ children (
                     )
                 }
                 deps (all-tools-version-banner.port-spec issue-2-version-banner.impl)
+                sealed true
+                log (
+                    {
+                        at 2026-08-11T22:08:36.241366Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-11T22:12:33.307956Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "sealed — decomposition asserted complete (nplan seal)"
+                    }
+                )
             }
 
             {
@@ -1197,6 +1213,15 @@ children (
                         text "Doing → Done (nplan complete)"
                     }
                 )
+            }
+        )
+        sealed true
+        log (
+            {
+                at 2026-08-11T22:12:33.400878Z
+                author "brendan@necessary.nu"
+                kind @note
+                text "sealed — decomposition asserted complete (nplan seal)"
             }
         )
     }

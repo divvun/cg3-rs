@@ -112,6 +112,30 @@ pub const DIVVUN_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DIVVUN_REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 pub const DIVVUN_COPYRIGHT_STRING: &str = "Copyright (C) 2026 UiT The Arctic University of Norway";
 
+pub(crate) fn print_divvun_version_line(product: &str) {
+    println!("Divvun CG-3 {product} version {DIVVUN_VERSION}");
+}
+
+pub(crate) fn print_divvun_version(product: &str) {
+    print_divvun_version_line(product);
+    println!("{DIVVUN_COPYRIGHT_STRING}");
+    println!("{CG3_COPYRIGHT_STRING}");
+    println!("Source: {DIVVUN_REPOSITORY}");
+}
+
+// [spec:cg3:req:tools.divvun-version-banner]
+/// Handle a binary's package-identity flags before its ported argument parser.
+/// Returns `true` after printing the complete banner so the wrapper can exit
+/// successfully without running the tool or initializing diagnostics.
+pub fn handle_divvun_version(args: &[String], product: &str, short_aliases: &[&str]) -> bool {
+    let requested =
+        args.len() == 2 && (args[1] == "--version" || short_aliases.contains(&args[1].as_str()));
+    if requested {
+        print_divvun_version(product);
+    }
+    requested
+}
+
 // --- Shared upstream version constants (C++ `version.hpp`) --------------------
 
 /// ICU `UErrorCode` values used as tool exit codes (per the flagged-bug
@@ -120,11 +144,6 @@ pub const DIVVUN_COPYRIGHT_STRING: &str = "Copyright (C) 2026 UiT The Arctic Uni
 pub const U_ZERO_ERROR: i32 = 0;
 pub const U_ILLEGAL_ARGUMENT_ERROR: i32 = 1;
 
-/// C++ `version.hpp` `constexpr` version numbers, transcribed verbatim.
-pub const CG3_VERSION_MAJOR: u32 = 1;
-pub const CG3_VERSION_MINOR: u32 = 6;
-pub const CG3_VERSION_PATCH: u32 = 7;
-pub const CG3_REVISION: u32 = 13898;
 pub const CG3_TOO_OLD: u32 = 10373;
 pub const CG3_COPYRIGHT_STRING: &str =
     "Copyright (C) 2007-2025 GrammarSoft ApS. Licensed under GPLv3+";
