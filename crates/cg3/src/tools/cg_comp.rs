@@ -15,8 +15,8 @@ use crate::textual_parser::TextualParser;
 
 use super::{basename, print_divvun_version_line};
 
-// [spec:cg3:def:cg-comp.end-program-fn+1]
-// [spec:cg3:sem:cg-comp.end-program-fn+1]
+// [spec:cg3:def:cg-comp.end-program-fn+2]
+// [spec:cg3:sem:cg-comp.end-program-fn+2]
 /// C++ `void endProgram(char* name)`. Prints the version + usage banner (when
 /// `name` is non-null) and exits with `EXIT_FAILURE`. In the port `name` is the
 /// program-name argv[0]; the C++ `if (name)` guard is always true for a real

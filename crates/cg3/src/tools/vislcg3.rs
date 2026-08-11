@@ -32,9 +32,9 @@ use super::{
     U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, to_uargv,
 };
 
-// [spec:cg3:def:main.main-fn+1]
-// [spec:cg3:sem:main.main-fn+1]
-// [spec:cg3:req:main.divvun-version-banner]
+// [spec:cg3:def:main.main-fn+2]
+// [spec:cg3:sem:main.main-fn+2]
+// [spec:cg3:req:main.divvun-version-banner+1]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_run(args: &[String]) -> i32 {
     // clock_t main_timer = clock(); — timers dropped (verbose timing lines below
@@ -87,7 +87,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
     // --version / --help print the version line to stdout.
     if occ(&options, Opt::Version) || occ(&options, Opt::Help1) || occ(&options, Opt::Help2) {
-        println!("Divvun CG-3 Disambiguator version {DIVVUN_VERSION}");
+        println!("Divvun CG-3 Disambiguator v{DIVVUN_VERSION}");
     }
 
     if argc < 0 {

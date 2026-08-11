@@ -113,7 +113,7 @@ pub const DIVVUN_REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 pub const DIVVUN_COPYRIGHT_STRING: &str = "Copyright (C) 2026 UiT The Arctic University of Norway";
 
 pub(crate) fn print_divvun_version_line(product: &str) {
-    println!("Divvun CG-3 {product} version {DIVVUN_VERSION}");
+    println!("Divvun CG-3 {product} v{DIVVUN_VERSION}");
 }
 
 pub(crate) fn print_divvun_version(product: &str) {
@@ -123,7 +123,7 @@ pub(crate) fn print_divvun_version(product: &str) {
     println!("Source: {DIVVUN_REPOSITORY}");
 }
 
-// [spec:cg3:req:tools.divvun-version-banner]
+// [spec:cg3:req:tools.divvun-version-banner+1]
 /// Handle a binary's package-identity flags before its ported argument parser.
 /// Returns `true` after printing the complete banner so the wrapper can exit
 /// successfully without running the tool or initializing diagnostics.

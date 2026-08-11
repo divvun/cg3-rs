@@ -1276,6 +1276,38 @@ children (
                 priority 0
                 kind @fix
                 deps (version-banner-v-prefix.spec all-tools-version-banner.impl)
+                sealed true
+                log (
+                    {
+                        at 2026-08-11T22:20:51.47039Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-11T22:22:29.506092Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "sealed — decomposition asserted complete (nplan seal)"
+                    }
+
+                    {
+                        at 2026-08-11T22:22:29.557122Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
+            }
+        )
+        sealed true
+        log (
+            {
+                at 2026-08-11T22:22:29.606659Z
+                author "brendan@necessary.nu"
+                kind @note
+                text "sealed — decomposition asserted complete (nplan seal)"
             }
         )
     }

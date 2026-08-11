@@ -37,8 +37,8 @@ use crate::textual_parser::TextualParser;
 
 use super::{basename, print_divvun_version, print_divvun_version_line};
 
-// [spec:cg3:def:cg-proc.end-program-fn+1]
-// [spec:cg3:sem:cg-proc.end-program-fn+1]
+// [spec:cg3:def:cg-proc.end-program-fn+2]
+// [spec:cg3:sem:cg-proc.end-program-fn+2]
 /// C++ `void endProgram(char* name)`. Prints the version + full usage banner and
 /// exits `EXIT_FAILURE`. The `HAVE_GETOPT_LONG` variant of the banner is used
 /// (the ported getopt below is the long variant).

@@ -63,7 +63,7 @@ fn run_vislcg3_expect(dir: &Path, grammar: &Path, out_name: &str) {
 
 fn assert_divvun_version(binary_name: &str, binary: &str, product: &str, args: &[&str]) {
     let want = format!(
-        "Divvun CG-3 {product} version {}\n\
+        "Divvun CG-3 {product} v{}\n\
 Copyright (C) 2026 UiT The Arctic University of Norway\n\
 Copyright (C) 2007-2025 GrammarSoft ApS. Licensed under GPLv3+\n\
 Source: {}\n",
@@ -90,8 +90,8 @@ Source: {}\n",
     }
 }
 
-// [spec:cg3:req:main.divvun-version-banner/test]
-// [spec:cg3:req:tools.divvun-version-banner/test]
+// [spec:cg3:req:main.divvun-version-banner+1/test]
+// [spec:cg3:req:tools.divvun-version-banner+1/test]
 // [spec:cg3:sem:cg-proc.main-fn+1/test]
 #[test]
 fn all_tools_versions_identify_divvun_builds() {
@@ -149,7 +149,7 @@ fn all_tools_versions_identify_divvun_builds() {
     }
 }
 
-// [spec:cg3:sem:main.main-fn+1/test]
+// [spec:cg3:sem:main.main-fn+2/test]
 // The full vislcg3 main: option parsing (args.txt), textual grammar load,
 // reindex, and the applicator run over test/T_Select's input, byte-checked
 // against the fixture's expected.txt (runall.pl sub-test 1).
@@ -184,7 +184,7 @@ fn cg_comp_main_compiles_t_select() {
     let _ = std::fs::remove_file(&bin);
 }
 
-// [spec:cg3:sem:cg-comp.end-program-fn+1/test]
+// [spec:cg3:sem:cg-comp.end-program-fn+2/test]
 // cg-comp's endProgram: wrong argc (no args) prints the version + usage banner
 // to stdout and exits EXIT_FAILURE.
 #[test]
@@ -196,7 +196,7 @@ fn cg_comp_end_program_usage() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let version = env!("CARGO_PKG_VERSION");
     assert!(
-        stdout.contains(&format!("Divvun CG-3 Compiler version {version}")),
+        stdout.contains(&format!("Divvun CG-3 Compiler v{version}")),
         "missing banner: {stdout}"
     );
     assert!(
@@ -273,7 +273,7 @@ fn cg_proc_main_runs_apertium_t_select() {
     );
 }
 
-// [spec:cg3:sem:cg-proc.end-program-fn+1/test]
+// [spec:cg3:sem:cg-proc.end-program-fn+2/test]
 // cg-proc's endProgram: with no grammar argument main falls through to the
 // usage path — version + option summary on stdout, exit EXIT_FAILURE.
 #[test]
@@ -285,7 +285,7 @@ fn cg_proc_end_program_usage() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let version = env!("CARGO_PKG_VERSION");
     assert!(
-        stdout.contains(&format!("Divvun CG-3 Disambiguator version {version}")),
+        stdout.contains(&format!("Divvun CG-3 Disambiguator v{version}")),
         "missing banner: {stdout}"
     );
     assert!(stdout.contains("USAGE: cg-proc"), "missing usage: {stdout}");
@@ -334,7 +334,7 @@ fn cg_relabel_main_relabels_t_relabel_list() {
     let _ = std::fs::remove_file(&bin_out);
 }
 
-// [spec:cg3:sem:cg-relabel.end-program-fn+1/test]
+// [spec:cg3:sem:cg-relabel.end-program-fn+2/test]
 // cg-relabel's endProgram: wrong argc prints the version + usage banner to
 // stdout and exits EXIT_FAILURE.
 #[test]
@@ -346,7 +346,7 @@ fn cg_relabel_end_program_usage() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let version = env!("CARGO_PKG_VERSION");
     assert!(
-        stdout.contains(&format!("Divvun CG-3 Relabeller version {version}")),
+        stdout.contains(&format!("Divvun CG-3 Relabeller v{version}")),
         "missing banner: {stdout}"
     );
     assert!(
