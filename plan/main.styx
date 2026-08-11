@@ -1311,4 +1311,53 @@ children (
             }
         )
     }
+
+    {
+        id version-banner-build-provenance
+        title "Include build date and short Git hash in every CG-3 CLI banner"
+        kind @feat
+        children (
+            {
+                id version-banner-build-provenance.spec
+                title "Specify parenthesized build provenance and deterministic metadata fallbacks"
+                priority 0
+                kind @docs
+                deps (version-banner-v-prefix.spec)
+                sealed true
+                log (
+                    {
+                        at 2026-08-11T23:00:00.657138Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-11T23:01:19.550828Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "sealed — decomposition asserted complete (nplan seal)"
+                    }
+
+                    {
+                        at 2026-08-11T23:01:19.590942Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
+            }
+
+            {
+                id version-banner-build-provenance.impl
+                title "Generate, expose, and verify build date and short Git hash for every CLI"
+                priority 0
+                kind @feat
+                implements {
+                    target-impl ([spec:cg3:req:tools.build-provenance])
+                }
+                deps (version-banner-build-provenance.spec version-banner-v-prefix.impl)
+            }
+        )
+    }
 )

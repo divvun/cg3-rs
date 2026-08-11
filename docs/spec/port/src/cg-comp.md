@@ -3,10 +3,10 @@
 > [spec:cg3:def:cg-comp.end-program-fn]
 > void endProgram(char* name)
 
-> [spec:cg3:sem:cg-comp.end-program-fn+2]
+> [spec:cg3:sem:cg-comp.end-program-fn+3]
 > Prints usage/help for `cg-comp` and terminates the process. If `name` is
-> non-null, prints to stdout: `"Divvun CG-3 Compiler v<crate-version>\n"`
-> (from the Cargo package version; a Rust-port divergence
+> non-null, prints to stdout: `"Divvun CG-3 Compiler v<crate-version>
+> (<build-date> <short-git-hash>)\n"` (from the Cargo/build metadata; a Rust-port divergence
 > from the C++ CG3_VERSION_* / CG3_REVISION macros), then
 > `"<basename(name)>: compile a binary grammar from a text
 > file"`, then `"USAGE: <basename(name)> grammar_file output_file"` (each via
