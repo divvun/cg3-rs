@@ -30,9 +30,9 @@
 > [spec:cg3:def:cg-relabel.end-program-fn]
 > void endProgram(char* name)
 
-> [spec:cg3:sem:cg-relabel.end-program-fn+1]
+> [spec:cg3:sem:cg-relabel.end-program-fn+2]
 > Prints usage/help for `cg-relabel` and terminates. If `name` is non-null,
-> prints to stdout: `"Divvun CG-3 Relabeller version <crate-version>\n"`
+> prints to stdout: `"Divvun CG-3 Relabeller v<crate-version>\n"`
 > (from the Cargo package version; a Rust-port divergence from the C++ version
 > constants), then `"<basename(name)>: relabel a
 > binary grammar using a relabelling file"`, then `"USAGE: <basename(name)>

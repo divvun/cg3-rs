@@ -3,10 +3,10 @@
 > [spec:cg3:def:cg-proc.end-program-fn]
 > void endProgram(char* name)
 
-> [spec:cg3:sem:cg-proc.end-program-fn+1]
+> [spec:cg3:sem:cg-proc.end-program-fn+2]
 > Prints usage/help for `cg-proc` and terminates. Unlike the other tools it
 > always prints (no `name`-null guard on the body). Prints to stdout: `"Divvun
-> CG-3 Disambiguator version <crate-version>\n"` (from the Cargo package
+> CG-3 Disambiguator v<crate-version>\n"` (from the Cargo package
 > version; a Rust-port divergence from the C++ version constants), then
 > `"<basename(name)>: process a stream with a constraint grammar"`, then
 > `"USAGE: <basename(name)> [-t] [-s] [-d] [-g] [-r rule] grammar_file

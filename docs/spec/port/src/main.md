@@ -3,7 +3,7 @@
 > [spec:cg3:def:main.main-fn]
 > int main(int argc, char* argv[])
 
-> [spec:cg3:sem:main.main-fn+1]
+> [spec:cg3:sem:main.main-fn+2]
 > Entry point for the `vislcg3` disambiguator binary. Parses CLI + env +
 > grammar-embedded options into the global `options` UOption array (enum in
 > `options.options.options`; option table in `src/options.cpp`), loads a
@@ -21,7 +21,7 @@
 > - If VERSION_TOO_OLD (`--min-binary-revision`): print `CG3_TOO_OLD` to cout,
 >   `return 0`.
 > - If VERSION (`-V`/`--version`) OR HELP1 (`-h`/`--help`) OR HELP2 (`--?`): set
->   `out=stdout` and print `"Divvun CG-3 Disambiguator version <crate-version>\n"`,
+>   `out=stdout` and print `"Divvun CG-3 Disambiguator v<crate-version>\n"`,
 >   where `<crate-version>` is the Cargo package version. This version line is
 >   emitted for version AND help.
 > - If `argc < 0` (u_parseArgs error): `fprintf(stderr, "%s: error in command
@@ -130,10 +130,10 @@
 
 ## Divvun release identity
 
-> [spec:cg3:req:main.divvun-version-banner]
+> [spec:cg3:req:main.divvun-version-banner+1]
 > `vislcg3 -V` and `vislcg3 --version` MUST exit successfully and write a banner
-> to stdout whose lines, in order, are `Divvun CG-3 Disambiguator version
-> <crate-version>`, `Copyright (C) 2026 UiT The Arctic University of Norway`,
+> to stdout whose lines, in order, are `Divvun CG-3 Disambiguator
+> v<crate-version>`, `Copyright (C) 2026 UiT The Arctic University of Norway`,
 > the retained GrammarSoft GPL copyright notice, and `Source: <repository-url>`.
 > `<crate-version>` and `<repository-url>` MUST come from the Cargo package's
 > `version` and `repository` metadata respectively.

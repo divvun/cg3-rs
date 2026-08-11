@@ -1,9 +1,9 @@
 # Divvun command-line identity
 
-> [spec:cg3:req:tools.divvun-version-banner]
+> [spec:cg3:req:tools.divvun-version-banner+1]
 > Every binary shipped by the `cg3` crate MUST accept `--version`, exit
 > successfully, write nothing to stderr, and write exactly four lines to
-> stdout: `Divvun CG-3 <product> version <crate-version>`, `Copyright (C) 2026
+> stdout: `Divvun CG-3 <product> v<crate-version>`, `Copyright (C) 2026
 > UiT The Arctic University of Norway`, the retained GrammarSoft GPL copyright
 > notice, and `Source: <repository-url>`. `<crate-version>` and
 > `<repository-url>` MUST come from the Cargo package's `version` and

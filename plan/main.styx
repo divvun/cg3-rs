@@ -1223,6 +1223,60 @@ children (
                 kind @note
                 text "sealed — decomposition asserted complete (nplan seal)"
             }
+
+            {
+                at 2026-08-11T22:19:14.501558Z
+                author "brendan@necessary.nu"
+                kind @errata
+                text "The shipped banner used the word `version`; the requested release form is a compact `v<crate-version>` prefix."
+                after_done true
+            }
+        )
+    }
+
+    {
+        id version-banner-v-prefix
+        title "Use compact v-prefixed crate versions in every CG-3 CLI banner"
+        kind @fix
+        children (
+            {
+                id version-banner-v-prefix.spec
+                title "Revise release and usage banner rules to require v-prefixed crate versions"
+                priority 0
+                kind @docs
+                deps (all-tools-version-banner.spec)
+                sealed true
+                log (
+                    {
+                        at 2026-08-11T22:19:14.660954Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-11T22:20:23.400228Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "sealed — decomposition asserted complete (nplan seal)"
+                    }
+
+                    {
+                        at 2026-08-11T22:20:23.452416Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
+            }
+
+            {
+                id version-banner-v-prefix.impl
+                title "Emit and verify v-prefixed crate versions from all CLI banner paths"
+                priority 0
+                kind @fix
+                deps (version-banner-v-prefix.spec all-tools-version-banner.impl)
+            }
         )
     }
 )
