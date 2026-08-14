@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-14T13:34:20.884964Z
+last_sync_at 2026-08-14T13:38:12.302374Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -148,6 +148,10 @@ impl_evidence (
         errors.parse-reports-all
     ), covered_claims (
         {impl_name target-impl, rule errors.parse-reports-all}
+    ), rule_versions_seen (
+        {id errors.control-flow-quiet, version 0}
+        {id errors.parse-reports-all, version 0}
+        {id errors.result-primary, version 0}
     )}
     {id errors-idiomatic.types, covered_rules (
         errors.layered
