@@ -1,12 +1,13 @@
 schema_version 7
 
-last_sync_at 2026-08-14T10:27:10.326885Z
+last_sync_at 2026-08-14T11:03:50.332478Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
     {id cg-proc.end-program-fn, version 3}
     {id cg-proc.main-fn, version 1}
     {id cg-relabel.end-program-fn, version 3}
+    {id errors.control-flow-quiet, version 0}
     {id errors.parse-result, version 0}
     {id errors.tag-regex-diagnostic, version 0}
     {id grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn, version 0}
@@ -29,6 +30,7 @@ derived_priorities (
     {id all-tools-version-banner.impl, priority 3, derived_at 2026-08-14T10:13:48.791798Z}
     {id all-tools-version-banner.port-spec, priority 3, derived_at 2026-08-14T10:13:48.791798Z}
     {id all-tools-version-banner.spec, priority 2, derived_at 2026-08-14T10:13:48.791798Z}
+    {id embedder-panic-noise, priority 0, derived_at 2026-08-14T11:03:50.332478Z}
     {id issue-2-main-rule-repin, priority 3, derived_at 2026-08-10T10:24:24.995876Z}
     {id issue-2-version-banner.impl, priority 2, derived_at 2026-08-10T10:24:24.995876Z}
     {id issue-2-version-banner.spec, priority 1, derived_at 2026-08-10T10:24:24.995876Z}
@@ -127,6 +129,13 @@ impl_evidence (
         {id cg-relabel.end-program-fn, version 3}
         {id tools.divvun-version-banner, version 2}
     )}
+    {id embedder-panic-noise, covered_rules (
+        errors.control-flow-quiet
+    ), covered_claims (
+        {impl_name target-impl, rule errors.control-flow-quiet}
+    ), rule_versions_seen (
+        {id errors.control-flow-quiet, version 0}
+    )}
     {id fix-tag-union-reflow, covered_rules (
         grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn
         grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn
@@ -211,10 +220,5 @@ impl_evidence (
     ), rule_versions_seen (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
-    )}
-    {id embedder-panic-noise, covered_rules (
-        errors.control-flow-quiet
-    ), covered_claims (
-        {impl_name target-impl, rule errors.control-flow-quiet}
     )}
 )
