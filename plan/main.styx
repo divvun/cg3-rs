@@ -1629,6 +1629,13 @@ children (
                         kind @note
                         text "Atomic by necessity, not by choice: parse_include -> parse_from_u_char -> parse_directive -> parse_include is a cycle through #include, and parse_contextual_test_list self-recurses (mod.rs:1460, 1579). 30 signatures change: 17 functions calling error_near/error_bare/inc_error_count directly (rules.rs 61 sites, mod.rs 36, driver.rs 17, parser_helpers 9 via trait), 10 transitive-only callers, 3 primitives. Terminates at parse_grammar_utf8 (driver.rs:740), already Result. Two traps: parse_from_u_char's directive loop CANNOT use `?` — recoverable errors are resumable, so it matches, records, restores the AST cursor, skipln and continues; and parse_grammar_data (driver.rs:610) still returns an error COUNT, plus increments error_counter directly at :719 without going through error_near — a fourth undocumented error channel to fold in."
                     }
+
+                    {
+                        at 2026-08-14T12:22:19.574384Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Scope corrected: the add_tag propagation is now errors-idiomatic.add-tag-propagation, not part of this node. This node converts the parser tree (30 signatures, 121 sites in textual_parser/* and parser_helpers) and changes ParseTagState::error_near to return a ParseError. Matcher::add_tag handles the resulting Err locally for now. Without that split this node would have spanned a further 81 call sites in the applicators."
+                    }
                 )
             }
 
@@ -1664,6 +1671,22 @@ children (
                         author "brendan@necessary.nu"
                         kind @note
                         text "Deletes Cg3Exit, ParseError, catch_fatal, install_panic_filter, is_control_flow_payload, cg3_exit, cg3_quit, the format_converter 0-arg cg3_quit shim, and the 7 panic_any/catch_unwind/resume_unwind sites (mod.rs:621, driver.rs:587/597, error.rs:180/233/244/255/259). Also reshapes Cg3Error::Fatal so the exit code leaves the payload. ORDER TRAP: [spec:cg3:req:errors.control-flow-quiet] becomes vacuous here, and node embedder-panic-noise implements it. Edit that node's implements FIRST (nplan_edit remove_impls), then retire the rule — deleting it while a node claims it dangles the ref and fails lint."
+                    }
+                )
+            }
+
+            {
+                id errors-idiomatic.add-tag-propagation
+                title "Propagate tag-construction failure out of add_tag to its callers"
+                priority 0
+                kind @refactor
+                deps (errors-idiomatic.parser)
+                log (
+                    {
+                        at 2026-08-14T12:22:17.409717Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Split out of errors-idiomatic.parser after sizing. The blast-radius survey recorded the applicator side of the ParseTagState conversion as \"one function — GrammarApplicator::add_tag\". That function has 81 call sites across 18 files: apertium_applicator 15, run_grammar 11, core 9, jsonl 8, matxin 7, plaintext 6, fst 4, niceline 3, grammar 3, reflow 2, and singletons elsewhere, plus 8 in tests. Folding that into the parser node would have made an already-atomic 30-signature conversion span another 81 sites in code that has nothing to do with parsing. Kept separate so the parser conversion stays reviewable. Until this lands, Matcher::add_tag absorbs the ParseError from parse_tag rather than propagating it — which still removes the inherited UB panic characterised in tests/applicator_tag_fallthrough.rs, because the error is handled instead of execution continuing into is_textual with empty text."
                     }
                 )
             }
