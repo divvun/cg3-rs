@@ -27,11 +27,14 @@
 //! are the token being parsed (a UTF-8 `&str`), decoupled from `near`.
 //!
 //! ## Regex (`\uXXXX` expansion + regex compile)
-//! ICU `RegexMatcher rx_u` → a `regex::Regex` compiled once via [`LazyLock`].
-//! ICU `uregex_open` for a `T_REGEXP` tag → `regex::Regex::new` (Unicode by
-//! default). Parity with ICU regex syntax is a known risk (documented at each
-//! site); an unanchored `/.../` pattern is used verbatim, a bare pattern is
-//! wrapped `^…$`, and `T_CASE_INSENSITIVE` becomes a leading `(?i)`.
+//! ICU `RegexMatcher rx_u` → a `regex::Regex` compiled once via [`LazyLock`];
+//! that one is a fixed internal pattern, not grammar-authored, so it stays on
+//! the `regex` crate. ICU `uregex_open` for a `T_REGEXP` tag goes through
+//! [`crate::tag_regex::compile_tag_regex`], which owns the ICU-compatibility
+//! translation and the engine choice. An unanchored `/.../` pattern is used
+//! verbatim and a bare pattern is wrapped `^…$`, both per the C++;
+//! `T_CASE_INSENSITIVE` is passed as a builder flag rather than injected into
+//! the pattern text, so `as_str()` still round-trips into `.cg3b`.
 
 use std::sync::LazyLock;
 
@@ -391,7 +394,7 @@ pub fn parse_tag<S: ParseTagState>(
             let regex_ids: Vec<TagId> = state.grammar().regex_tags.iter().copied().collect();
             for tid in regex_ids {
                 if let Some(re) = &state.grammar().single_tags_list[tid.0].regexp
-                    && re.is_match(&tag.tag)
+                    && crate::tag_regex::is_match_or_false(re, &tag.tag)
                 {
                     tag.r#type |= T_TEXTUAL;
                 }
@@ -510,14 +513,21 @@ pub fn parse_tag<S: ParseTagState>(
                         s.push('$');
                         s
                     };
-                    let pat = if tag.r#type.intersects(T_CASE_INSENSITIVE) {
-                        format!("(?i){rt}")
-                    } else {
-                        rt
-                    };
-                    match Regex::new(&pat) {
+                    // Case-insensitivity goes through the builder, NOT a `(?i)`
+                    // injected into the pattern text: the binary writer
+                    // serialises `Regex::as_str()`, so an injected flag would
+                    // leak into every `.cg3b` we emit and break the
+                    // `uregex_pattern` round-trip the C++ has.
+                    let icase = tag.r#type.intersects(T_CASE_INSENSITIVE);
+                    match crate::tag_regex::compile_tag_regex(&rt, icase) {
                         Ok(re) => tag.regexp = Some(re),
-                        Err(_) => state.error_near(near), // uregex_open returned error
+                        Err(e) => {
+                            tracing::error!("{}", e.with_tag(tag.tag.clone()));
+                            // Control flow is the C++ `uregex_open` error path:
+                            // fatal in the textual parser, non-fatal (leaving
+                            // `regexp` unset) in the runtime applicator.
+                            state.error_near(near)
+                        }
                     }
                 }
             }

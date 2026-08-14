@@ -28,8 +28,6 @@
 
 use std::io::{Read, Write};
 
-use regex::RegexBuilder;
-
 use crate::arena::{CohortId, CtxId, ReadingId, RuleId, SwId, TagId};
 use crate::cohort::{CT_RELATED, CT_REMOVED, DEP_NO_PARENT, unignore_all};
 use crate::contextual_test::POS_NEGATE;
@@ -447,15 +445,21 @@ impl super::GrammarApplicator {
                     (tag.tag.clone(), tag.r#type.intersects(T_CASE_INSENSITIVE))
                 })
                 .collect();
+            let mut bad_regexes = Vec::new();
             for (pat, icase) in specs {
-                match RegexBuilder::new(&pat).case_insensitive(icase).build() {
+                match crate::tag_regex::compile_tag_regex(&pat, icase) {
                     Ok(re) => self.cfg.text_delimiters.push(re),
-                    Err(_) => {
-                        // "Error: uregex_open returned ... - cannot continue!"
+                    Err(e) => {
+                        // The C++ printed here; before this the port emitted
+                        // nothing at all, because `emit_cg3quit_line` is gated
+                        // on `num_lines != 0` and no input has been read yet.
                         crate::error::emit_cg3quit_line(file!(), self.doc.num_lines);
-                        return Err(crate::error::Cg3Error::fatal(1, None));
+                        bad_regexes.push(e.with_tag(pat));
                     }
                 }
+            }
+            if !bad_regexes.is_empty() {
+                return Err(crate::error::Cg3Error::TagRegex(bad_regexes));
             }
         }
         Ok(())
@@ -500,11 +504,11 @@ impl super::GrammarApplicator {
         }
 
         let pat: String = chars.into_iter().collect();
-        match RegexBuilder::new(&pat).case_insensitive(icase).build() {
+        match crate::tag_regex::compile_tag_regex(&pat, icase) {
             Ok(re) => self.cfg.text_delimiters.push(re),
-            Err(_) => {
+            Err(e) => {
                 crate::error::emit_cg3quit_line(file!(), self.doc.num_lines);
-                return Err(crate::error::Cg3Error::fatal(1, None));
+                return Err(crate::error::Cg3Error::TagRegex(vec![e.with_tag(pat)]));
             }
         }
         Ok(())
@@ -1937,7 +1941,7 @@ impl Matcher<'_> {
                         let matched = self.grammar.single_tags_list[rid.0]
                             .regexp
                             .as_ref()
-                            .map(|re| re.is_match(&text))
+                            .map(|re| crate::tag_regex::is_match_or_false(re, &text))
                             .unwrap_or(false);
                         if matched {
                             self.grammar.single_tags_list[titer.0].r#type |= T_TEXTUAL;

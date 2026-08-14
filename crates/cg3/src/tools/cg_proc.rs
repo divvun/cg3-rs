@@ -364,13 +364,9 @@ pub fn main_proc(args: &[String]) -> i32 {
     // Parse the grammar (binary → BinaryGrammar; text → TextualParser + warning).
     let mut grammar: Grammar = if is_cg3b(head) {
         let mut parser = BinaryGrammar::new(Grammar::default());
-        match parser.parse_grammar_filename(grammar_path) {
-            Ok(0) => {}
-            Ok(_) => {
-                tracing::error!("Error: Grammar could not be parsed - exiting!");
-                cg3_quit(1, None, 0);
-            }
-            Err(e) => crate::error::cg3_exit(e.exit_code()),
+        if let Err(e) = parser.parse_grammar_filename(grammar_path) {
+            crate::error::report_cli(&e);
+            crate::error::cg3_exit(e.exit_code());
         }
         parser.grammar
     } else {
@@ -385,13 +381,9 @@ pub fn main_proc(args: &[String]) -> i32 {
                 cg3_quit(1, None, 0);
             }
         };
-        match parser.parse_grammar_utf8(&buffer) {
-            Ok(0) => {}
-            Ok(_) => {
-                tracing::error!("Error: Grammar could not be parsed - exiting!");
-                cg3_quit(1, None, 0);
-            }
-            Err(e) => crate::error::cg3_exit(e.exit_code()),
+        if let Err(e) = parser.parse_grammar_utf8(&buffer) {
+            crate::error::report_cli(&e);
+            crate::error::cg3_exit(e.exit_code());
         }
         parser.grammar
     };

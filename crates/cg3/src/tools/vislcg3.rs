@@ -281,9 +281,9 @@ pub fn main_run(args: &[String]) -> i32 {
                 }
             }
         }
-        if !matches!(parser.parse_grammar_filename(&grammar_path), Ok(0)) {
-            tracing::error!("Error: Grammar could not be parsed - exiting!");
-            cg3_quit(1, None, 0);
+        if let Err(e) = parser.parse_grammar_filename(&grammar_path) {
+            crate::error::report_cli(&e);
+            crate::error::cg3_exit(e.exit_code());
         }
         let mut g = parser.grammar;
         g.verbosity_level = verbosity_level;
@@ -337,9 +337,9 @@ pub fn main_run(args: &[String]) -> i32 {
                 cg3_quit(1, None, 0);
             }
         };
-        if !matches!(parser.parse_grammar_utf8(&buffer), Ok(0)) {
-            tracing::error!("Error: Grammar could not be parsed - exiting!");
-            cg3_quit(1, None, 0);
+        if let Err(e) = parser.parse_grammar_utf8(&buffer) {
+            crate::error::report_cli(&e);
+            crate::error::cg3_exit(e.exit_code());
         }
         profiler = parser.profiler.take();
 

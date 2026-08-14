@@ -1520,9 +1520,10 @@ impl Grammar {
         for sset in &static_sets {
             let sh = hash_value_ustring(sset, 0);
             if self.set_alias.contains(sh) {
-                // "Error: Static set ... is an alias ..."
+                let msg = format!("Static set '{sset}' is an alias, on line {}", self.lines);
+                tracing::error!("Error: {msg}!");
                 crate::error::emit_cg3quit_line(file!(), self.lines);
-                return Err(crate::error::Cg3Error::fatal(1, None));
+                return Err(crate::error::Cg3Error::fatal(1, Some(msg)));
             }
             let s = match self.get_set(sh) {
                 Some(s) => s,
@@ -1602,7 +1603,7 @@ impl Grammar {
             for rid in &regex_tag_ids {
                 if let Some(re) = &self.single_tags_list[rid.0].regexp {
                     // uregex_find(-1) == unanchored search == Regex::is_match.
-                    if re.is_match(&ttext) {
+                    if crate::tag_regex::is_match_or_false(re, &ttext) {
                         textual = true;
                     }
                 }
@@ -1916,9 +1917,13 @@ impl Grammar {
                     if cnum != a_num {
                         let a_name = self.sets_list[a_sid.0].name.clone();
                         if a_name == nm {
-                            // "Error: Static set ... already defined ..."
+                            let msg = format!(
+                                "Static set '{nm}' already defined as set {a_num}, on line {}",
+                                self.lines
+                            );
+                            tracing::error!("Error: {msg}!");
                             crate::error::emit_cg3quit_line(file!(), self.lines);
-                            return Err(crate::error::Cg3Error::fatal(1, None));
+                            return Err(crate::error::Cg3Error::fatal(1, Some(msg)));
                         }
                         let mut seed = 0u32;
                         while seed < 1000 {

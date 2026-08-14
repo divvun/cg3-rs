@@ -736,7 +736,8 @@ impl TextualParser {
     /// C++ `int parse_grammar(const char* buffer, size_t length)` (UTF-8 memory
     /// buffer). Builds the `data` buffer (4 leading NULs + text + NUL padding),
     /// then runs the private `parse_grammar(data)` driver.
-    pub fn parse_grammar_utf8(&mut self, buffer: &[u8]) -> Result<i32, crate::error::Cg3Error> {
+    // [spec:cg3:req:errors.parse-result]
+    pub fn parse_grammar_utf8(&mut self, buffer: &[u8]) -> Result<(), crate::error::Cg3Error> {
         self.filename = "<utf8-memory>".to_string();
         self.filebase = "<utf8-memory>".to_string();
         self.grammar.grammar_size = buffer.len();
@@ -752,7 +753,12 @@ impl TextualParser {
         // them at this parse boundary and surface as `Err(Cg3Error)` carrying the
         // exact exit code. A per-directive `ParseError` is already recovered inside
         // `parse_from_u_char`; only a boundary escape reaches `catch_fatal`.
-        crate::error::catch_fatal(|| self.parse_grammar_data(gi))
+        match crate::error::catch_fatal(|| self.parse_grammar_data(gi))? {
+            0 => Ok(()),
+            errors => Err(crate::error::Cg3Error::Parse {
+                errors: errors as u32,
+            }),
+        }
     }
 }
 
@@ -779,7 +785,7 @@ impl IGrammarParser for TextualParser {
         &mut self,
         grammar: &mut Grammar,
         input: &[u8],
-    ) -> Result<i32, crate::error::Cg3Error> {
+    ) -> Result<(), crate::error::Cg3Error> {
         std::mem::swap(&mut self.grammar, grammar);
         let rv = self.parse_grammar_utf8(input);
         // Swap back unconditionally (even on Err) so the caller's grammar holds

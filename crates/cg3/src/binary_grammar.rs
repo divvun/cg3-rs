@@ -72,7 +72,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
-use regex::{Regex, RegexBuilder};
+use regex::Regex;
 
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::contextual_test::POS_64BIT;
@@ -193,10 +193,7 @@ impl BinaryGrammar {
     /// to the istream overload. The C++ null-`grammar` guard is moot here (the
     /// grammar is owned). The C++ ifstream exception mask (throw on short read) is
     /// not modelled — `read_be` swallows short reads (see `crate::inlines`).
-    pub fn parse_grammar_filename(
-        &mut self,
-        filename: &str,
-    ) -> Result<i32, crate::error::Cg3Error> {
+    pub fn parse_grammar_filename(&mut self, filename: &str) -> Result<(), crate::error::Cg3Error> {
         let meta = match std::fs::metadata(filename) {
             Ok(m) => m,
             Err(e) => {
@@ -228,14 +225,14 @@ impl BinaryGrammar {
     /// C++ `int parse_grammar(const char* buffer, size_t length)`: writes the
     /// bytes into a stringstream, seeks to 0, and calls the istream overload.
     /// The port wraps the slice in a `Cursor`.
-    pub fn parse_grammar_buffer(&mut self, buffer: &[u8]) -> Result<i32, crate::error::Cg3Error> {
+    pub fn parse_grammar_buffer(&mut self, buffer: &[u8]) -> Result<(), crate::error::Cg3Error> {
         let mut cur = std::io::Cursor::new(buffer);
         self.parse_grammar_reader(&mut cur)
     }
 
     /// C++ `int parse_grammar(const std::string& buffer)` → `(buffer.data(),
     /// buffer.size())`.
-    pub fn parse_grammar_string(&mut self, buffer: &str) -> Result<i32, crate::error::Cg3Error> {
+    pub fn parse_grammar_string(&mut self, buffer: &str) -> Result<(), crate::error::Cg3Error> {
         self.parse_grammar_buffer(buffer.as_bytes())
     }
 
@@ -259,7 +256,7 @@ impl BinaryGrammar {
     pub fn parse_grammar_reader<R: Read>(
         &mut self,
         input: &mut R,
-    ) -> Result<i32, crate::error::Cg3Error> {
+    ) -> Result<(), crate::error::Cg3Error> {
         // Header: 4 magic bytes.
         let mut magic = [0u8; 4];
         if input.read_exact(&mut magic).is_err() {
@@ -283,7 +280,7 @@ impl BinaryGrammar {
                 );
             }
             // input.seekg(0) — OMITTED: the 10043 path is an erroring stub.
-            return Ok(self.read_binary_grammar_10043(input));
+            return Err(self.read_binary_grammar_10043(input));
         }
         if bin_revision < CG3_TOO_OLD {
             tracing::error!(
@@ -341,6 +338,10 @@ impl BinaryGrammar {
         // C++ `std::map<uint32_t, uint32Vector> tag_varsets` keyed by tag number.
         let mut tag_varsets: HashMap<u32, Vec<u32>> = HashMap::new();
 
+        // Every tag whose pattern would not compile. Accumulated across the
+        // whole tag section so one load reports them all.
+        let mut bad_regexes: Vec<crate::tag_regex::TagRegexError> = Vec::new();
+
         // --- Tags ---
         let num_single_tags = if fields & BINF_TAGS != 0 {
             read_be::<u32, _>(input)
@@ -354,118 +355,7 @@ impl BinaryGrammar {
             self.grammar.single_tags_list.alloc(Tag::default());
         }
         for _ in 0..num_single_tags {
-            let mut t = Tag::default(); // allocateTag()
-            let tfields = read_be::<u32, _>(input);
-
-            if tfields & (1 << 0) != 0 {
-                t.number = read_be(input);
-            }
-            if tfields & (1 << 1) != 0 {
-                t.hash = TagHash(read_be(input));
-            }
-            if tfields & (1 << 2) != 0 {
-                t.plain_hash = TagHash(read_be(input));
-            }
-            if tfields & (1 << 3) != 0 {
-                t.seed = read_be(input);
-            }
-            if tfields & (1 << 4) != 0 {
-                t.r#type = crate::tag::TagType::from_bits_retain(read_be(input));
-            }
-            if tfields & (1 << 5) != 0 {
-                t.comparison_hash = read_be(input);
-            }
-            if tfields & (1 << 6) != 0 {
-                t.comparison_op = c_ops_from_u32(read_be::<u32, _>(input));
-            }
-            if tfields & (1 << 7) != 0 {
-                // Legacy integer comparison_val, never emitted by the current
-                // writer. Clamp at the int32 extremes to NUMERIC_MIN/MAX.
-                let v = read_be::<i32, _>(input);
-                t.comparison_val = v as f64;
-                // C++ compares the double `comparison_val` (just assigned from
-                // this int32) with `<= numeric_limits<int32_t>::min()` / `>=
-                // ...max()`; for an int32-valued double those only hit AT the
-                // extremes, i.e. equality.
-                if v == i32::MIN {
-                    t.comparison_val = crate::inlines::NUMERIC_MIN;
-                }
-                if v == i32::MAX {
-                    t.comparison_val = crate::inlines::NUMERIC_MAX;
-                }
-            }
-            if tfields & (1 << 12) != 0 {
-                // 12-byte double: u64 BE mantissa + i32 BE exponent.
-                t.comparison_val = read_be_f64(input);
-            }
-            if tfields & (1 << 8) != 0 {
-                let len = read_be::<u32, _>(input);
-                if len != 0 {
-                    let mut buf = vec![0u8; len as usize];
-                    let _ = input.read_exact(&mut buf);
-                    t.tag = String::from_utf8_lossy(&buf).into_owned();
-                }
-            }
-            if tfields & (1 << 9) != 0 {
-                let len = read_be::<u32, _>(input);
-                if len != 0 {
-                    let mut buf = vec![0u8; len as usize];
-                    let _ = input.read_exact(&mut buf);
-                    let pattern = String::from_utf8_lossy(&buf).into_owned();
-                    // Flags re-derived from type (NOT stored): case-insensitive iff
-                    // T_CASE_INSENSITIVE. RegexBuilder keeps `as_str()` == the bare
-                    // pattern (matching uregex_pattern round-trip).
-                    let built = RegexBuilder::new(&pattern)
-                        .case_insensitive(t.r#type.intersects(T_CASE_INSENSITIVE))
-                        .build();
-                    match built {
-                        Ok(re) => t.regexp = Some(re),
-                        Err(e) => {
-                            tracing::error!(
-                                "Error: uregex_open returned {} trying to parse tag {} - cannot continue!",
-                                e,
-                                t.tag
-                            );
-                            return Err(crate::error::Cg3Error::fatal(1, None));
-                        }
-                    }
-                }
-            }
-            if tfields & (1 << 10) != 0 {
-                let num = read_be::<u32, _>(input);
-                t.allocate_vs_sets();
-                let entry = tag_varsets.entry(t.number).or_default();
-                for _ in 0..num {
-                    entry.push(read_be(input));
-                }
-            }
-            if tfields & (1 << 11) != 0 {
-                let num = read_be::<u32, _>(input);
-                t.allocate_vs_names();
-                for _ in 0..num {
-                    let len = read_be::<u32, _>(input);
-                    if len != 0 {
-                        let mut buf = vec![0u8; len as usize];
-                        let _ = input.read_exact(&mut buf);
-                        t.vs_names
-                            .as_mut()
-                            .unwrap()
-                            .push(String::from_utf8_lossy(&buf).into_owned());
-                    }
-                }
-            }
-            // 1 << 12 used above.
-            if tfields & (1 << 13) != 0 {
-                // variable_hash (the C++ union member).
-                let v = read_be(input);
-                t.set_variable_hash(v);
-            }
-            if tfields & (1 << 14) != 0 {
-                // context_ref_pos (the C++ union member).
-                let v = read_be(input);
-                t.set_context_ref_pos(v);
-            }
-
+            let t = Self::read_tag_record(input, &mut tag_varsets, &mut bad_regexes);
             let hash = t.hash;
             let number = t.number;
             let is_star = t.tag == "*";
@@ -476,6 +366,10 @@ impl BinaryGrammar {
             }
             // single_tags_list[t->number] = t.
             self.grammar.single_tags_list[number] = t;
+        }
+
+        if !bad_regexes.is_empty() {
+            return Err(crate::error::Cg3Error::TagRegex(bad_regexes));
         }
 
         // --- reopen_mappings ---
@@ -769,7 +663,141 @@ impl BinaryGrammar {
             self.grammar.contexts_arena[t.0].ors.extend(resolved);
         }
 
-        Ok(0)
+        Ok(())
+    }
+
+    /// Read one tag record: the `tfields` bitmap followed by whatever
+    /// fields it advertises, in the exact C++ order.
+    ///
+    /// Split out of `parse_grammar_reader` so the stream driver stays a
+    /// driver. A tag whose pattern will not compile is pushed to
+    /// `bad_regexes` rather than aborting: the stream position is already
+    /// past the record, so the read can continue and report every bad tag
+    /// in one pass.
+    fn read_tag_record<R: Read>(
+        input: &mut R,
+        tag_varsets: &mut HashMap<u32, Vec<u32>>,
+        bad_regexes: &mut Vec<crate::tag_regex::TagRegexError>,
+    ) -> Tag {
+        let mut t = Tag::default(); // allocateTag()
+        let tfields = read_be::<u32, _>(input);
+
+        if tfields & (1 << 0) != 0 {
+            t.number = read_be(input);
+        }
+        if tfields & (1 << 1) != 0 {
+            t.hash = TagHash(read_be(input));
+        }
+        if tfields & (1 << 2) != 0 {
+            t.plain_hash = TagHash(read_be(input));
+        }
+        if tfields & (1 << 3) != 0 {
+            t.seed = read_be(input);
+        }
+        if tfields & (1 << 4) != 0 {
+            t.r#type = crate::tag::TagType::from_bits_retain(read_be(input));
+        }
+        if tfields & (1 << 5) != 0 {
+            t.comparison_hash = read_be(input);
+        }
+        if tfields & (1 << 6) != 0 {
+            t.comparison_op = c_ops_from_u32(read_be::<u32, _>(input));
+        }
+        if tfields & (1 << 7) != 0 {
+            // Legacy integer comparison_val, never emitted by the current
+            // writer. Clamp at the int32 extremes to NUMERIC_MIN/MAX.
+            let v = read_be::<i32, _>(input);
+            t.comparison_val = v as f64;
+            // C++ compares the double `comparison_val` (just assigned from
+            // this int32) with `<= numeric_limits<int32_t>::min()` / `>=
+            // ...max()`; for an int32-valued double those only hit AT the
+            // extremes, i.e. equality.
+            if v == i32::MIN {
+                t.comparison_val = crate::inlines::NUMERIC_MIN;
+            }
+            if v == i32::MAX {
+                t.comparison_val = crate::inlines::NUMERIC_MAX;
+            }
+        }
+        if tfields & (1 << 12) != 0 {
+            // 12-byte double: u64 BE mantissa + i32 BE exponent.
+            t.comparison_val = read_be_f64(input);
+        }
+        if tfields & (1 << 8) != 0 {
+            let len = read_be::<u32, _>(input);
+            if len != 0 {
+                let mut buf = vec![0u8; len as usize];
+                let _ = input.read_exact(&mut buf);
+                t.tag = String::from_utf8_lossy(&buf).into_owned();
+            }
+        }
+        if tfields & (1 << 9) != 0 {
+            let len = read_be::<u32, _>(input);
+            if len != 0 {
+                let mut buf = vec![0u8; len as usize];
+                let _ = input.read_exact(&mut buf);
+                let pattern = String::from_utf8_lossy(&buf).into_owned();
+                // Flags re-derived from type (NOT stored): case-insensitive iff
+                // T_CASE_INSENSITIVE. RegexBuilder keeps `as_str()` == the bare
+                // pattern (matching uregex_pattern round-trip).
+                match crate::tag_regex::compile_tag_regex(
+                    &pattern,
+                    t.r#type.intersects(T_CASE_INSENSITIVE),
+                ) {
+                    Ok(re) => t.regexp = Some(re),
+                    Err(e) => {
+                        // The C++-shaped line, kept for parity but demoted:
+                        // an embedder should not have to show its users the
+                        // name of an ICU C function.
+                        tracing::debug!(
+                            "Error: uregex_open returned {} trying to parse tag {} - cannot continue!",
+                            e.kind,
+                            t.tag
+                        );
+                        // Collect and keep reading: the stream position is
+                        // already past this record, so every remaining bad
+                        // tag can be reported in the same pass.
+                        bad_regexes.push(e.with_tag(t.tag.clone()));
+                    }
+                }
+            }
+        }
+        if tfields & (1 << 10) != 0 {
+            let num = read_be::<u32, _>(input);
+            t.allocate_vs_sets();
+            let entry = tag_varsets.entry(t.number).or_default();
+            for _ in 0..num {
+                entry.push(read_be(input));
+            }
+        }
+        if tfields & (1 << 11) != 0 {
+            let num = read_be::<u32, _>(input);
+            t.allocate_vs_names();
+            for _ in 0..num {
+                let len = read_be::<u32, _>(input);
+                if len != 0 {
+                    let mut buf = vec![0u8; len as usize];
+                    let _ = input.read_exact(&mut buf);
+                    t.vs_names
+                        .as_mut()
+                        .unwrap()
+                        .push(String::from_utf8_lossy(&buf).into_owned());
+                }
+            }
+        }
+        // 1 << 12 used above.
+        if tfields & (1 << 13) != 0 {
+            // variable_hash (the C++ union member).
+            let v = read_be(input);
+            t.set_variable_hash(v);
+        }
+        if tfields & (1 << 14) != 0 {
+            // context_ref_pos (the C++ union member).
+            let v = read_be(input);
+            t.set_context_ref_pos(v);
+        }
+
+        t
     }
 
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-contextual-test-fn]
@@ -844,13 +872,15 @@ impl BinaryGrammar {
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-binary-grammar-10043-fn]
     // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-binary-grammar-10043-fn]
     /// OUT OF SCOPE (the legacy pre-10298 `.cg3b` reader). ERRORING STUB: refuses
-    /// legacy input and returns error code 1 instead of parsing. The real reader
-    /// lived in BinaryGrammar_read_10043.cpp and is intentionally excluded.
-    fn read_binary_grammar_10043<R: Read>(&mut self, _input: &mut R) -> i32 {
-        tracing::error!(
-            "Error: legacy .cg3b rev <10373 not supported (readBinaryGrammar_10043 not ported)."
-        );
-        1
+    /// legacy input instead of parsing. The real reader lived in
+    /// BinaryGrammar_read_10043.cpp and is intentionally excluded.
+    ///
+    /// The refusal is an `Err`, not the old `Ok(1)`: it is a load failure, and
+    /// encoding it in the success arm is exactly the C-ism this API shed.
+    fn read_binary_grammar_10043<R: Read>(&mut self, _input: &mut R) -> crate::error::Cg3Error {
+        let msg = "legacy .cg3b rev <10373 not supported (readBinaryGrammar_10043 not ported)";
+        tracing::error!("Error: {msg}.");
+        crate::error::Cg3Error::fatal(1, Some(msg.to_string()))
     }
 
     /// The C++ dense `sets_list` VECTOR (`Grammar::sets_list_order`): position 0
@@ -873,7 +903,7 @@ impl BinaryGrammar {
     pub fn write_binary_grammar<W: Write>(
         &mut self,
         output: &mut W,
-    ) -> Result<i32, crate::error::Cg3Error> {
+    ) -> Result<(), crate::error::Cg3Error> {
         // C++ guards: null output / null grammar. Both are owned here (moot); kept
         // as documentation.
 
@@ -1380,7 +1410,7 @@ impl BinaryGrammar {
             }
         }
 
-        Ok(0)
+        Ok(())
     }
 
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.write-contextual-test-fn]
@@ -1556,7 +1586,7 @@ impl IGrammarParser for BinaryGrammar {
         &mut self,
         _grammar: &mut Grammar,
         input: &[u8],
-    ) -> Result<i32, crate::error::Cg3Error> {
+    ) -> Result<(), crate::error::Cg3Error> {
         self.parse_grammar_buffer(input)
     }
 

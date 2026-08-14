@@ -13,7 +13,6 @@ use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_ustring, i
 use crate::math_parser::MathParser;
 use crate::sorted_vector::SortedVector;
 use crate::types::{TagHash, UString, UStringVector};
-use regex::Regex;
 
 // C++ `using SetVector = std::vector<Set*>;` (forward-declared in Tag.hpp).
 // NOTE(lead): Set.hpp re-declares the identical `SetVector` typedef as
@@ -187,15 +186,17 @@ pub struct Tag {
     /// `mutable URegularExpression* regexp = nullptr;`
     ///
     /// FIELD-TYPE CHANGE (method pass): the Wave-2 `URegularExpression`
-    /// placeholder is replaced by `Option<regex::Regex>` — the ICU
+    /// placeholder is replaced by `Option<fancy_regex::Regex>` — the ICU
     /// `URegularExpression*` owning handle becomes an owned compiled `Regex`.
+    /// The engine is `fancy_regex`, not the `regex` crate; see
+    /// `crate::tag_regex` for why.
     /// The pattern is compiled by the grammar/binary parser layer (C++
     /// `parseTag` / `BinaryGrammar_read`), NOT by `parseTagRaw`; here the field
     /// is only *consumed* (the `grammar.regex_tags` scan in `parse_tag_raw`
     /// matches each compiled regex against the tag text via unanchored
     /// `Regex::is_match`, reproducing `uregex_find`). The copy ctor
     /// (`impl Clone`) clones it (C++ `uregex_clone`).
-    pub regexp: Option<Regex>,
+    pub regexp: Option<fancy_regex::Regex>,
 }
 
 // [spec:cg3:def:tag.cg3.compare-tag]
@@ -714,7 +715,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     let regex_ids: Vec<TagId> = grammar.regex_tags.iter().copied().collect();
     for tid in regex_ids {
         if let Some(re) = &grammar.single_tags_list[tid.0].regexp
-            && re.is_match(&this.tag)
+            && crate::tag_regex::is_match_or_false(re, &this.tag)
         {
             this.r#type |= T_TEXTUAL;
         }

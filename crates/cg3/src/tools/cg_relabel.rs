@@ -70,7 +70,8 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Option<Grammar> {
     if is_cg3b(head) {
         // parser.reset(new BinaryGrammar(*grammar, ux_stderr));
         let mut parser = BinaryGrammar::new(grammar);
-        if !matches!(parser.parse_grammar_filename(filename), Ok(0)) {
+        if let Err(e) = parser.parse_grammar_filename(filename) {
+            crate::error::report_cli(&e);
             tracing::error!("Error: Grammar could not be parsed!");
             return None;
         }
@@ -95,7 +96,8 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Option<Grammar> {
                 return None;
             }
         };
-        if !matches!(parser.parse_grammar_utf8(&buffer), Ok(0)) {
+        if let Err(e) = parser.parse_grammar_utf8(&buffer) {
+            crate::error::report_cli(&e);
             tracing::error!("Error: Grammar could not be parsed!");
             return None;
         }

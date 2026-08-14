@@ -88,7 +88,7 @@ assertions (
     {id version-banner-v-prefix.spec, kind @complete, author "brendan@necessary.nu", at 2026-08-11T22:20:23.452416Z}
     {id version-banner-v-prefix.impl, kind @complete, author "brendan@necessary.nu", at 2026-08-11T22:22:29.557122Z}
     {id version-banner-build-provenance.spec, kind @complete, author "brendan@necessary.nu", at 2026-08-11T23:01:19.590942Z}
-    {id icu-regex-parity.spec, kind @doing, author "brendan@necessary.nu", at 2026-08-14T10:08:59.26142Z}
+    {id icu-regex-parity.spec, kind @complete, author "brendan@necessary.nu", at 2026-08-14T10:09:57.976431Z}
 )
 
 impl_evidence (
@@ -150,5 +150,20 @@ impl_evidence (
         tools.build-provenance
     ), covered_claims (
         {impl_name target-impl, rule tools.build-provenance}
+    )}
+    {id icu-regex-parity.impl, covered_rules (
+        errors.parse-result
+        errors.tag-regex-diagnostic
+        tag-regex.engine
+        tag-regex.icu-translation
+        tag-regex.silent-divergence
+        tag-regex.single-seam
+    ), covered_claims (
+        {impl_name target-impl, rule errors.parse-result}
+        {impl_name target-impl, rule errors.tag-regex-diagnostic}
+        {impl_name target-impl, rule tag-regex.engine}
+        {impl_name target-impl, rule tag-regex.icu-translation}
+        {impl_name target-impl, rule tag-regex.silent-divergence}
+        {impl_name target-impl, rule tag-regex.single-seam}
     )}
 )

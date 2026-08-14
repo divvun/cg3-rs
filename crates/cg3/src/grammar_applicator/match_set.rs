@@ -64,8 +64,6 @@
 //!     C++ flat_map iterates by `Tag::hash`. Re-derived here by hash-sorting the
 //!     entries (stable), matching `tag_trie::ordered_entries`.
 
-use regex::Regex;
-
 use crate::arena::GenArena;
 use crate::arena::{CohortId, ReadingId, TagId};
 use crate::cohort;
@@ -116,10 +114,12 @@ fn capture_regex(
     gc: i32,
     regexgrp_ct: &mut u8,
     regexgrps: &mut RegexGroups,
-    regexp: &Regex,
+    regexp: &fancy_regex::Regex,
     input: &str,
 ) {
-    let caps = regexp.captures(input);
+    // fancy-regex returns Result<Option<Captures>>; a runtime failure yields
+    // the same empty capture groups as "no match".
+    let caps = regexp.captures(input).ok().flatten();
     let mut i = 1i32;
     while i <= gc {
         let text: UString = match &caps {
@@ -376,7 +376,7 @@ impl Matcher<'_> {
                     }
                 };
                 if !text.is_empty() {
-                    if re.is_match(&text) {
+                    if crate::tag_regex::is_match_or_false(re, &text) {
                         m = tag.hash.get();
                     }
                     if m != 0 {
@@ -1529,7 +1529,7 @@ impl Matcher<'_> {
             };
             // uregex_setText + uregex_find(-1) == unanchored `is_match`.
             if let Some(re) = &tag.regexp
-                && re.is_match(&itag_text)
+                && crate::tag_regex::is_match_or_false(re, &itag_text)
             {
                 m = itag_hash;
             }
@@ -1623,7 +1623,7 @@ impl Matcher<'_> {
             m = tsh;
         } else {
             if let Some(re) = &tag.regexp
-                && re.is_match(&ts)
+                && crate::tag_regex::is_match_or_false(re, &ts)
             {
                 m = tsh;
             }

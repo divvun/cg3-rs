@@ -1396,12 +1396,20 @@ children (
                 title "Specify the tag-regex compatibility seam and the diagnostic a library error must carry"
                 priority 0
                 kind @docs
+                sealed true
                 log (
                     {
                         at 2026-08-14T10:08:59.26142Z
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-14T10:09:57.976431Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
@@ -1422,6 +1430,14 @@ children (
                     )
                 }
                 deps (icu-regex-parity.spec)
+                log (
+                    {
+                        at 2026-08-14T10:10:04.074244Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
         )
     }

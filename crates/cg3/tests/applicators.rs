@@ -213,10 +213,8 @@ fn apertium_stream_setvar() {
 #[test]
 fn apertium_test_pr_roundtrip() {
     let mut p = cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
-    let rv = p
-        .parse_grammar_utf8(b"DELIMITERS = \".\" ;\nSELECT (foo) ;\n")
-        .unwrap();
-    assert_eq!(rv, 0, "minimal grammar failed to parse");
+    p.parse_grammar_utf8(b"DELIMITERS = \".\" ;\nSELECT (foo) ;\n")
+        .expect("minimal grammar failed to parse");
     let mut g = p.grammar;
     g.reindex(false, false).unwrap();
     let mut base =

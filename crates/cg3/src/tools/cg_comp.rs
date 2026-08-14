@@ -87,15 +87,12 @@ pub fn main_comp(args: &[String]) -> i32 {
             cg3_quit(1, None, 0);
         }
     };
-    match parser.parse_grammar_utf8(&buffer) {
-        Ok(0) => {}
-        Ok(_) => {
-            tracing::error!("Error: Grammar could not be parsed - exiting!");
-            cg3_quit(1, None, 0);
-        }
-        // A deep parse/grammar fatal already printed its diagnostic; exit with
-        // its exact code (byte-identical to the C++ CG3Quit termination).
-        Err(e) => crate::error::cg3_exit(e.exit_code()),
+    // A deep parse/grammar fatal already printed its diagnostic; the variants
+    // that carry theirs are surfaced by `report_cli`. Either way exit with the
+    // exact code (byte-identical to the C++ CG3Quit termination).
+    if let Err(e) = parser.parse_grammar_utf8(&buffer) {
+        crate::error::report_cli(&e);
+        crate::error::cg3_exit(e.exit_code());
     }
 
     // Move the built grammar out of the parser (the C++ grammar outlives the

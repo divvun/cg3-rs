@@ -44,7 +44,10 @@ impl std::error::Error for Cg3Exit {}
 /// (grammar load, binary-grammar read+write, textual parse, format-convert, run)
 /// return `Result<_, Cg3Error>`; the CLI binaries map it back with
 /// [`Cg3Error::exit_code`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Not `Eq`: [`Cg3Error::TagRegex`] carries the engine's own error, which is
+/// not `Eq`.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Cg3Error {
     /// A `CG3Quit(code)` / `exit(code)` fatal. `msg` is an OPTIONAL note; the
     /// human-facing diagnostic was already emitted at the fatal site (via
@@ -55,6 +58,28 @@ pub enum Cg3Error {
         /// Optional context (the diagnostic was already printed at the site).
         msg: Option<String>,
     },
+    // [spec:cg3:req:errors.parse-result]
+    /// The grammar was parsed but did not come out clean: `errors` recoverable
+    /// parse errors were reported (each already emitted at its site, with the
+    /// line and near-context the C++ printed).
+    ///
+    /// This exists so success is `Ok(())` and nothing else. The parse entry
+    /// points used to return `Result<i32, _>` with the error COUNT in the `Ok`
+    /// arm, which made `matches!(r, Ok(0))` the only correct success check —
+    /// every other spelling silently accepted a broken grammar.
+    Parse {
+        /// How many recoverable parse errors were reported.
+        errors: u32,
+    },
+    // [spec:cg3:req:errors.tag-regex-diagnostic]
+    /// One or more tag patterns would not compile.
+    ///
+    /// Unlike [`Cg3Error::Fatal`], this carries the whole diagnostic — tag
+    /// text, pattern, cause, and line where known — so an embedder can render
+    /// it without scraping the `tracing` stream. Every bad tag found in one
+    /// load is reported together, so a grammar author fixes them in one pass
+    /// instead of recompiling per tag.
+    TagRegex(Vec<crate::tag_regex::TagRegexError>),
 }
 
 impl Cg3Error {
@@ -68,6 +93,18 @@ impl Cg3Error {
     pub fn exit_code(&self) -> i32 {
         match self {
             Cg3Error::Fatal { code, .. } => *code,
+            // The C++ `CG3Quit(1)` after a failed `uregex_open`.
+            Cg3Error::TagRegex(_) => 1,
+            // The C++ "Grammar could not be parsed - exiting!" path.
+            Cg3Error::Parse { .. } => 1,
+        }
+    }
+
+    /// The tag-regex diagnostics, if this is a [`Cg3Error::TagRegex`].
+    pub fn tag_regex_errors(&self) -> &[crate::tag_regex::TagRegexError] {
+        match self {
+            Cg3Error::TagRegex(errors) => errors,
+            Cg3Error::Fatal { .. } | Cg3Error::Parse { .. } => &[],
         }
     }
 }
@@ -79,6 +116,16 @@ impl std::fmt::Display for Cg3Error {
                 Some(m) => write!(f, "cg3 fatal (exit {code}): {m}"),
                 None => write!(f, "cg3 fatal (exit {code})"),
             },
+            Cg3Error::Parse { errors } => {
+                write!(f, "grammar could not be parsed: {errors} error(s)")
+            }
+            Cg3Error::TagRegex(errors) => {
+                write!(f, "{} tag regex(es) failed to compile", errors.len())?;
+                for e in errors {
+                    write!(f, "\n  {e}")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -91,6 +138,26 @@ impl From<Cg3Exit> for Cg3Error {
             code: e.0,
             msg: None,
         }
+    }
+}
+
+/// Emit the CLI-facing diagnostic for an error that is about to end the
+/// process.
+///
+/// [`Cg3Error::Fatal`] printed its own diagnostic at the fatal site, exactly as
+/// the C++ did before terminating, so it stays silent here. The variants that
+/// CARRY their diagnostic must be surfaced, or demoting the C++-shaped
+/// `uregex_open` line to `debug!` would leave a CLI user with nothing but an
+/// exit code.
+pub fn report_cli(e: &Cg3Error) {
+    // [spec:cg3:req:errors.tag-regex-diagnostic]
+    match e {
+        Cg3Error::Fatal { .. } => {}
+        // The C++ tools' own line, kept verbatim.
+        Cg3Error::Parse { .. } => {
+            tracing::error!("Error: Grammar could not be parsed - exiting!")
+        }
+        Cg3Error::TagRegex(_) => tracing::error!("{e}"),
     }
 }
 

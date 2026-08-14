@@ -53,6 +53,7 @@ pub mod uextras;
 pub mod binary_grammar;
 pub mod grammar_writer;
 pub mod parser_helpers;
+pub mod tag_regex;
 pub mod textual_parser;
 
 // --- Wave 2 application engine ---

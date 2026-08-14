@@ -53,6 +53,14 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
 # Typed bit-flag sets (T_*/ST_*/CT_*/RF_*/POS_* families) per the sanctioned idiom list.
 bitflags = "2"
+# Tag + text-delimiter patterns come from grammars authored against ICU, so they
+# use lookaround, backreferences and possessive quantifiers that the `regex`
+# crate cannot express (and, for possessives, silently mis-parses). fancy-regex
+# covers them and is ICU-exact on possessive semantics. It delegates
+# non-backtracking patterns to regex-automata internally, so the common case
+# keeps the linear-time engine without a hand-rolled fast path. See
+# `src/tag_regex.rs` for the seam and the backtrack limit.
+fancy-regex = "0.19"
 
 [dev-dependencies]
 # The conformance harness (tests/golden.rs, tests/apertium.rs) uses regex for the
