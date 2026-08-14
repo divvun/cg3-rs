@@ -755,9 +755,10 @@ impl TextualParser {
         // `parse_from_u_char`; only a boundary escape reaches `catch_fatal`.
         match crate::error::catch_fatal(|| self.parse_grammar_data(gi))? {
             0 => Ok(()),
-            errors => Err(crate::error::Cg3Error::Parse {
-                errors: errors as u32,
-            }),
+            count => Err(crate::error::GrammarError::Parse {
+                count: count as u32,
+            }
+            .into()),
         }
     }
 }

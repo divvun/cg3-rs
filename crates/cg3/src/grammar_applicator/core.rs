@@ -459,7 +459,7 @@ impl super::GrammarApplicator {
                 }
             }
             if !bad_regexes.is_empty() {
-                return Err(crate::error::Cg3Error::TagRegex(bad_regexes));
+                return Err(crate::error::GrammarError::TagRegex(bad_regexes).into());
             }
         }
         Ok(())
@@ -508,7 +508,7 @@ impl super::GrammarApplicator {
             Ok(re) => self.cfg.text_delimiters.push(re),
             Err(e) => {
                 crate::error::emit_cg3quit_line(file!(), self.doc.num_lines);
-                return Err(crate::error::Cg3Error::TagRegex(vec![e.with_tag(pat)]));
+                return Err(crate::error::GrammarError::TagRegex(vec![e.with_tag(pat)]).into());
             }
         }
         Ok(())

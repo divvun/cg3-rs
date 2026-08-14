@@ -72,3 +72,49 @@ fn embedder_sees_no_panic_noise() {
         "control-flow payload reached stderr:\n{stderr}"
     );
 }
+
+/// Errors are layered by boundary: a grammar that will not load surfaces as a
+/// `GrammarError`, never as a stream variant, and the collection of failures
+/// stays legible rather than collapsing to a count.
+// [spec:cg3:req:errors.layered/test]
+#[test]
+fn load_failures_are_grammar_errors() {
+    let mut parser =
+        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+    let err = parser
+        .parse_grammar_utf8(BAD_GRAMMAR.as_bytes())
+        .expect_err("this grammar must not parse");
+
+    let cg3::error::Cg3Error::Grammar(g) = &err else {
+        panic!("a load failure must be a GrammarError, got {err:?}");
+    };
+    assert!(
+        matches!(g, cg3::error::GrammarError::Parse { .. }),
+        "got {g:?}"
+    );
+}
+
+/// A tag whose regex will not compile must reach the caller naming the tag —
+/// the diagnostic travels in the value, not only in the log.
+// [spec:cg3:req:errors.layered/test]
+#[test]
+fn tag_regex_failures_name_the_tag() {
+    let src = "DELIMITERS = \"<.>\" ;\nLIST a = \"x\"r ;\n";
+    let mut parser =
+        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+    parser.parse_grammar_utf8(src.as_bytes()).expect("parses");
+    let mut grammar = parser.grammar;
+    grammar.reindex(false, false).unwrap();
+
+    let mut applicator = cg3::grammar_applicator::GrammarApplicator::new(grammar);
+    let err = applicator
+        .set_text_delimiter("[:script=Greek:]".to_string())
+        .expect_err("an ICU in-set property must be rejected");
+
+    let rendered = err.to_string();
+    assert!(rendered.contains("in-set property"), "{rendered}");
+    assert!(
+        !err.tag_regex_errors().is_empty(),
+        "the diagnostic must be reachable structurally, not only as text"
+    );
+}

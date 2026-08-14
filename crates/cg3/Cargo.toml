@@ -61,6 +61,7 @@ bitflags = "2"
 # keeps the linear-time engine without a hand-rolled fast path. See
 # `src/tag_regex.rs` for the seam and the backtrack limit.
 fancy-regex = "0.19"
+thiserror = "2.0.20"
 
 [dev-dependencies]
 # The conformance harness (tests/golden.rs, tests/apertium.rs) uses regex for the

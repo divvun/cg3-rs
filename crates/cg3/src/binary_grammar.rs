@@ -369,7 +369,7 @@ impl BinaryGrammar {
         }
 
         if !bad_regexes.is_empty() {
-            return Err(crate::error::Cg3Error::TagRegex(bad_regexes));
+            return Err(crate::error::GrammarError::TagRegex(bad_regexes).into());
         }
 
         // --- reopen_mappings ---

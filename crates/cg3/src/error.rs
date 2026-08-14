@@ -1,33 +1,29 @@
-//! Library error handling (wave 4, `w4-library-errors`).
+//! Library error handling.
 //!
-//! The C++ `CG3Quit` macro (and the scattered `exit()` calls) terminate the
-//! PROCESS from deep inside library code. The Rust port must not kill its host:
-//! the public library boundaries (grammar load / binary-grammar read+write /
-//! textual parse / format-convert / run) now return a [`Cg3Error`] instead, so
-//! embedders get a real error value carrying the exact exit code the C++ would
-//! have used. Only the `src/bin` / `src/tools` entry points translate a
-//! [`Cg3Error`] (via [`Cg3Error::exit_code`]) into an actual `process::exit`.
+//! Errors are layered by boundary rather than collected into one crate-wide
+//! enum: [`ParseError`] is a single recoverable grammar parse error,
+//! [`GrammarError`] is a grammar that would not load, [`RunError`] is a stream
+//! that would not run, and [`Cg3Error`] is the outermost composition the
+//! binaries see. Each layer names only what it can produce, so a consumer
+//! matching on a load failure never has to consider a stream variant. See
+//! `[dec:cg3:layered-error-types]`.
 //!
-//! Two escape hatches are RETAINED for residual, non-boundary fatals:
-//!   * [`Cg3Exit`] — a `panic_any` unwind carrying the exit code. It still backs
-//!     [`cg3_exit`] / [`crate::inlines::cg3_quit`], and is what the deep engine
-//!     hot-path fatals (mid-stream input errors reached only through the run
-//!     engine) raise. The public boundaries capture it with [`catch_fatal`] and
-//!     turn it into an `Err(Cg3Error)`, so it never escapes a boundary as an
-//!     unwind.
-//!   * [`crate::textual_parser::ParseError`] — the parser's `throw int`
-//!     control-flow port (recovered line-by-line inside the parser).
-//!
-//! [`run_cli`] is the CLI wrapper that catches any [`Cg3Exit`] that a tool main
-//! itself raises (the ~16 entry-point `cg3_quit`/`cg3_exit` sites) and silences
-//! the Rust panic noise for both payload kinds.
+//! TRANSITIONAL. The C++ `CG3Quit` macro terminated the process from deep
+//! inside library code, and the port reproduced that with a `panic_any` unwind
+//! ([`Cg3Exit`]) plus a matching catch at every boundary; the parser reproduced
+//! `throw int` the same way ([`crate::textual_parser::ParseError`]). That
+//! apparatus — [`cg3_exit`], [`catch_fatal`], [`install_panic_filter`] and
+//! [`Cg3Error::Fatal`] — is being removed by `errors-idiomatic`, and shrinks as
+//! each phase converts its sites. Nothing new should reach for it. See
+//! `[dec:cg3:results-not-unwinding]`.
 
 use std::panic::{self, AssertUnwindSafe};
 
-/// The payload of a residual library-side fatal (the C++ `CG3Quit(code)` /
-/// `exit(code)`). Raised with `panic_any`; captured either by [`catch_fatal`]
-/// (at a public boundary, → `Err(Cg3Error)`) or by [`run_cli`] (at a CLI entry
-/// point, → its exit code).
+use crate::tag_regex::TagRegexError;
+
+/// TRANSITIONAL. The payload of an unconverted `CG3Quit(code)` / `exit(code)`,
+/// raised with `panic_any` and captured by [`catch_fatal`] or [`run_cli`].
+/// Deleted by `errors-idiomatic.teardown`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cg3Exit(pub i32);
 
@@ -39,98 +35,158 @@ impl std::fmt::Display for Cg3Exit {
 
 impl std::error::Error for Cg3Exit {}
 
-/// A recoverable library-side fatal, carrying the exact `process::exit` code the
-/// C++ `CG3Quit(code)` / `exit(code)` would have produced. The public boundaries
-/// (grammar load, binary-grammar read+write, textual parse, format-convert, run)
-/// return `Result<_, Cg3Error>`; the CLI binaries map it back with
-/// [`Cg3Error::exit_code`].
+// [spec:cg3:req:errors.layered]
+/// One recoverable grammar parse error, with the position needed to find it.
 ///
-/// Not `Eq`: [`Cg3Error::TagRegex`] carries the engine's own error, which is
-/// not `Eq`.
-#[derive(Debug, Clone, PartialEq)]
+/// The parser recovers per directive and keeps going, so a failed parse yields
+/// a collection of these rather than a single failure —
+/// `[spec:cg3:req:errors.parse-reports-all]`.
+#[derive(Debug, thiserror::Error)]
+#[error("{file}: {kind}, on line {line} near `{near}`")]
+pub struct ParseError {
+    /// The grammar file's base name, or `<utf8-memory>` for an in-memory parse.
+    pub file: String,
+    pub line: u32,
+    /// Up to 20 characters of source at the failure, with control characters
+    /// rendered visibly.
+    pub near: String,
+    pub kind: ParseErrorKind,
+}
+
+/// What went wrong at one parse site.
+#[derive(Debug, thiserror::Error)]
+pub enum ParseErrorKind {
+    /// The catch-all the C++ raised from ~120 distinct sites, each with its own
+    /// message. The port collapsed them to one; recovering the per-site text is
+    /// separate work.
+    #[error("syntax error")]
+    Syntax,
+    #[error("cannot compile tag regex")]
+    TagRegex {
+        #[source]
+        cause: Box<TagRegexError>,
+    },
+    #[error("unknown template `{name}`")]
+    UnknownTemplate { name: String },
+}
+
+/// Render each item on its own indented line, so a collection of failures
+/// stays readable instead of collapsing to a count.
+fn indented(items: &[impl std::fmt::Display]) -> String {
+    items.iter().map(|e| format!("\n  {e}")).collect()
+}
+
+/// A grammar that would not load.
+#[derive(Debug, thiserror::Error)]
+pub enum GrammarError {
+    /// Recoverable parse errors, all of those found in one pass.
+    ///
+    /// Carries a count rather than the errors themselves until the parser
+    /// conversion (`errors-idiomatic.parser`) can hand them over — today the
+    /// parser discards everything but the tally.
+    #[error("grammar could not be parsed: {count} error(s)")]
+    Parse { count: u32 },
+
+    #[error("{} tag regex(es) failed to compile{}", .0.len(), indented(.0))]
+    TagRegex(Vec<TagRegexError>),
+
+    #[error("grammar revision {found} is not supported; this loader reads {min}..={max}")]
+    Revision { found: u32, min: u32, max: u32 },
+
+    #[error("legacy .cg3b revision {found} is not supported")]
+    LegacyRevision { found: u32 },
+
+    #[error("static set `{name}` on line {line} is an alias")]
+    StaticSetAlias { name: String, line: u32 },
+
+    #[error("static set `{name}` on line {line} is already defined as set {existing}")]
+    StaticSetRedefined {
+        name: String,
+        existing: u32,
+        line: u32,
+    },
+}
+
+impl GrammarError {
+    /// The tag-regex diagnostics, if this is a [`GrammarError::TagRegex`].
+    pub fn tag_regex_errors(&self) -> &[TagRegexError] {
+        match self {
+            GrammarError::TagRegex(errors) => errors,
+            _ => &[],
+        }
+    }
+}
+
+/// A stream that would not run.
+#[derive(Debug, thiserror::Error)]
+pub enum RunError {
+    #[error("EXTERNAL on line {line} could not be started")]
+    ExternalStart {
+        line: u32,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("EXTERNAL on line {line} could not be written to")]
+    ExternalWrite {
+        line: u32,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("EXTERNAL returned data for cohort {got}, expected {expected}")]
+    ExternalCohortMismatch { expected: u32, got: u32 },
+    #[error("EXTERNAL returned data for window {got}, expected {expected}")]
+    ExternalWindowMismatch { expected: u32, got: u32 },
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
+// [spec:cg3:req:errors.layered]
+/// The outermost error a binary or an embedder sees.
+///
+/// Not `Clone` or `PartialEq`: the layers below carry `std::io::Error`, which is
+/// neither.
+#[derive(Debug, thiserror::Error)]
 pub enum Cg3Error {
-    /// A `CG3Quit(code)` / `exit(code)` fatal. `msg` is an OPTIONAL note; the
-    /// human-facing diagnostic was already emitted at the fatal site (via
-    /// `tracing::error!`), exactly as the C++ printed it before terminating.
-    Fatal {
-        /// The process exit code the C++ would have used.
-        code: i32,
-        /// Optional context (the diagnostic was already printed at the site).
-        msg: Option<String>,
-    },
-    // [spec:cg3:req:errors.parse-result]
-    /// The grammar was parsed but did not come out clean: `errors` recoverable
-    /// parse errors were reported (each already emitted at its site, with the
-    /// line and near-context the C++ printed).
-    ///
-    /// This exists so success is `Ok(())` and nothing else. The parse entry
-    /// points used to return `Result<i32, _>` with the error COUNT in the `Ok`
-    /// arm, which made `matches!(r, Ok(0))` the only correct success check —
-    /// every other spelling silently accepted a broken grammar.
-    Parse {
-        /// How many recoverable parse errors were reported.
-        errors: u32,
-    },
-    // [spec:cg3:req:errors.tag-regex-diagnostic]
-    /// One or more tag patterns would not compile.
-    ///
-    /// Unlike [`Cg3Error::Fatal`], this carries the whole diagnostic — tag
-    /// text, pattern, cause, and line where known — so an embedder can render
-    /// it without scraping the `tracing` stream. Every bad tag found in one
-    /// load is reported together, so a grammar author fixes them in one pass
-    /// instead of recompiling per tag.
-    TagRegex(Vec<crate::tag_regex::TagRegexError>),
+    #[error(transparent)]
+    Grammar(#[from] GrammarError),
+
+    #[error(transparent)]
+    Run(#[from] RunError),
+
+    /// TRANSITIONAL. A `CG3Quit(code)` / `exit(code)` fatal that has not been
+    /// converted yet. `msg` is an optional note; the human-facing diagnostic was
+    /// already emitted at the fatal site. Deleted by `errors-idiomatic.teardown`
+    /// — every site that still constructs one is a site left to convert.
+    #[error("cg3 fatal (exit {code}){}", .msg.as_deref().map(|m| format!(": {m}")).unwrap_or_default())]
+    Fatal { code: i32, msg: Option<String> },
 }
 
 impl Cg3Error {
-    /// Construct a fatal carrying `code` and an optional context message.
+    /// Construct a transitional fatal carrying `code` and an optional note.
     pub fn fatal(code: i32, msg: Option<String>) -> Cg3Error {
         Cg3Error::Fatal { code, msg }
     }
 
-    /// The `process::exit` code this error maps to — byte-identical to what the
-    /// C++ `CG3Quit`/`exit` would have used.
+    /// The `process::exit` code this error maps to.
+    ///
+    /// TRANSITIONAL: `[spec:cg3:req:errors.exit-codes-at-cli]` moves this
+    /// mapping to the CLI boundary, where it belongs — the code a failure maps
+    /// to is a property of the command-line contract, not of the failure.
     pub fn exit_code(&self) -> i32 {
         match self {
             Cg3Error::Fatal { code, .. } => *code,
-            // The C++ `CG3Quit(1)` after a failed `uregex_open`.
-            Cg3Error::TagRegex(_) => 1,
-            // The C++ "Grammar could not be parsed - exiting!" path.
-            Cg3Error::Parse { .. } => 1,
+            Cg3Error::Grammar(_) | Cg3Error::Run(_) => 1,
         }
     }
 
-    /// The tag-regex diagnostics, if this is a [`Cg3Error::TagRegex`].
-    pub fn tag_regex_errors(&self) -> &[crate::tag_regex::TagRegexError] {
+    /// The tag-regex diagnostics, if this error carries any.
+    pub fn tag_regex_errors(&self) -> &[TagRegexError] {
         match self {
-            Cg3Error::TagRegex(errors) => errors,
-            Cg3Error::Fatal { .. } | Cg3Error::Parse { .. } => &[],
+            Cg3Error::Grammar(g) => g.tag_regex_errors(),
+            _ => &[],
         }
     }
 }
-
-impl std::fmt::Display for Cg3Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Cg3Error::Fatal { code, msg } => match msg {
-                Some(m) => write!(f, "cg3 fatal (exit {code}): {m}"),
-                None => write!(f, "cg3 fatal (exit {code})"),
-            },
-            Cg3Error::Parse { errors } => {
-                write!(f, "grammar could not be parsed: {errors} error(s)")
-            }
-            Cg3Error::TagRegex(errors) => {
-                write!(f, "{} tag regex(es) failed to compile", errors.len())?;
-                for e in errors {
-                    write!(f, "\n  {e}")?;
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
-impl std::error::Error for Cg3Error {}
 
 impl From<Cg3Exit> for Cg3Error {
     fn from(e: Cg3Exit) -> Cg3Error {
@@ -144,20 +200,14 @@ impl From<Cg3Exit> for Cg3Error {
 /// Emit the CLI-facing diagnostic for an error that is about to end the
 /// process.
 ///
-/// [`Cg3Error::Fatal`] printed its own diagnostic at the fatal site, exactly as
-/// the C++ did before terminating, so it stays silent here. The variants that
-/// CARRY their diagnostic must be surfaced, or demoting the C++-shaped
-/// `uregex_open` line to `debug!` would leave a CLI user with nothing but an
-/// exit code.
+/// [`Cg3Error::Fatal`] printed its own diagnostic at the fatal site, so it stays
+/// silent here. The variants that CARRY their diagnostic must be surfaced, or an
+/// embedder-facing message never reaches a CLI user.
+// [spec:cg3:req:errors.tag-regex-diagnostic]
 pub fn report_cli(e: &Cg3Error) {
-    // [spec:cg3:req:errors.tag-regex-diagnostic]
     match e {
         Cg3Error::Fatal { .. } => {}
-        // The C++ tools' own line, kept verbatim.
-        Cg3Error::Parse { .. } => {
-            tracing::error!("Error: Grammar could not be parsed - exiting!")
-        }
-        Cg3Error::TagRegex(_) => tracing::error!("{e}"),
+        Cg3Error::Grammar(_) | Cg3Error::Run(_) => tracing::error!("{e}"),
     }
 }
 
@@ -180,16 +230,6 @@ pub fn cg3_exit(code: i32) -> ! {
     panic::panic_any(Cg3Exit(code))
 }
 
-/// Run a library boundary body, converting a residual [`Cg3Exit`] unwind (from a
-/// deep engine/grammar-construction fatal) into an `Err(Cg3Error)` that carries
-/// the exact exit code. A [`crate::textual_parser::ParseError`] that escapes the
-/// parser is likewise a fatal (exit code 1 — the C++ caught it and `CG3Quit(1)`
-/// only via the error-count bail, but a raw escape is the `throw int` path). Any
-/// OTHER panic (a genuine invariant violation / `unwrap`) is resumed unchanged.
-///
-/// The panic hook is left untouched here — [`run_cli`] (installed by the CLI
-/// entry points) already silences the `Cg3Exit` / `ParseError` payloads, and a
-/// resumed non-fatal panic should still print normally.
 /// Is this panic payload one of ours — an unwind used as control flow, which is
 /// always caught and whose diagnostic was already printed at its site?
 // [spec:cg3:req:errors.control-flow-quiet]

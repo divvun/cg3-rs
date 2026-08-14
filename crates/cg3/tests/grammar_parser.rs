@@ -508,10 +508,12 @@ fn parse_error_recovery_counts_errors() {
             b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nSELECT NOSUCHSET ;\nSELECT AA ;\n",
         )
         .expect_err("a recoverable parse error must surface as Err");
-    assert_eq!(
-        err,
-        cg3::error::Cg3Error::Parse { errors: 1 },
-        "exactly one recoverable parse error expected"
+    assert!(
+        matches!(
+            err,
+            cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { count: 1 })
+        ),
+        "exactly one recoverable parse error expected, got {err}"
     );
     // The parser recovered: the valid rule after the bad line still parsed.
     assert_eq!(p.grammar.rule_by_number.capacity(), 1);

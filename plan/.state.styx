@@ -223,4 +223,9 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id errors-idiomatic.types, covered_rules (
+        errors.layered
+    ), covered_claims (
+        {impl_name target-impl, rule errors.layered}
+    )}
 )
