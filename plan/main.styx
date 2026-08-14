@@ -1488,12 +1488,20 @@ children (
                 title "Specify the target error model and record the governing decisions"
                 priority 0
                 kind @docs
+                sealed true
                 log (
                     {
                         at 2026-08-14T11:44:46.032001Z
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-14T11:45:12.476834Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
