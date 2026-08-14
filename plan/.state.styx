@@ -109,6 +109,7 @@ assertions (
     {id icu-regex-parity.spec, kind @complete, author "brendan@necessary.nu", at 2026-08-14T10:09:57.976431Z}
     {id errors-idiomatic.spec, kind @complete, author "brendan@necessary.nu", at 2026-08-14T11:45:12.476834Z}
     {id errors-idiomatic.port-phase-over, kind @doing, author "brendan@necessary.nu", at 2026-08-14T12:07:37.051286Z}
+    {id errors-idiomatic.characterise-fallthrough, kind @doing, author "brendan@necessary.nu", at 2026-08-14T12:19:08.303161Z}
 )
 
 impl_evidence (

@@ -25,7 +25,7 @@ consequences {
         "This is the only intentional divergence from C++ behaviour in the project, so it is gated on characterisation tests that pin today's behaviour BEFORE the parser converts, not after."
     )
     deferred (
-        "Whether the old fall-through was ever load-bearing is not yet known. If characterisation finds a golden or Apertium case that depends on a garbage tag being built, this decision flips to the rejected alternative and the recovery signal is implemented instead."
+        "Characterisation found the empty-tag path does not fall through benignly: it reaches `inlines::is_textual`, which indexes an empty slice and panics. That case is a clear fix. The two paths that DO intern today — a `(`-leading tag and one whose regex will not compile — change from producing a tag to producing an error, and whether any real grammar depends on that is still open. The evidence that closes it is the golden and Apertium suites passing after the parser conversion; until then this stays tentative."
     )
 }
 edges {
@@ -58,12 +58,25 @@ that just failed validation is hard to defend, and the diagnostic printed
 alongside it says as much — but it is a behaviour change to a shipped engine,
 and "very likely a fix" is not evidence.
 
-So this decision is `tentative` rather than `decided`, and it is gated: the
-characterisation phase pins the current applicator behaviour with tests first.
-If nothing depends on the fall-through, the decision moves to `decided` and the
-conversion proceeds. If something does, the rejected alternative — a typed
-recovery signal that lets each implementation state its own semantics — is
-already specified and takes its place.
+So this decision is `tentative` rather than `decided`, and it is gated on
+characterisation. That phase has now run, and it strengthens the case without
+closing it.
+
+Three of the six sites are reachable from the applicator. The empty-tag guard
+turns out not to fall through benignly at all: execution continues into
+`inlines::is_textual`, which indexes `s[0]` on an empty slice and panics. Its
+own doc comment admits the provenance — "Panics on empty `s` (C++ front()/back()
+on empty is UB)". So on that path the fall-through reproduces undefined
+behaviour as a crash, and converting the site to `?` removes it outright.
+
+The other two — a `(`-leading tag and one whose regex will not compile — do
+intern today, and under the conversion would stop. Nothing in the ported corpus
+exercises them, which is weak evidence rather than none: the suites cannot fail
+on behaviour they never reach. The evidence that closes this is those suites
+still passing once the parser conversion lands, at which point the decision
+moves to `decided`. If they break, the rejected alternative — a typed recovery
+signal letting each implementation state its own semantics — is already
+specified and takes its place.
 
 The state of this record is therefore the project's gate, not decoration. It
 must not reach `decided` on the strength of the argument alone.
