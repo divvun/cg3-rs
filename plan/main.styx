@@ -1460,4 +1460,21 @@ children (
             }
         )
     }
+
+    {
+        id embedder-panic-noise
+        title "Stop control-flow unwinds printing Rust panic noise at library boundaries"
+        kind @fix
+        implements {
+            target-impl ([spec:cg3:req:errors.control-flow-quiet])
+        }
+        log (
+            {
+                at 2026-08-14T11:03:00.125363Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+        )
+    }
 )

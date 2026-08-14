@@ -17,6 +17,18 @@ rules govern what an error value carries.
 > channel carrying the information, and MUST NOT be emitted at a level that
 > forces an embedder to show its users the name of an ICU C function.
 
+> [spec:cg3:req:errors.control-flow-quiet]
+> Unwinds this crate raises as control flow MUST NOT produce Rust panic output,
+> at every boundary that can observe them — not only the CLI entry points. The
+> parser ports the C++ `throw int` parse-error recovery as a panic caught once
+> per directive, so the default hook would otherwise print
+> `thread '...' panicked ... Box<dyn Any>` for every recoverable parse error,
+> several frames before the catch. A library consumer would see that alongside
+> the perfectly good error value it also gets, and it reads as a crash. The
+> suppression MUST be limited to the payload types this crate raises and always
+> catches, and MUST chain to any hook already installed, so a genuine bug —
+> here or in the host — still reports normally.
+
 > [spec:cg3:req:errors.parse-result]
 > Grammar parse and binary-grammar entry points MUST report success as `Ok(())`
 > and nothing else. The C++ convention of returning a recoverable-error COUNT in

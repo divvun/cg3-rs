@@ -190,7 +190,46 @@ pub fn cg3_exit(code: i32) -> ! {
 /// The panic hook is left untouched here — [`run_cli`] (installed by the CLI
 /// entry points) already silences the `Cg3Exit` / `ParseError` payloads, and a
 /// resumed non-fatal panic should still print normally.
+/// Is this panic payload one of ours — an unwind used as control flow, which is
+/// always caught and whose diagnostic was already printed at its site?
+// [spec:cg3:req:errors.control-flow-quiet]
+fn is_control_flow_payload(payload: &(dyn std::any::Any + Send)) -> bool {
+    payload.is::<Cg3Exit>() || payload.is::<crate::textual_parser::ParseError>()
+}
+
+/// Keep the parser's `throw`-port control flow off stderr.
+///
+/// [`crate::textual_parser::ParseError`] ports the C++ `throw int` that
+/// `parseFromUChar` catches once per directive to recover and continue. It is
+/// raised with `panic_any`, so the default panic hook prints
+/// `thread 'main' panicked ... Box<dyn Any>` for EVERY recoverable parse error
+/// — before the catch a few frames up swallows it. A CLI never saw this because
+/// [`run_cli`] installed a filter; an embedder calling a parse entry point
+/// directly got panic noise, reading like a crash, for an ordinary bad grammar.
+///
+/// The filter is installed once, chains to whatever hook was already set, and
+/// suppresses ONLY the two payloads this crate raises and always catches. Every
+/// other panic — including a genuine bug in this crate — prints as usual.
+///
+/// Installing a process-global hook from library code is a real side effect, so
+/// it happens at the boundaries that can actually observe these payloads
+/// ([`catch_fatal`] and [`run_cli`]) rather than at load time. A host that sets
+/// its own hook afterwards wins, and the noise comes back.
+// [spec:cg3:req:errors.control-flow-quiet]
+pub fn install_panic_filter() {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        let default_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            if !is_control_flow_payload(info.payload()) {
+                default_hook(info);
+            }
+        }));
+    });
+}
+
 pub fn catch_fatal<T>(body: impl FnOnce() -> T) -> Result<T, Cg3Error> {
+    install_panic_filter();
     match panic::catch_unwind(AssertUnwindSafe(body)) {
         Ok(v) => Ok(v),
         Err(e) => {
@@ -212,21 +251,7 @@ pub fn catch_fatal<T>(body: impl FnOnce() -> T) -> Result<T, Cg3Error> {
 /// default "panicked at ..." print for `Cg3Exit` payloads — the C++ `CG3Quit`
 /// exits without extra output beyond its own diagnostics.
 pub fn run_cli(body: impl FnOnce() -> i32) -> i32 {
-    let default_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |info| {
-        // Cg3Exit is the C++ CG3Quit (exits silently beyond its own
-        // diagnostics); ParseError is the C++ caught `throw int` parse-error
-        // control flow (each already printed its diagnostic). Neither should
-        // produce Rust panic noise on the CLI's stderr.
-        let payload = info.payload();
-        if payload.downcast_ref::<Cg3Exit>().is_none()
-            && payload
-                .downcast_ref::<crate::textual_parser::ParseError>()
-                .is_none()
-        {
-            default_hook(info);
-        }
-    }));
+    install_panic_filter();
     match panic::catch_unwind(AssertUnwindSafe(body)) {
         Ok(code) => code,
         Err(e) => match e.downcast::<Cg3Exit>() {
