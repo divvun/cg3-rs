@@ -5,17 +5,11 @@
 //! is unreachable. The applicator's prints and RETURNS, so the same code runs —
 //! with the input that just failed validation — and a tag gets built from it.
 //!
-//! These tests pin that behaviour so `errors-idiomatic.parser` cannot change it
-//! silently. Unifying `error_near` on `Result` makes those sites `?`, which
-//! aborts tag construction instead. That is very likely a fix, but it is a
-//! behaviour change to a shipped engine, and
-//! `[dec:cg3:parse-tag-aborts-on-invalid]` stays @tentative until these say what
-//! actually depends on it.
-//!
-//! A FAILURE HERE IS THE POINT. When the parser conversion lands, read what
-//! changed and decide: move the decision to @decided if the new behaviour is
-//! right, or implement the rejected alternative (a typed recovery signal) if
-//! something real depended on the old one.
+//! These tests pinned that behaviour across the conversion, and now record what
+//! replaced it: every site is a `?`, so tag construction stops instead of
+//! continuing. The golden and Apertium suites passed unchanged either side of
+//! the change, which is the evidence that closed
+//! `[dec:cg3:parse-tag-aborts-on-invalid]`.
 
 use cg3::grammar::Grammar;
 use cg3::grammar_applicator::GrammarApplicator;
@@ -41,41 +35,35 @@ fn observe(txt: &str) -> String {
     app.grammar.single_tags_list[id.0].tag.clone()
 }
 
-/// Empty text trips the first guard (`to0 == '\0'`) and then PANICS.
-///
-/// The applicator prints, falls through, and the empty text reaches
-/// `inlines::is_textual`, which indexes `s[0]` unguarded — its doc says so:
-/// "Panics on empty `s` (C++ front()/back() on empty is UB)". So the
-/// fall-through's worst case is not a garbage tag, it is inherited undefined
-/// behaviour reproduced as a crash. Converting this site to `?` removes it.
+/// Empty text used to fall through into `inlines::is_textual`, which indexes
+/// `s[0]` unguarded and panicked — inherited C++ UB ("Panics on empty `s`").
+/// Stopping at the guard removes it: the tag is simply not built.
 #[test]
-#[should_panic(expected = "index out of bounds")]
-fn empty_varstring_tag_panics_today() {
-    observe("");
+fn empty_varstring_tag_no_longer_panics() {
+    assert_eq!(observe(""), "", "no tag is constructed from empty text");
 }
 
-/// A tag opening with `(` trips the second guard. Today it interns verbatim.
+/// A tag opening with `(` trips the second guard. It used to intern verbatim;
+/// construction now stops there.
 #[test]
-fn paren_leading_varstring_tag_still_interns() {
+fn paren_leading_varstring_tag_is_not_interned() {
     assert_eq!(
         observe("(foo"),
-        "(foo",
-        "a `(`-leading varstring tag currently interns verbatim"
+        "",
+        "a `(`-leading varstring tag is no longer built"
     );
 }
 
-/// A varstring tag whose regex will not compile trips the compile guard.
-/// Today the tag is still interned, without a compiled regex.
+/// A varstring tag whose regex will not compile used to be interned anyway,
+/// without a compiled regex — a tag that could never match what it named.
+/// Construction now stops instead.
 #[test]
-fn uncompilable_regex_varstring_tag_still_interns() {
+fn uncompilable_regex_varstring_tag_is_not_interned() {
     let mut app = applicator();
     let id = app.add_tag("\"[:script=Greek:]\"r", T_VARSTRING);
     let tag = &app.grammar.single_tags_list[id.0];
-    assert!(
-        tag.regexp.is_none(),
-        "the regex did not compile, so no regex is attached"
-    );
-    assert!(!tag.tag.is_empty(), "but the tag itself is still interned");
+    assert!(tag.regexp.is_none(), "no regex compiled");
+    assert!(tag.tag.is_empty(), "and no tag built from the bad pattern");
 }
 
 /// The non-varstring path does NOT go through `parse_tag`, so it is unaffected

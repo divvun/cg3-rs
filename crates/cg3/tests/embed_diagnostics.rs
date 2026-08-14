@@ -55,7 +55,7 @@ fn embedder_sees_no_panic_noise() {
     // The child must actually have hit the recovery path — otherwise the
     // absence of panic noise below would prove nothing.
     assert!(
-        stderr.contains("Error on line"),
+        stderr.contains("on line 2 near"),
         "child never reached the parse errors:\n{stderr}"
     );
     assert!(
@@ -116,5 +116,31 @@ fn tag_regex_failures_name_the_tag() {
     assert!(
         !err.tag_regex_errors().is_empty(),
         "the diagnostic must be reachable structurally, not only as text"
+    );
+}
+
+/// A bad grammar reports EVERY recoverable error in one pass, not just the
+/// first — the property the old catch_unwind provided as a side effect and the
+/// accumulating loop now provides on purpose.
+// [spec:cg3:req:errors.parse-reports-all/test]
+#[test]
+fn every_recoverable_error_is_reported() {
+    // Three independent failures on three separate lines.
+    let src = "DELIMITERS = \"<.>\" ;\n\
+               LIST a = \"[:script=Greek:]\"r ;\n\
+               LIST b = \"[:script=Latin:]\"r ;\n\
+               SELECT a ;\n";
+    let mut parser =
+        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+    let err = parser
+        .parse_grammar_utf8(src.as_bytes())
+        .expect_err("must not parse");
+
+    let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { count }) = &err else {
+        panic!("expected a parse failure, got {err:?}");
+    };
+    assert!(
+        *count >= 3,
+        "all three failures must be reported, got {count}"
     );
 }

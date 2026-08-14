@@ -14,11 +14,11 @@
 //! instantiated with `TextualParser` (it reads `strict_tags` / `list_tags` and
 //! allocates sets), so it stays a plain free function on the concrete parser.
 //!
-//! NOTE on error semantics: `TextualParser::error` is fatal (panic-unwind /
-//! quit), but `GrammarApplicator::error` just prints to `ux_stderr` and RETURNS.
-//! The trait's `error_near` therefore returns `()`; the parser's impl diverges
-//! anyway, and the code after each error site matches the C++ fall-through of
-//! the applicator instantiation.
+//! NOTE on error semantics: the C++ instantiated these helpers with a throwing
+//! state (the parser) and a non-throwing one (the applicator), so the code after
+//! each error site was unreachable for one and ran for the other. Both now
+//! return the error and every site propagates it, so `parse_tag` reads the same
+//! way for both — see `[dec:cg3:parse-tag-aborts-on-invalid]`.
 //!
 //! ## Pointer / near-context model
 //! The C++ `const UChar* p` argument is *only* near-context for error messages.
@@ -99,9 +99,14 @@ pub trait ParseTagState {
     fn grammar(&self) -> &Grammar;
     /// `state.filebase` — diagnostics prefix (`nullptr` on the applicator → "").
     fn filebase(&self) -> &str;
-    /// `state.error(...)`: FATAL on `TextualParser` (diverges), non-fatal
-    /// print-and-return on `GrammarApplicator` — hence `()` and not `!`.
-    fn error_near(&mut self, near: &[char]);
+    /// Build the error for a failed parse at `near`.
+    ///
+    /// Returns the error rather than deciding what to do about it: the C++ had
+    /// this diverge for the parser and fall through for the applicator, an
+    /// asymmetry encoded only in the impl bodies. Both now return, and every
+    /// call site is a `?` — `[dec:cg3:parse-tag-aborts-on-invalid]`.
+    // [spec:cg3:req:errors.result-primary]
+    fn error_near(&mut self, near: &[char]) -> crate::error::ParseError;
     /// `state.addTag(tag)` — intern the freshly-built tag, return canonical id.
     fn add_tag(&mut self, tag: Tag) -> TagId;
 }
@@ -113,8 +118,7 @@ impl ParseTagState for TextualParser {
     fn filebase(&self) -> &str {
         &self.filebase
     }
-    fn error_near(&mut self, near: &[char]) {
-        // Inherent `TextualParser::error_near` is `-> !` (fatal), per the C++.
+    fn error_near(&mut self, near: &[char]) -> crate::error::ParseError {
         TextualParser::error_near(self, near)
     }
     fn add_tag(&mut self, tag: Tag) -> TagId {
@@ -129,14 +133,14 @@ pub fn parse_tag<S: ParseTagState>(
     near: &[char],
     state: &mut S,
     unescape: bool,
-) -> TagId {
+) -> Result<TagId, crate::error::ParseError> {
     // Validation first.
     let to0 = to.chars().next().unwrap_or('\0');
     if to0 == '\0' {
-        state.error_near(near); // "Empty tag ... Forgot to fill in a ()?"
+        return Err(state.error_near(near)); // "Empty tag ... Forgot to fill in a ()?"
     }
     if to0 == '(' {
-        state.error_near(near); // "Tag ... cannot start with ("
+        return Err(state.error_near(near)); // "Tag ... cannot start with ("
     }
     if ux_is_set_op(to) != S_IGNORE {
         // Warning (not fatal): looks like a set operator.
@@ -192,7 +196,7 @@ pub fn parse_tag<S: ParseTagState>(
             let tid = it.get().1;
             let existing = &g.single_tags_list[tid.0];
             if !existing.tag.is_empty() && existing.tag == to_owned {
-                return tid;
+                return Ok(tid);
             }
         }
     }
@@ -280,7 +284,7 @@ pub fn parse_tag<S: ParseTagState>(
             // tag->tag.assign(tmp) RAW.
             tag.tag = to_chars[tmp_off.min(to_chars.len())..].iter().collect();
             if tag.tag.is_empty() {
-                state.error_near(near); // "resulted in an empty tag"
+                return Err(state.error_near(near)); // "resulted in an empty tag"
             }
             jumped_varstring = true;
         }
@@ -378,7 +382,7 @@ pub fn parse_tag<S: ParseTagState>(
             tag.tag = built;
             length = new_length;
             if tag.tag.is_empty() {
-                state.error_near(near);
+                return Err(state.error_near(near));
             }
 
             // ToDo: T_REGEXP_LINE `__` substitution.
@@ -414,19 +418,19 @@ pub fn parse_tag<S: ParseTagState>(
                     tag.comparison_op = COps::OpEquals;
                     let after: String = tag_tag[bpos + 1..].to_string();
                     let vh = {
-                        let t = parse_tag(&after, near, state, false);
+                        let t = parse_tag(&after, near, state, false)?;
                         state.grammar().single_tags_list[t.0].hash
                     };
                     tag.set_variable_hash(vh.get());
                     let before: String = tag_tag[..bpos].to_string();
                     let ch = {
-                        let t = parse_tag(&before, near, state, false);
+                        let t = parse_tag(&before, near, state, false)?;
                         state.grammar().single_tags_list[t.0].hash
                     };
                     tag.comparison_hash = ch.get();
                 } else {
                     let ch = {
-                        let t = parse_tag(&tag_tag, near, state, false);
+                        let t = parse_tag(&tag_tag, near, state, false)?;
                         state.grammar().single_tags_list[t.0].hash
                     };
                     tag.comparison_hash = ch.get();
@@ -522,11 +526,14 @@ pub fn parse_tag<S: ParseTagState>(
                     match crate::tag_regex::compile_tag_regex(&rt, icase) {
                         Ok(re) => tag.regexp = Some(re),
                         Err(e) => {
-                            tracing::error!("{}", e.with_tag(tag.tag.clone()));
-                            // Control flow is the C++ `uregex_open` error path:
-                            // fatal in the textual parser, non-fatal (leaving
-                            // `regexp` unset) in the runtime applicator.
-                            state.error_near(near)
+                            // The cause travels IN the error, so an embedder can
+                            // read which tag failed and why without scraping the
+                            // log — `[spec:cg3:req:errors.context]`.
+                            let mut err = state.error_near(near);
+                            err.kind = crate::error::ParseErrorKind::TagRegex {
+                                cause: Box::new(e.with_tag(tag.tag.clone())),
+                            };
+                            return Err(err);
                         }
                     }
                 }
@@ -553,23 +560,27 @@ pub fn parse_tag<S: ParseTagState>(
             .r#type
             .intersects(T_REGEXP | T_REGEXP_ANY | T_VARIABLE | T_LOCAL_VARIABLE | T_META)
     {
-        state.error_near(near); // "cannot mix varstring with any other special feature"
+        return Err(state.error_near(near)); // "cannot mix varstring with any other special feature"
     }
 
     if tag.tag != to_owned {
         tag.tag_raw = to_owned;
     }
 
-    state.add_tag(tag)
+    Ok(state.add_tag(tag))
 }
 
 // [spec:cg3:def:parser-helpers.cg3.parse-set-fn]
 // [spec:cg3:sem:parser-helpers.cg3.parse-set-fn]
-pub fn parse_set(name: &str, near: &[char], state: &mut TextualParser) -> SetId {
+pub fn parse_set(
+    name: &str,
+    near: &[char],
+    state: &mut TextualParser,
+) -> Result<SetId, crate::error::ParseError> {
     let mut sh = hash_value_ustring(name, 0);
 
     if ux_is_set_op(name) != S_IGNORE {
-        state.error_near(near); // "Found set operator where set name expected"
+        return Err(state.error_near(near)); // "Found set operator where set name expected"
     }
 
     let nchars: Vec<char> = name.chars().collect();
@@ -583,7 +594,7 @@ pub fn parse_set(name: &str, near: &[char], state: &mut TextualParser) -> SetId 
         let wrap = hash_value_ustring(&wname, 0);
         let wtmp = match state.grammar.get_set(wrap) {
             Some(s) => s,
-            None => state.error_near(near), // "reference undefined set"
+            None => return Err(state.error_near(near)), // "reference undefined set"
         };
         let tmp = state.grammar.get_set(sh);
         if tmp.is_none() {
@@ -609,11 +620,11 @@ pub fn parse_set(name: &str, near: &[char], state: &mut TextualParser) -> SetId 
 
     let tmp = state.grammar.get_set(sh);
     if let Some(tmp) = tmp {
-        return tmp;
+        return Ok(tmp);
     }
     // Not found.
     if !state.strict_tags.empty() || !state.list_tags.empty() {
-        let tag = parse_tag(name, near, state, true);
+        let tag = parse_tag(name, near, state, true)?;
         let plain = state.grammar.single_tags_list[tag.0].plain_hash;
         if state.strict_tags.count(plain.get()) != 0 || state.list_tags.count(plain.get()) != 0 {
             let ns = state.grammar.allocate_set();
@@ -621,10 +632,10 @@ pub fn parse_set(name: &str, near: &[char], state: &mut TextualParser) -> SetId 
             state.grammar.sets_list[ns.0].name = name.to_string();
             state.grammar.add_tag_to_set(tag, ns);
             let ns = state.grammar.add_set(ns);
-            return ns;
+            return Ok(ns);
         }
     }
-    state.error_near(near) // "Attempted to reference undefined set"
+    Err(state.error_near(near)) // "Attempted to reference undefined set"
 }
 
 /// `u_sscanf(wname, "%*u:%S", &out) == 1`: skip an unsigned int, require `:`,
@@ -703,18 +714,18 @@ mod tests {
         let near: Vec<char> = "noun".chars().collect();
 
         // Plain tag: text preserved, no textual flags.
-        let t = parse_tag("noun", &near, &mut p, true);
+        let t = parse_tag("noun", &near, &mut p, true).unwrap();
         assert_eq!(tag_text(&p, t), "noun");
         assert!(!tag_type(&p, t).intersects(T_TEXTUAL));
 
         // Dedup: same source text returns the same interned id.
-        let t2 = parse_tag("noun", &near, &mut p, true);
+        let t2 = parse_tag("noun", &near, &mut p, true).unwrap();
         assert_eq!(t, t2, "identical tag text dedups to one id");
 
         // Baseform: "lemma" (quoted) -> T_BASEFORM | T_TEXTUAL, text keeps quotes.
         let bsrc = "\"lemma\"";
         let bnear: Vec<char> = bsrc.chars().collect();
-        let b = parse_tag(bsrc, &bnear, &mut p, true);
+        let b = parse_tag(bsrc, &bnear, &mut p, true).unwrap();
         assert!(
             tag_type(&p, b).intersects(T_BASEFORM),
             "quoted lemma is a baseform"
@@ -725,7 +736,7 @@ mod tests {
         // Wordform: "\"<word>\"" -> T_WORDFORM | T_TEXTUAL.
         let wsrc = "\"<word>\"";
         let wnear: Vec<char> = wsrc.chars().collect();
-        let w = parse_tag(wsrc, &wnear, &mut p, true);
+        let w = parse_tag(wsrc, &wnear, &mut p, true).unwrap();
         assert!(
             tag_type(&p, w).intersects(T_WORDFORM),
             "\"<...>\" is a wordform"
@@ -735,7 +746,7 @@ mod tests {
         // Failfast prefix `^`: sets T_FAILFAST (and is special).
         let fsrc = "^bad";
         let fnear: Vec<char> = fsrc.chars().collect();
-        let f = parse_tag(fsrc, &fnear, &mut p, true);
+        let f = parse_tag(fsrc, &fnear, &mut p, true).unwrap();
         assert!(
             tag_type(&p, f).intersects(T_FAILFAST),
             "leading ^ is failfast"
@@ -743,7 +754,7 @@ mod tests {
 
         // `*` special -> T_ANY.
         let star: Vec<char> = "*".chars().collect();
-        let any = parse_tag("*", &star, &mut p, true);
+        let any = parse_tag("*", &star, &mut p, true).unwrap();
         assert!(tag_type(&p, any).intersects(T_ANY), "* is T_ANY");
     }
 
@@ -762,18 +773,18 @@ mod tests {
         // Seed list_tags with this tag's plain-hash so parse_set's not-found path
         // will synthesize a set for it.
         let plain = {
-            let t = parse_tag(name, &near, &mut p, true);
+            let t = parse_tag(name, &near, &mut p, true).unwrap();
             p.grammar.single_tags_list[t.0].plain_hash
         };
         p.list_tags.insert(plain.get());
 
         // First resolution: allocates + registers a new single-tag set.
-        let s1 = parse_set(name, &near, &mut p);
+        let s1 = parse_set(name, &near, &mut p).unwrap();
         assert_eq!(p.grammar.sets_list[s1.0].name, name);
 
         // Second resolution: the set is now known, so get_set returns it directly
         // — same SetId, no duplicate allocation.
-        let s2 = parse_set(name, &near, &mut p);
+        let s2 = parse_set(name, &near, &mut p).unwrap();
         assert_eq!(s1, s2, "second parse_set resolves the existing set");
     }
 }

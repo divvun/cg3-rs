@@ -44,7 +44,12 @@ impl TextualParser {
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn]
-    pub(crate) fn parse_rule(&mut self, buf: &[char], pos: &mut usize, key: Keywords) {
+    pub(crate) fn parse_rule(
+        &mut self,
+        buf: &[char],
+        pos: &mut usize,
+        key: Keywords,
+    ) -> ParseResult {
         // C++ `AST_OPEN(Rule)` — also the profiler's rule span start.
         let ast_rule_b = *pos;
         let mut ast_rule = ASTHelper::new(
@@ -64,10 +69,10 @@ impl TextualParser {
         self.grammar.lines += skipws_chars(buf, &mut lp, '\0', '\0', false);
         if lp != *pos && lp < *pos {
             let mut n = lp;
-            self.maybe_quoted(buf, &mut n, lp);
+            self.maybe_quoted(buf, &mut n, lp)?;
             self.grammar.lines += skiptows_chars(buf, &mut n, '\0', true, false);
             let token: String = buf[lp..n].iter().collect();
-            let wform = self.parse_tag(&token, &buf[lp..]);
+            let wform = self.parse_tag(&token, &buf[lp..])?;
             rule.wordform = Some(wform);
         }
 
@@ -96,7 +101,7 @@ impl TextualParser {
                 *pos += slen(STR_ALWAYS);
                 rule.r#type = Keywords::KExternalAlways;
             } else {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
 
@@ -105,7 +110,7 @@ impl TextualParser {
                 n += 1;
                 crate::inlines::skipto_nospan_chars(buf, &mut n, '"');
                 if buf[n] != '"' {
-                    self.error_near(&buf[*pos..]);
+                    return Err(self.error_near(&buf[*pos..]));
                 }
             }
             self.grammar.lines += skiptows_chars(buf, &mut n, '\0', true, false);
@@ -120,7 +125,7 @@ impl TextualParser {
             *pos = n;
         }
 
-        let flags = self.parse_rule_flags(buf, pos);
+        let flags = self.parse_rule_flags(buf, pos)?;
         rule.flags = flags.flags;
         rule.sub_reading = flags.sub_reading;
 
@@ -162,7 +167,7 @@ impl TextualParser {
 
         if rule.flags.intersects(RF_WITHCHILD) {
             self.grammar.has_dep = true;
-            let s = self.parse_set_inline_wrapper(buf, pos);
+            let s = self.parse_set_inline_wrapper(buf, pos)?;
             rule.childset1 = SetNumber(self.grammar.sets_list[s.0].hash);
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
         } else if rule.flags.intersects(RF_NOCHILD) {
@@ -173,15 +178,15 @@ impl TextualParser {
         if key == Keywords::KSubstitute || key == Keywords::KExecute {
             let saved = self.no_isets;
             self.no_isets = false;
-            let s = self.parse_set_inline_wrapper(buf, pos);
+            let s = self.parse_set_inline_wrapper(buf, pos)?;
             self.no_isets = saved;
             Set::reindex(&mut self.grammar, s);
             rule.sublist = Some(s);
             if self.grammar.sets_list[s.0].empty() {
-                self.error_near(&buf[lp..]);
+                return Err(self.error_near(&buf[lp..]));
             }
             if !is_mapping_list(&self.grammar, s) {
-                self.error_near(&buf[lp..]);
+                return Err(self.error_near(&buf[lp..]));
             }
         }
 
@@ -193,7 +198,7 @@ impl TextualParser {
                 || key == Keywords::KCopy
                 || key == Keywords::KCopycohort)
         {
-            self.error_bare();
+            return Err(self.error_bare());
         }
 
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -223,15 +228,15 @@ impl TextualParser {
         ) {
             let saved = self.no_isets;
             self.no_isets = false;
-            let s = self.parse_set_inline_wrapper(buf, pos);
+            let s = self.parse_set_inline_wrapper(buf, pos)?;
             self.no_isets = saved;
             Set::reindex(&mut self.grammar, s);
             rule.maplist = Some(s);
             if self.grammar.sets_list[s.0].empty() {
-                self.error_near(&buf[lp..]);
+                return Err(self.error_near(&buf[lp..]));
             }
             if !is_mapping_list(&self.grammar, s) {
-                self.error_near(&buf[lp..]);
+                return Err(self.error_near(&buf[lp..]));
             }
         }
 
@@ -253,15 +258,15 @@ impl TextualParser {
         {
             let saved = self.no_isets;
             self.no_isets = false;
-            let s = self.parse_set_inline_wrapper(buf, pos);
+            let s = self.parse_set_inline_wrapper(buf, pos)?;
             self.no_isets = saved;
             Set::reindex(&mut self.grammar, s);
             rule.sublist = Some(s);
             if self.grammar.sets_list[s.0].empty() {
-                self.error_near(&buf[lp..]);
+                return Err(self.error_near(&buf[lp..]));
             }
             if !is_mapping_list(&self.grammar, s) {
-                self.error_near(&buf[lp..]);
+                return Err(self.error_near(&buf[lp..]));
             }
         }
 
@@ -273,7 +278,7 @@ impl TextualParser {
                 *pos += slen(STR_BEFORE);
                 rule.r#type = Keywords::KAddcohortBefore;
             } else {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         }
 
@@ -291,7 +296,7 @@ impl TextualParser {
                 rule.flags |= RF_BEFORE;
             }
             if key != Keywords::KCopycohort && (rule.flags.intersects(RF_BEFORE | RF_AFTER)) {
-                let s = self.parse_set_inline_wrapper(buf, pos);
+                let s = self.parse_set_inline_wrapper(buf, pos)?;
                 rule.childset1 = SetNumber(self.grammar.sets_list[s.0].hash);
             }
         }
@@ -304,7 +309,7 @@ impl TextualParser {
 
         if simplecasecmp(buf, *pos, G_FLAGS[FL_WITHCHILD]) {
             *pos += slen(G_FLAGS[FL_WITHCHILD]);
-            let s = self.parse_set_inline_wrapper(buf, pos);
+            let s = self.parse_set_inline_wrapper(buf, pos)?;
             self.grammar.has_dep = true;
             rule.flags |= RF_WITHCHILD;
             rule.flags &= !RF_NOCHILD;
@@ -318,7 +323,7 @@ impl TextualParser {
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
         }
 
-        let s = self.parse_set_inline_wrapper(buf, pos);
+        let s = self.parse_set_inline_wrapper(buf, pos)?;
         rule.target = SetNumber(self.grammar.sets_list[s.0].hash);
 
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -330,10 +335,10 @@ impl TextualParser {
         while buf[*pos] != '\0' && buf[*pos] == '(' {
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-            self.parse_contextual_tests(buf, pos, &mut rule);
+            self.parse_contextual_tests(buf, pos, &mut rule)?;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             if buf[*pos] != ')' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -363,13 +368,13 @@ impl TextualParser {
                     *pos += slen(STR_BEFORE);
                     rule.r#type = Keywords::KMoveBefore;
                 } else {
-                    self.error_near(&buf[*pos..]);
+                    return Err(self.error_near(&buf[*pos..]));
                 }
             } else if key == Keywords::KSwitch || key == Keywords::KMergecohorts {
                 if simplecasecmp(buf, *pos, STR_WITH) {
                     *pos += slen(STR_WITH);
                 } else {
-                    self.error_near(&buf[*pos..]);
+                    return Err(self.error_near(&buf[*pos..]));
                 }
             } else if simplecasecmp(buf, *pos, STR_TO) {
                 *pos += slen(STR_TO);
@@ -377,7 +382,7 @@ impl TextualParser {
                 *pos += slen(STR_FROM);
                 rule.flags |= RF_REVERSE;
             } else {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
 
@@ -396,7 +401,7 @@ impl TextualParser {
                 if simplecasecmp(buf, *pos, G_FLAGS[FL_WITHCHILD]) {
                     *pos += slen(G_FLAGS[FL_WITHCHILD]);
                     self.grammar.has_dep = true;
-                    let s = self.parse_set_inline_wrapper(buf, pos);
+                    let s = self.parse_set_inline_wrapper(buf, pos)?;
                     rule.childset2 = SetNumber(self.grammar.sets_list[s.0].hash);
                     self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
                 } else if simplecasecmp(buf, *pos, G_FLAGS[FL_NOCHILD]) {
@@ -410,16 +415,16 @@ impl TextualParser {
             while buf[*pos] != '\0' && buf[*pos] == '(' {
                 *pos += 1;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-                self.parse_contextual_dependency_tests(buf, pos, &mut rule);
+                self.parse_contextual_dependency_tests(buf, pos, &mut rule)?;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
                 if buf[*pos] != ')' {
-                    self.error_near(&buf[*pos..]);
+                    return Err(self.error_near(&buf[*pos..]));
                 }
                 *pos += 1;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
             if rule.dep_tests.is_empty() {
-                self.error_near(&buf[lp..]);
+                return Err(self.error_near(&buf[lp..]));
             }
             if key != Keywords::KMergecohorts {
                 rule.dep_target = rule.dep_tests.back().copied();
@@ -486,8 +491,8 @@ impl TextualParser {
                 self.in_nested_rule = true;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
                 loop {
-                    if !self.maybe_parse_rule(buf, pos) {
-                        self.error_near(&buf[*pos..]);
+                    if !self.maybe_parse_rule(buf, pos)? {
+                        return Err(self.error_near(&buf[*pos..]));
                     }
                     self.grammar.lines += skipws_chars(buf, pos, '}', ';', false);
                     if buf[*pos] == ';' {
@@ -545,13 +550,19 @@ impl TextualParser {
             let rnum = self.grammar.rule_by_number.get(rid.0).number;
             ast_rule.close_id(&mut self.ast, *pos, rnum + 1);
         }
+        Ok(())
     }
 }
 
 impl TextualParser {
     /// One iteration of the `parseFromUChar` main loop (the C++ `try { ... }`
     /// body): progress print, leading `SKIPWS`, and the keyword dispatch chain.
-    pub(crate) fn parse_directive(&mut self, buf: &[char], pos: &mut usize, fname: &str) {
+    pub(crate) fn parse_directive(
+        &mut self,
+        buf: &[char],
+        pos: &mut usize,
+        fname: &str,
+    ) -> ParseResult {
         let p0 = *pos;
         if self.verbosity_level > 0 && self.grammar.lines.is_multiple_of(500) {
             tracing::info!("Parsing line {}", self.grammar.lines);
@@ -561,7 +572,7 @@ impl TextualParser {
 
         if is_icase_kw(buf, *pos, "DELIMITERS", "delimiters") != 0 {
             if self.grammar.delimiters.is_some() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             let d = self.grammar.allocate_set();
             self.grammar.sets_list[d.0].line = self.grammar.lines;
@@ -570,22 +581,22 @@ impl TextualParser {
             *pos += 10;
             self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
             if buf[*pos] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
-            self.parse_tag_list(buf, pos, d, false);
+            self.parse_tag_list(buf, pos, d, false)?;
             let d = self.grammar.add_set(d);
             self.grammar.delimiters = Some(d);
             if self.grammar.sets_list[d.0].empty() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if is_icase_kw(buf, *pos, "SOFT-DELIMITERS", "soft-delimiters") != 0 {
             if self.grammar.soft_delimiters.is_some() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             let d = self.grammar.allocate_set();
             self.grammar.sets_list[d.0].line = self.grammar.lines;
@@ -594,22 +605,22 @@ impl TextualParser {
             *pos += 15;
             self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
             if buf[*pos] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
-            self.parse_tag_list(buf, pos, d, false);
+            self.parse_tag_list(buf, pos, d, false)?;
             let d = self.grammar.add_set(d);
             self.grammar.soft_delimiters = Some(d);
             if self.grammar.sets_list[d.0].empty() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if is_icase_kw(buf, *pos, "TEXT-DELIMITERS", "text-delimiters") != 0 {
             if self.grammar.text_delimiters.is_some() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             let d = self.grammar.allocate_set();
             self.grammar.sets_list[d.0].line = self.grammar.lines;
@@ -618,14 +629,14 @@ impl TextualParser {
             *pos += 15;
             self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
             if buf[*pos] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
-            self.parse_tag_list(buf, pos, d, false);
+            self.parse_tag_list(buf, pos, d, false)?;
             let d = self.grammar.add_set(d);
             self.grammar.text_delimiters = Some(d);
             if self.grammar.sets_list[d.0].empty() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             let mut the_tags = crate::tag::TagList::new();
             let trie = self.grammar.sets_list[d.0].trie.clone();
@@ -637,22 +648,22 @@ impl TextualParser {
                     .r#type
                     .intersects(T_REGEXP)
                 {
-                    self.error_bare();
+                    return Err(self.error_bare());
                 }
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if is_icase_kw(buf, *pos, "MAPPING-PREFIX", "mapping-prefix") != 0 {
             if self.seen_mapping_prefix != 0 {
-                self.inc_error_count();
+                return Err(self.error_bare());
             }
             self.seen_mapping_prefix = self.grammar.lines;
             *pos += 14;
             self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
             if buf[*pos] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -662,69 +673,69 @@ impl TextualParser {
             *pos = n;
             self.grammar.mapping_prefix = token.chars().next().unwrap_or('\0');
             if self.grammar.mapping_prefix == '\0' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if is_icase_kw(buf, *pos, "PREFERRED-TARGETS", "preferred-targets") != 0 {
             *pos += 17;
             self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
             if buf[*pos] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             while buf[*pos] != '\0' && buf[*pos] != ';' {
                 let mut n = *pos;
-                self.maybe_quoted(buf, &mut n, *pos);
+                self.maybe_quoted(buf, &mut n, *pos)?;
                 self.grammar.lines += skiptows_chars(buf, &mut n, ';', true, false);
                 let token: String = buf[*pos..n].iter().collect();
-                let t = self.parse_tag(&token, &buf[*pos..]);
+                let t = self.parse_tag(&token, &buf[*pos..])?;
                 let h = self.grammar.single_tags_list[t.0].hash;
                 self.grammar.preferred_targets.push(h.get());
                 *pos = n;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
             if self.grammar.preferred_targets.is_empty() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if is_icase_kw(buf, *pos, "REOPEN-MAPPINGS", "reopen-mappings") != 0 {
             *pos += 15;
             self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
             if buf[*pos] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             while buf[*pos] != '\0' && buf[*pos] != ';' {
                 let mut n = *pos;
-                self.maybe_quoted(buf, &mut n, *pos);
+                self.maybe_quoted(buf, &mut n, *pos)?;
                 self.grammar.lines += skiptows_chars(buf, &mut n, ';', true, false);
                 let token: String = buf[*pos..n].iter().collect();
-                let t = self.parse_tag(&token, &buf[*pos..]);
+                let t = self.parse_tag(&token, &buf[*pos..])?;
                 let h = self.grammar.single_tags_list[t.0].hash;
                 self.grammar.reopen_mappings.insert(h.get());
                 *pos = n;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
             if self.grammar.reopen_mappings.empty() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if is_icase_kw(buf, *pos, "STATIC-SETS", "static-sets") != 0 {
             *pos += 11;
             self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
             if buf[*pos] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -737,24 +748,24 @@ impl TextualParser {
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
             if self.grammar.static_sets.is_empty() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if let Some(icn) = self.match_cmdargs(buf, *pos) {
             *pos += icn;
             self.grammar.lines += skipws_chars(buf, pos, '+', '\0', false);
             if buf[*pos] != '+' || buf[*pos + 1] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 2;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             let s = *pos;
             while buf[*pos] != '\0' && buf[*pos] != ';' {
                 let mut n = *pos;
-                self.maybe_quoted(buf, &mut n, *pos);
+                self.maybe_quoted(buf, &mut n, *pos)?;
                 self.grammar.lines += skiptows_chars(buf, &mut n, ';', true, false);
                 *pos = n;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -767,13 +778,13 @@ impl TextualParser {
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if is_icase_kw(buf, *pos, "UNDEF-SETS", "undef-sets") != 0 {
             *pos += 10;
             self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
             if buf[*pos] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -790,11 +801,11 @@ impl TextualParser {
                 did = true;
             }
             if !did {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if is_icase_kw(buf, *pos, "SETS", "sets") != 0 {
             *pos += 4;
@@ -802,7 +813,7 @@ impl TextualParser {
             *pos += 9;
             self.grammar.lines += skipws_chars(buf, pos, '+', '\0', false);
             if buf[*pos] != '+' || buf[*pos + 1] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 2;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -810,43 +821,43 @@ impl TextualParser {
             self.list_tags.swap(&mut tmp);
             while buf[*pos] != '\0' && buf[*pos] != ';' {
                 let mut n = *pos;
-                self.maybe_quoted(buf, &mut n, *pos);
+                self.maybe_quoted(buf, &mut n, *pos)?;
                 self.grammar.lines += skiptows_chars(buf, &mut n, ';', true, false);
                 let token: String = buf[*pos..n].iter().collect();
-                let t = self.parse_tag(&token, &buf[*pos..]);
+                let t = self.parse_tag(&token, &buf[*pos..])?;
                 tmp.insert(self.grammar.single_tags_list[t.0].hash.get());
                 *pos = n;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
             if tmp.empty() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.list_tags.swap(&mut tmp);
         } else if is_icase_kw(buf, *pos, "LIST", "list") != 0
             || is_icase_kw(buf, *pos, "OLIST", "olist") != 0
         {
-            self.parse_list(buf, pos);
+            self.parse_list(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "SET", "set") != 0 {
-            self.parse_set_def(buf, pos);
+            self.parse_set_def(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "MAPPINGS", "mappings") != 0 {
             *pos += 8;
-            self.section_before(buf, pos);
+            self.section_before(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "CORRECTIONS", "corrections") != 0 {
             *pos += 11;
-            self.section_before(buf, pos);
+            self.section_before(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "BEFORE-SECTIONS", "before-sections") != 0 {
             *pos += 15;
-            self.section_before(buf, pos);
+            self.section_before(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "SECTION", "section") != 0 {
             *pos += 7;
-            self.section_numbered(buf, pos);
+            self.section_numbered(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "CONSTRAINTS", "constraints") != 0 {
             *pos += 11;
-            self.section_numbered(buf, pos);
+            self.section_numbered(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "AFTER-SECTIONS", "after-sections") != 0 {
             *pos += 14;
             if !self.only_sets {
@@ -855,7 +866,7 @@ impl TextualParser {
                 self.in_after_sections = true;
                 self.in_null_section = false;
             }
-            self.maybe_anchorish(buf, pos);
+            self.maybe_anchorish(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "NULL-SECTION", "null-section") != 0 {
             *pos += 12;
             if !self.only_sets {
@@ -864,12 +875,12 @@ impl TextualParser {
                 self.in_after_sections = false;
                 self.in_null_section = true;
             }
-            self.maybe_anchorish(buf, pos);
+            self.maybe_anchorish(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "SUBREADINGS", "subreadings") != 0 {
             *pos += 11;
             self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
             if buf[*pos] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -878,22 +889,22 @@ impl TextualParser {
             } else if buf[*pos] == 'R' || buf[*pos] == 'r' {
                 self.grammar.sub_readings_ltr = false;
             } else {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             let mut n = *pos;
             self.grammar.lines += skiptows_chars(buf, &mut n, '\0', true, false);
             *pos = n;
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if is_icase_kw(buf, *pos, "OPTIONS", "options") != 0 {
-            self.parse_options(buf, pos);
+            self.parse_options(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "STRICT-TAGS", "strict-tags") != 0 {
             *pos += 11;
             self.grammar.lines += skipws_chars(buf, pos, '+', '\0', false);
             if buf[*pos] != '+' || buf[*pos + 1] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 2;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -901,28 +912,28 @@ impl TextualParser {
             self.strict_tags.swap(&mut tmp);
             while buf[*pos] != '\0' && buf[*pos] != ';' {
                 let mut n = *pos;
-                self.maybe_quoted(buf, &mut n, *pos);
+                self.maybe_quoted(buf, &mut n, *pos)?;
                 self.grammar.lines += skiptows_chars(buf, &mut n, ';', true, false);
                 let token: String = buf[*pos..n].iter().collect();
-                let t = self.parse_tag(&token, &buf[*pos..]);
+                let t = self.parse_tag(&token, &buf[*pos..])?;
                 tmp.insert(self.grammar.single_tags_list[t.0].hash.get());
                 *pos = n;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
             if tmp.empty() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             self.strict_tags.swap(&mut tmp);
         } else if is_icase_kw(buf, *pos, "ANCHOR", "anchor") != 0 {
             *pos += 6;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-            self.parse_anchorish(buf, pos, false);
+            self.parse_anchorish(buf, pos, false)?;
         } else if is_icase_kw(buf, *pos, "INCLUDE", "include") != 0 {
-            self.parse_include(buf, pos, fname);
+            self.parse_include(buf, pos, fname)?;
         } else if is_icase_kw(buf, *pos, "TEMPLATE", "template") != 0 {
             let line = self.grammar.lines;
             *pos += 8;
@@ -933,31 +944,31 @@ impl TextualParser {
             *pos = n;
             self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
             if buf[*pos] != '=' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
             let saved = self.no_itmpls;
             self.no_itmpls = false;
-            let t = self.parse_contextual_test_list(buf, pos, None, true);
+            let t = self.parse_contextual_test_list(buf, pos, None, true)?;
             self.no_itmpls = saved;
             self.grammar.contexts_arena[t.0].line = line;
             self.grammar.add_template(t, &name);
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         } else if is_icase_kw(buf, *pos, "PARENTHESES", "parentheses") != 0 {
-            self.parse_parentheses(buf, pos);
+            self.parse_parentheses(buf, pos)?;
         } else if is_icase_kw(buf, *pos, "END", "end") != 0 {
             if (isnl(buf[*pos - 1]) || isspace(buf[*pos - 1]))
                 && (buf[*pos + 3] == '\0' || isnl(buf[*pos + 3]) || isspace(buf[*pos + 3]))
             {
                 // break the whole loop: signalled by leaving pos at the NUL.
                 self.parse_end_break = true;
-                return;
+                return Ok(());
             }
             *pos += 1;
-        } else if self.maybe_parse_rule(buf, pos) {
+        } else if self.maybe_parse_rule(buf, pos)? {
             // Has to happen last (so MAPPINGS is not parsed as MAP PINGS).
         } else {
             let n = *pos;
@@ -966,7 +977,7 @@ impl TextualParser {
                     *pos += 1;
                     crate::inlines::skipto_nospan_chars(buf, pos, '"');
                     if buf[*pos] != '"' {
-                        self.error_near(&buf[n..]);
+                        return Err(self.error_near(&buf[n..]));
                     }
                 }
                 self.grammar.lines += skiptows_chars(buf, pos, '\0', false, false);
@@ -977,12 +988,13 @@ impl TextualParser {
                 && !isnl(buf[*pos])
                 && !isspace(buf[*pos])
             {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             if isnl(buf[*pos]) {
                 self.grammar.lines += 1;
             }
             *pos += 1;
         }
+        Ok(())
     }
 }

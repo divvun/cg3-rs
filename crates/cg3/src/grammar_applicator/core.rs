@@ -1904,7 +1904,23 @@ impl Matcher<'_> {
         let tag: TagId = if r#type.intersects(T_VARSTRING) {
             // C++: tag = ::CG3::parseTag(txt, 0, *this, !type.intersects(T_PRESERVE_ESC));
             // (`p = 0` — no near-context at runtime.)
-            crate::parser_helpers::parse_tag(txt, &[], self, !r#type.intersects(T_PRESERVE_ESC))
+            // A malformed runtime varstring tag stops construction rather than
+            // continuing with the input that failed validation (which used to
+            // reach `is_textual` and panic on empty text). Propagating to this
+            // function's 81 callers is errors-idiomatic.add-tag-propagation; for
+            // now the failure is reported and an empty tag interned in its place.
+            match crate::parser_helpers::parse_tag(
+                txt,
+                &[],
+                self,
+                !r#type.intersects(T_PRESERVE_ESC),
+            ) {
+                Ok(tid) => tid,
+                Err(e) => {
+                    tracing::error!("Error: parseTag failed: {e}");
+                    return self.add_tag_ptr(Tag::default());
+                }
+            }
         } else {
             let mut t = Tag::default();
             crate::tag::parse_tag_raw(&mut t, txt, self.grammar);
@@ -2003,13 +2019,12 @@ impl crate::parser_helpers::ParseTagState for Matcher<'_> {
         ""
     }
 
-    /// C++ `GrammarApplicator::error(str, p)` prints `("RT RULE",
-    /// current_rule->line)` / `("RT INPUT", numLines)` into the format and
-    /// RETURNS (non-fatal, unlike `TextualParser::error`). The port's
-    /// `error()` defers the sink, so emit a plain stderr line here. The label/
-    /// line selection is `GrammarApplicator::error_labels` inlined (that helper
-    /// stays `&self` on the applicator; the values it reads live on `Engine`).
-    fn error_near(&mut self, _near: &[char]) {
+    /// C++ `GrammarApplicator::error(str, p)` labelled the failure `RT RULE`
+    /// with the current rule's line, or `RT INPUT` with the input line count.
+    /// That label/line pair is the only position a runtime tag failure has, so
+    /// it becomes the error's `file` and `line`. The C++ printed here and
+    /// returned; the caller now decides.
+    fn error_near(&mut self, _near: &[char]) -> crate::error::ParseError {
         let (label, line) = if let Some(rid) = self.scratch.current_rule
             && self.grammar.rule_by_number[rid.0].line != 0
         {
@@ -2017,7 +2032,12 @@ impl crate::parser_helpers::ParseTagState for Matcher<'_> {
         } else {
             ("RT INPUT", *self.num_lines)
         };
-        tracing::error!("Error: parseTag failed at {label} {line}");
+        crate::error::ParseError {
+            file: label.to_string(),
+            line,
+            near: String::new(),
+            kind: crate::error::ParseErrorKind::Syntax,
+        }
     }
 
     /// C++ `state.addTag(tag)` → `GrammarApplicator::addTag(Tag*)` — the

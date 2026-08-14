@@ -3,7 +3,6 @@
 //! Split out of the wave-2 monolithic `textual_parser.rs` (wave 4, w4-file-split-fmt).
 
 use std::collections::BTreeMap;
-use std::panic::{self, AssertUnwindSafe};
 
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::ast::{ASTHelper, ASTType};
@@ -34,27 +33,29 @@ impl TextualParser {
         None
     }
 
-    pub(crate) fn maybe_anchorish(&mut self, buf: &[char], pos: &mut usize) {
+    pub(crate) fn maybe_anchorish(&mut self, buf: &[char], pos: &mut usize) -> ParseResult {
         let mut s = *pos;
         skipln_chars(buf, &mut s);
         skipws_chars(buf, &mut s, '\0', '\0', false);
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
         if *pos != s {
-            self.parse_anchorish(buf, pos, true);
+            self.parse_anchorish(buf, pos, true)?;
         }
+        Ok(())
     }
 
-    pub(crate) fn section_before(&mut self, buf: &[char], pos: &mut usize) {
+    pub(crate) fn section_before(&mut self, buf: &[char], pos: &mut usize) -> ParseResult {
         if !self.only_sets {
             self.in_before_sections = true;
             self.in_section = false;
             self.in_after_sections = false;
             self.in_null_section = false;
         }
-        self.maybe_anchorish(buf, pos);
+        self.maybe_anchorish(buf, pos)?;
+        Ok(())
     }
 
-    pub(crate) fn section_numbered(&mut self, buf: &[char], pos: &mut usize) {
+    pub(crate) fn section_numbered(&mut self, buf: &[char], pos: &mut usize) -> ParseResult {
         if !self.only_sets {
             let l = self.grammar.lines;
             self.grammar.sections.push(l);
@@ -63,10 +64,11 @@ impl TextualParser {
             self.in_after_sections = false;
             self.in_null_section = false;
         }
-        self.maybe_anchorish(buf, pos);
+        self.maybe_anchorish(buf, pos)?;
+        Ok(())
     }
 
-    pub(crate) fn parse_list(&mut self, buf: &[char], pos: &mut usize) {
+    pub(crate) fn parse_list(&mut self, buf: &[char], pos: &mut usize) -> ParseResult {
         let sset = self.grammar.allocate_set();
         self.grammar.sets_list[sset.0].line = self.grammar.lines;
         let mut ordered = false;
@@ -89,16 +91,16 @@ impl TextualParser {
         if buf[*pos] == '+' && buf[*pos + 1] == '=' {
             let aset = self.grammar.get_set(hash_value_ustring(&name, 0));
             if aset.is_none() {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
             append = true;
         }
         if buf[*pos] != '=' {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
         *pos += 1;
-        self.parse_tag_list(buf, pos, sset, ordered);
+        self.parse_tag_list(buf, pos, sset, ordered)?;
         Set::rehash(&mut self.grammar, sset);
         let sset = if append {
             self.grammar.append_to_set(sset)
@@ -106,15 +108,16 @@ impl TextualParser {
             self.grammar.add_set(sset)
         };
         if self.grammar.sets_list[sset.0].empty() {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
+        Ok(())
     }
 
-    pub(crate) fn parse_set_def(&mut self, buf: &[char], pos: &mut usize) {
+    pub(crate) fn parse_set_def(&mut self, buf: &[char], pos: &mut usize) -> ParseResult {
         let s0 = self.grammar.allocate_set();
         self.grammar.sets_list[s0.0].line = self.grammar.lines;
         *pos += 3;
@@ -130,13 +133,13 @@ impl TextualParser {
         *pos = n;
         self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
         if buf[*pos] != '=' {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
         *pos += 1;
 
         let saved = self.no_isets;
         self.no_isets = false;
-        self.parse_set_inline(buf, pos, Some(s0));
+        self.parse_set_inline(buf, pos, Some(s0))?;
         self.no_isets = saved;
 
         Set::rehash(&mut self.grammar, s0);
@@ -158,19 +161,20 @@ impl TextualParser {
         }
         let s = self.grammar.add_set(s);
         if self.grammar.sets_list[s.0].empty() {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
+        Ok(())
     }
 
-    pub(crate) fn parse_options(&mut self, buf: &[char], pos: &mut usize) {
+    pub(crate) fn parse_options(&mut self, buf: &[char], pos: &mut usize) -> ParseResult {
         *pos += 7;
         self.grammar.lines += skipws_chars(buf, pos, '+', '\0', false);
         if buf[*pos] != '+' || buf[*pos + 1] != '=' {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
         *pos += 2;
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -245,7 +249,7 @@ impl TextualParser {
                 found = true;
             }
             if !found {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         }
 
@@ -254,15 +258,16 @@ impl TextualParser {
         }
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
+        Ok(())
     }
 
-    pub(crate) fn parse_parentheses(&mut self, buf: &[char], pos: &mut usize) {
+    pub(crate) fn parse_parentheses(&mut self, buf: &[char], pos: &mut usize) -> ParseResult {
         *pos += 11;
         self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
         if buf[*pos] != '=' {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
         *pos += 1;
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -271,28 +276,28 @@ impl TextualParser {
             let mut n = *pos;
             self.grammar.lines += skiptows_chars(buf, &mut n, '(', true, false);
             if buf[n] != '(' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             n += 1;
             self.grammar.lines += skipws_chars(buf, &mut n, '\0', '\0', false);
             *pos = n;
-            self.maybe_quoted(buf, &mut n, *pos);
+            self.maybe_quoted(buf, &mut n, *pos)?;
             self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
             let ltok: String = buf[*pos..n].iter().collect();
-            let left = self.parse_tag(&ltok, &buf[*pos..]);
+            let left = self.parse_tag(&ltok, &buf[*pos..])?;
             self.grammar.lines += skipws_chars(buf, &mut n, '\0', '\0', false);
             *pos = n;
             if buf[*pos] == ')' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
-            self.maybe_quoted(buf, &mut n, *pos);
+            self.maybe_quoted(buf, &mut n, *pos)?;
             self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
             let rtok: String = buf[*pos..n].iter().collect();
-            let right = self.parse_tag(&rtok, &buf[*pos..]);
+            let right = self.parse_tag(&rtok, &buf[*pos..])?;
             self.grammar.lines += skipws_chars(buf, &mut n, '\0', '\0', false);
             *pos = n;
             if buf[*pos] != ')' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -303,15 +308,21 @@ impl TextualParser {
             self.grammar.parentheses_reverse.insert(rh.get(), lh.get());
         }
         if self.grammar.parentheses.is_empty() {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
+        Ok(())
     }
 
-    pub(crate) fn parse_include(&mut self, buf: &[char], pos: &mut usize, fname: &str) {
+    pub(crate) fn parse_include(
+        &mut self,
+        buf: &[char],
+        pos: &mut usize,
+        fname: &str,
+    ) -> ParseResult {
         *pos += 7;
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
 
@@ -328,7 +339,7 @@ impl TextualParser {
         *pos = n;
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
 
         let mut abspath = incname.clone();
@@ -375,25 +386,26 @@ impl TextualParser {
         let saved_only = self.only_sets;
         let saved_end = self.parse_end_break;
         self.only_sets = local_only_sets;
-        self.parse_from_u_char(gi2, abspath);
+        self.parse_from_u_char(gi2, abspath)?;
         self.parse_end_break = saved_end;
         self.only_sets = saved_only;
         self.cur_grammar_n = saved_cur_grammar_n;
         self.cur_grammar_buf = saved_cur_grammar;
         self.filebase = saved_filebase;
         self.grammar.lines = saved_lines;
+        Ok(())
     }
 
-    fn make_magic_set(&mut self, name: &str) -> SetId {
+    fn make_magic_set(&mut self, name: &str) -> ParseResult<SetId> {
         let set_c = self.grammar.allocate_set();
         self.grammar.sets_list[set_c.0].line = 0;
         self.grammar.sets_list[set_c.0].name = name.to_string();
-        let t = self.parse_tag(name, &[]);
+        let t = self.parse_tag(name, &[])?;
         self.grammar.add_tag_to_set(t, set_c);
-        self.grammar.add_set(set_c)
+        Ok(self.grammar.add_set(set_c))
     }
 
-    fn resolve_varstring(&mut self, tid: TagId) {
+    fn resolve_varstring(&mut self, tid: TagId) -> ParseResult {
         let tagstr = self.grammar.single_tags_list[tid.0].tag.clone();
         let mut tbuf: Vec<char> = vec!['\0'];
         tbuf.extend(tagstr.chars());
@@ -409,7 +421,7 @@ impl TextualParser {
                     self.grammar.single_tags_list[tid.0].allocate_vs_names();
                     p += 1;
                     let theset: String = tbuf[p..n].iter().collect();
-                    let tmp = self.parse_set(&theset, &tbuf[p..]);
+                    let tmp = self.parse_set(&theset, &tbuf[p..])?;
                     let setname = self.grammar.sets_list[tmp.0].name.clone();
                     self.grammar.single_tags_list[tid.0]
                         .vs_sets
@@ -430,6 +442,7 @@ impl TextualParser {
                 break;
             }
         }
+        Ok(())
     }
 
     fn numeric_branch_split(&mut self) {
@@ -529,7 +542,7 @@ impl TextualParser {
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
-    fn parse_from_u_char(&mut self, gi: usize, fname: String) {
+    fn parse_from_u_char(&mut self, gi: usize, fname: String) -> ParseResult {
         // Clone the shared handle (a refcount bump) so `buf` is owned and does
         // NOT borrow `self`; the char data is immutable, so `#include` may push
         // new `grammarbufs` entries while this parse is in flight without
@@ -582,20 +595,24 @@ impl TextualParser {
         self.filebase = basename(Some(&fname)).to_string();
         self.parse_end_break = false;
 
+        // [spec:cg3:req:errors.parse-reports-all]
+        // A recoverable parse error is RESUMABLE, so this loop records it and
+        // carries on rather than propagating — the one frame in the parser that
+        // cannot use `?`. It is what makes a bad grammar report all of its
+        // errors instead of only the first
+        // (`[spec:cg3:req:errors.parse-reports-all]`).
         while buf[pos] != '\0' {
             let ast_depth = self.ast.cursor_depth();
-            let r = panic::catch_unwind(AssertUnwindSafe(|| {
-                self.parse_directive(buf, &mut pos, &fname);
-            }));
-            if let Err(e) = r {
-                if e.is::<ParseError>() {
-                    // C++ stack unwinding runs every in-scope ~ASTHelper();
-                    // restore the AST cursor to the pre-directive depth.
-                    self.ast.truncate_cursor(ast_depth);
-                    self.grammar.lines += skipln_chars(buf, &mut pos);
-                } else {
-                    panic::resume_unwind(e);
+            if let Err(e) = self.parse_directive(buf, &mut pos, &fname) {
+                // The C++ unwound here, which ran every in-scope ~ASTHelper();
+                // restore the AST cursor to the pre-directive depth by hand.
+                self.ast.truncate_cursor(ast_depth);
+                self.record(e);
+                if self.error_count() >= MAX_PARSE_ERRORS {
+                    tracing::error!("{}: Too many errors - giving up...", self.filebase);
+                    break;
                 }
+                self.grammar.lines += skipln_chars(buf, &mut pos);
             }
             if self.parse_end_break {
                 break;
@@ -603,26 +620,27 @@ impl TextualParser {
         }
 
         ast_grammar.close_id(&mut self.ast, pos, id);
+        Ok(())
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-grammar-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-grammar-fn]
-    fn parse_grammar_data(&mut self, gi: usize) -> i32 {
+    fn parse_grammar_data(&mut self, gi: usize) -> ParseResult {
         // 1. START anchor at rule 0.
         self.grammar
             .add_anchor(KEYWORDS_STR[Keywords::KStart as usize], 0, true);
         // 2. Magic * tag.
-        let tany = self.parse_tag(STR_ASTERIK, &[]);
+        let tany = self.parse_tag(STR_ASTERIK, &[])?;
         self.grammar.tag_any = self.grammar.single_tags_list[tany.0].hash.get();
         // 3. Dummy set.
         self.grammar.allocate_dummy_set();
         // 4. Magic sets.
-        self.make_magic_set(STR_UU_TARGET);
-        self.make_magic_set(STR_UU_MARK);
-        self.make_magic_set(STR_UU_ATTACHTO);
-        let s_left = self.make_magic_set(STR_UU_LEFT);
-        let s_right = self.make_magic_set(STR_UU_RIGHT);
-        self.make_magic_set(STR_UU_ENCL);
+        self.make_magic_set(STR_UU_TARGET)?;
+        self.make_magic_set(STR_UU_MARK)?;
+        self.make_magic_set(STR_UU_ATTACHTO)?;
+        let s_left = self.make_magic_set(STR_UU_LEFT)?;
+        let s_right = self.make_magic_set(STR_UU_RIGHT)?;
+        self.make_magic_set(STR_UU_ENCL)?;
         {
             let set_c = self.grammar.allocate_set();
             self.grammar.sets_list[set_c.0].line = 0;
@@ -634,14 +652,14 @@ impl TextualParser {
             self.grammar.sets_list[set_c.0].sets.push(rh);
             self.grammar.add_set(set_c);
         }
-        self.make_magic_set(STR_UU_SAME_BASIC);
+        self.make_magic_set(STR_UU_SAME_BASIC)?;
         for name in STR_UU_C {
-            self.make_magic_set(name);
+            self.make_magic_set(name)?;
         }
 
         // 5. Parse the grammar text.
         let fname = self.filename.clone();
-        self.parse_from_u_char(gi, fname);
+        self.parse_from_u_char(gi, fname)?;
 
         // 6. END anchor at the last rule number.
         let end_at = ui32(self.grammar.rule_by_number.capacity().wrapping_sub(1));
@@ -680,8 +698,9 @@ impl TextualParser {
                     continue;
                 }
                 if self.grammar.anchors.find(thash.get()) == self.grammar.anchors.end() {
-                    tracing::error!("Error: JUMP could not find anchor.");
-                    self.error_counter += 1;
+                    self.record(
+                        self.parse_error_at(String::new(), crate::error::ParseErrorKind::Syntax),
+                    );
                 }
             }
         }
@@ -699,7 +718,7 @@ impl TextualParser {
             if !ty.intersects(T_VARSTRING) {
                 continue;
             }
-            self.resolve_varstring(*tid);
+            self.resolve_varstring(*tid)?;
         }
 
         // 10. Resolve deferred template refs.
@@ -717,7 +736,10 @@ impl TextualParser {
                     name,
                     line
                 );
-                self.error_counter += 1;
+                self.record(self.parse_error_at(
+                    String::new(),
+                    crate::error::ParseErrorKind::UnknownTemplate { name: name.clone() },
+                ));
                 continue;
             }
             let real = self.grammar.templates[&cn];
@@ -730,7 +752,7 @@ impl TextualParser {
         // 12. num_tags.
         self.grammar.num_tags = self.grammar.single_tags_list.capacity() as usize;
 
-        self.error_counter
+        Ok(())
     }
 
     /// C++ `int parse_grammar(const char* buffer, size_t length)` (UTF-8 memory
@@ -753,12 +775,20 @@ impl TextualParser {
         // them at this parse boundary and surface as `Err(Cg3Error)` carrying the
         // exact exit code. A per-directive `ParseError` is already recovered inside
         // `parse_from_u_char`; only a boundary escape reaches `catch_fatal`.
-        match crate::error::catch_fatal(|| self.parse_grammar_data(gi))? {
-            0 => Ok(()),
-            count => Err(crate::error::GrammarError::Parse {
-                count: count as u32,
+        // A recoverable error stops only its own directive; the loop records
+        // it and continues, so `Ok` here still means "found errors" if any were
+        // accumulated. A hard error is one the parser could not resume from.
+        if let Err(hard) = crate::error::catch_fatal(|| self.parse_grammar_data(gi))? {
+            self.record(hard);
+        }
+        let errors = self.take_errors();
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(crate::error::GrammarError::Parse {
+                count: errors.len() as u32,
             }
-            .into()),
+            .into())
         }
     }
 }

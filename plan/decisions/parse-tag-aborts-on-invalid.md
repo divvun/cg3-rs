@@ -1,13 +1,14 @@
 ---
 id [dec:cg3:parse-tag-aborts-on-invalid]
 epitome "parse_tag aborts on invalid input everywhere, dropping the applicator's inherited fall-through."
-state @tentative
+state @decided
 category @property
 scope {
     elements ([arch:cg3:tag-parsing])
     rules ([spec:cg3:req:errors.result-primary] [spec:cg3:req:errors.context])
 }
 author "brendan@necessary.nu"
+decided_at "2026-08-14T00:00:00Z"
 alternatives (
     {
         option "Preserve the asymmetry with a typed recovery signal (`ControlFlow`, or an associated `Recovery` type on the trait)."
@@ -25,7 +26,7 @@ consequences {
         "This is the only intentional divergence from C++ behaviour in the project, so it is gated on characterisation tests that pin today's behaviour BEFORE the parser converts, not after."
     )
     deferred (
-        "Characterisation found the empty-tag path does not fall through benignly: it reaches `inlines::is_textual`, which indexes an empty slice and panics. That case is a clear fix. The two paths that DO intern today — a `(`-leading tag and one whose regex will not compile — change from producing a tag to producing an error, and whether any real grammar depends on that is still open. The evidence that closes it is the golden and Apertium suites passing after the parser conversion; until then this stays tentative."
+        "The corpus exercises none of the three affected paths directly, so the suites passing is evidence that nothing depended on the old behaviour rather than proof that nothing could. A grammar in the wild that relies on a malformed varstring tag being interned would now fail to build that tag."
     )
 }
 edges {
@@ -58,9 +59,7 @@ that just failed validation is hard to defend, and the diagnostic printed
 alongside it says as much — but it is a behaviour change to a shipped engine,
 and "very likely a fix" is not evidence.
 
-So this decision is `tentative` rather than `decided`, and it is gated on
-characterisation. That phase has now run, and it strengthens the case without
-closing it.
+This decision was gated on characterisation, and both halves have now run.
 
 Three of the six sites are reachable from the applicator. The empty-tag guard
 turns out not to fall through benignly at all: execution continues into
@@ -69,14 +68,14 @@ own doc comment admits the provenance — "Panics on empty `s` (C++ front()/back
 on empty is UB)". So on that path the fall-through reproduces undefined
 behaviour as a crash, and converting the site to `?` removes it outright.
 
-The other two — a `(`-leading tag and one whose regex will not compile — do
-intern today, and under the conversion would stop. Nothing in the ported corpus
-exercises them, which is weak evidence rather than none: the suites cannot fail
-on behaviour they never reach. The evidence that closes this is those suites
-still passing once the parser conversion lands, at which point the decision
-moves to `decided`. If they break, the rejected alternative — a typed recovery
-signal letting each implementation state its own semantics — is already
-specified and takes its place.
+The other two — a `(`-leading tag and one whose regex will not compile — did
+intern, and now stop. The second is the more telling: it produced a tag with no
+compiled regex, one that could never match the thing it named. The golden and
+Apertium suites pass unchanged either side of the conversion, which is what
+moved this to `decided`.
 
-The state of this record is therefore the project's gate, not decoration. It
-must not reach `decided` on the strength of the argument alone.
+That evidence is real but bounded: the corpus never reaches these paths, so it
+shows nothing depended on the old behaviour rather than proving nothing could. A
+grammar in the wild that relies on a malformed varstring tag being interned will
+now not get that tag. Given the alternative was inherited UB, that trade is
+worth making explicitly rather than by default.

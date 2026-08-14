@@ -1596,6 +1596,7 @@ children (
                 priority 0
                 kind @test
                 deps (errors-idiomatic.spec)
+                sealed true
                 log (
                     {
                         at 2026-08-14T11:44:02.402327Z
@@ -1609,6 +1610,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-14T13:34:37.671473Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
@@ -1635,6 +1643,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @note
                         text "Scope corrected: the add_tag propagation is now errors-idiomatic.add-tag-propagation, not part of this node. This node converts the parser tree (30 signatures, 121 sites in textual_parser/* and parser_helpers) and changes ParseTagState::error_near to return a ParseError. Matcher::add_tag handles the resulting Err locally for now. Without that split this node would have spanned a further 81 call sites in the applicators."
+                    }
+
+                    {
+                        at 2026-08-14T13:35:02.79889Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
                     }
                 )
             }

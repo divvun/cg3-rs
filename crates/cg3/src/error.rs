@@ -61,7 +61,10 @@ pub enum ParseErrorKind {
     /// separate work.
     #[error("syntax error")]
     Syntax,
-    #[error("cannot compile tag regex")]
+    /// The cause is in the message AND in `source()`: the message so a log
+    /// reader sees which construct failed, `source()` so a consumer can inspect
+    /// it without parsing text.
+    #[error("{cause}")]
     TagRegex {
         #[source]
         cause: Box<TagRegexError>,
@@ -230,26 +233,15 @@ pub fn cg3_exit(code: i32) -> ! {
     panic::panic_any(Cg3Exit(code))
 }
 
-/// Is this panic payload one of ours — an unwind used as control flow, which is
-/// always caught and whose diagnostic was already printed at its site?
-// [spec:cg3:req:errors.control-flow-quiet]
-fn is_control_flow_payload(payload: &(dyn std::any::Any + Send)) -> bool {
-    payload.is::<Cg3Exit>() || payload.is::<crate::textual_parser::ParseError>()
-}
-
 /// Keep the parser's `throw`-port control flow off stderr.
 ///
-/// [`crate::textual_parser::ParseError`] ports the C++ `throw int` that
-/// `parseFromUChar` catches once per directive to recover and continue. It is
-/// raised with `panic_any`, so the default panic hook prints
-/// `thread 'main' panicked ... Box<dyn Any>` for EVERY recoverable parse error
-/// — before the catch a few frames up swallows it. A CLI never saw this because
-/// [`run_cli`] installed a filter; an embedder calling a parse entry point
-/// directly got panic noise, reading like a crash, for an ordinary bad grammar.
+/// The parser's recoverable errors no longer unwind, so the only payload left
+/// to suppress is [`Cg3Exit`] — the unconverted `CG3Quit` sites. This filter
+/// disappears with them in `errors-idiomatic.teardown`.
 ///
-/// The filter is installed once, chains to whatever hook was already set, and
-/// suppresses ONLY the two payloads this crate raises and always catches. Every
-/// other panic — including a genuine bug in this crate — prints as usual.
+/// Installed once, chains to whatever hook was already set, and suppresses ONLY
+/// the payload this crate raises and always catches. Every other panic —
+/// including a genuine bug in this crate — prints as usual.
 ///
 /// Installing a process-global hook from library code is a real side effect, so
 /// it happens at the boundaries that can actually observe these payloads
@@ -261,7 +253,7 @@ pub fn install_panic_filter() {
     INSTALL.call_once(|| {
         let default_hook = panic::take_hook();
         panic::set_hook(Box::new(move |info| {
-            if !is_control_flow_payload(info.payload()) {
+            if !info.payload().is::<Cg3Exit>() {
                 default_hook(info);
             }
         }));
@@ -275,11 +267,6 @@ pub fn catch_fatal<T>(body: impl FnOnce() -> T) -> Result<T, Cg3Error> {
         Err(e) => {
             if let Some(exit) = e.downcast_ref::<Cg3Exit>() {
                 return Err(Cg3Error::from(*exit));
-            }
-            if e.is::<crate::textual_parser::ParseError>() {
-                // A ParseError that unwinds out of the parser boundary is the
-                // C++ `throw int` reaching the top — a fatal exit(1).
-                return Err(Cg3Error::fatal(1, None));
             }
             panic::resume_unwind(e)
         }

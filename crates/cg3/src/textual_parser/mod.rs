@@ -17,11 +17,15 @@
 //!   parse is in flight). The char data is never mutated after creation, so the
 //!   shared handle is faithful to the C++ raw pointers into stable
 //!   `unique_ptr<UString>` buffers.
-//! * **Errors / exceptions.** The C++ `error(...)` is `[[noreturn]]` and throws
-//!   an `int` caught by the per-statement `try/catch(int)` in `parseFromUChar`
-//!   (which recovers by skipping to the next line). Ported with `panic_any`
-//!   ([`ParseError`]) + [`catch_unwind`] in `parse_from_u_char`; a non-`ParseError`
-//!   payload is re-raised. `incErrorCount`'s `>= 10` bail is `cg3_quit` (exit).
+//! * **Errors.** The C++ `error(...)` is `[[noreturn]]` and throws an `int`
+//!   caught per statement by `parseFromUChar`, which recovers by skipping to the
+//!   next line. Here [`TextualParser::error_near`] RETURNS the error and every
+//!   call site propagates it with `?` — see `[dec:cg3:results-not-unwinding]`.
+//!   The one frame that cannot use `?` is `parse_from_u_char`'s directive loop,
+//!   which records the error and carries on, because a recoverable parse error
+//!   is resumable and a bad grammar must report all of them
+//!   (`[spec:cg3:req:errors.parse-reports-all]`). `incErrorCount`'s `>= 10` bail
+//!   is [`MAX_PARSE_ERRORS`], which now stops the loop instead of exiting.
 //! * **AST.** `parse_ast` (the `--dump-ast` capture) is gated on the thread-local
 //!   in `crate::ast`. SCOPE REDUCTION: only the root `AST_Grammar` node is opened
 //!   here (via [`ASTHelper`]); the ~120 inner `AST_OPEN`/`AST_CLOSE` sites are
@@ -36,7 +40,6 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write;
-use std::panic::{self};
 
 use regex::Regex;
 
@@ -52,7 +55,7 @@ use crate::contextual_test::{
     POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, PosJumpPos,
 };
 use crate::grammar::Grammar;
-use crate::inlines::{cg3_quit, hash_value_ustring, isspace, skiptows_chars, skipws_chars, ui32};
+use crate::inlines::{hash_value_ustring, isspace, skiptows_chars, skipws_chars, ui32};
 use crate::rule::{
     FLAGS_COUNT, RF_AFTER, RF_ALLOWLOOP, RF_BEFORE, RF_DELAYED, RF_ENCL_ANY, RF_ENCL_FINAL,
     RF_ENCL_INNER, RF_ENCL_OUTER, RF_IGNORED, RF_IMMEDIATE, RF_ITERATE, RF_KEEPORDER,
@@ -277,12 +280,13 @@ struct DynBitset {
     sub_reading: i32,
 }
 
-/// Panic payload for the `error(...)` / `catch(int)` control flow. The C++
-/// `throw error_counter` is caught by TYPE only (an unnamed `catch (int)`), so
-/// the thrown count is never observed — a unit payload models that exactly.
-/// `pub(crate)` so the CLI panic hook (crate::error::run_cli) can silence it
-/// like the C++ caught exception (which printed nothing).
-pub(crate) struct ParseError;
+/// How many recoverable errors a parse reports before giving up. The C++
+/// `incErrorCount` bailed at the same count with `CG3Quit(1)`.
+pub(crate) const MAX_PARSE_ERRORS: usize = 10;
+
+/// What every parser function returns: a value, or the recoverable error that
+/// stopped it. The C++ signalled these by throwing.
+pub(crate) type ParseResult<T = ()> = Result<T, crate::error::ParseError>;
 
 // ---------------------------------------------------------------------------
 // Free helpers.
@@ -508,7 +512,10 @@ pub struct TextualParser {
     num_grammars: u32,
     deferred_tmpls: DeferredTests,
     grammarbufs: Vec<crate::ast::SrcBuf>,
-    error_counter: i32,
+    /// Every recoverable parse error found, in source order —
+    /// `[spec:cg3:req:errors.parse-reports-all]`. Replaces the C++
+    /// `error_counter`, which was thrown and never read.
+    errors: Vec<crate::error::ParseError>,
     /// Signals the `END` directive breaking the `parseFromUChar` loop.
     parse_end_break: bool,
     pub nrules: Option<Regex>,
@@ -561,7 +568,7 @@ impl TextualParser {
             num_grammars: 0,
             deferred_tmpls: HashMap::new(),
             grammarbufs: Vec::new(),
-            error_counter: 0,
+            errors: Vec::new(),
             parse_end_break: false,
             nrules: None,
             nrules_inv: None,
@@ -609,40 +616,57 @@ impl TextualParser {
         }
     }
 
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.inc-error-count-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.inc-error-count-fn]
-    fn inc_error_count(&mut self) -> ! {
-        let _ = std::io::stderr().flush();
-        self.error_counter += 1;
-        if self.error_counter >= 10 {
-            tracing::error!("{}: Too many errors - giving up...", self.filebase);
-            cg3_quit(1, None, 0);
+    /// How many recoverable errors have been recorded.
+    pub(crate) fn error_count(&self) -> usize {
+        self.errors.len()
+    }
+
+    /// Take the accumulated errors, leaving the parser empty.
+    pub(crate) fn take_errors(&mut self) -> Vec<crate::error::ParseError> {
+        std::mem::take(&mut self.errors)
+    }
+
+    /// Record a recoverable error and report it, exactly once.
+    ///
+    /// The C++ printed at the raise site and threw; recording is now the single
+    /// point where an error becomes final, so it is also the single point that
+    /// prints.
+    pub(crate) fn record(&mut self, e: crate::error::ParseError) {
+        tracing::error!("{e}");
+        self.errors.push(e);
+    }
+
+    /// Build a parse error at the current position.
+    pub(crate) fn parse_error_at(
+        &self,
+        near: String,
+        kind: crate::error::ParseErrorKind,
+    ) -> crate::error::ParseError {
+        crate::error::ParseError {
+            file: self.filebase.clone(),
+            line: self.grammar.lines,
+            near,
+            kind,
         }
-        panic::panic_any(ParseError)
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.error-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn]
-    /// The `(str, const UChar* p)` error overload (the near-context form the vast
-    /// majority of sites use). `near` is the buffer tail at `p`. Diagnostics text
-    /// is simplified; the control flow (near-context copy + `incErrorCount`) is
-    /// faithful.
-    pub fn error_near(&mut self, near: &[char]) -> ! {
+    /// The `(str, const UChar* p)` error overload (the near-context form the
+    /// vast majority of sites use). `near` is the buffer tail at `p`.
+    ///
+    /// Returns the error rather than diverging: the C++ `throw` is now a
+    /// `return Err(..)` at each call site — `[dec:cg3:results-not-unwinding]`.
+    // [spec:cg3:req:errors.result-primary]
+    pub fn error_near(&mut self, near: &[char]) -> crate::error::ParseError {
         ux_bufcpy(&mut self.nearbuf, Some(near), 20);
-        let nb: String = self.nearbuf.iter().take_while(|&&c| c != '\0').collect();
-        tracing::error!(
-            "{}: Error on line {} near `{}`!",
-            self.filebase,
-            self.grammar.lines,
-            nb
-        );
-        self.inc_error_count()
+        let near_text: String = self.nearbuf.iter().take_while(|&&c| c != '\0').collect();
+        self.parse_error_at(near_text, crate::error::ParseErrorKind::Syntax)
     }
 
     /// The `(str)` overload (no near-context; used by the SUB:* guard).
-    fn error_bare(&mut self) -> ! {
-        tracing::error!("{}: Error on line {}!", self.filebase, self.grammar.lines);
-        self.inc_error_count()
+    fn error_bare(&mut self) -> crate::error::ParseError {
+        self.parse_error_at(String::new(), crate::error::ParseErrorKind::Syntax)
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.add-tag-fn]
@@ -652,26 +676,27 @@ impl TextualParser {
     }
 
     /// C++ `MAYBE_QUOTED(n, p)` macro: skip a `"..."` span if `n` is at a quote.
-    fn maybe_quoted(&mut self, buf: &[char], n: &mut usize, near_pos: usize) {
+    fn maybe_quoted(&mut self, buf: &[char], n: &mut usize, near_pos: usize) -> ParseResult {
         if buf[*n] == '"' {
             *n += 1;
             crate::inlines::skipto_nospan_chars(buf, n, '"');
             if buf[*n] != '"' {
-                self.error_near(&buf[near_pos..]);
+                return Err(self.error_near(&buf[near_pos..]));
             }
         }
+        Ok(())
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-tag-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-fn]
-    pub fn parse_tag(&mut self, to: &str, near: &[char]) -> TagId {
-        let tag = crate::parser_helpers::parse_tag(to, near, self, true);
+    pub fn parse_tag(&mut self, to: &str, near: &[char]) -> ParseResult<TagId> {
+        let tag = crate::parser_helpers::parse_tag(to, near, self, true)?;
         let (ty, tagstr, plain) = {
             let t = &self.grammar.single_tags_list[tag.0];
             (t.r#type, t.tag.clone(), t.plain_hash)
         };
         if ty.intersects(T_VARSTRING) && !tagstr.contains('{') && !tagstr.contains('$') {
-            self.error_near(near); // "Varstring tag had no variables"
+            return Err(self.error_near(near)); // "Varstring tag had no variables"
         }
         if !self.strict_tags.empty() && self.strict_tags.count(plain.get()) == 0 {
             if ty.intersects(
@@ -695,34 +720,34 @@ impl TextualParser {
                 // Always allow >>> and <<<
             } else if ty.intersects(T_REGEXP | T_REGEXP_ANY) {
                 if self.strict_regex {
-                    self.error_near(near);
+                    return Err(self.error_near(near));
                 }
             } else if ty.intersects(T_CASE_INSENSITIVE) {
                 if self.strict_icase {
-                    self.error_near(near);
+                    return Err(self.error_near(near));
                 }
             } else if ty.intersects(T_WORDFORM) {
                 if self.strict_wforms {
-                    self.error_near(near);
+                    return Err(self.error_near(near));
                 }
             } else if ty.intersects(T_BASEFORM) {
                 if self.strict_bforms {
-                    self.error_near(near);
+                    return Err(self.error_near(near));
                 }
             } else if tagstr.starts_with('<') && tagstr.ends_with('>') {
                 if self.strict_second {
-                    self.error_near(near);
+                    return Err(self.error_near(near));
                 }
             } else {
-                self.error_near(near);
+                return Err(self.error_near(near));
             }
         }
-        tag
+        Ok(tag)
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-set-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-fn]
-    pub fn parse_set(&mut self, name: &str, near: &[char]) -> SetId {
+    pub fn parse_set(&mut self, name: &str, near: &[char]) -> ParseResult<SetId> {
         crate::parser_helpers::parse_set(name, near, self)
     }
 }
@@ -730,7 +755,13 @@ impl TextualParser {
 impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-tag-list-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-list-fn]
-    fn parse_tag_list(&mut self, buf: &[char], pos: &mut usize, s: SetId, ordered: bool) {
+    fn parse_tag_list(
+        &mut self,
+        buf: &[char],
+        pos: &mut usize,
+        s: SetId,
+        ordered: bool,
+    ) -> ParseResult {
         let mut taglists: BTreeSet<TagVector> = BTreeSet::new();
         let mut tag_freq: BTreeMap<TagId, usize> = BTreeMap::new();
 
@@ -743,24 +774,24 @@ impl TextualParser {
                     self.grammar.lines += skipws_chars(buf, pos, ';', ')', false);
                     while buf[*pos] != '\0' && buf[*pos] != ';' && buf[*pos] != ')' {
                         let mut n = *pos;
-                        self.maybe_quoted(buf, &mut n, *pos);
+                        self.maybe_quoted(buf, &mut n, *pos)?;
                         self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
                         let token: String = buf[*pos..n].iter().collect();
-                        let t = self.parse_tag(&token, &buf[*pos..]);
+                        let t = self.parse_tag(&token, &buf[*pos..])?;
                         tags.push(t);
                         *pos = n;
                         self.grammar.lines += skipws_chars(buf, pos, ';', ')', false);
                     }
                     if buf[*pos] != ')' {
-                        self.error_near(&buf[*pos..]);
+                        return Err(self.error_near(&buf[*pos..]));
                     }
                     *pos += 1;
                 } else {
                     let mut n = *pos;
-                    self.maybe_quoted(buf, &mut n, *pos);
+                    self.maybe_quoted(buf, &mut n, *pos)?;
                     self.grammar.lines += skiptows_chars(buf, &mut n, '\0', true, false);
                     let token: String = buf[*pos..n].iter().collect();
-                    let t = self.parse_tag(&token, &buf[*pos..]);
+                    let t = self.parse_tag(&token, &buf[*pos..])?;
                     tags.push(t);
                     *pos = n;
                 }
@@ -815,11 +846,17 @@ impl TextualParser {
                 trie_insert(&mut self.grammar.sets_list.get_mut(s.0).trie, &tv, 0);
             }
         }
+        Ok(())
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-set-inline-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-inline-fn]
-    fn parse_set_inline(&mut self, buf: &[char], pos: &mut usize, s: Option<SetId>) -> SetId {
+    fn parse_set_inline(
+        &mut self,
+        buf: &[char],
+        pos: &mut usize,
+        s: Option<SetId>,
+    ) -> ParseResult<SetId> {
         let mut s = s;
         let mut set_ops: Vec<u32> = Vec::new();
         let mut sets: Vec<u32> = Vec::new();
@@ -831,7 +868,7 @@ impl TextualParser {
                 if !wantop {
                     if buf[*pos] == '(' {
                         if self.no_isets && buf[*pos + 1] != '*' {
-                            self.error_near(&buf[*pos..]);
+                            return Err(self.error_near(&buf[*pos..]));
                         }
                         let n_open = *pos;
                         *pos += 1;
@@ -849,21 +886,21 @@ impl TextualParser {
                         while buf[*pos] != '\0' && buf[*pos] != ';' && buf[*pos] != ')' {
                             self.grammar.lines += skipws_chars(buf, pos, ';', ')', false);
                             let mut n = *pos;
-                            self.maybe_quoted(buf, &mut n, *pos);
+                            self.maybe_quoted(buf, &mut n, *pos)?;
                             self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
                             let token: String = buf[*pos..n].iter().collect();
-                            let t = self.parse_tag(&token, &buf[*pos..]);
+                            let t = self.parse_tag(&token, &buf[*pos..])?;
                             tags.push(t);
                             *pos = n;
                             self.grammar.lines += skipws_chars(buf, pos, ';', ')', false);
                         }
                         if buf[*pos] != ')' {
-                            self.error_near(&buf[*pos..]);
+                            return Err(self.error_near(&buf[*pos..]));
                         }
                         *pos += 1;
 
                         if tags.is_empty() {
-                            self.error_near(&buf[n_open..]);
+                            return Err(self.error_near(&buf[n_open..]));
                         } else if tags.len() == 1 {
                             self.grammar.add_tag_to_set(tags[0], set_c);
                         } else {
@@ -902,7 +939,7 @@ impl TextualParser {
                             n -= 1;
                         }
                         let token: String = buf[*pos..n].iter().collect();
-                        let tmp = self.parse_set(&token, &buf[*pos..]);
+                        let tmp = self.parse_set(&token, &buf[*pos..])?;
                         let sh = self.grammar.sets_list[tmp.0].hash;
                         sets.push(sh);
                         *pos = n;
@@ -1008,12 +1045,12 @@ impl TextualParser {
                     }
                 }
             } else if !wantop {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
         }
 
         if s.is_none() && sets.is_empty() {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
 
         if s.is_none() && sets.len() == 1 {
@@ -1031,14 +1068,14 @@ impl TextualParser {
             s = Some(sid);
         }
 
-        s.unwrap()
+        Ok(s.unwrap())
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-set-inline-wrapper-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-inline-wrapper-fn]
-    fn parse_set_inline_wrapper(&mut self, buf: &[char], pos: &mut usize) -> SetId {
+    fn parse_set_inline_wrapper(&mut self, buf: &[char], pos: &mut usize) -> ParseResult<SetId> {
         let tmplines = self.grammar.lines;
-        let s = self.parse_set_inline(buf, pos, None);
+        let s = self.parse_set_inline(buf, pos, None)?;
         if self.grammar.sets_list[s.0].line == 0 {
             self.grammar.sets_list[s.0].line = tmplines;
         }
@@ -1050,14 +1087,19 @@ impl TextualParser {
                 .get_mut(s.0)
                 .set_name(nm, &mut self.grammar.rand_state);
         }
-        self.grammar.add_set(s)
+        Ok(self.grammar.add_set(s))
     }
 }
 
 impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn]
-    fn parse_contextual_test_position(&mut self, buf: &[char], pos: &mut usize, t: CtxId) {
+    fn parse_contextual_test_position(
+        &mut self,
+        buf: &[char],
+        pos: &mut usize,
+        t: CtxId,
+    ) -> ParseResult {
         let mut negative = false;
         let mut had_digits = false;
 
@@ -1209,7 +1251,7 @@ impl TextualParser {
                 let mut nn = *pos;
                 skiptows_chars(buf, &mut nn, '(', false, false);
                 let token: String = buf[*pos..nn].iter().collect();
-                let tag = self.parse_tag(&token, &buf[*pos..]);
+                let tag = self.parse_tag(&token, &buf[*pos..])?;
                 self.grammar.contexts_arena[t.0].relation =
                     self.grammar.single_tags_list[tag.0].hash.get();
                 *pos = nn;
@@ -1308,26 +1350,26 @@ impl TextualParser {
         }
 
         if tries >= 100 {
-            self.error_near(&buf[n..]); // unknown specifier
+            return Err(self.error_near(&buf[n..])); // unknown specifier
         } else if tries >= 20 {
             tracing::warn!("{}: Warning: Position took many loops.", self.filebase);
         }
         if !isspace(buf[*pos]) {
-            self.error_near(&buf[n..]); // garbage data
+            return Err(self.error_near(&buf[n..])); // garbage data
         }
         if *pos - n == 1 && (buf[n] == 'o' || buf[n] == 'O') {
-            self.error_near(&buf[n..]); // stand-alone o/O
+            return Err(self.error_near(&buf[n..])); // stand-alone o/O
         }
 
         if had_digits {
             if posb.intersects(POS_DEP_CHILD | POS_DEP_SIBLING | POS_DEP_PARENT) {
-                self.error_near(&buf[n..]);
+                return Err(self.error_near(&buf[n..]));
             }
             if posb.intersects(POS_LEFT_PAR | POS_RIGHT_PAR) {
-                self.error_near(&buf[n..]);
+                return Err(self.error_near(&buf[n..]));
             }
             if posb.intersects(POS_RELATION) {
-                self.error_near(&buf[n..]);
+                return Err(self.error_near(&buf[n..]));
             }
         }
         if (posb.intersects(POS_BAG_OF_TAGS))
@@ -1340,25 +1382,25 @@ impl TextualParser {
                     | POS_SPAN_RIGHT),
             ) || had_digits)
         {
-            self.error_near(&buf[n..]);
+            return Err(self.error_near(&buf[n..]));
         }
         if (posb.intersects(POS_DEP_PARENT))
             && (!posb.intersects(POS_DEP_GLOB))
             && (posb.intersects(POS_LEFTMOST | POS_RIGHTMOST))
         {
-            self.error_near(&buf[n..]);
+            return Err(self.error_near(&buf[n..]));
         }
         if (posb.intersects(POS_PASS_ORIGIN)) && (posb.intersects(POS_NO_PASS_ORIGIN)) {
-            self.error_near(&buf[n..]);
+            return Err(self.error_near(&buf[n..]));
         }
         if (posb.intersects(POS_LEFT_PAR)) && (posb.intersects(POS_RIGHT_PAR)) {
-            self.error_near(&buf[n..]);
+            return Err(self.error_near(&buf[n..]));
         }
         if (posb.intersects(POS_ALL)) && (posb.intersects(POS_NONE)) {
-            self.error_near(&buf[n..]);
+            return Err(self.error_near(&buf[n..]));
         }
         if (posb.intersects(POS_UNKNOWN)) && (posb != POS_UNKNOWN || had_digits) {
-            self.error_near(&buf[n..]);
+            return Err(self.error_near(&buf[n..]));
         }
         if (posb.intersects(POS_SCANALL)) && (posb.intersects(POS_NOT)) {
             tracing::warn!("{}: Warning: mixing NOT and ** ...", self.filebase);
@@ -1370,6 +1412,7 @@ impl TextualParser {
 
         self.grammar.contexts_arena[t.0].pos = posb;
         self.grammar.contexts_arena[t.0].jump_pos = jump_pos;
+        Ok(())
     }
 }
 
@@ -1403,7 +1446,7 @@ impl TextualParser {
         pos: &mut usize,
         rule_flags: Option<crate::rule::RuleFlags>,
         in_tmpl: bool,
-    ) -> CtxId {
+    ) -> ParseResult<CtxId> {
         // C++ `AST_OPEN(Context)` — also the profiler's context span start.
         let ast_ctx_b = *pos;
         let mut ast_context = ASTHelper::new(
@@ -1449,15 +1492,15 @@ impl TextualParser {
         if ux_is_empty(&token) {
             // (1) Inline template.
             if self.no_itmpls {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos = n_peek;
             loop {
                 if buf[*pos] != '(' {
-                    self.error_near(&buf[*pos..]);
+                    return Err(self.error_near(&buf[*pos..]));
                 }
                 *pos += 1;
-                let ored = self.parse_contextual_test_list(buf, pos, rule_flags, true);
+                let ored = self.parse_contextual_test_list(buf, pos, rule_flags, true)?;
                 *pos += 1;
                 self.grammar.contexts_arena[t_cur.0].ors.push(ored);
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -1475,7 +1518,7 @@ impl TextualParser {
             // (2) Template shorthand [set, set, ...].
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-            let s = self.parse_set_inline_wrapper(buf, pos);
+            let s = self.parse_set_inline_wrapper(buf, pos)?;
             self.grammar.contexts_arena[t_cur.0].offset = 1;
             self.grammar.contexts_arena[t_cur.0].target =
                 SetNumber(self.grammar.sets_list[s.0].hash);
@@ -1484,7 +1527,7 @@ impl TextualParser {
                 *pos += 1;
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
                 let lnk = self.grammar.allocate_contextual_test();
-                let s2 = self.parse_set_inline_wrapper(buf, pos);
+                let s2 = self.parse_set_inline_wrapper(buf, pos)?;
                 self.grammar.contexts_arena[lnk.0].offset = 1;
                 self.grammar.contexts_arena[lnk.0].target =
                     SetNumber(self.grammar.sets_list[s2.0].hash);
@@ -1493,7 +1536,7 @@ impl TextualParser {
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
             if buf[*pos] != ']' {
-                self.error_near(&buf[*pos..]);
+                return Err(self.error_near(&buf[*pos..]));
             }
             *pos += 1;
         } else {
@@ -1506,7 +1549,7 @@ impl TextualParser {
             };
 
             if !goto_template {
-                self.parse_contextual_test_position(buf, pos, t_cur);
+                self.parse_contextual_test_position(buf, pos, t_cur)?;
                 *pos = n_peek;
                 let pb = self.grammar.contexts_arena[t_cur.0].pos;
                 if pb.intersects(POS_DEP_CHILD | POS_DEP_PARENT | POS_DEP_SIBLING) {
@@ -1525,7 +1568,7 @@ impl TextualParser {
                 tmpl_data = Some(self.parse_template_ref_body(buf, pos, t_cur));
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             } else {
-                let s = self.parse_set_inline_wrapper(buf, pos);
+                let s = self.parse_set_inline_wrapper(buf, pos)?;
                 self.grammar.contexts_arena[t_cur.0].target =
                     SetNumber(self.grammar.sets_list[s.0].hash);
             }
@@ -1534,7 +1577,7 @@ impl TextualParser {
             if simplecasecmp(buf, *pos, STR_CBARRIER) {
                 *pos += slen(STR_CBARRIER);
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-                let s = self.parse_set_inline_wrapper(buf, pos);
+                let s = self.parse_set_inline_wrapper(buf, pos)?;
                 self.grammar.contexts_arena[t_cur.0].cbarrier =
                     SetNumber(self.grammar.sets_list[s.0].hash);
             }
@@ -1542,7 +1585,7 @@ impl TextualParser {
             if simplecasecmp(buf, *pos, STR_BARRIER) {
                 *pos += slen(STR_BARRIER);
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-                let s = self.parse_set_inline_wrapper(buf, pos);
+                let s = self.parse_set_inline_wrapper(buf, pos)?;
                 self.grammar.contexts_arena[t_cur.0].barrier =
                     SetNumber(self.grammar.sets_list[s.0].hash);
             }
@@ -1567,7 +1610,7 @@ impl TextualParser {
         let mut linked = false;
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
         if simplecasecmp(buf, *pos, STR_AND) {
-            self.error_near(&buf[*pos..]); // AND deprecated
+            return Err(self.error_near(&buf[*pos..])); // AND deprecated
         }
         if simplecasecmp(buf, *pos, STR_LINK) {
             *pos += slen(STR_LINK);
@@ -1576,13 +1619,13 @@ impl TextualParser {
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
 
         if linked {
-            let l = self.parse_contextual_test_list(buf, pos, rule_flags, in_tmpl);
+            let l = self.parse_contextual_test_list(buf, pos, rule_flags, in_tmpl)?;
             self.grammar.contexts_arena[t_cur.0].linked = Some(l);
             if self.grammar.contexts_arena[t_cur.0]
                 .pos
                 .intersects(POS_NONE)
             {
-                self.error_near(&buf[*pos..]); // LINK from a NONE test
+                return Err(self.error_near(&buf[*pos..])); // LINK from a NONE test
             }
         } else if !in_tmpl
             && (self.grammar.contexts_arena[t_cur.0]
@@ -1627,19 +1670,25 @@ impl TextualParser {
         let t_hash = self.grammar.contexts_arena[t.0].hash;
         ast_context.close_id(&mut self.ast, *pos, t_hash);
 
-        t
+        Ok(t)
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-tests-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-tests-fn]
-    fn parse_contextual_tests(&mut self, buf: &[char], pos: &mut usize, rule: &mut Rule) {
+    fn parse_contextual_tests(
+        &mut self,
+        buf: &[char],
+        pos: &mut usize,
+        rule: &mut Rule,
+    ) -> ParseResult {
         let rf = rule.flags;
-        let t = self.parse_contextual_test_list(buf, pos, Some(rf), false);
+        let t = self.parse_contextual_test_list(buf, pos, Some(rf), false)?;
         if self.option_vislcg_compat && (self.grammar.contexts_arena[t.0].pos.intersects(POS_NOT)) {
             self.grammar.contexts_arena[t.0].pos &= !POS_NOT;
             self.grammar.contexts_arena[t.0].pos |= POS_NEGATE;
         }
         Rule::add_contextual_test(t, &mut rule.tests);
+        Ok(())
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-dependency-tests-fn]
@@ -1649,21 +1698,22 @@ impl TextualParser {
         buf: &[char],
         pos: &mut usize,
         rule: &mut Rule,
-    ) {
+    ) -> ParseResult {
         let rf = rule.flags;
-        let t = self.parse_contextual_test_list(buf, pos, Some(rf), false);
+        let t = self.parse_contextual_test_list(buf, pos, Some(rf), false)?;
         if self.option_vislcg_compat && (self.grammar.contexts_arena[t.0].pos.intersects(POS_NOT)) {
             self.grammar.contexts_arena[t.0].pos &= !POS_NOT;
             self.grammar.contexts_arena[t.0].pos |= POS_NEGATE;
         }
         Rule::add_contextual_test(t, &mut rule.dep_tests);
+        Ok(())
     }
 }
 
 impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-flags-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-flags-fn]
-    fn parse_rule_flags(&mut self, buf: &[char], pos: &mut usize) -> DynBitset {
+    fn parse_rule_flags(&mut self, buf: &[char], pos: &mut usize) -> ParseResult<DynBitset> {
         let mut rv = DynBitset::default();
 
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -1727,12 +1777,12 @@ impl TextualParser {
         for excl in FLAG_EXCLS_GROUPS {
             let bits = rv.flags & excl;
             if bits.bits().count_ones() > 1 {
-                self.error_near(&buf[lp..]);
+                return Err(self.error_near(&buf[lp..]));
             }
         }
 
         if rv.flags.intersects(RF_UNMAPLAST) && rv.flags.intersects(RF_SAFE) {
-            self.error_near(&buf[lp..]);
+            return Err(self.error_near(&buf[lp..]));
         }
 
         if rv.flags.intersects(RF_UNMAPLAST) {
@@ -1746,100 +1796,100 @@ impl TextualParser {
         }
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
 
-        rv
+        Ok(rv)
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.maybe-parse-rule-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.maybe-parse-rule-fn]
-    fn maybe_parse_rule(&mut self, buf: &[char], pos: &mut usize) -> bool {
+    fn maybe_parse_rule(&mut self, buf: &[char], pos: &mut usize) -> ParseResult<bool> {
         let p = *pos;
         // Longer names first; order-sensitive where one is a prefix of another.
         if is_icase_kw(buf, p, "ADDRELATIONS", "addrelations") != 0 {
-            self.parse_rule(buf, pos, Keywords::KAddrelations);
+            self.parse_rule(buf, pos, Keywords::KAddrelations)?;
         } else if is_icase_kw(buf, p, "SETRELATIONS", "setrelations") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSetrelations);
+            self.parse_rule(buf, pos, Keywords::KSetrelations)?;
         } else if is_icase_kw(buf, p, "REMRELATIONS", "remrelations") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemrelations);
+            self.parse_rule(buf, pos, Keywords::KRemrelations)?;
         } else if is_icase_kw(buf, p, "ADDRELATION", "addrelation") != 0 {
-            self.parse_rule(buf, pos, Keywords::KAddrelation);
+            self.parse_rule(buf, pos, Keywords::KAddrelation)?;
         } else if is_icase_kw(buf, p, "SETRELATION", "setrelation") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSetrelation);
+            self.parse_rule(buf, pos, Keywords::KSetrelation)?;
         } else if is_icase_kw(buf, p, "REMRELATION", "remrelation") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemrelation);
+            self.parse_rule(buf, pos, Keywords::KRemrelation)?;
         } else if is_icase_kw(buf, p, "SETVARIABLE", "setvariable") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSetvariable);
+            self.parse_rule(buf, pos, Keywords::KSetvariable)?;
         } else if is_icase_kw(buf, p, "REMVARIABLE", "remvariable") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemvariable);
+            self.parse_rule(buf, pos, Keywords::KRemvariable)?;
         } else if is_icase_kw(buf, p, "SETPARENT", "setparent") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSetparent);
+            self.parse_rule(buf, pos, Keywords::KSetparent)?;
         } else if is_icase_kw(buf, p, "SETCHILD", "setchild") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSetchild);
+            self.parse_rule(buf, pos, Keywords::KSetchild)?;
         } else if is_icase_kw(buf, p, "REMPARENT", "remparent") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemparent);
+            self.parse_rule(buf, pos, Keywords::KRemparent)?;
         } else if is_icase_kw(buf, p, "SWITCHPARENT", "switchparent") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSwitchparent);
+            self.parse_rule(buf, pos, Keywords::KSwitchparent)?;
         } else if is_icase_kw(buf, p, "RESTORE", "restore") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRestore);
+            self.parse_rule(buf, pos, Keywords::KRestore)?;
         } else if is_icase_kw(buf, p, "IFF", "iff") != 0 {
-            self.parse_rule(buf, pos, Keywords::KIff);
+            self.parse_rule(buf, pos, Keywords::KIff)?;
         } else if is_icase_kw(buf, p, "MAP", "map") != 0 {
-            self.parse_rule(buf, pos, Keywords::KMap);
+            self.parse_rule(buf, pos, Keywords::KMap)?;
         } else if is_icase_kw(buf, p, "ADD", "add") != 0 {
-            self.parse_rule(buf, pos, Keywords::KAdd);
+            self.parse_rule(buf, pos, Keywords::KAdd)?;
         } else if is_icase_kw(buf, p, "APPEND", "append") != 0 {
-            self.parse_rule(buf, pos, Keywords::KAppend);
+            self.parse_rule(buf, pos, Keywords::KAppend)?;
         } else if is_icase_kw(buf, p, "SELECT", "select") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSelect);
+            self.parse_rule(buf, pos, Keywords::KSelect)?;
         } else if is_icase_kw(buf, p, "REMOVE", "remove") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemove);
+            self.parse_rule(buf, pos, Keywords::KRemove)?;
         } else if is_icase_kw(buf, p, "REPLACE", "replace") != 0 {
-            self.parse_rule(buf, pos, Keywords::KReplace);
+            self.parse_rule(buf, pos, Keywords::KReplace)?;
         } else if is_icase_kw(buf, p, "SUBSTITUTE", "substitute") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSubstitute);
+            self.parse_rule(buf, pos, Keywords::KSubstitute)?;
         } else if is_icase_kw(buf, p, "COPYCOHORT", "copycohort") != 0 {
-            self.parse_rule(buf, pos, Keywords::KCopycohort);
+            self.parse_rule(buf, pos, Keywords::KCopycohort)?;
         } else if is_icase_kw(buf, p, "COPY", "copy") != 0 {
-            self.parse_rule(buf, pos, Keywords::KCopy);
+            self.parse_rule(buf, pos, Keywords::KCopy)?;
         } else if is_icase_kw(buf, p, "UNMAP", "unmap") != 0 {
-            self.parse_rule(buf, pos, Keywords::KUnmap);
+            self.parse_rule(buf, pos, Keywords::KUnmap)?;
         } else if is_icase_kw(buf, p, "PROTECT", "protect") != 0 {
-            self.parse_rule(buf, pos, Keywords::KProtect);
+            self.parse_rule(buf, pos, Keywords::KProtect)?;
         } else if is_icase_kw(buf, p, "UNPROTECT", "unprotect") != 0 {
-            self.parse_rule(buf, pos, Keywords::KUnprotect);
+            self.parse_rule(buf, pos, Keywords::KUnprotect)?;
         } else if is_icase_kw(buf, p, "DELIMIT", "delimit") != 0 {
-            self.parse_rule(buf, pos, Keywords::KDelimit);
+            self.parse_rule(buf, pos, Keywords::KDelimit)?;
         } else if is_icase_kw(buf, p, "JUMP", "jump") != 0 {
-            self.parse_rule(buf, pos, Keywords::KJump);
+            self.parse_rule(buf, pos, Keywords::KJump)?;
         } else if is_icase_kw(buf, p, "MOVE", "move") != 0 {
-            self.parse_rule(buf, pos, Keywords::KMove);
+            self.parse_rule(buf, pos, Keywords::KMove)?;
         } else if is_icase_kw(buf, p, "SWITCH", "switch") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSwitch);
+            self.parse_rule(buf, pos, Keywords::KSwitch)?;
         } else if is_icase_kw(buf, p, "EXECUTE", "execute") != 0 {
-            self.parse_rule(buf, pos, Keywords::KExecute);
+            self.parse_rule(buf, pos, Keywords::KExecute)?;
         } else if is_icase_kw(buf, p, "EXTERNAL", "external") != 0 {
-            self.parse_rule(buf, pos, Keywords::KExternal);
+            self.parse_rule(buf, pos, Keywords::KExternal)?;
         } else if is_icase_kw(buf, p, "REMCOHORT", "remcohort") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemcohort);
+            self.parse_rule(buf, pos, Keywords::KRemcohort)?;
         } else if is_icase_kw(buf, p, "ADDCOHORT", "addcohort") != 0 {
-            self.parse_rule(buf, pos, Keywords::KAddcohort);
+            self.parse_rule(buf, pos, Keywords::KAddcohort)?;
         } else if is_icase_kw(buf, p, "SPLITCOHORT", "splitcohort") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSplitcohort);
+            self.parse_rule(buf, pos, Keywords::KSplitcohort)?;
         } else if is_icase_kw(buf, p, "MERGECOHORTS", "mergecohorts") != 0 {
-            self.parse_rule(buf, pos, Keywords::KMergecohorts);
+            self.parse_rule(buf, pos, Keywords::KMergecohorts)?;
         } else if is_icase_kw(buf, p, "RESTORE", "restore") != 0 {
             // Dead duplicate branch (never reached — the first RESTORE wins).
-            self.parse_rule(buf, pos, Keywords::KRestore);
+            self.parse_rule(buf, pos, Keywords::KRestore)?;
         } else if is_icase_kw(buf, p, "WITH", "with") != 0 {
-            self.parse_rule(buf, pos, Keywords::KWith);
+            self.parse_rule(buf, pos, Keywords::KWith)?;
         } else {
-            return false;
+            return Ok(false);
         }
-        true
+        Ok(true)
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-anchorish-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-anchorish-fn]
-    fn parse_anchorish(&mut self, buf: &[char], pos: &mut usize, rule_flags: bool) {
+    fn parse_anchorish(&mut self, buf: &[char], pos: &mut usize, rule_flags: bool) -> ParseResult {
         if buf[*pos] != ':' {
             let mut n = *pos;
             self.grammar.lines += skiptows_chars(buf, &mut n, '\0', true, false);
@@ -1854,12 +1904,13 @@ impl TextualParser {
         self.grammar.lines += skipws_chars(buf, pos, ':', '\0', false);
         if rule_flags && buf[*pos] == ':' {
             *pos += 1;
-            self.section_flags = self.parse_rule_flags(buf, pos);
+            self.section_flags = self.parse_rule_flags(buf, pos)?;
         }
 
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            self.error_near(&buf[*pos..]);
+            return Err(self.error_near(&buf[*pos..]));
         }
+        Ok(())
     }
 }
