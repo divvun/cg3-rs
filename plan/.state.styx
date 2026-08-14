@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-14T10:13:48.791798Z
+last_sync_at 2026-08-14T10:27:10.326885Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -17,9 +17,10 @@ rule_versions (
     {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
     {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     {id tag-regex.engine, version 0}
-    {id tag-regex.icu-translation, version 0}
+    {id tag-regex.icu-translation, version 1}
     {id tag-regex.silent-divergence, version 0}
     {id tag-regex.single-seam, version 0}
+    {id tag-regex.source-fidelity, version 0}
     {id tools.build-provenance, version 0}
     {id tools.divvun-version-banner, version 2}
 )
@@ -136,6 +137,15 @@ impl_evidence (
         {id grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn, version 0}
         {id grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn, version 0}
     )}
+    {id icu-regex-parity.anchor-fidelity, covered_rules (
+        tag-regex.source-fidelity
+    ), covered_claims (
+        {impl_name target-impl, rule tag-regex.source-fidelity}
+    ), rule_versions_seen (
+        {id tag-regex.engine, version 0}
+        {id tag-regex.single-seam, version 0}
+        {id tag-regex.source-fidelity, version 0}
+    )}
     {id icu-regex-parity.impl, covered_rules (
         errors.parse-result
         errors.tag-regex-diagnostic
@@ -154,7 +164,7 @@ impl_evidence (
         {id errors.parse-result, version 0}
         {id errors.tag-regex-diagnostic, version 0}
         {id tag-regex.engine, version 0}
-        {id tag-regex.icu-translation, version 0}
+        {id tag-regex.icu-translation, version 1}
         {id tag-regex.silent-divergence, version 0}
         {id tag-regex.single-seam, version 0}
     )}
@@ -201,10 +211,5 @@ impl_evidence (
     ), rule_versions_seen (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
-    )}
-    {id icu-regex-parity.anchor-fidelity, covered_rules (
-        tag-regex.source-fidelity
-    ), covered_claims (
-        {impl_name target-impl, rule tag-regex.source-fidelity}
     )}
 )

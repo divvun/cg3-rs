@@ -311,7 +311,7 @@ fn escape_literal(s: &str) -> String {
 /// Single pass, because `\Q...\E` spans suppress all other interpretation: a
 /// `\Z` inside a quoted span is literal text, so detection and translation
 /// cannot be separate passes over the same string.
-// [spec:cg3:req:tag-regex.icu-translation]
+// [spec:cg3:req:tag-regex.icu-translation+1]
 // [spec:cg3:req:tag-regex.silent-divergence]
 pub fn translate_icu_pattern(pattern: &str) -> Result<String, TagRegexErrorKind> {
     let cs: Vec<char> = pattern.chars().collect();
@@ -490,7 +490,7 @@ mod tests {
     }
 
     /// The reproducer: `grc-disambiguator.bin` in the `se.drb` bundle.
-    // [spec:cg3:req:tag-regex.icu-translation/test]
+    // [spec:cg3:req:tag-regex.icu-translation+1/test]
     #[test]
     fn se_drb_reproducer_compiles() {
         let pattern = r#""\Q$1\E.*"S$"#;
@@ -514,7 +514,7 @@ mod tests {
 
     /// A bare `\E` is an escaped literal `E` in ICU, NOT a no-op. Verified
     /// against ICU 78.3: `a\Eb` matches `aEb` and does not match `ab`.
-    // [spec:cg3:req:tag-regex.icu-translation/test]
+    // [spec:cg3:req:tag-regex.icu-translation+1/test]
     #[test]
     fn bare_end_quote_is_a_literal_e() {
         assert_eq!(tr(r"a\Eb"), "aEb");
@@ -570,7 +570,7 @@ mod tests {
 
     /// ICU's `\Z` allows exactly one trailing terminator, from a set wider than
     /// `\n`. fancy-regex's own `\Z` gets both halves wrong, so it is translated.
-    // [spec:cg3:req:tag-regex.icu-translation/test]
+    // [spec:cg3:req:tag-regex.icu-translation+1/test]
     #[test]
     fn end_anchor_matches_icu() {
         for (haystack, expected) in [
