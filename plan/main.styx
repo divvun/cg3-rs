@@ -1385,4 +1385,44 @@ children (
             }
         )
     }
+
+    {
+        id icu-regex-parity
+        title "Close the ICU/Rust regex parity gap for grammar-authored tag patterns"
+        kind @feat
+        children (
+            {
+                id icu-regex-parity.spec
+                title "Specify the tag-regex compatibility seam and the diagnostic a library error must carry"
+                priority 0
+                kind @docs
+                log (
+                    {
+                        at 2026-08-14T10:08:59.26142Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
+            }
+
+            {
+                id icu-regex-parity.impl
+                title "Compile every tag pattern through one ICU-translating seam on a backtracking engine, and carry the failure in the error value"
+                priority 0
+                kind @feat
+                implements {
+                    target-impl (
+                        [spec:cg3:req:tag-regex.single-seam]
+                        [spec:cg3:req:tag-regex.engine]
+                        [spec:cg3:req:tag-regex.icu-translation]
+                        [spec:cg3:req:tag-regex.silent-divergence]
+                        [spec:cg3:req:errors.tag-regex-diagnostic]
+                        [spec:cg3:req:errors.parse-result]
+                    )
+                }
+                deps (icu-regex-parity.spec)
+            }
+        )
+    }
 )
