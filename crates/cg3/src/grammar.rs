@@ -1603,7 +1603,7 @@ impl Grammar {
             for rid in &regex_tag_ids {
                 if let Some(re) = &self.single_tags_list[rid.0].regexp {
                     // uregex_find(-1) == unanchored search == Regex::is_match.
-                    if crate::tag_regex::is_match_or_false(re, &ttext) {
+                    if re.is_match(&ttext) {
                         textual = true;
                     }
                 }

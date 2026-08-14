@@ -331,7 +331,7 @@ pub struct EngineConfig {
     /// C++ `std::vector<URegularExpression*> text_delimiters` — owned compiled
     /// regexes (ICU `URegularExpression*` → `fancy_regex::Regex`, compiled
     /// through `crate::tag_regex`).
-    pub text_delimiters: Vec<fancy_regex::Regex>,
+    pub text_delimiters: Vec<crate::tag_regex::TagRegex>,
 }
 
 impl EngineConfig {

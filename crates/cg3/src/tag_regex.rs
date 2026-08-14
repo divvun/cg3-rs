@@ -34,12 +34,15 @@
 //!     the brace is literal, versus ICU's named character.
 //!   * `\0ooo` octal escapes, which fancy-regex reads as a backreference.
 //!
-//! KNOWN DIVERGENCE, deliberately not translated: ICU's bare `$` matches before
-//! a final line terminator (its `$` is `\Z`), while both Rust engines treat `$`
-//! as end of haystack. Tag haystacks are single tags with no trailing newline,
-//! so the two coincide there. Rewriting every `$` would change matching for
-//! every anchored tag in every grammar, which is not a change to make on
-//! spec-reading alone.
+//!   * `$` → the same end anchor. ICU's `$` IS `\Z`. This is invisible for a
+//!     tag, whose haystack is one tag's text, but the text-delimiter haystack
+//!     is the raw input line with its newline still attached, so an anchored
+//!     delimiter like `^<p>$` would otherwise silently never fire. Left alone
+//!     under `(?m)`, where ICU's `$` means end of line instead.
+//!
+//! The translation is NOT what gets serialised. [`TagRegex`] keeps the authored
+//! ICU spelling alongside the compiled form, because the binary grammar writer
+//! round-trips the pattern and a `.cg3b` must stay readable as ICU.
 
 use std::sync::Arc;
 
@@ -168,7 +171,7 @@ impl std::error::Error for TagRegexError {}
 pub fn compile_tag_regex(
     pattern: &str,
     case_insensitive: bool,
-) -> Result<Regex, Box<TagRegexError>> {
+) -> Result<TagRegex, Box<TagRegexError>> {
     let err = |kind| {
         Box::new(TagRegexError {
             pattern: pattern.to_string(),
@@ -184,29 +187,72 @@ pub fn compile_tag_regex(
         .case_insensitive(case_insensitive)
         .backtrack_limit(BACKTRACK_LIMIT)
         .build()
+        .map(|compiled| TagRegex::new(pattern.to_string(), compiled))
         .map_err(|e| err(TagRegexErrorKind::Syntax(Arc::new(e))))
 }
 
-/// Match `haystack`, treating a runtime failure as "no match".
+/// A compiled tag pattern, paired with the ICU-spelled source it came from.
 ///
-/// Most match sites are predicates returning `u32`/`bool` with no error channel
-/// — threading `Result` through the matcher cluster would change signatures all
-/// the way up for a case that only fires on a pathological pattern. The C++
-/// `uregex_find` error path was `CG3Quit(1)`, so degrading to "no match" is a
-/// divergence; it is logged rather than swallowed so a grammar that trips
-/// [`BACKTRACK_LIMIT`] is diagnosable instead of merely mysterious.
-// [spec:cg3:req:tag-regex.engine]
-pub fn is_match_or_false(re: &Regex, haystack: &str) -> bool {
-    match re.is_match(haystack) {
-        Ok(matched) => matched,
-        Err(e) => {
-            tracing::warn!(
-                "Warning: regex match failed for pattern `{}` - treating as no match: {}",
-                re.as_str(),
-                e
-            );
-            false
+/// The two are not the same string, and the difference is load-bearing: the
+/// binary grammar writer serialises the pattern back out, and what belongs in a
+/// `.cg3b` is what the grammar author wrote — `\Q...\E`, `$`, ICU's `\Z` — not
+/// this engine's translation of it. Serialising the translation would make
+/// every `.cg3b` we emit diverge from the C++ `uregex_pattern` round-trip and
+/// stop being readable as ICU. So [`TagRegex::as_str`] returns the SOURCE,
+/// while matching uses the compiled form.
+// [spec:cg3:req:tag-regex.single-seam]
+// [spec:cg3:req:tag-regex.source-fidelity]
+#[derive(Debug, Clone)]
+pub struct TagRegex {
+    source: String,
+    compiled: Regex,
+}
+
+impl TagRegex {
+    fn new(source: String, compiled: Regex) -> TagRegex {
+        TagRegex { source, compiled }
+    }
+
+    /// The pattern AS AUTHORED, in ICU spelling. This is what round-trips
+    /// through a `.cg3b`; it is deliberately not the compiled pattern.
+    // [spec:cg3:req:tag-regex.source-fidelity]
+    pub fn as_str(&self) -> &str {
+        &self.source
+    }
+
+    /// Capture-group count INCLUDING the whole-match group 0, matching the
+    /// `uregex_groupCount() + 1` convention the capture loops assume.
+    pub fn captures_len(&self) -> usize {
+        self.compiled.captures_len()
+    }
+
+    /// Match `haystack`, treating a runtime failure as "no match".
+    ///
+    /// The match sites are predicates returning `u32`/`bool` with no error
+    /// channel — threading `Result` through the matcher cluster would change
+    /// signatures all the way up for a case that only fires on a pathological
+    /// pattern. The C++ `uregex_find` error path was `CG3Quit(1)`, so degrading
+    /// to "no match" is a divergence; it is logged rather than swallowed so a
+    /// grammar that trips [`BACKTRACK_LIMIT`] is diagnosable rather than merely
+    /// mysterious.
+    // [spec:cg3:req:tag-regex.engine]
+    pub fn is_match(&self, haystack: &str) -> bool {
+        match self.compiled.is_match(haystack) {
+            Ok(matched) => matched,
+            Err(e) => {
+                tracing::warn!(
+                    "Warning: regex match failed for pattern `{}` - treating as no match: {}",
+                    self.source,
+                    e
+                );
+                false
+            }
         }
+    }
+
+    /// Capture groups, with a runtime failure folded into "no match".
+    pub fn captures<'t>(&self, haystack: &'t str) -> Option<fancy_regex::Captures<'t, str>> {
+        self.compiled.captures(haystack).ok().flatten()
     }
 }
 
@@ -216,6 +262,30 @@ pub fn is_match_or_false(re: &Regex, haystack: &str) -> bool {
 /// `\r\n` pair. Spelled as a lookahead so it stays zero-width, matching `\Z`'s
 /// match offsets as well as its match/no-match answer.
 const ICU_END_ANCHOR: &str = r"(?=(?:\r\n|[\n\x{0b}\x{0c}\r\x{85}\x{2028}\x{2029}])?\z)";
+
+/// Does the pattern turn multi-line mode on?
+///
+/// Under `(?m)` ICU's `$` means end of any line, which the end-of-input anchor
+/// would break — so `$` is left alone there. Only the ON set counts: `(?-m)`
+/// and the `-m` half of `(?s-m)` turn it off. `(?i:...)`-style scoped groups
+/// are treated the same as global ones; over-detecting only means leaving `$`
+/// untranslated, which is the pre-existing behaviour rather than a new hazard.
+fn enables_multiline(cs: &[char]) -> bool {
+    let n = cs.len();
+    for i in 0..n.saturating_sub(2) {
+        if cs[i] != '(' || cs[i + 1] != '?' {
+            continue;
+        }
+        let mut j = i + 2;
+        while j < n && matches!(cs[j], 'i' | 'm' | 's' | 'x' | 'U' | 'R') {
+            if cs[j] == 'm' {
+                return true;
+            }
+            j += 1;
+        }
+    }
+    false
+}
 
 /// Escape a `\Q...\E` span for use as literal text.
 ///
@@ -253,6 +323,8 @@ pub fn translate_icu_pattern(pattern: &str) -> Result<String, TagRegexErrorKind>
     let mut in_class = false;
     // Index at which a `]` is still literal (directly after `[` or `[^`).
     let mut class_lit_bracket = usize::MAX;
+    // See `enables_multiline`.
+    let translate_dollar = !enables_multiline(&cs);
 
     let unsupported = |construct, offset| TagRegexErrorKind::Unsupported { construct, offset };
 
@@ -374,6 +446,18 @@ pub fn translate_icu_pattern(pattern: &str) -> Result<String, TagRegexErrorKind>
             continue;
         }
 
+        // ICU's `$` is `\Z`, not `\z`: it matches before a single final line
+        // terminator. Both Rust engines mean end of haystack. That is invisible
+        // for a tag, whose haystack is one tag's text, but the text-delimiter
+        // haystack is the RAW input line with its newline still attached — so
+        // an anchored delimiter like `^<p>$` silently never fires. Translating
+        // costs nothing measurable: the prefix still delegates.
+        if c == '$' && translate_dollar {
+            out.push_str(ICU_END_ANCHOR);
+            i += 1;
+            continue;
+        }
+
         out.push(c);
         i += 1;
     }
@@ -397,7 +481,6 @@ mod tests {
         compile_tag_regex(pattern, false)
             .unwrap_or_else(|e| panic!("{pattern} should compile: {e}"))
             .is_match(haystack)
-            .expect("match must not fail")
     }
 
     #[test]
@@ -460,6 +543,29 @@ mod tests {
         // Too few digits: left alone rather than mangled.
         assert_eq!(tr(r"\u12"), r"\u12");
         assert!(matches("\\u00e6", "æ"));
+    }
+
+    /// ICU's `$` is `\Z`, not `\z`. The text-delimiter haystack is the raw
+    /// input line, newline attached, so an anchored delimiter must still fire.
+    #[test]
+    fn dollar_matches_icu() {
+        assert!(matches("^<p>$", "<p>\n"));
+        assert!(matches("^<p>$", "<p>\r\n"));
+        assert!(matches("^<p>$", "<p>"));
+        assert!(!matches("^<p>$", "<p>\n\n"));
+        assert!(!matches("^<p>$", "<p>x"));
+        // Literal `$` must not be touched: escaped, or inside a class.
+        assert!(matches(r"a\$b", "a$b"));
+        assert!(matches(r"a[$]b", "a$b"));
+    }
+
+    /// Under `(?m)` ICU's `$` is end-of-LINE, so it must be left alone.
+    #[test]
+    fn multiline_dollar_is_left_alone() {
+        assert_eq!(tr("(?m)^b$"), "(?m)^b$");
+        assert!(matches("(?m)^b$", "a\nb\nc"));
+        // The ON set is what counts; `(?-m)` does not enable it.
+        assert_ne!(tr("(?-m)b$"), "(?-m)b$");
     }
 
     /// ICU's `\Z` allows exactly one trailing terminator, from a set wider than
@@ -576,7 +682,7 @@ mod tests {
     fn case_insensitivity_leaves_the_pattern_bare() {
         let re = compile_tag_regex("abc", true).expect("must compile");
         assert_eq!(re.as_str(), "abc", "(?i) must not leak into the pattern");
-        assert!(re.is_match("ABC").unwrap());
+        assert!(re.is_match("ABC"));
     }
 
     /// Group numbering drives the capture loops and the `gc == 0` memo
@@ -606,19 +712,20 @@ mod tests {
     }
 
     /// A catastrophic pattern must surface as a bounded failure, not a hang.
-    /// `is_match_or_false` turns it into "no match" for the predicate sites.
+    /// `TagRegex::is_match` turns it into "no match" for the predicate sites.
     // [spec:cg3:req:tag-regex.engine/test]
     #[test]
     fn backtrack_limit_degrades_to_no_match() {
-        let re = RegexBuilder::new(r"((a+)+)b\2")
+        let inner = RegexBuilder::new(r"((a+)+)b\2")
             .backtrack_limit(1_000)
             .build()
             .expect("pattern compiles");
         let haystack = "a".repeat(64);
         assert!(
-            re.is_match(&haystack).is_err(),
+            inner.is_match(&haystack).is_err(),
             "the limit must actually trip"
         );
-        assert!(!is_match_or_false(&re, &haystack), "degrades to no match");
+        let re = TagRegex::new(r"((a+)+)b\2".to_string(), inner);
+        assert!(!re.is_match(&haystack), "degrades to no match");
     }
 }

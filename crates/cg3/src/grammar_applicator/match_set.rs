@@ -114,12 +114,10 @@ fn capture_regex(
     gc: i32,
     regexgrp_ct: &mut u8,
     regexgrps: &mut RegexGroups,
-    regexp: &fancy_regex::Regex,
+    regexp: &crate::tag_regex::TagRegex,
     input: &str,
 ) {
-    // fancy-regex returns Result<Option<Captures>>; a runtime failure yields
-    // the same empty capture groups as "no match".
-    let caps = regexp.captures(input).ok().flatten();
+    let caps = regexp.captures(input);
     let mut i = 1i32;
     while i <= gc {
         let text: UString = match &caps {
@@ -376,7 +374,7 @@ impl Matcher<'_> {
                     }
                 };
                 if !text.is_empty() {
-                    if crate::tag_regex::is_match_or_false(re, &text) {
+                    if re.is_match(&text) {
                         m = tag.hash.get();
                     }
                     if m != 0 {
@@ -1529,7 +1527,7 @@ impl Matcher<'_> {
             };
             // uregex_setText + uregex_find(-1) == unanchored `is_match`.
             if let Some(re) = &tag.regexp
-                && crate::tag_regex::is_match_or_false(re, &itag_text)
+                && re.is_match(&itag_text)
             {
                 m = itag_hash;
             }
@@ -1623,7 +1621,7 @@ impl Matcher<'_> {
             m = tsh;
         } else {
             if let Some(re) = &tag.regexp
-                && crate::tag_regex::is_match_or_false(re, &ts)
+                && re.is_match(&ts)
             {
                 m = tsh;
             }

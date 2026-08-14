@@ -1439,6 +1439,25 @@ children (
                     }
                 )
             }
+
+            {
+                id icu-regex-parity.anchor-fidelity
+                title "Translate ICU's end-of-line $ and keep the authored spelling off the wire"
+                priority 0
+                kind @fix
+                implements {
+                    target-impl ([spec:cg3:req:tag-regex.source-fidelity])
+                }
+                deps (icu-regex-parity.impl)
+                log (
+                    {
+                        at 2026-08-14T10:25:29.269177Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
+            }
         )
     }
 )

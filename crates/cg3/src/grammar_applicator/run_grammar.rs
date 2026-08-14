@@ -44,10 +44,10 @@
 /// this fn is now reached from the `Engine<'_>` driver — whose `cfg` borrow is
 /// read-only (`&EngineConfig`) — the MRU swap (which needed `&mut [Regex]`) is
 /// dropped and the parameter is `&[Regex]`. See the peel.drivers report.
-pub fn test_string_against(str: &str, rxs: &[fancy_regex::Regex]) -> bool {
+pub fn test_string_against(str: &str, rxs: &[crate::tag_regex::TagRegex]) -> bool {
     for rx in rxs {
         // uregex_setText + uregex_find(-1) — unanchored whole-string search.
-        if crate::tag_regex::is_match_or_false(rx, str) {
+        if rx.is_match(str) {
             return true;
         }
     }

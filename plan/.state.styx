@@ -202,4 +202,9 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id icu-regex-parity.anchor-fidelity, covered_rules (
+        tag-regex.source-fidelity
+    ), covered_claims (
+        {impl_name target-impl, rule tag-regex.source-fidelity}
+    )}
 )

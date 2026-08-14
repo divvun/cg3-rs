@@ -1941,7 +1941,7 @@ impl Matcher<'_> {
                         let matched = self.grammar.single_tags_list[rid.0]
                             .regexp
                             .as_ref()
-                            .map(|re| crate::tag_regex::is_match_or_false(re, &text))
+                            .map(|re| re.is_match(&text))
                             .unwrap_or(false);
                         if matched {
                             self.grammar.single_tags_list[titer.0].r#type |= T_TEXTUAL;

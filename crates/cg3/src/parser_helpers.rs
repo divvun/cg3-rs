@@ -394,7 +394,7 @@ pub fn parse_tag<S: ParseTagState>(
             let regex_ids: Vec<TagId> = state.grammar().regex_tags.iter().copied().collect();
             for tid in regex_ids {
                 if let Some(re) = &state.grammar().single_tags_list[tid.0].regexp
-                    && crate::tag_regex::is_match_or_false(re, &tag.tag)
+                    && re.is_match(&tag.tag)
                 {
                     tag.r#type |= T_TEXTUAL;
                 }

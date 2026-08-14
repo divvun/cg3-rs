@@ -63,6 +63,36 @@ fn load(blob: &[u8]) -> Result<(), Cg3Error> {
     BinaryGrammar::new(Grammar::default()).parse_grammar_buffer(blob)
 }
 
+/// A `.cg3b` we write MUST carry the pattern the grammar author wrote, not
+/// this engine's translation of it — otherwise the file stops being readable as
+/// ICU and diverges from what C++ `vislcg3` would emit. The translation is an
+/// implementation detail of matching and must not reach the wire.
+// [spec:cg3:req:tag-regex.source-fidelity/test]
+#[test]
+fn written_patterns_keep_icu_spelling() {
+    for tag in [r"\\Qa.b\\E", r"x\\Zy", r"^ab$"] {
+        let src = format!("DELIMITERS = \"<.>\" ;\nLIST t = \"{tag}\"r ;\n");
+        let mut parser = TextualParser::new(Grammar::default(), false);
+        parser
+            .parse_grammar_utf8(src.as_bytes())
+            .unwrap_or_else(|e| panic!("{tag} must compile: {e}"));
+        let mut grammar = parser.grammar;
+        grammar.reindex(false, false).unwrap();
+        let mut writer = BinaryGrammar::new(grammar);
+        let mut blob: Vec<u8> = Vec::new();
+        writer.write_binary_grammar(&mut blob).unwrap();
+
+        // The parser anchors a bare tag as `^<tag>$`; that exact ICU-spelled
+        // string is what must appear in the file.
+        let unescaped = tag.replace("\\\\", "\\");
+        let stored = format!("^\"{unescaped}\"$");
+        assert!(
+            blob.windows(stored.len()).any(|w| w == stored.as_bytes()),
+            "{stored:?} not found in the written .cg3b (translation leaked)"
+        );
+    }
+}
+
 /// The `se.drb` case: ICU literal quoting must load, not abort the read.
 #[test]
 fn icu_literal_quoting_loads() {

@@ -27,17 +27,33 @@ Rust engine that actually runs them.
 > failure as "no match" and MUST log it, since the C++ `uregex_find` error path
 > terminated the process and degrading to "no match" is a deliberate divergence.
 
-> [spec:cg3:req:tag-regex.icu-translation]
+> [spec:cg3:req:tag-regex.icu-translation+1]
 > Patterns MUST be translated from ICU spelling before compilation, for every
 > construct where ICU and the engine differ but an exact equivalent exists:
 > `\Q...\E` literal quoting, ICU's fixed-width `\uXXXX` / `\UXXXXXXXX` escapes,
-> and `\Z`. `\Q...\E` MUST follow ICU's scanner: the span ends at the FIRST
+> `\Z`, and `$`. ICU's `$` IS `\Z` — it matches before a single final line
+> terminator, where both Rust engines mean end of haystack. This is invisible
+> for a tag, whose haystack is one tag's text, but the text-delimiter haystack
+> is the raw input line with its terminator still attached, so an anchored
+> delimiter would otherwise silently never fire. `$` MUST be left untranslated
+> under a multi-line flag, where ICU's `$` means end of line instead.
+> `\Q...\E` MUST follow ICU's scanner: the span ends at the FIRST
 > `\E`, an unterminated `\Q` runs to the end of the pattern, `\\Q` is an escaped
 > backslash followed by a literal `Q` and does NOT open a span, and a bare `\E`
 > with no open span is an escaped literal `E` rather than a no-op. Quoted text
 > MUST remain literal under every flag combination, including free-spacing mode.
 > `\Z` MUST match end of input or exactly one final line terminator drawn from
 > ICU's terminator set, which is wider than the engine's native `\Z`.
+
+> [spec:cg3:req:tag-regex.source-fidelity]
+> The translated pattern MUST NOT be the pattern that gets serialised. A
+> compiled tag regex MUST retain the pattern as authored, in ICU spelling, and
+> the binary grammar writer MUST emit that. Writing the translation instead
+> would make every `.cg3b` the port emits diverge from what the C++ writes and
+> stop being readable as ICU — the translation is an implementation detail of
+> how this engine matches, and must not reach the wire. This is the same
+> invariant that forbids injecting a case-insensitivity flag into the pattern
+> text, generalised to every rewrite the compatibility seam performs.
 
 > [spec:cg3:req:tag-regex.silent-divergence]
 > A construct the engine would accept but interpret differently from ICU MUST be

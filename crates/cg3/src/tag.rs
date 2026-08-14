@@ -196,7 +196,7 @@ pub struct Tag {
     /// matches each compiled regex against the tag text via unanchored
     /// `Regex::is_match`, reproducing `uregex_find`). The copy ctor
     /// (`impl Clone`) clones it (C++ `uregex_clone`).
-    pub regexp: Option<fancy_regex::Regex>,
+    pub regexp: Option<crate::tag_regex::TagRegex>,
 }
 
 // [spec:cg3:def:tag.cg3.compare-tag]
@@ -715,7 +715,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     let regex_ids: Vec<TagId> = grammar.regex_tags.iter().copied().collect();
     for tid in regex_ids {
         if let Some(re) = &grammar.single_tags_list[tid.0].regexp
-            && crate::tag_regex::is_match_or_false(re, &this.tag)
+            && re.is_match(&this.tag)
         {
             this.r#type |= T_TEXTUAL;
         }
