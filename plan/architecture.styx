@@ -1,0 +1,90 @@
+// Architectural element register.
+//
+// A timeless register: edit in place; status via lifecycle + log + decisions,
+// never a duplicate corrected record. A gone element stays at lifecycle @retired.
+//
+// Seeded for the error-handling idiomatisation project, so its decisions have
+// real scope and `nplan decision-at-modification` can answer "what governs this
+// file?". It covers the blast radius of that work, not the whole engine —
+// elements are added as work reaches them rather than invented up front.
+elements (
+    {
+        id [arch:cg3:error-model]
+        name "Error model"
+        kind @module
+        lifecycle @contested
+        owns (
+            [spec:cg3:req:errors.result-primary]
+            [spec:cg3:req:errors.layered]
+            [spec:cg3:req:errors.context]
+            [spec:cg3:req:errors.exit-codes-at-cli]
+            [spec:cg3:req:errors.control-flow-quiet]
+            [spec:cg3:req:errors.tag-regex-diagnostic]
+            [spec:cg3:req:errors.parse-result]
+        )
+        exposes (
+            "crates/cg3/src/error.rs"
+            "crates/cg3/src/inlines/misc.rs::cg3_quit"
+        )
+        decisions ([dec:cg3:results-not-unwinding] [dec:cg3:layered-error-types])
+        log (
+            {at "2026-08-14T00:00:00Z", kind @established, by "[dec:cg3:results-not-unwinding]"}
+        )
+    }
+
+    {
+        id [arch:cg3:textual-parser]
+        name "Textual grammar parser"
+        kind @subsystem
+        lifecycle @contested
+        owns ([spec:cg3:req:errors.parse-reports-all])
+        exposes (
+            "crates/cg3/src/textual_parser/**"
+        )
+        depends_on ([arch:cg3:error-model] [arch:cg3:tag-parsing])
+        decisions ([dec:cg3:results-not-unwinding])
+        log (
+            {at "2026-08-14T00:00:00Z", kind @established, by "[dec:cg3:results-not-unwinding]"}
+        )
+    }
+
+    {
+        id [arch:cg3:tag-parsing]
+        name "Shared tag parsing seam"
+        kind @boundary
+        lifecycle @contested
+        owns (
+            [spec:cg3:req:tag-regex.single-seam]
+            [spec:cg3:req:tag-regex.engine]
+            [spec:cg3:req:tag-regex.icu-translation]
+            [spec:cg3:req:tag-regex.silent-divergence]
+            [spec:cg3:req:tag-regex.source-fidelity]
+        )
+        exposes (
+            "crates/cg3/src/parser_helpers.rs"
+            "crates/cg3/src/tag_regex.rs"
+        )
+        depends_on ([arch:cg3:error-model])
+        decisions ([dec:cg3:parse-tag-aborts-on-invalid])
+        log (
+            {at "2026-08-14T00:00:00Z", kind @established, by "[dec:cg3:parse-tag-aborts-on-invalid]"}
+        )
+    }
+
+    {
+        id [arch:cg3:cli-boundary]
+        name "CLI boundary"
+        kind @boundary
+        lifecycle @active
+        owns ()
+        exposes (
+            "crates/cg3/src/bin/**"
+            "crates/cg3/src/tools/**"
+        )
+        depends_on ([arch:cg3:error-model])
+        decisions ([dec:cg3:results-not-unwinding])
+        log (
+            {at "2026-08-14T00:00:00Z", kind @established, by "[dec:cg3:results-not-unwinding]"}
+        )
+    }
+)

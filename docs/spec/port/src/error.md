@@ -1,3 +1,42 @@
+# Library error handling
+
+> [spec:cg3:req:errors.result-primary]
+> `Result` MUST be the mechanism by which this crate reports failure. Unwinding
+> MUST NOT be used as control flow: no library function may raise a panic to
+> signal a condition another frame is expected to catch, and no library function
+> may be `-> !` except where the process genuinely cannot continue. A caught
+> panic is invisible to the type system, forces every boundary to install a
+> catch, and — because the default hook prints before the catch — leaks what
+> looks like a crash to an embedder. Panics remain reserved for bugs in this
+> crate.
+
+> [spec:cg3:req:errors.layered]
+> Error types MUST be layered by boundary rather than collected into a single
+> crate-wide enum. Each layer MUST name only the failures it can actually
+> produce, and compose into its caller's type by conversion. A consumer matching
+> on a parse failure MUST NOT have to consider variants that only a stream
+> failure can produce.
+
+> [spec:cg3:req:errors.context]
+> An error value MUST carry what a consumer needs to locate and explain the
+> failure without reading the diagnostic log: the offending input, where it came
+> from, and the underlying cause where one exists. A failure MUST NOT be
+> represented by an exit code alone, by a bare `&'static str`, or by `Option`'s
+> `None`. Where the crate already emits a human-readable diagnostic for parity,
+> that MUST be in addition to the error value, never instead of it.
+
+> [spec:cg3:req:errors.exit-codes-at-cli]
+> Process exit codes MUST be derived at the CLI boundary, not carried through
+> library error values. The exit code a failure maps to is a property of the
+> command-line contract, not of the failure.
+
+> [spec:cg3:req:errors.parse-reports-all]
+> A grammar parse MUST report every recoverable error it encountered, in one
+> pass, with each error's own line and context. Recoverable parse errors are
+> resumable — the parser skips to the next line and continues — so the error
+> channel MUST accumulate rather than short-circuit on the first failure. This
+> behaviour predates the error-handling rework and MUST survive it.
+
 # Library error detail
 
 The C++ prints a diagnostic at the fatal site and then terminates the process,
