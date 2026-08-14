@@ -433,7 +433,7 @@ pub fn main_run(args: &[String]) -> i32 {
     if !occ(&options, Opt::GrammarOnly) {
         use crate::grammar_applicator::{GrammarApplicator, StreamFormatKind};
         let base = GrammarApplicator::new(Grammar::default());
-        let mut applicator = crate::format_converter::FormatConverter::new(base);
+        let mut applicator = super::or_exit(crate::format_converter::FormatConverter::new(base));
         applicator.base_mut().cfg.fmt_input = StreamFormatKind::Cg;
         if occ(&options, Opt::InCg) {
             applicator.base_mut().cfg.fmt_input = StreamFormatKind::Cg;

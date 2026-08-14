@@ -135,7 +135,7 @@ pub fn main_conv(args: &[String]) -> i32 {
     // FormatConverter applicator(std::cerr);
     let base =
         crate::grammar_applicator::GrammarApplicator::new(crate::grammar::Grammar::default());
-    let mut applicator = crate::format_converter::FormatConverter::new(base);
+    let mut applicator = super::or_exit(crate::format_converter::FormatConverter::new(base));
 
     // Grammar& grammar = applicator.conv_grammar; if (ORDERED) grammar.ordered = true;
     // NOTE: in C++ `conv_grammar` IS the applicator's active grammar; in this

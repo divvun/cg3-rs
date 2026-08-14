@@ -113,7 +113,7 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
     // Grammar); the ctor builds+installs the minimal dummy grammar.
     let base =
         crate::grammar_applicator::GrammarApplicator::new(crate::grammar::Grammar::default());
-    let mut applicator = crate::mwesplit_applicator::MweSplitApplicator::new(base);
+    let mut applicator = super::or_exit(crate::mwesplit_applicator::MweSplitApplicator::new(base));
 
     // applicator.verbosity_level = 0;
     applicator.base.cfg.verbosity_level = 0;

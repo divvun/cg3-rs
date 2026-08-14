@@ -84,7 +84,7 @@ impl MweSplitApplicator {
     /// built directly INTO `base.grammar` (assumed freshly constructed/empty),
     /// rather than allocated separately and assigned via `setGrammar(res)` (which
     /// in the port takes no argument and operates on `self.grammar`).
-    pub fn new(mut base: GrammarApplicator) -> Self {
+    pub fn new(mut base: GrammarApplicator) -> Result<Self, crate::error::Cg3Error> {
         // grammar->ux_stderr = ux_stderr; (Option<()> placeholder — no-op)
         base.grammar.allocate_dummy_set();
         let dset = base.grammar.allocate_set();
@@ -97,13 +97,10 @@ impl MweSplitApplicator {
         // Internal conv grammar (used_tags=false, no static sets): reindex /
         // set_grammar cannot fatal here. If they ever did, re-raise as the
         // residual `Cg3Exit` unwind so the exact exit code is preserved.
-        base.grammar
-            .reindex(false, false)
-            .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
-        base.set_grammar()
-            .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
+        base.grammar.reindex(false, false)?;
+        base.set_grammar()?;
         base.cfg.is_conv = true;
-        MweSplitApplicator { base }
+        Ok(MweSplitApplicator { base })
     }
 
     // [spec:cg3:def:mwe-split-applicator.cg3.mwe-split-applicator.run-grammar-on-text-fn]

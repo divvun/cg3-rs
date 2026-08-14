@@ -71,6 +71,24 @@ static LEVEL_HANDLE: std::sync::OnceLock<
 /// text. The level starts at INFO and is reloadable (see [`enable_debug_logging`]).
 /// Idempotent: a second call (e.g. from tests driving two tool mains in one
 /// process) is a no-op.
+/// Unwrap a library boundary's `Result` inside a CLI main, or report it and
+/// terminate with its exit code.
+///
+/// TRANSITIONAL. A process exit IS the right terminal action at a CLI boundary,
+/// but routing it through the `Cg3Exit` unwind is not — that is what
+/// `errors-idiomatic.cli` replaces, once the tool mains carry a `Result` of
+/// their own. Until then this keeps the downgrade in ONE place instead of at
+/// every call site.
+pub(crate) fn or_exit<T>(r: Result<T, crate::error::Cg3Error>) -> T {
+    match r {
+        Ok(v) => v,
+        Err(e) => {
+            crate::error::report_cli(&e);
+            crate::error::cg3_exit(e.exit_code())
+        }
+    }
+}
+
 pub fn init_diagnostics() {
     use tracing_subscriber::filter::LevelFilter;
     use tracing_subscriber::layer::SubscriberExt as _;

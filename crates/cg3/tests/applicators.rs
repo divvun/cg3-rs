@@ -737,7 +737,7 @@ fn format_converter_print_dispatch() {
     use cg3::grammar_applicator::StreamFormatKind;
 
     let base = cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
-    let mut fc = cg3::format_converter::FormatConverter::new(base);
+    let mut fc = cg3::format_converter::FormatConverter::new(base).unwrap();
     fc.base_mut().cfg.is_conv = true;
     fc.base_mut().cfg.trace = true;
     fc.base_mut().cfg.verbosity_level = 0;

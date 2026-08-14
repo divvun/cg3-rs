@@ -1572,6 +1572,14 @@ children (
                 priority 0
                 kind @refactor
                 deps (errors-idiomatic.types)
+                log (
+                    {
+                        at 2026-08-14T16:17:27.809827Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

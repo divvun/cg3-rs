@@ -137,7 +137,7 @@ impl FormatConverter {
     /// port, so "install" is a move of `conv_grammar` into `base.grammar`; the
     /// previous grammar is returned into `conv_grammar`'s slot). `has_relations`
     /// etc. keep their base defaults.
-    pub fn new(mut base: GrammarApplicator) -> Self {
+    pub fn new(mut base: GrammarApplicator) -> Result<Self, crate::error::Cg3Error> {
         // Build the minimal working grammar directly in base.grammar (which is the
         // storage the C++ `conv_grammar` provides; the base owns its grammar by
         // value in this port, so building in place == `setGrammar(&conv_grammar)`).
@@ -153,16 +153,11 @@ impl FormatConverter {
             dummy_tag.expect("the dummy delimiter tag is a literal and cannot fail"),
             delim,
         );
-        // Internal conv grammar (used_tags=false, no static sets): reindex /
-        // set_grammar cannot fatal here. If they ever did, re-raise as the
-        // residual `Cg3Exit` unwind so the exact exit code is preserved.
-        base.grammar
-            .reindex(false, false)
-            .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
-
-        // setGrammar(&conv_grammar): wire begin/end/subst tags into the grammar.
-        base.set_grammar()
-            .unwrap_or_else(|e| crate::error::cg3_exit(e.exit_code()));
+        // The internal conv grammar is built here from literals, so neither of
+        // these can fail on user input — but they return Result, and turning
+        // that back into a panic is the thing this project is removing.
+        base.grammar.reindex(false, false)?;
+        base.set_grammar()?;
 
         // PlaintextApplicator's C++ constructor runs as one of
         // FormatConverter's virtual bases and enables magic readings on the
@@ -172,11 +167,11 @@ impl FormatConverter {
         // The C++ `conv_grammar` member IS the live active grammar's storage;
         // here that storage is `base.grammar`. The member is kept for API parity
         // and holds a default placeholder (the live grammar lives in base.grammar).
-        FormatConverter {
+        Ok(FormatConverter {
             base,
             fmt: ConvFormat::default(),
             conv_grammar: Grammar::default(),
-        }
+        })
     }
 
     /// The shared base (`Some` outside dispatch windows).

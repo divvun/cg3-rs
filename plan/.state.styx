@@ -116,6 +116,7 @@ assertions (
     {id errors-idiomatic.port-phase-over, kind @doing, author "brendan@necessary.nu", at 2026-08-14T12:07:37.051286Z}
     {id errors-idiomatic.characterise-fallthrough, kind @complete, author "brendan@necessary.nu", at 2026-08-14T13:34:37.671473Z}
     {id errors-idiomatic.grammar, kind @doing, author "brendan@necessary.nu", at 2026-08-14T16:10:27.100952Z}
+    {id errors-idiomatic.constructors, kind @doing, author "brendan@necessary.nu", at 2026-08-14T16:17:27.809827Z}
 )
 
 impl_evidence (
