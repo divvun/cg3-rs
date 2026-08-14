@@ -1518,6 +1518,13 @@ children (
                         kind @note
                         text ".config/nplan/config.styx still says `adoption { scope porting }`, which holds the density gate at the porting floor of 25 rules/kLOC. The port is finished; maintenance (3/kLOC) is the honest floor for idiomatisation work. Independent of the rest of the tree — no deps — but do it first so the later phases are gated at the right level rather than being forced to invent rules to clear a porting floor."
                     }
+
+                    {
+                        at 2026-08-14T12:07:37.051286Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 
