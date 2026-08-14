@@ -99,7 +99,10 @@ fn conv_base() -> cg3::grammar_applicator::GrammarApplicator {
     base.grammar.allocate_dummy_set();
     let delim = base.grammar.allocate_set();
     base.grammar.delimiters = Some(delim);
-    let dummy_tag = base.grammar.allocate_tag("__CG3_DUMMY_STRINGBIT__");
+    let dummy_tag = base
+        .grammar
+        .allocate_tag("__CG3_DUMMY_STRINGBIT__")
+        .unwrap();
     base.grammar.add_tag_to_set(dummy_tag, delim);
     base.grammar.reindex(false, false).unwrap();
     base.set_grammar().unwrap();

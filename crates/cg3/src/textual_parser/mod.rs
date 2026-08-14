@@ -929,7 +929,7 @@ impl TextualParser {
                             }
                         }
 
-                        let set_c = self.grammar.add_set(set_c);
+                        let set_c = self.grammar.add_set(set_c)?;
                         let h = self.grammar.sets_list[set_c.0].hash;
                         sets.push(h);
                     } else {
@@ -1021,7 +1021,7 @@ impl TextualParser {
                             }
                         }
 
-                        let set_c = self.grammar.add_set(set_c);
+                        let set_c = self.grammar.add_set(set_c)?;
                         let h = self.grammar.sets_list[set_c.0].hash;
                         sets.push(h);
                     }
@@ -1087,7 +1087,7 @@ impl TextualParser {
                 .get_mut(s.0)
                 .set_name(nm, &mut self.grammar.rand_state);
         }
-        Ok(self.grammar.add_set(s))
+        self.grammar.add_set(s)
     }
 }
 
@@ -1896,7 +1896,7 @@ impl TextualParser {
             let name: String = buf[*pos..n].iter().collect();
             if !self.only_sets {
                 let at = ui32(self.grammar.rule_by_number.capacity());
-                self.grammar.add_anchor(&name, at, true);
+                self.grammar.add_anchor(&name, at, true)?;
             }
             *pos = n;
         }

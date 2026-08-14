@@ -149,7 +149,10 @@ impl FormatConverter {
         let delim = base.grammar.allocate_set();
         base.grammar.delimiters = Some(delim);
         let dummy_tag = base.grammar.allocate_tag(STR_DUMMY);
-        base.grammar.add_tag_to_set(dummy_tag, delim);
+        base.grammar.add_tag_to_set(
+            dummy_tag.expect("the dummy delimiter tag is a literal and cannot fail"),
+            delim,
+        );
         // Internal conv grammar (used_tags=false, no static sets): reindex /
         // set_grammar cannot fatal here. If they ever did, re-raise as the
         // residual `Cg3Exit` unwind so the exact exit code is preserved.

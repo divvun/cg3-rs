@@ -295,8 +295,8 @@ fn engine_inprocess_error_getters_and_dead_helpers() {
 
     // error(): no current rule -> ("RT INPUT", numLines).
     let mut grammar = Grammar::default();
-    let aa = grammar.allocate_tag("enginetag-aa");
-    let bb = grammar.allocate_tag("enginetag-bb");
+    let aa = grammar.allocate_tag("enginetag-aa").unwrap();
+    let bb = grammar.allocate_tag("enginetag-bb").unwrap();
     let aa_hash = grammar.single_tags_list[aa.0].hash.get();
     let bb_hash = grammar.single_tags_list[bb.0].hash.get();
 

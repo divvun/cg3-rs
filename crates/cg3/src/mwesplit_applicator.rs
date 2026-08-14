@@ -90,7 +90,10 @@ impl MweSplitApplicator {
         let dset = base.grammar.allocate_set();
         base.grammar.delimiters = Some(dset);
         let dtag = base.grammar.allocate_tag(STR_DUMMY);
-        base.grammar.add_tag_to_set(dtag, dset);
+        base.grammar.add_tag_to_set(
+            dtag.expect("the dummy delimiter tag is a literal and cannot fail"),
+            dset,
+        );
         // Internal conv grammar (used_tags=false, no static sets): reindex /
         // set_grammar cannot fatal here. If they ever did, re-raise as the
         // residual `Cg3Exit` unwind so the exact exit code is preserved.

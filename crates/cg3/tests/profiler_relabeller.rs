@@ -223,9 +223,9 @@ fn relabeller_trie_copy_helper_reintern() {
     use cg3::tag_trie::{TagTrie, trie_insert};
 
     let mut g = Grammar::default();
-    let foo = g.allocate_tag("foo");
-    let bar = g.allocate_tag("bar");
-    let baz = g.allocate_tag("baz");
+    let foo = g.allocate_tag("foo").unwrap();
+    let bar = g.allocate_tag("bar").unwrap();
+    let baz = g.allocate_tag("baz").unwrap();
 
     let mut trie = TagTrie::new();
     assert!(trie_insert(&mut trie, &vec![foo, bar], 0));

@@ -1587,6 +1587,13 @@ children (
                         kind @decision
                         text "Dep flipped: grammar now depends on parser, not the reverse. The original order was wrong. Callers of the five functions holding grammar.rs's cg3_quit sites are overwhelmingly inside the parser — add_set has 12 parser call sites across driver/rules/mod/parser_helpers vs 8 internal, add_anchor is 4/4 parser, add_template and remove_numeric_tags are parser-only. Converting their signatures to Result first would hand a Result to call sites that still return () and cannot propagate it, forcing either an unwrap (reintroducing the panic being removed) or a temporary shim. Converting the parser first means every one of those call sites is already in a Result-returning function, so this phase becomes a signature change plus `?`. The reindex half (StaticSetAlias / StaticSetRedefined, already inside a Result-returning fn) is independent of the ordering and could land any time."
                     }
+
+                    {
+                        at 2026-08-14T16:10:27.100952Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

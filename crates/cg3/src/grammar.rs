@@ -50,7 +50,7 @@ use crate::tag::Tag;
 // --- Method-pass imports (added with the fn bodies) ---
 use std::io::Read;
 
-use crate::inlines::{cg3_quit, hash_value_ustring, is_internal, is_textual, ui32};
+use crate::inlines::{hash_value_ustring, is_internal, is_textual, ui32};
 use crate::rule::{RF_CAPTURE_UNIF, RF_KEEPORDER};
 use crate::set::{
     MASK_ST_UNIFY, ST_ANY, ST_CHILD_UNIFY, ST_SET_UNIFY, ST_SPECIAL, ST_STATIC, ST_TAG_UNIFY,
@@ -486,9 +486,13 @@ impl Grammar {
         self.sets_list[set_c.0].line = 0;
         // setName(STR_DUMMY): non-empty string → name = STR_DUMMY.
         self.sets_list[set_c.0].name = STR_DUMMY.to_string();
-        let t = self.allocate_tag(STR_DUMMY);
+        let t = self
+            .allocate_tag(STR_DUMMY)
+            .expect("the dummy set's tag is a literal and cannot fail");
         self.add_tag_to_set(t, set_c);
-        let set_c = self.add_set(set_c);
+        let set_c = self
+            .add_set(set_c)
+            .expect("the dummy set is freshly built and cannot collide");
         self.sets_list[set_c.0].number = SetNumber(u32::MAX);
         // sets_list.insert(sets_list.begin(), set_c)
         self.sets_list_order.insert(0, set_c);
@@ -534,15 +538,29 @@ impl Grammar {
     /// (`CG3Quit(1)`; the `u_fprintf` diagnostic is deferred I/O). Fast path: an
     /// un-seeded slot whose text matches is returned directly. Otherwise a fresh
     /// `Tag` is `parse_tag_raw`'d and interned via `add_tag`.
-    pub fn allocate_tag(&mut self, txt: &str) -> TagId {
+    /// A grammar-construction failure at the current source line. These are
+    /// failures in what the grammar SAYS, so they are parse errors even though
+    /// they surface here rather than in the parser.
+    pub(crate) fn error(&self, kind: crate::error::ParseErrorKind) -> crate::error::ParseError {
+        crate::error::ParseError {
+            file: String::new(),
+            line: self.lines,
+            near: String::new(),
+            kind,
+        }
+    }
+
+    pub fn allocate_tag(&mut self, txt: &str) -> Result<TagId, crate::error::ParseError> {
         let first = txt.chars().next().unwrap_or('\0');
         if first == '\0' {
-            // "Error: Empty tag on line <lines>! Forgot to fill in a ()?"
-            cg3_quit(1, Some(file!()), self.lines);
+            return Err(self.error(crate::error::ParseErrorKind::EmptyTag));
         }
         if first == '(' {
-            // "Error: Tag '<txt>' cannot start with ( on line <lines>! ..."
-            cg3_quit(1, Some(file!()), self.lines);
+            return Err(
+                self.error(crate::error::ParseErrorKind::TagStartsWithParen {
+                    tag: txt.to_string(),
+                }),
+            );
         }
         let thash = hash_value_ustring(txt, 0);
         // Fast path: only the un-seeded slot is checked.
@@ -557,12 +575,12 @@ impl Grammar {
         if let Some(tid) = fast {
             let existing = &self.single_tags_list[tid.0];
             if !existing.tag.is_empty() && existing.tag == txt {
-                return tid;
+                return Ok(tid);
             }
         }
         let mut tag = Tag::default();
         crate::tag::parse_tag_raw(&mut tag, txt, self);
-        self.add_tag(tag)
+        Ok(self.add_tag(tag))
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.add-tag-fn]
@@ -725,12 +743,19 @@ impl Grammar {
     /// Registers a named template. Keyed purely by `hash_value(name)` with no
     /// seed/collision handling (quirk: a genuine name-hash collision misreports as
     /// a redefinition). Redefinition → `CG3Quit(1)` (diagnostic deferred).
-    pub fn add_template(&mut self, test: CtxId, name: &str) {
+    pub fn add_template(
+        &mut self,
+        test: CtxId,
+        name: &str,
+    ) -> Result<(), crate::error::ParseError> {
         let cn = hash_value_ustring(name, 0);
         if self.templates.contains_key(&cn) {
-            cg3_quit(1, Some(file!()), self.lines);
+            return Err(self.error(crate::error::ParseErrorKind::TemplateRedefined {
+                name: name.to_string(),
+            }));
         }
         self.templates.insert(cn, test);
+        Ok(())
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.add-anchor-fn]
@@ -739,15 +764,21 @@ impl Grammar {
     /// anchor → `CG3Quit(1)`. `at > rule_by_number.size()` (strict `>`) clamps to
     /// the size. Stores only when the anchor did NOT already exist (non-primary
     /// re-adds silently keep the old position — quirk reproduced).
-    pub fn add_anchor(&mut self, to: &str, mut at: u32, primary: bool) {
+    pub fn add_anchor(
+        &mut self,
+        to: &str,
+        mut at: u32,
+        primary: bool,
+    ) -> Result<(), crate::error::ParseError> {
         let ah = {
-            let tid = self.allocate_tag(to);
+            let tid = self.allocate_tag(to)?;
             self.single_tags_list[tid.0].hash
         };
         let exists = self.anchors.contains(ah.get());
         if primary && exists {
-            // "Error: Redefinition attempt for anchor '<to>' on line <lines>!"
-            cg3_quit(1, Some(file!()), self.lines);
+            return Err(self.error(crate::error::ParseErrorKind::AnchorRedefined {
+                name: to.to_string(),
+            }));
         }
         if at > self.rule_by_number.capacity() {
             // "Warning: No corresponding rule available for anchor ...": deferred.
@@ -756,6 +787,7 @@ impl Grammar {
         if !exists {
             self.anchors.insert((ah.get(), at));
         }
+        Ok(())
     }
 }
 
@@ -768,7 +800,7 @@ impl Grammar {
     /// splitting, name registration (the always-break-once loop), content
     /// registration. `getNonEmpty()` (`trie` if non-empty else `trie_special`) is
     /// inlined (not ported on `Set`).
-    pub fn add_set(&mut self, mut to: SetId) -> SetId {
+    pub fn add_set(&mut self, mut to: SetId) -> Result<SetId, crate::error::ParseError> {
         let name = self.sets_list[to.0].name.clone();
 
         // (1) Delimiter capture (only when the slot is still null).
@@ -907,8 +939,8 @@ impl Grammar {
 
             Set::reindex(self, positive);
             Set::reindex(self, negative);
-            let positive = self.add_set(positive);
-            let negative = self.add_set(negative);
+            let positive = self.add_set(positive)?;
+            let negative = self.add_set(negative)?;
             let pos_hash = self.sets_list[positive.0].hash;
             let neg_hash = self.sets_list[negative.0].hash;
 
@@ -957,8 +989,9 @@ impl Grammar {
                     if chash != a_hash {
                         let a_name = self.sets_list[a.0].name.clone();
                         if a_name == name {
-                            // "Error: Set ... already defined ..."
-                            cg3_quit(1, Some(file!()), self.lines);
+                            return Err(self.error(crate::error::ParseErrorKind::SetRedefined {
+                                name: name.to_string(),
+                            }));
                         }
                         let mut seed = 0u32;
                         while seed < 1000 {
@@ -1005,14 +1038,13 @@ impl Grammar {
                     )
                 };
                 if at != tt || ao != to_ || asz != tsz || atr != ttr || asp != tsp {
-                    // "Error: Content hash collision between set ..."
-                    cg3_quit(1, Some(file!()), self.lines);
+                    return Err(self.error(crate::error::ParseErrorKind::SetContentCollision));
                 }
                 self.destroy_set(to);
             }
         }
         to = self.sets_by_contents[&chash];
-        to
+        Ok(to)
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.append-to-set-fn]
@@ -1022,14 +1054,14 @@ impl Grammar {
     /// (quirk): `undefSet` must find that set — a `None` would crash in `addSet`
     /// (`to->name` deref); reproduced via `unwrap`. Delimiter capture at the end
     /// overwrites unconditionally (unlike `addSet`).
-    pub fn append_to_set(&mut self, mut to: SetId) -> SetId {
+    pub fn append_to_set(&mut self, mut to: SetId) -> Result<SetId, crate::error::ParseError> {
         let to_name = self.sets_list[to.0].name.clone();
         let to_line = self.sets_list[to.0].line;
 
         // (1) Pull the currently-registered set out of the name index.
         let tset = self.undef_set(&to_name).unwrap();
         // (2) Re-register it under fresh keys.
-        let tset = self.add_set(tset);
+        let tset = self.add_set(tset)?;
 
         if !self.sets_list[tset.0].sets.is_empty() {
             let first_hash = self.sets_list[tset.0].sets[0];
@@ -1045,7 +1077,7 @@ impl Grammar {
 
                 let newname = ui32(self.sets_by_contents.len() + 1);
                 self.sets_list[to.0].set_name(newname, &mut self.rand_state);
-                to = self.add_set(to);
+                to = self.add_set(to)?;
 
                 let tset_hash = self.sets_list[tset.0].hash;
                 let to_hash = self.sets_list[to.0].hash;
@@ -1107,7 +1139,7 @@ impl Grammar {
         }
 
         // (5) Register the merged/renamed set.
-        to = self.add_set(to);
+        to = self.add_set(to)?;
 
         // (6) Delimiter capture (unconditional overwrite).
         let final_name = self.sets_list[to.0].name.clone();
@@ -1118,7 +1150,7 @@ impl Grammar {
         } else if final_name == STR_TEXTDELIMITSET {
             self.text_delimiters = Some(to);
         }
-        to
+        Ok(to)
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.get-tags-fn]
@@ -1185,17 +1217,16 @@ impl Grammar {
     /// removed, building a new `_G_<name>_B_` set only when something was actually
     /// removed. Composite and leaf cases per the spec; `ntags` is a
     /// `BTreeMap<TagVector, bool>` (C++ `std::map<TagVector, bool>`).
-    pub fn remove_numeric_tags(&mut self, s: u32) -> u32 {
+    pub fn remove_numeric_tags(&mut self, s: u32) -> Result<u32, crate::error::ParseError> {
         let mut set = self.get_set(s).unwrap();
         let is_composite = !self.sets_list[set.0].sets.is_empty();
         if is_composite {
             let mut did = false;
             let mut sets = self.sets_list[set.0].sets.clone();
             for i in sets.iter_mut() {
-                let ns = self.remove_numeric_tags(*i);
+                let ns = self.remove_numeric_tags(*i)?;
                 if ns == 0 {
-                    // set = getSet(i); "Error: ... branch resulted in set ... empty!"
-                    cg3_quit(1, Some(file!()), self.lines);
+                    return Err(self.error(crate::error::ParseErrorKind::EmptyNumericBranch));
                 }
                 if ns != *i {
                     *i = ns;
@@ -1217,7 +1248,7 @@ impl Grammar {
                     dst.sets = sets;
                     dst.set_ops = set_ops;
                 }
-                set = self.add_set(ns_id);
+                set = self.add_set(ns_id)?;
             }
         } else {
             let mut did = false;
@@ -1287,10 +1318,10 @@ impl Grammar {
                         trie_insert(dst, tagvec, 0);
                     }
                 }
-                set = self.add_set(ns_id);
+                set = self.add_set(ns_id)?;
             }
         }
-        self.sets_list[set.0].hash
+        Ok(self.sets_list[set.0].hash)
     }
 }
 
@@ -1520,10 +1551,11 @@ impl Grammar {
         for sset in &static_sets {
             let sh = hash_value_ustring(sset, 0);
             if self.set_alias.contains(sh) {
-                let msg = format!("Static set '{sset}' is an alias, on line {}", self.lines);
-                tracing::error!("Error: {msg}!");
-                crate::error::emit_cg3quit_line(file!(), self.lines);
-                return Err(crate::error::Cg3Error::fatal(1, Some(msg)));
+                return Err(crate::error::GrammarError::StaticSetAlias {
+                    name: sset.clone(),
+                    line: self.lines,
+                }
+                .into());
             }
             let s = match self.get_set(sh) {
                 Some(s) => s,
@@ -1917,13 +1949,12 @@ impl Grammar {
                     if cnum != a_num {
                         let a_name = self.sets_list[a_sid.0].name.clone();
                         if a_name == nm {
-                            let msg = format!(
-                                "Static set '{nm}' already defined as set {a_num}, on line {}",
-                                self.lines
-                            );
-                            tracing::error!("Error: {msg}!");
-                            crate::error::emit_cg3quit_line(file!(), self.lines);
-                            return Err(crate::error::Cg3Error::fatal(1, Some(msg)));
+                            return Err(crate::error::GrammarError::StaticSetRedefined {
+                                name: nm.clone(),
+                                existing: a_num.get(),
+                                line: self.lines,
+                            }
+                            .into());
                         }
                         let mut seed = 0u32;
                         while seed < 1000 {

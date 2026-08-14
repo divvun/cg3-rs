@@ -608,7 +608,7 @@ pub fn parse_set(
             } else if cat(&nchars, 0) == '&' && cat(&nchars, 1) == '&' {
                 state.grammar.sets_list[ns.0].r#type |= ST_SET_UNIFY;
             }
-            state.grammar.add_set(ns);
+            state.grammar.add_set(ns)?;
         }
     }
 
@@ -631,7 +631,7 @@ pub fn parse_set(
             state.grammar.sets_list[ns.0].line = state.grammar.lines;
             state.grammar.sets_list[ns.0].name = name.to_string();
             state.grammar.add_tag_to_set(tag, ns);
-            let ns = state.grammar.add_set(ns);
+            let ns = state.grammar.add_set(ns)?;
             return Ok(ns);
         }
     }

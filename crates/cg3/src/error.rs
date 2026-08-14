@@ -71,6 +71,20 @@ pub enum ParseErrorKind {
     },
     #[error("unknown template `{name}`")]
     UnknownTemplate { name: String },
+    #[error("empty tag — forgot to fill in a ()?")]
+    EmptyTag,
+    #[error("tag `{tag}` cannot start with (")]
+    TagStartsWithParen { tag: String },
+    #[error("redefinition of template `{name}`")]
+    TemplateRedefined { name: String },
+    #[error("redefinition of anchor `{name}`")]
+    AnchorRedefined { name: String },
+    #[error("set `{name}` is already defined")]
+    SetRedefined { name: String },
+    #[error("content-hash collision between sets")]
+    SetContentCollision,
+    #[error("numeric branch resulted in an empty set")]
+    EmptyNumericBranch,
 }
 
 /// Render each item on its own indented line, so a collection of failures

@@ -120,7 +120,7 @@ impl TextualParser {
             } else {
                 buf[*pos..n].iter().collect()
             };
-            let ext = self.grammar.allocate_tag(&cmd);
+            let ext = self.grammar.allocate_tag(&cmd)?;
             rule.varname = self.grammar.single_tags_list[ext.0].hash.get();
             *pos = n;
         }
@@ -585,7 +585,7 @@ impl TextualParser {
             }
             *pos += 1;
             self.parse_tag_list(buf, pos, d, false)?;
-            let d = self.grammar.add_set(d);
+            let d = self.grammar.add_set(d)?;
             self.grammar.delimiters = Some(d);
             if self.grammar.sets_list[d.0].empty() {
                 return Err(self.error_near(&buf[*pos..]));
@@ -609,7 +609,7 @@ impl TextualParser {
             }
             *pos += 1;
             self.parse_tag_list(buf, pos, d, false)?;
-            let d = self.grammar.add_set(d);
+            let d = self.grammar.add_set(d)?;
             self.grammar.soft_delimiters = Some(d);
             if self.grammar.sets_list[d.0].empty() {
                 return Err(self.error_near(&buf[*pos..]));
@@ -633,7 +633,7 @@ impl TextualParser {
             }
             *pos += 1;
             self.parse_tag_list(buf, pos, d, false)?;
-            let d = self.grammar.add_set(d);
+            let d = self.grammar.add_set(d)?;
             self.grammar.text_delimiters = Some(d);
             if self.grammar.sets_list[d.0].empty() {
                 return Err(self.error_near(&buf[*pos..]));
@@ -952,7 +952,7 @@ impl TextualParser {
             let t = self.parse_contextual_test_list(buf, pos, None, true)?;
             self.no_itmpls = saved;
             self.grammar.contexts_arena[t.0].line = line;
-            self.grammar.add_template(t, &name);
+            self.grammar.add_template(t, &name)?;
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
                 return Err(self.error_near(&buf[*pos..]));

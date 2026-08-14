@@ -223,8 +223,8 @@ fn cohort_append_readings() {
 #[test]
 fn cohort_numeric_min_max() {
     let mut g = Grammar::default();
-    let t5 = g.allocate_tag("<n=5>");
-    let t10 = g.allocate_tag("<n=10>");
+    let t5 = g.allocate_tag("<n=5>").unwrap();
+    let t10 = g.allocate_tag("<n=10>").unwrap();
     let key = g.single_tags_list[t5.0].comparison_hash;
     assert_ne!(key, 0);
     assert_eq!(key, g.single_tags_list[t10.0].comparison_hash);
@@ -251,7 +251,7 @@ fn cohort_numeric_min_max() {
     );
 
     // On-demand: a newly-added smaller value is visible at once.
-    let t1 = g.allocate_tag("<n=1>");
+    let t1 = g.allocate_tag("<n=1>").unwrap();
     let h1 = g.single_tags_list[t1.0].hash.get();
     store.readings.get_mut(r1.0).tags_numerical.insert(h1, t1);
     assert_eq!(
@@ -261,7 +261,7 @@ fn cohort_numeric_min_max() {
     );
     // Only the `readings` list participates: a deleted reading's tags do not.
     let rdel = alloc_reading(&mut store, Some(c));
-    let t0 = g.allocate_tag("<n=-7>");
+    let t0 = g.allocate_tag("<n=-7>").unwrap();
     let h0 = g.single_tags_list[t0.0].hash.get();
     store.readings.get_mut(rdel.0).tags_numerical.insert(h0, t0);
     store.cohorts.get_mut(c.0).deleted.push(rdel);
@@ -665,9 +665,9 @@ fn reading_alloc_copy_free_clear() {
 #[test]
 fn reading_rehash_and_cmp_number() {
     let mut g = Grammar::default();
-    let ta = g.allocate_tag("aa");
-    let tb = g.allocate_tag("bb");
-    let tm = g.allocate_tag("mapped");
+    let ta = g.allocate_tag("aa").unwrap();
+    let tb = g.allocate_tag("bb").unwrap();
+    let tm = g.allocate_tag("mapped").unwrap();
     let (ha, hb, hm) = (
         g.single_tags_list[ta.0].hash.get(),
         g.single_tags_list[tb.0].hash.get(),
@@ -750,7 +750,7 @@ fn set_name_hash_reindex_markused_drop() {
     let s = g.allocate_set();
     assert!(g.sets_list[s.0].empty(), "fresh set is empty");
 
-    let tx = g.allocate_tag("x");
+    let tx = g.allocate_tag("x").unwrap();
     g.add_tag_to_set(tx, s);
     assert!(!g.sets_list[s.0].empty(), "plain tag lands in the trie");
 
@@ -767,14 +767,14 @@ fn set_name_hash_reindex_markused_drop() {
     assert_ne!(h1, 0);
     assert_eq!(g.sets_list[s.0].hash, h1);
     let s2 = g.allocate_set();
-    let ty = g.allocate_tag("y");
+    let ty = g.allocate_tag("y").unwrap();
     g.add_tag_to_set(ty, s2);
     let h2 = cg3::set::Set::rehash(&mut g, s2);
     assert_ne!(h1, h2, "different tag content, different hash");
 
     // reindex: numeric tag (T_SPECIAL) in trie_special -> ST_SPECIAL; a
     // T_MAPPING tag in the plain trie -> ST_MAPPING (via trie_reindex).
-    let tnum = g.allocate_tag("<n=5>");
+    let tnum = g.allocate_tag("<n=5>").unwrap();
     assert!(g.single_tags_list[tnum.0].r#type.intersects(T_SPECIAL));
     g.add_tag_to_set(tnum, s);
     g.single_tags_list.get_mut(tx.0).r#type |= T_MAPPING;
@@ -870,15 +870,15 @@ fn rule_defaults_name_tests_flags() {
 fn tag_parse_raw_and_numeric() {
     let mut g = Grammar::default();
 
-    let wf = g.allocate_tag("\"<word>\"");
+    let wf = g.allocate_tag("\"<word>\"").unwrap();
     let wt = g.single_tags_list[wf.0].r#type;
     assert!(wt.intersects(T_WORDFORM));
     assert!(wt.intersects(T_TEXTUAL));
-    let bf = g.allocate_tag("\"base\"");
+    let bf = g.allocate_tag("\"base\"").unwrap();
     assert!(g.single_tags_list[bf.0].r#type.intersects(T_BASEFORM));
 
     // Dependency tag (both ASCII and the code path via parse_tag_raw directly).
-    let dep = g.allocate_tag("#2->1");
+    let dep = g.allocate_tag("#2->1").unwrap();
     let d = &g.single_tags_list[dep.0];
     assert!(d.r#type.intersects(T_DEPENDENCY));
     assert_eq!((d.dep_self, d.dep_parent()), (2, 1));
@@ -893,7 +893,7 @@ fn tag_parse_raw_and_numeric() {
     parse_tag_raw(&mut t, "R:mark:4", &mut g);
     assert!(t.r#type.intersects(T_RELATION));
     assert_eq!(t.dep_parent(), 4);
-    let mark = g.allocate_tag("mark"); // dedups to the tag interned above
+    let mark = g.allocate_tag("mark").unwrap(); // dedups to the tag interned above
     assert_eq!(t.comparison_hash, g.single_tags_list[mark.0].hash.get());
 
     // parseNumeric operators and values.
@@ -1012,8 +1012,8 @@ fn tag_ctor_rehash_markused_vs_tostring() {
 #[test]
 fn tag_comparators_and_fill_tagvector() {
     let mut g = Grammar::default();
-    let ta = g.allocate_tag("alpha");
-    let tb = g.allocate_tag("beta");
+    let ta = g.allocate_tag("alpha").unwrap();
+    let tb = g.allocate_tag("beta").unwrap();
     let (ha, hb) = (g.single_tags_list[ta.0].hash, g.single_tags_list[tb.0].hash);
 
     assert_eq!(compare_tag(&g, ta, tb), ha < hb);
@@ -1033,8 +1033,8 @@ fn tag_comparators_and_fill_tagvector() {
     assert_eq!(compare_tag_vector(&g, &va, &vb), ha < hb);
 
     // fill_tagvector: numeric filtered (did), special flagged, rest pushed.
-    let tnum = g.allocate_tag("<n=5>");
-    let tspec = g.allocate_tag("spec");
+    let tnum = g.allocate_tag("<n=5>").unwrap();
+    let tspec = g.allocate_tag("spec").unwrap();
     g.single_tags_list.get_mut(tspec.0).r#type |= T_SPECIAL;
     let input = [tnum, ta, tspec];
     let mut out = TagVector::new();

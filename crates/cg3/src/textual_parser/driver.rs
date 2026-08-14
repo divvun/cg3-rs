@@ -103,9 +103,9 @@ impl TextualParser {
         self.parse_tag_list(buf, pos, sset, ordered)?;
         Set::rehash(&mut self.grammar, sset);
         let sset = if append {
-            self.grammar.append_to_set(sset)
+            self.grammar.append_to_set(sset)?
         } else {
-            self.grammar.add_set(sset)
+            self.grammar.add_set(sset)?
         };
         if self.grammar.sets_list[sset.0].empty() {
             return Err(self.error_near(&buf[*pos..]));
@@ -159,7 +159,7 @@ impl TextualParser {
             self.grammar.destroy_set(s0);
             s = tmp;
         }
-        let s = self.grammar.add_set(s);
+        let s = self.grammar.add_set(s)?;
         if self.grammar.sets_list[s.0].empty() {
             return Err(self.error_near(&buf[*pos..]));
         }
@@ -402,7 +402,7 @@ impl TextualParser {
         self.grammar.sets_list[set_c.0].name = name.to_string();
         let t = self.parse_tag(name, &[])?;
         self.grammar.add_tag_to_set(t, set_c);
-        Ok(self.grammar.add_set(set_c))
+        self.grammar.add_set(set_c)
     }
 
     fn resolve_varstring(&mut self, tid: TagId) -> ParseResult {
@@ -445,7 +445,7 @@ impl TextualParser {
         Ok(())
     }
 
-    fn numeric_branch_split(&mut self) {
+    fn numeric_branch_split(&mut self) -> ParseResult {
         let mut sets_cache: BTreeMap<u32, u32> = BTreeMap::new();
         loop {
             let found = self.grammar.contexts.iter().find_map(|(&k, &v)| {
@@ -466,7 +466,7 @@ impl TextualParser {
 
             let target = self.grammar.contexts_arena[unsafec.0].target.get();
             if let std::collections::btree_map::Entry::Vacant(e) = sets_cache.entry(target) {
-                let stripped = self.grammar.remove_numeric_tags(target);
+                let stripped = self.grammar.remove_numeric_tags(target)?;
                 e.insert(stripped);
             }
             self.grammar.contexts_arena[unsafec.0].pos &= !POS_NUMERIC_BRANCH;
@@ -538,6 +538,7 @@ impl TextualParser {
                 }
             }
         }
+        Ok(())
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
@@ -628,7 +629,7 @@ impl TextualParser {
     fn parse_grammar_data(&mut self, gi: usize) -> ParseResult {
         // 1. START anchor at rule 0.
         self.grammar
-            .add_anchor(KEYWORDS_STR[Keywords::KStart as usize], 0, true);
+            .add_anchor(KEYWORDS_STR[Keywords::KStart as usize], 0, true)?;
         // 2. Magic * tag.
         let tany = self.parse_tag(STR_ASTERIK, &[])?;
         self.grammar.tag_any = self.grammar.single_tags_list[tany.0].hash.get();
@@ -650,7 +651,7 @@ impl TextualParser {
             let rh = self.grammar.sets_list[s_right.0].hash;
             self.grammar.sets_list[set_c.0].sets.push(lh);
             self.grammar.sets_list[set_c.0].sets.push(rh);
-            self.grammar.add_set(set_c);
+            self.grammar.add_set(set_c)?;
         }
         self.make_magic_set(STR_UU_SAME_BASIC)?;
         for name in STR_UU_C {
@@ -664,7 +665,7 @@ impl TextualParser {
         // 6. END anchor at the last rule number.
         let end_at = ui32(self.grammar.rule_by_number.capacity().wrapping_sub(1));
         self.grammar
-            .add_anchor(KEYWORDS_STR[Keywords::KEnd as usize], end_at, true);
+            .add_anchor(KEYWORDS_STR[Keywords::KEnd as usize], end_at, true)?;
 
         // 7. Named-rule anchors.
         let rule_ids: Vec<RuleId> = (0..self.grammar.rule_by_number.capacity())
@@ -677,7 +678,7 @@ impl TextualParser {
                 (r.name.clone(), r.number)
             };
             if !name.is_empty() {
-                self.grammar.add_anchor(&name, number, false);
+                self.grammar.add_anchor(&name, number, false)?;
             }
         }
 
@@ -747,7 +748,7 @@ impl TextualParser {
         }
 
         // 11. Numeric-branch splitting.
-        self.numeric_branch_split();
+        self.numeric_branch_split()?;
 
         // 12. num_tags.
         self.grammar.num_tags = self.grammar.single_tags_list.capacity() as usize;

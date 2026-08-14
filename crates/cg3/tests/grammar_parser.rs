@@ -603,7 +603,7 @@ fn remove_numeric_tags_and_direct_destroyers() {
     );
     let num = set_by_name(&p.grammar, "NUM");
     let h = p.grammar.sets_list[num.0].hash;
-    let nh = p.grammar.remove_numeric_tags(h);
+    let nh = p.grammar.remove_numeric_tags(h).unwrap();
     assert_ne!(nh, h, "numeric tag removal must produce a different set");
     let stripped = p.grammar.get_set(nh).expect("stripped set registered");
     assert!(
@@ -624,8 +624,8 @@ fn remove_numeric_tags_and_direct_destroyers() {
     let mut g = Grammar::default();
     g.lines = 1;
 
-    let t1 = g.allocate_tag("zzz");
-    let t2 = g.allocate_tag("zzz");
+    let t1 = g.allocate_tag("zzz").unwrap();
+    let t2 = g.allocate_tag("zzz").unwrap();
     assert_eq!(t1, t2, "allocateTag dedups identical text");
     g.destroy_tag(t1);
     assert!(g.single_tags_list.try_get(t1.0).is_none(), "tag slot freed");
