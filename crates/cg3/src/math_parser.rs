@@ -24,18 +24,39 @@ use std::f64::consts::PI;
 
 use crate::types::{UChar, UStringView};
 
-/// Error raised by the parser. C++ raised `std::runtime_error(&'static str)`;
-/// this carries the same message text and propagates via `?`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MathError(pub &'static str);
-
-impl std::fmt::Display for MathError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
+/// Why an expression would not evaluate, and where.
+///
+/// The C++ raised `std::runtime_error` with a bare message. That text was the
+/// whole error, so a caller could say THAT an expression failed but never which
+/// one or where — and both of this crate's callers discarded it entirely.
+/// `[spec:cg3:req:errors.context]`.
+// [spec:cg3:req:errors.context]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{kind} in `{expression}` at offset {offset}")]
+pub struct MathError {
+    /// The expression as handed to `eval`.
+    pub expression: String,
+    /// Character offset into `expression` at which the parser stopped.
+    pub offset: usize,
+    pub kind: MathErrorKind,
 }
 
-impl std::error::Error for MathError {}
+/// What went wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum MathErrorKind {
+    #[error("expression is empty")]
+    Empty,
+    #[error("syntax error")]
+    Syntax,
+    #[error("unbalanced parentheses")]
+    UnbalancedParens,
+    #[error("unknown function")]
+    UnknownFunction,
+    #[error("result did not fit in a double")]
+    Overflow,
+    #[error("variables other than MIN and MAX must be 1 letter")]
+    LongVariableName,
+}
 
 // [spec:cg3:def:math-parser.cg3.math-parser.type-t]
 // C++ `enum type_t:uint8_t { DELIMITER = 1, VARIABLE, NUMBER, FUNCTION }`.
@@ -79,6 +100,9 @@ pub struct MathParser<'a> {
     /// across parser instances on the thread; every engine call site builds a
     /// fresh single-use parser, so the observable behaviour is identical.)
     errno: i32,
+    /// The expression `eval` was given, kept so an error can say where it
+    /// stopped rather than only that it stopped.
+    source: &'a str,
 }
 
 impl<'a> MathParser<'a> {
@@ -89,6 +113,7 @@ impl<'a> MathParser<'a> {
     // All other members keep their in-class initializers.
     pub fn new(min: f64, max: f64) -> Self {
         MathParser {
+            source: "",
             exp_ptr: "",
             token: "",
             tok_type: 0,
@@ -101,16 +126,26 @@ impl<'a> MathParser<'a> {
 
     // [spec:cg3:def:math-parser.cg3.math-parser.eval-fn]
     // [spec:cg3:sem:math-parser.cg3.math-parser.eval-fn]
+    /// Build an error at the parser's current position.
+    fn err(&self, kind: MathErrorKind) -> MathError {
+        MathError {
+            expression: self.source.to_string(),
+            offset: self.source.len().saturating_sub(self.exp_ptr.len()),
+            kind,
+        }
+    }
+
     pub fn eval(&mut self, exp: UStringView<'a>) -> Result<f64, MathError> {
         let mut result: f64 = 0.0;
+        self.source = exp;
         self.exp_ptr = exp;
         self.get_token()?;
         if self.token.is_empty() {
-            return Err(MathError("Expression empty"));
+            return Err(self.err(MathErrorKind::Empty));
         }
         self.eval_assign(&mut result)?;
         if !self.token.is_empty() {
-            return Err(MathError("Syntax error"));
+            return Err(self.err(MathErrorKind::Syntax));
         }
         Ok(result)
     }
@@ -236,7 +271,7 @@ impl<'a> MathParser<'a> {
             self.get_token()?;
             self.eval_add_sub(result)?;
             if first_char(self.token) != ')' {
-                return Err(MathError("Unbalanced parentheses"));
+                return Err(self.err(MathErrorKind::UnbalancedParens));
             }
             if isfunc {
                 if ux_simplecasecmp(temp_token, "SIN") {
@@ -278,7 +313,7 @@ impl<'a> MathParser<'a> {
                 } else if ux_simplecasecmp(temp_token, "FLOOR") {
                     *result = result.floor();
                 } else {
-                    return Err(MathError("Unknown function"));
+                    return Err(self.err(MathErrorKind::UnknownFunction));
                 }
             }
             self.get_token()?;
@@ -303,13 +338,13 @@ impl<'a> MathParser<'a> {
             // (see `MP_ERRNO`), so this reflects any prior overflow.
             *result = c_strtod(self.token, &mut self.errno);
             if self.errno == ERANGE {
-                return Err(MathError("Result did not fit in a double"));
+                return Err(self.err(MathErrorKind::Overflow));
             }
             self.get_token()?;
             return Ok(());
         } else {
             // Any other tok_type (incl. a FUNCTION name not followed by `(`).
-            return Err(MathError("Syntax error"));
+            return Err(self.err(MathErrorKind::Syntax));
         }
         Ok(())
     }
@@ -359,9 +394,7 @@ impl<'a> MathParser<'a> {
             if ux_simplecasecmp(self.token, "MIN") || ux_simplecasecmp(self.token, "MAX") {
                 // Nothing
             } else if self.token.chars().count() > 1 {
-                return Err(MathError(
-                    "Variables other than MIN and MAX must be 1 letter",
-                ));
+                return Err(self.err(MathErrorKind::LongVariableName));
             }
         }
         Ok(())
@@ -578,12 +611,12 @@ mod tests {
         // QUIRK: TRAILING whitespace makes get_token leave `token` holding the
         // pre-whitespace-skip (non-empty) view with tok_type 0, so `eval`'s final
         // non-empty-token check fails with "Syntax error" (line-365 comment).
-        assert_eq!(eval("6*7  "), Err(MathError("Syntax error")));
+        assert_eq!(eval("6*7  ").unwrap_err().kind, MathErrorKind::Syntax);
 
         // Empty expression is rejected in `eval`.
-        assert_eq!(eval(""), Err(MathError("Expression empty")));
+        assert_eq!(eval("").unwrap_err().kind, MathErrorKind::Empty);
         // Trailing garbage leaves a non-empty token -> "Syntax error".
-        assert_eq!(eval("2 3"), Err(MathError("Syntax error")));
+        assert_eq!(eval("2 3").unwrap_err().kind, MathErrorKind::Syntax);
     }
 
     // Exponent (`^`) is LEFT-associative here (documented quirk), and unary
@@ -621,9 +654,15 @@ mod tests {
         assert_eq!(eval("sqrt(16)").unwrap(), 4.0);
 
         // Unknown function -> "Unknown function".
-        assert_eq!(eval("NOPE(1)"), Err(MathError("Unknown function")));
+        assert_eq!(
+            eval("NOPE(1)").unwrap_err().kind,
+            MathErrorKind::UnknownFunction
+        );
         // Unbalanced parentheses.
-        assert_eq!(eval("(1+2"), Err(MathError("Unbalanced parentheses")));
+        assert_eq!(
+            eval("(1+2").unwrap_err().kind,
+            MathErrorKind::UnbalancedParens
+        );
     }
 
     // Variable assignment drives the eval_assign `=` branch: `A=...` stores into
@@ -647,10 +686,8 @@ mod tests {
 
         // A multi-letter (non MIN/MAX) variable name is rejected by get_token.
         assert_eq!(
-            mp.eval("AB"),
-            Err(MathError(
-                "Variables other than MIN and MAX must be 1 letter"
-            ))
+            mp.eval("AB").unwrap_err().kind,
+            MathErrorKind::LongVariableName
         );
     }
 }

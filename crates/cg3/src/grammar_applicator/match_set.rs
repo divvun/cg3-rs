@@ -225,10 +225,13 @@ pub fn test_tag_numerical(
         let chars: Vec<char> = tag.tag.chars().collect();
         if comparison_offset < chars.len() {
             let exp: String = chars[comparison_offset..chars.len() - 1].iter().collect();
-            // C++ `mp.eval(exp)` throws on error (uncaught here → terminate). The
-            // safe analog: leave `compval` at the query value on Err (noted).
-            if let Ok(v) = mp.eval(&exp) {
-                compval = v;
+            // C++ `mp.eval(exp)` threw here and nothing caught it, so the
+            // process terminated. Leaving `compval` at the query value is the
+            // safe analog; the expression and offset are reported rather than
+            // discarded.
+            match mp.eval(&exp) {
+                Ok(v) => compval = v,
+                Err(e) => tracing::warn!("Warning: numeric comparison failed: {e}"),
             }
         }
     } else if compval <= NUMERIC_MIN {

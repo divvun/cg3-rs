@@ -1556,6 +1556,14 @@ children (
                     target-impl ([spec:cg3:req:errors.context])
                 }
                 deps (errors-idiomatic.types)
+                log (
+                    {
+                        at 2026-08-14T16:14:10.662004Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

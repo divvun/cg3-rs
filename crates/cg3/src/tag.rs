@@ -501,7 +501,10 @@ impl Tag {
             // exp = view(tag).remove_prefix(comparison_offset).remove_suffix(1)
             let exp_str: String = chars[comparison_offset..(size - 1)].iter().collect();
             let mut mp = MathParser::new(NUMERIC_MIN, NUMERIC_MAX);
-            if mp.eval(&exp_str).is_err() {
+            if let Err(e) = mp.eval(&exp_str) {
+                // Not fatal — the tag simply is not a numeric-math tag. Worth
+                // saying which expression and where, now that the error knows.
+                tracing::debug!("Not a numeric comparison: {e}");
                 self.set_comparison_offset(0);
                 return;
             }
