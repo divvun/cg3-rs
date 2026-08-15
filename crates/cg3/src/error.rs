@@ -277,7 +277,16 @@ impl Cg3Error {
 ///
 /// Every error carries its own diagnostic now, so surfacing it here is the only
 /// thing that gets an embedder-facing message to a CLI user.
+///
+/// A failed grammar parse is rendered rather than logged: it has the sources to
+/// quote and the spans to mark, and a grammar author reading a syntax error
+/// wants the line they wrote. The one-line summary still follows, because a
+/// count is the one thing the reports do not say.
 // [spec:cg3:req:errors.tag-regex-diagnostic]
+// [spec:cg3:req:diagnostics.rendered]
 pub fn report_cli(e: &Cg3Error) {
+    if let Cg3Error::Grammar(GrammarError::Parse { errors, sources }) = e {
+        crate::diagnostics::report_parse_failure(errors, sources);
+    }
     tracing::error!("{e}");
 }

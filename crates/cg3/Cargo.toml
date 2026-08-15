@@ -62,6 +62,12 @@ bitflags = "2"
 # `src/tag_regex.rs` for the seam and the backtrack limit.
 fancy-regex = "0.19"
 thiserror = "2.0.20"
+# Source-quoting diagnostics for grammar syntax errors (src/diagnostics.rs).
+# The `auto-color` feature (concolor) is deliberately NOT enabled: this crate
+# already decides colour from `IsTerminal` on the stream it is writing to, per
+# `[spec:cg3:req:diagnostics.colour-at-tty]`, and a second detector reading
+# process-global state would only disagree with it.
+ariadne = "0.6"
 
 [dev-dependencies]
 # The conformance harness (tests/golden.rs, tests/apertium.rs) uses regex for the

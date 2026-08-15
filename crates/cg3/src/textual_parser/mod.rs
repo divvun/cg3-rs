@@ -705,13 +705,18 @@ impl TextualParser {
         self.grammarbufs.iter().map(SourceBuf::source).collect()
     }
 
-    /// Record a recoverable error and report it, exactly once.
+    // [spec:cg3:req:diagnostics.rendered]
+    /// Record a recoverable error. The C++ printed at the raise site and threw.
     ///
-    /// The C++ printed at the raise site and threw; recording is now the single
-    /// point where an error becomes final, so it is also the single point that
-    /// prints.
+    /// The event is a `debug!` rather than an `error!` because the error is not
+    /// being reported here: it goes back to the caller in the returned list, and
+    /// a CLI renders it against the source it came from
+    /// (`crate::diagnostics`). Logging it at `error!` as well would print every
+    /// failure twice, once as a bare line and once as the report that replaced
+    /// it. What survives is a trace for someone debugging the PARSER, in the
+    /// order the parser found things.
     pub(crate) fn record(&mut self, e: crate::error::ParseError) {
-        tracing::error!("{e}");
+        tracing::debug!("{e}");
         self.errors.push(e);
     }
 

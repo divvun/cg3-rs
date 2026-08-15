@@ -615,14 +615,22 @@ impl TextualParser {
         // (`[spec:cg3:req:errors.parse-reports-all]`).
         while buf[pos] != '\0' {
             let ast_depth = self.ast.cursor_depth();
+            let directive_start = pos;
             if let Err(e) = self.parse_directive(buf, &mut pos, &fname) {
                 // The C++ unwound here, which ran every in-scope ~ASTHelper();
                 // restore the AST cursor to the pre-directive depth by hand.
                 self.ast.truncate_cursor(ast_depth);
-                // Nothing rewinds the cursor on the way out, so it still points
-                // into the directive that failed: that is the position for a
-                // failure that arrived without one.
-                let e = self.locate_unplaced(e, pos);
+                // A failure with no position of its own came from grammar
+                // construction rather than from the scanner — a redefined set, a
+                // tag that would not build. The offending thing is the whole
+                // directive, so it gets the directive's first token; the cursor
+                // by now sits at whatever the scanner happened to reach, which
+                // for a redefinition is the closing `;`. The loop's own cursor
+                // is still on the whitespace before the keyword, so skip it the
+                // way `parse_directive` was about to.
+                let mut at = directive_start;
+                skipws_chars(buf, &mut at, '\0', '\0', false);
+                let e = self.locate_unplaced(e, at);
                 // Not every parse error is resumable — see
                 // `ParseErrorKind::is_fatal`. The C++ terminated at those; this
                 // loop reports them and stops reading.
@@ -752,16 +760,18 @@ impl TextualParser {
         for (t, (line, name)) in deferred {
             let cn = hash_value_ustring(&name, 0);
             if !self.grammar.templates.contains_key(&cn) {
-                tracing::error!(
-                    "{}: Error: Unknown template '{}' referenced on line {}!",
-                    self.filebase,
-                    name,
-                    line
-                );
-                self.record(self.parse_error_at(
+                // The line is the deferred reference's own, not `grammar.lines`:
+                // resolution happens after the whole buffer has been walked, so
+                // the running line counter points at the end of the grammar. The
+                // C++ printed the correct line in a separate `u_fprintf` beside
+                // an error value that carried the wrong one; there is one
+                // diagnostic now, and it is the right one.
+                let mut e = self.parse_error_at(
                     String::new(),
                     crate::error::ParseErrorKind::UnknownTemplate { name: name.clone() },
-                ));
+                );
+                e.line = ui32(line);
+                self.record(e);
                 continue;
             }
             let real = self.grammar.templates[&cn];

@@ -2001,6 +2001,13 @@ children (
                         kind @note
                         text "Scope: the renderer. Adds ariadne 0.6 and turns a failed grammar parse into one report per recoverable error, quoting the grammar line and labelling it with the ParseErrorKind Display (already specific: `unknown template 'x'`, `cannot compile tag regex: <cause>`). This is the DEFAULT output for a failed parse on every CLI grammar-load path, not behind a flag — a cg-comp / vislcg3 user is the whole point. IndexType is set explicitly on Config because the parser is char-indexed (UChar = char, buffers are Vec<char>), so no byte-mapping table is needed. Colour is decided by tty detection at the CLI rather than pulled in through ariadne's concolor feature. ariadne writes to the stream directly, so this path bypasses the tracing subscriber that tools::init_diagnostics deliberately configures with .with_ansi(false); that is intended. A spanless error (empty input, a deferred template resolved after the buffer walk, a runtime tag) has nothing to quote and falls back to a plain message."
                     }
+
+                    {
+                        at 2026-08-15T17:18:10.931046Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

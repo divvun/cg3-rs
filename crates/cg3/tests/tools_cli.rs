@@ -262,6 +262,45 @@ fn cg_comp_main_compiles_t_select() {
     let _ = std::fs::remove_file(&bin);
 }
 
+// [spec:cg3:req:diagnostics.rendered/test]
+// A grammar that will not compile gets a rendered report per error on stderr,
+// with no flag asked for: the file it came from, the line as written, and a
+// marker under the part that failed. Two bad lines, so recovery is covered too.
+#[test]
+fn a_bad_grammar_is_reported_against_its_source() {
+    let grammar = temp_path("diagnostics.cg3");
+    std::fs::write(
+        &grammar,
+        "DELIMITERS = \"<.>\" ;\nLIST a = \"[:script=Greek:]\"r ;\nSELECT nosuch ;\n",
+    )
+    .expect("write grammar");
+    let out = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
+        .arg(&grammar)
+        .arg(temp_path("diagnostics.cg3b"))
+        .output()
+        .expect("spawn cg-comp");
+    assert!(!out.status.success(), "a bad grammar must not compile");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert!(
+        stderr.contains("diagnostics.cg3:2:10"),
+        "the report must name the file and the place: {stderr}"
+    );
+    assert!(
+        stderr.contains("LIST a = \"[:script=Greek:]\"r ;"),
+        "the report must quote the offending line: {stderr}"
+    );
+    assert!(
+        stderr.contains("this tag") && stderr.contains("the parse stopped here"),
+        "both failures must be marked: {stderr}"
+    );
+    assert!(
+        !stderr.contains("<utf8-memory>"),
+        "a named parse must not report the in-memory placeholder: {stderr}"
+    );
+    let _ = std::fs::remove_file(&grammar);
+}
+
 // [spec:cg3:sem:cg-comp.end-program-fn+3/test]
 // cg-comp's endProgram: wrong argc (no args) prints the version + usage banner
 // to stdout and exits EXIT_FAILURE.

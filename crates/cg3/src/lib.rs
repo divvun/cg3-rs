@@ -11,6 +11,7 @@
 // --- Wave 2 foundation layer (pointer-agnostic: containers + utilities) ---
 pub mod arena;
 pub mod bloomish;
+pub mod diagnostics;
 pub mod error;
 pub mod flat_unordered_map;
 pub mod flat_unordered_set;

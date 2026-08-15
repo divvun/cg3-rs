@@ -297,4 +297,11 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id grammar-diagnostics.render, covered_rules (
+        diagnostics.colour-at-tty
+        diagnostics.rendered
+    ), covered_claims (
+        {impl_name target-impl, rule diagnostics.colour-at-tty}
+        {impl_name target-impl, rule diagnostics.rendered}
+    )}
 )
