@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-15T10:50:32.168049Z
+last_sync_at 2026-08-15T11:08:26.440376Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -8,7 +8,6 @@ rule_versions (
     {id cg-proc.main-fn, version 1}
     {id cg-relabel.end-program-fn, version 3}
     {id errors.context, version 0}
-    {id errors.control-flow-quiet, version 0}
     {id errors.exit-codes-at-cli, version 0}
     {id errors.layered, version 0}
     {id errors.parse-reports-all, version 0}
@@ -141,13 +140,6 @@ impl_evidence (
         {id cg-relabel.end-program-fn, version 3}
         {id tools.divvun-version-banner, version 2}
     )}
-    {id embedder-panic-noise, covered_rules (
-        errors.control-flow-quiet
-    ), covered_claims (
-        {impl_name target-impl, rule errors.control-flow-quiet}
-    ), rule_versions_seen (
-        {id errors.control-flow-quiet, version 0}
-    )}
     {id errors-idiomatic.cli, covered_rules (
         errors.exit-codes-at-cli
     ), covered_claims (
@@ -167,8 +159,14 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule errors.parse-reports-all}
     ), rule_versions_seen (
-        {id errors.control-flow-quiet, version 0}
         {id errors.parse-reports-all, version 0}
+        {id errors.result-primary, version 0}
+    )}
+    {id errors-idiomatic.teardown, covered_rules (
+        errors.result-primary
+    ), covered_claims (
+        {impl_name target-impl, rule errors.result-primary}
+    ), rule_versions_seen (
         {id errors.result-primary, version 0}
     )}
     {id errors-idiomatic.types, covered_rules (
@@ -264,10 +262,5 @@ impl_evidence (
     ), rule_versions_seen (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
-    )}
-    {id errors-idiomatic.teardown, covered_rules (
-        errors.result-primary
-    ), covered_claims (
-        {impl_name target-impl, rule errors.result-primary}
     )}
 )
