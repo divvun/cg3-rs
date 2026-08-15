@@ -1808,6 +1808,13 @@ children (
                         kind @note
                         text "crate::process::Process reports Result<(), String> from start/read/write (process.rs:58, 96, 111), built by format_last_error which decorates a message with strerror/GetLastError. That is why RunError::ExternalStart and ExternalWrite carry `detail: String` rather than a typed cause with #[source] — the only thing available to carry is prose. [spec:cg3:req:errors.context] bans a bare &'static str but a formatted String is a weaker version of the same problem: the OS error code is discarded before it reaches the error value. Wants a typed error carrying io::Error plus the operation, with format_last_error's decoration moved to Display."
                     }
+
+                    {
+                        at 2026-08-15T16:20:25.345143Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

@@ -14,6 +14,7 @@
 //! that survives: failure travels by value, and a panic from this crate means a
 //! bug in this crate. See `[dec:cg3:results-not-unwinding]`.
 
+use crate::process::ProcessError;
 use crate::tag_regex::TagRegexError;
 
 // [spec:cg3:req:errors.layered]
@@ -163,13 +164,18 @@ impl GrammarError {
 /// A stream that would not run.
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
-    /// `detail` is a message rather than a typed cause because
-    /// `crate::process::Process` still reports `Result<(), String>` — its own
-    /// C-ism, tracked by `errors-idiomatic.process`.
-    #[error("EXTERNAL on line {line} could not be started: {detail}")]
-    ExternalStart { line: u32, detail: String },
-    #[error("EXTERNAL on line {line} could not be written to: {detail}")]
-    ExternalWrite { line: u32, detail: String },
+    #[error("EXTERNAL on line {line} could not be started: {source}")]
+    ExternalStart {
+        line: u32,
+        #[source]
+        source: ProcessError,
+    },
+    #[error("EXTERNAL on line {line} could not be written to: {source}")]
+    ExternalWrite {
+        line: u32,
+        #[source]
+        source: ProcessError,
+    },
     #[error("EXTERNAL returned data for cohort {got}, expected {expected}")]
     ExternalCohortMismatch { expected: u32, got: u32 },
     #[error("EXTERNAL returned data for window {got}, expected {expected}")]

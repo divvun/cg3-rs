@@ -23,7 +23,7 @@
 > [spec:cg3:def:process.process.format-last-error-fn]
 > std::string formatLastError(std::string msg = "")
 
-> [spec:cg3:sem:process.process.format-last-error-fn]
+> [spec:cg3:sem:process.process.format-last-error-fn+1]
 > Builds a human-readable error string by appending the platform's
 > last-system-error text to an optional caller message `msg`. If `msg` is
 > non-empty, append a single space. Then (Windows build, where this marker
@@ -34,8 +34,15 @@
 > Return the composed string. Platform note: the POSIX build instead
 > appends `"strerror: "` followed by `strerror(errno)` (no trailing
 > newline). Semantically: decorate a message with the current system error
-> description. A Rust port would append `std::io::Error::last_os_error()`
-> text.
+> description.
+> DIVERGENCE: the port has no such function. The decoration is the `Display`
+> impl of a `ProcessError` value carrying the operation and the `io::Error` the
+> failing call returned, so the rendered text is unchanged while the OS error
+> stays inspectable — `[spec:cg3:req:errors.context]` requires the underlying
+> cause to reach the error value rather than being flattened to prose. The C++
+> re-reads `errno`/`GetLastError()` out of thread state after the call has
+> returned; carrying the call's own error instead removes that window and is not
+> a behavioural difference on either platform's happy path.
 
 > [spec:cg3:def:process.process.process-fn]
 > Process()

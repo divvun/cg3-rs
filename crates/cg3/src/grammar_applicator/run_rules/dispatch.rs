@@ -313,17 +313,17 @@ impl crate::grammar_applicator::Engine<'_> {
                 // writeRaw(es, CG3_EXTERNAL_PROTOCOL); — a throw is caught as
                 // "Error: External on line %u resulted in error: %s" + CG3Quit(1).
                 let mut es = crate::process::Process::new();
-                if let Err(detail) = es.start(&cmd) {
+                if let Err(source) = es.start(&cmd) {
                     return Err(crate::error::RunError::ExternalStart {
                         line: rline,
-                        detail,
+                        source,
                     });
                 }
                 // writeRaw(es, CG3_EXTERNAL_PROTOCOL) — raw host-order u32.
-                if let Err(detail) = es.write(&CG3_EXTERNAL_PROTOCOL.to_ne_bytes(), 4) {
+                if let Err(source) = es.write(&CG3_EXTERNAL_PROTOCOL.to_ne_bytes(), 4) {
                     return Err(crate::error::RunError::ExternalWrite {
                         line: rline,
-                        detail,
+                        source,
                     });
                 }
                 self.doc.externals.insert(varname, es);
