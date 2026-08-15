@@ -999,10 +999,16 @@ impl<'x> BinaryApplicator<'x> {
         R: std::io::Read,
         W: std::io::Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))?
+            .map_err(crate::error::Cg3Error::from)
     }
 
-    fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_impl<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::RunError>
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         R: std::io::Read,
@@ -1018,17 +1024,17 @@ impl<'x> BinaryApplicator<'x> {
             let mut header = [0u8; 8];
             if input.read_exact(&mut header).is_err() {
                 // "Error: Could not read stream header!" + CG3Quit(1): deferred.
-                return;
+                return Ok(());
             }
             if !crate::inlines::is_cg3bsf(header) {
                 // "Stream does not start with magic bytes" + CG3Quit(1): deferred.
-                return;
+                return Ok(());
             }
             // BUG (faithful): version read NATIVELY, not byte-swapped.
             let version = u32::from_ne_bytes([header[4], header[5], header[6], header[7]]);
             if version != CG3_BINARY_STREAM {
                 // "Stream is version %u..." + CG3Quit(1): deferred.
-                return;
+                return Ok(());
             }
         }
 
@@ -1056,7 +1062,7 @@ impl<'x> BinaryApplicator<'x> {
                     self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
                     if self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize {
                         self.base.engine().shuffle_windows_down();
-                        self.base.engine().run_grammar_on_window_with(fmt, output);
+                        self.base.engine().run_grammar_on_window_with(fmt, output)?;
                         if self.base.doc.num_windows.is_multiple_of(reset_after) {
                             self.base.engine().reset_indexes();
                         }
@@ -1065,7 +1071,7 @@ impl<'x> BinaryApplicator<'x> {
                 BinaryPacketType::BfpCommand => {
                     let cmd = packet.command;
                     if cmd == BFC_FLUSH {
-                        let back = self.flush(fmt, output, true);
+                        let back = self.flush(fmt, output, true)?;
                         if back.is_none() {
                             fmt.print_stream_command(
                                 &mut self.base.engine(),
@@ -1075,7 +1081,7 @@ impl<'x> BinaryApplicator<'x> {
                         }
                     } else if cmd == BFC_EXIT {
                         fmt.print_stream_command(&mut self.base.engine(), STR_CMD_EXIT, output);
-                        return;
+                        return Ok(());
                     } else if cmd == BFC_IGNORE {
                         fmt.print_stream_command(&mut self.base.engine(), STR_CMD_IGNORE, output);
                     } else if cmd == BFC_RESUME {
@@ -1089,14 +1095,20 @@ impl<'x> BinaryApplicator<'x> {
                 BinaryPacketType::BfpInvalid => {}
             }
         }
-        self.flush(fmt, output, false);
+        self.flush(fmt, output, false)?;
+        Ok(())
     }
 
     /// C++ local `flush(flush_after)` lambda: set `flush_after` on the back
     /// window, drain `gWindow->next` through the grammar, then print + free every
     /// buffered `previous` window. Returns the back window (null → the caller
     /// emits a bare FLUSH command).
-    fn flush<F, W>(&mut self, fmt: &mut F, output: &mut W, flush_after: bool) -> Option<SwId>
+    fn flush<F, W>(
+        &mut self,
+        fmt: &mut F,
+        output: &mut W,
+        flush_after: bool,
+    ) -> Result<Option<SwId>, crate::error::RunError>
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: std::io::Write,
@@ -1111,7 +1123,7 @@ impl<'x> BinaryApplicator<'x> {
                 .flush_after = flush_after;
         }
         while self.base.engine().rotate_next().is_some() {
-            self.base.engine().run_grammar_on_window_with(fmt, output);
+            self.base.engine().run_grammar_on_window_with(fmt, output)?;
         }
         self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
@@ -1127,6 +1139,6 @@ impl<'x> BinaryApplicator<'x> {
             );
             self.base.doc.stream.previous.remove(0);
         }
-        back
+        Ok(back)
     }
 }

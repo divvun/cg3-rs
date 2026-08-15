@@ -49,7 +49,7 @@ impl crate::grammar_applicator::Engine<'_> {
         current: SwId,
         rule: RuleId,
         st: &mut RRState,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         self.scratch.finish_cohort_loop = true;
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
 
@@ -212,7 +212,7 @@ impl crate::grammar_applicator::Engine<'_> {
         rnumber: u32,
         mut cohortset: crate::grammar_applicator::CsRef,
         st: &mut RRState,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         let mut anything_changed = false;
         let (rtype0, rflags, rsub_reading, rtarget, rline) = {
             let r = self.grammar.rule_by_number.get(rule.0);
@@ -834,10 +834,10 @@ impl crate::grammar_applicator::Engine<'_> {
                 }
                 *self.scratch.context_stack.last_mut().unwrap() = ctx;
                 self.scratch.reset_cohorts_for_loop = false;
-                self.reading_cb_dispatch(st);
+                self.reading_cb_dispatch(st)?;
                 if !self.scratch.finish_cohort_loop {
                     self.scratch.context_stack.pop();
-                    return anything_changed;
+                    return Ok(anything_changed);
                 }
                 if self.scratch.reset_cohorts_for_loop {
                     cohortset = self.rr_reset_cohorts(current, rnumber);
@@ -849,17 +849,17 @@ impl crate::grammar_applicator::Engine<'_> {
             }
 
             self.scratch.reset_cohorts_for_loop = false;
-            self.cohort_cb_dispatch(st);
+            self.cohort_cb_dispatch(st)?;
             if !self.scratch.finish_cohort_loop {
                 self.scratch.context_stack.pop();
-                return anything_changed;
+                return Ok(anything_changed);
             }
             if self.scratch.reset_cohorts_for_loop {
                 cohortset = self.rr_reset_cohorts(current, rnumber);
             }
             self.scratch.context_stack.pop();
         }
-        anything_changed
+        Ok(anything_changed)
     }
 
     /// `ignore_cohort(cohort)` lambda of `runSingleRule`: mark a cohort

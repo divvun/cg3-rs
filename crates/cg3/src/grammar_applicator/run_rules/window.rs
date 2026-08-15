@@ -655,7 +655,10 @@ impl crate::grammar_applicator::Engine<'_> {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-single-window-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-single-window-fn]
     /// C++ `uint32_t runGrammarOnSingleWindow(SingleWindow& current)`.
-    pub fn run_grammar_on_single_window(&mut self, current: SwId) -> u32 {
+    pub fn run_grammar_on_single_window(
+        &mut self,
+        current: SwId,
+    ) -> Result<u32, crate::error::RunError> {
         // Hygiene for the scratch-resident matched-flag sets: drop entries whose
         // reading ids no longer resolve (freed slots). Reads only ever use live
         // ids — the generational `ReadingId` makes a freed id's leftover entry
@@ -673,9 +676,9 @@ impl crate::grammar_applicator::Engine<'_> {
 
         if !self.grammar.before_sections.is_empty() && !self.cfg.no_before_sections {
             let rules = self.cfg.runsections.get(&-1).cloned().unwrap_or_default();
-            let rv = self.run_rules_on_single_window(current, &rules);
+            let rv = self.run_rules_on_single_window(current, &rules)?;
             if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
-                return rv;
+                return Ok(rv);
             }
         }
 
@@ -699,10 +702,10 @@ impl crate::grammar_applicator::Engine<'_> {
                     continue;
                 }
                 let rules = self.cfg.runsections.get(&key).cloned().unwrap();
-                let rv = self.run_rules_on_single_window(current, &rules);
+                let rv = self.run_rules_on_single_window(current, &rules)?;
                 *counter.entry(key).or_insert(0) += 1;
                 if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
-                    return rv;
+                    return Ok(rv);
                 }
                 if rv & RV_SOMETHING == 0 {
                     idx += 1;
@@ -719,13 +722,13 @@ impl crate::grammar_applicator::Engine<'_> {
 
         if !self.grammar.after_sections.is_empty() && !self.cfg.no_after_sections {
             let rules = self.cfg.runsections.get(&-2).cloned().unwrap_or_default();
-            let rv = self.run_rules_on_single_window(current, &rules);
+            let rv = self.run_rules_on_single_window(current, &rules)?;
             if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
-                return rv;
+                return Ok(rv);
             }
         }
 
-        0
+        Ok(0)
     }
 
     /// One pass of the `runGrammarOnWindow` enclosure-wrapping scan (the C++
@@ -979,7 +982,7 @@ impl crate::grammar_applicator::Engine<'_> {
         fmt: &mut F,
         output: &mut W,
         pass: &mut u32,
-    ) -> std::ops::ControlFlow<()>
+    ) -> Result<std::ops::ControlFlow<()>, crate::error::RunError>
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: std::io::Write,
@@ -1016,7 +1019,7 @@ impl crate::grammar_applicator::Engine<'_> {
         *pass += 1;
         if *pass > 1000 {
             // Endless-loop warning (I/O pass omitted).
-            return std::ops::ControlFlow::Break(());
+            return Ok(std::ops::ControlFlow::Break(()));
         }
 
         if self.cfg.trace_encl {
@@ -1030,15 +1033,15 @@ impl crate::grammar_applicator::Engine<'_> {
             }
         }
 
-        let rv = self.run_grammar_on_single_window(current);
+        let rv = self.run_grammar_on_single_window(current)?;
         if rv & RV_DELIMITED != 0 {
-            return std::ops::ControlFlow::Continue(());
+            return Ok(std::ops::ControlFlow::Continue(()));
         }
 
         // Unpack enclosures.
         // Unpack enclosures (C++ label_unpackEnclosures).
         if self.rr_unpack_enclosures(current, rv) {
-            return std::ops::ControlFlow::Continue(());
+            return Ok(std::ops::ControlFlow::Continue(()));
         }
 
         // Restore CT_IGNORED cohorts.
@@ -1097,7 +1100,7 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             self.reflow_dependency_window(0);
         }
-        std::ops::ControlFlow::Break(())
+        Ok(std::ops::ControlFlow::Break(()))
     }
 
     // [spec:cg3:def:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn]
@@ -1106,7 +1109,10 @@ impl crate::grammar_applicator::Engine<'_> {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn]
     /// C++ `void runGrammarOnWindow()`. The retired-window flush prints to
     /// `*ux_stdout` in C++; the port threads the live output writer in.
-    pub fn run_grammar_on_window<W: std::io::Write>(&mut self, output: &mut W) {
+    pub fn run_grammar_on_window<W: std::io::Write>(
+        &mut self,
+        output: &mut W,
+    ) -> Result<(), crate::error::RunError> {
         self.run_grammar_on_window_with(
             &mut crate::grammar_applicator::stream_format::CgFormat,
             output,
@@ -1117,7 +1123,11 @@ impl crate::grammar_applicator::Engine<'_> {
     /// [`StreamFormat`](crate::grammar_applicator::stream_format::StreamFormat) strategy (the C++
     /// virtual print dispatch — the retired-window flush must print in the
     /// most-derived applicator's output format).
-    pub fn run_grammar_on_window_with<F, W>(&mut self, fmt: &mut F, output: &mut W)
+    pub fn run_grammar_on_window_with<F, W>(
+        &mut self,
+        fmt: &mut F,
+        output: &mut W,
+    ) -> Result<(), crate::error::RunError>
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: std::io::Write,
@@ -1192,6 +1202,7 @@ impl crate::grammar_applicator::Engine<'_> {
         self.scratch.par_right_pos = 0;
         let mut pass: u32 = 0;
         // C++ `runGrammarOnWindow_begin:` — loop until a pass runs to the end.
-        while self.rr_window_pass(fmt, output, &mut pass).is_continue() {}
+        while self.rr_window_pass(fmt, output, &mut pass)?.is_continue() {}
+        Ok(())
     }
 }

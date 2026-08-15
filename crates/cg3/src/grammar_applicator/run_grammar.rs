@@ -534,7 +534,12 @@ impl super::Engine<'_> {
         }
     }
 
-    fn run_grammar_on_text_with_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_with_impl<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::RunError>
     where
         F: super::stream_format::StreamFormat,
         R: std::io::Read + std::io::Seek,
@@ -794,7 +799,7 @@ impl super::Engine<'_> {
                     if self.doc.stream.next.len() > (self.cfg.num_windows + 1) as usize {
                         self.shuffle_windows_down();
 
-                        self.run_grammar_on_window_with(fmt, output);
+                        self.run_grammar_on_window_with(fmt, output)?;
                         if self.doc.num_windows.is_multiple_of(reset_after) {
                             self.reset_indexes();
                         }
@@ -944,7 +949,7 @@ impl super::Engine<'_> {
                             l_swindow = None;
                         }
                         while self.rotate_next().is_some() {
-                            self.run_grammar_on_window_with(fmt, output);
+                            self.run_grammar_on_window_with(fmt, output)?;
                             if self.doc.num_windows.is_multiple_of(reset_after) {
                                 self.reset_indexes();
                             }
@@ -1256,7 +1261,7 @@ impl super::Engine<'_> {
 
         // Drain the remaining windows.
         while self.rotate_next().is_some() {
-            self.run_grammar_on_window_with(fmt, output);
+            self.run_grammar_on_window_with(fmt, output)?;
             // verbose progress: deferred.
         }
         self.shuffle_windows_down();
@@ -1311,6 +1316,7 @@ impl super::Engine<'_> {
 
         // CGCMD_EXIT: verbose "Did N lines, N windows, ..." summary: deferred.
         let _ = (lines, l_reading);
+        Ok(())
     }
 
     /// The retire loop at the head of C++ `runGrammarOnWindow()`
@@ -1439,9 +1445,12 @@ impl super::GrammarApplicator {
         // C++ `runGrammarOnText` runs `index()` first; done here (needs `&mut
         // cfg`) before the read-only split view is taken for the driver body.
         self.index();
+        // The run engine reports its own failures now; catch_fatal remains only
+        // for the residual Cg3Exit sites elsewhere in the engine.
         crate::error::catch_fatal(|| {
             self.engine()
                 .run_grammar_on_text_with_impl(fmt, input, output)
-        })
+        })?
+        .map_err(crate::error::Cg3Error::from)
     }
 }

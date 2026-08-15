@@ -409,20 +409,26 @@ impl MatxinApplicator {
     /// C++ `void MatxinApplicator::printReading(Reading* reading, Node& node,
     /// std::ostream& output)`. Fills `node` from the reading; hard-exits on
     /// sub-readings (Matxin can't represent them).
-    pub fn print_reading<W: Write>(&self, reading: ReadingId, node: &mut Node, output: &mut W) {
+    pub fn print_reading<W: Write>(
+        &self,
+        reading: ReadingId,
+        node: &mut Node,
+        output: &mut W,
+    ) -> Result<(), crate::error::RunError> {
         let r = self.base.doc.store.readings.get(reading.0);
         if r.noprint {
-            return;
+            return Ok(());
         }
         if r.next.is_some() {
-            tracing::error!("Error: input contains sub-readings!");
+            // The C++ closed the document and exit(-1)'d. Closing it is still
+            // right — the file on disk stays well-formed — but the failure is
+            // now reported rather than being a process exit from library code.
             let _ = writeln!(output, "  </SENTENCE>");
             let _ = writeln!(output, "</corpus>");
-            // C++ exit(-1); wave 4: Cg3Exit unwind (bins convert to the exit).
-            crate::error::cg3_exit(-1);
+            return Err(crate::error::RunError::SubReadingsUnsupported);
         }
         if r.baseform.is_none() {
-            return;
+            return Ok(());
         }
 
         // Lop off the surrounding '"' quotes.
@@ -500,13 +506,19 @@ impl MatxinApplicator {
             }
         }
         node.mi = mi;
+        Ok(())
     }
 
     // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.print-single-window-fn]
     // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.print-single-window-fn]
     /// C++ `void MatxinApplicator::printSingleWindow(SingleWindow* window,
     /// std::ostream& output, bool profiling)`. Emits one `<SENTENCE>` block.
-    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
+    pub fn print_single_window<W: Write>(
+        &mut self,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) -> Result<(), crate::error::RunError> {
         let number = self.base.doc.store.single_windows.get(window.0).number;
         let _ = writeln!(output, "  <SENTENCE ord=\"{number}\" alloc=\"0\">");
 
@@ -575,7 +587,7 @@ impl MatxinApplicator {
 
             // Only the FIRST reading.
             let reading = self.base.doc.store.cohorts.get(cohort.0).readings[0];
-            self.print_reading(reading, &mut n, output);
+            self.print_reading(reading, &mut n, output)?;
 
             // Fallback root `r`.
             let mut r = self.nodes.len() as i32; // last word
@@ -611,6 +623,7 @@ impl MatxinApplicator {
         self.proc_node(&mut depth, &nodes, &deps, 0, output);
 
         let _ = writeln!(output, "  </SENTENCE>");
+        Ok(())
     }
 
     // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.proc-node-fn]
@@ -682,7 +695,11 @@ impl MatxinApplicator {
     // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-wrapper-null-flush-fn]
     /// C++ `void MatxinApplicator::runGrammarOnTextWrapperNullFlush(...)`. Drives
     /// repeated grammar runs for null-flush mode.
-    pub fn run_grammar_on_text_wrapper_null_flush<R, W>(&mut self, input: &mut R, output: &mut W)
+    pub fn run_grammar_on_text_wrapper_null_flush<R, W>(
+        &mut self,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::RunError>
     where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
@@ -690,11 +707,12 @@ impl MatxinApplicator {
         self.set_null_flush(false);
         self.running_with_null_flush = true;
         while !stream_eof(input) {
-            self.run_grammar_on_text_impl(input, output);
+            self.run_grammar_on_text_impl(input, output)?;
             u_fputc('\0', output);
             u_fflush(output);
         }
         self.running_with_null_flush = false;
+        Ok(())
     }
 
     // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn]
@@ -710,18 +728,23 @@ impl MatxinApplicator {
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(input, output))
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(input, output))?
+            .map_err(crate::error::Cg3Error::from)
     }
 
-    fn run_grammar_on_text_impl<R, W>(&mut self, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_impl<R, W>(
+        &mut self,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::RunError>
     where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
         // ux_stdin/ux_stdout are Option<()> placeholders.
         if self.get_null_flush() {
-            self.run_grammar_on_text_wrapper_null_flush(input, output);
-            return;
+            self.run_grammar_on_text_wrapper_null_flush(input, output)?;
+            return Ok(());
         }
 
         // No-delimiter warnings.
@@ -962,7 +985,7 @@ impl MatxinApplicator {
             }
             if self.base.doc.stream.next.len() as u32 > self.base.cfg.num_windows {
                 self.base.engine().shuffle_windows_down();
-                self.base.engine().run_grammar_on_window(output);
+                self.base.engine().run_grammar_on_window(output)?;
                 if reset_after != 0 && self.base.doc.num_windows.is_multiple_of(reset_after) {
                     self.base.reset_indexes();
                 }
@@ -1114,12 +1137,12 @@ impl MatxinApplicator {
         // Run the grammar & print results.
         let _ = writeln!(output, "<corpus>");
         while self.base.engine().rotate_next().is_some() {
-            self.base.engine().run_grammar_on_window(output);
+            self.base.engine().run_grammar_on_window(output)?;
         }
         self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
             let tmp = self.base.doc.stream.previous[0];
-            self.print_single_window(tmp, output, false);
+            self.print_single_window(tmp, output, false)?;
             let opt = Some(tmp);
             crate::single_window::free_swindow(
                 &mut self.base.doc.store,
@@ -1135,6 +1158,7 @@ impl MatxinApplicator {
         }
         let _ = writeln!(output, "</corpus>");
         u_fflush(output);
+        Ok(())
     }
 
     /// C++ `for (auto iter : cCohort->readings) addTagToReading(*iter, endtag);`.

@@ -137,22 +137,21 @@ impl GrammarError {
 /// A stream that would not run.
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
-    #[error("EXTERNAL on line {line} could not be started")]
-    ExternalStart {
-        line: u32,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("EXTERNAL on line {line} could not be written to")]
-    ExternalWrite {
-        line: u32,
-        #[source]
-        source: std::io::Error,
-    },
+    /// `detail` is a message rather than a typed cause because
+    /// `crate::process::Process` still reports `Result<(), String>` — its own
+    /// C-ism, tracked by `errors-idiomatic.process`.
+    #[error("EXTERNAL on line {line} could not be started: {detail}")]
+    ExternalStart { line: u32, detail: String },
+    #[error("EXTERNAL on line {line} could not be written to: {detail}")]
+    ExternalWrite { line: u32, detail: String },
     #[error("EXTERNAL returned data for cohort {got}, expected {expected}")]
     ExternalCohortMismatch { expected: u32, got: u32 },
     #[error("EXTERNAL returned data for window {got}, expected {expected}")]
     ExternalWindowMismatch { expected: u32, got: u32 },
+    #[error("input contains sub-readings, which this output format cannot represent")]
+    SubReadingsUnsupported,
+    #[error("output format {format} cannot be written here")]
+    UnsupportedOutputFormat { format: String },
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

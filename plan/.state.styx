@@ -117,6 +117,7 @@ assertions (
     {id errors-idiomatic.characterise-fallthrough, kind @complete, author "brendan@necessary.nu", at 2026-08-14T13:34:37.671473Z}
     {id errors-idiomatic.grammar, kind @doing, author "brendan@necessary.nu", at 2026-08-14T16:10:27.100952Z}
     {id errors-idiomatic.constructors, kind @doing, author "brendan@necessary.nu", at 2026-08-14T16:17:27.809827Z}
+    {id errors-idiomatic.applicator, kind @doing, author "brendan@necessary.nu", at 2026-08-15T09:50:49.934058Z}
 )
 
 impl_evidence (

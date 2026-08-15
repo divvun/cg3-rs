@@ -28,7 +28,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// invoked once after all matched readings have been through `reading_cb`.
     /// Dispatches SELECT/REMOVE finalisation, IFF, JUMP, REM/SETVARIABLE, DELIMIT,
     /// EXTERNAL, and REMCOHORT. `&mut RRState` carries the mutable rule-loop state.
-    pub(crate) fn cohort_cb_dispatch(&mut self, st: &mut RRState) {
+    pub(crate) fn cohort_cb_dispatch(
+        &mut self,
+        st: &mut RRState,
+    ) -> Result<(), crate::error::RunError> {
         let rule = st.rule;
         let rtype = self.grammar.rule_by_number.get(rule.0).r#type;
         let rflags = self.grammar.rule_by_number.get(rule.0).flags;
@@ -276,7 +279,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     .insert(rline)
                     .1
                 {
-                    return;
+                    return Ok(());
                 }
             }
             // C++ `src/version.hpp`: constexpr uint32_t CG3_EXTERNAL_PROTOCOL = 7226;
@@ -299,14 +302,18 @@ impl crate::grammar_applicator::Engine<'_> {
                 // writeRaw(es, CG3_EXTERNAL_PROTOCOL); — a throw is caught as
                 // "Error: External on line %u resulted in error: %s" + CG3Quit(1).
                 let mut es = crate::process::Process::new();
-                if let Err(e) = es.start(&cmd) {
-                    tracing::error!("Error: External on line {} resulted in error: {}", rline, e);
-                    crate::inlines::cg3_quit(1, None, 0);
+                if let Err(detail) = es.start(&cmd) {
+                    return Err(crate::error::RunError::ExternalStart {
+                        line: rline,
+                        detail,
+                    });
                 }
                 // writeRaw(es, CG3_EXTERNAL_PROTOCOL) — raw host-order u32.
-                if let Err(e) = es.write(&CG3_EXTERNAL_PROTOCOL.to_ne_bytes(), 4) {
-                    tracing::error!("Error: External on line {} resulted in error: {}", rline, e);
-                    crate::inlines::cg3_quit(1, None, 0);
+                if let Err(detail) = es.write(&CG3_EXTERNAL_PROTOCOL.to_ne_bytes(), 4) {
+                    return Err(crate::error::RunError::ExternalWrite {
+                        line: rline,
+                        detail,
+                    });
                 }
                 self.doc.externals.insert(varname, es);
             }
@@ -322,7 +329,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 .remove(&varname)
                 .expect("external process");
             self.pipe_out_single_window(current, &mut es);
-            self.pipe_in_single_window(current, &mut es);
+            self.pipe_in_single_window(current, &mut es)?;
             self.doc.externals.insert(varname, es);
 
             self.index_single_window(current);
@@ -387,6 +394,7 @@ impl crate::grammar_applicator::Engine<'_> {
             st.readings_changed = true;
             self.scratch.reset_cohorts_for_loop = true;
         }
+        Ok(())
     }
 
     // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
@@ -400,7 +408,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// The heavier window-restructuring types (ADDCOHORT, SPLITCOHORT, MERGECOHORTS,
     /// COPYCOHORT, MOVE/SWITCH, the dependency/relation family) are delegated to
     /// `rr_*` helper methods so this dispatcher stays a readable jump table.
-    pub(crate) fn reading_cb_dispatch(&mut self, st: &mut RRState) {
+    pub(crate) fn reading_cb_dispatch(
+        &mut self,
+        st: &mut RRState,
+    ) -> Result<(), crate::error::RunError> {
         let rule = st.rule;
         let (rtype, rflags, rnumber, rsub_reading) = {
             let r = self.grammar.rule_by_number.get(rule.0);
@@ -450,8 +461,9 @@ impl crate::grammar_applicator::Engine<'_> {
                 st.readings_changed = true;
             }
         } else {
-            self.reading_cb_rest(st, rule, rtype, rflags, rnumber, rsub_reading);
+            self.reading_cb_rest(st, rule, rtype, rflags, rnumber, rsub_reading)?;
         }
+        Ok(())
     }
 
     /// Whether the apply-to subreading matched its tests — the C++
@@ -475,7 +487,7 @@ impl crate::grammar_applicator::Engine<'_> {
         rflags: crate::rule::RuleFlags,
         rnumber: u32,
         rsub_reading: i32,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         match rtype {
             KSelect | KIff => {
                 // IFF-as-select with matched tests handled in the top dispatcher;
@@ -543,7 +555,7 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             KWith => {
                 self.trace(rnumber, rsub_reading);
-                self.rr_with(st, rule, rflags);
+                self.rr_with(st, rule, rflags)?;
                 self.scratch.finish_reading_loop = false;
             }
             _ if rtype != KRemcohort => {
@@ -551,6 +563,7 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             _ => {}
         }
+        Ok(())
     }
 
     /// `getTagList(*rule->maplist, theTags)` with `T_VSTR` pre-varstringify, then
@@ -580,7 +593,12 @@ impl crate::grammar_applicator::Engine<'_> {
 
     /// K_WITH: mark TRACE, then run each sub-rule (repeating while `RF_REPEAT`),
     /// aggregating `readings_changed`. `in_nested` is toggled around the block.
-    fn rr_with(&mut self, st: &mut RRState, rule: RuleId, _rflags: crate::rule::RuleFlags) {
+    fn rr_with(
+        &mut self,
+        st: &mut RRState,
+        rule: RuleId,
+        _rflags: crate::rule::RuleFlags,
+    ) -> Result<(), crate::error::RunError> {
         let mut any_readings_changed = false;
         st.readings_changed = false;
         self.scratch.in_nested = true;
@@ -596,7 +614,7 @@ impl crate::grammar_applicator::Engine<'_> {
             let sr_flags = self.grammar.rule_by_number.get(sr.0).flags;
             loop {
                 st.readings_changed = false;
-                let result = self.run_single_rule(current, sr, st);
+                let result = self.run_single_rule(current, sr, st)?;
                 any_readings_changed = any_readings_changed || result || st.readings_changed;
                 if !((result || st.readings_changed) && (sr_flags.intersects(RF_REPEAT))) {
                     break;
@@ -607,6 +625,7 @@ impl crate::grammar_applicator::Engine<'_> {
         st.rule = rule_was;
         self.scratch.in_nested = false;
         st.readings_changed = any_readings_changed;
+        Ok(())
     }
 
     /// K_SWITCHPARENT: reparent the target cohort above its current parent (and

@@ -1588,6 +1588,14 @@ children (
                 priority 0
                 kind @refactor
                 deps (errors-idiomatic.types)
+                log (
+                    {
+                        at 2026-08-15T09:50:49.934058Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {
@@ -1710,6 +1718,13 @@ children (
                         kind @note
                         text "Deletes Cg3Exit, ParseError, catch_fatal, install_panic_filter, is_control_flow_payload, cg3_exit, cg3_quit, the format_converter 0-arg cg3_quit shim, and the 7 panic_any/catch_unwind/resume_unwind sites (mod.rs:621, driver.rs:587/597, error.rs:180/233/244/255/259). Also reshapes Cg3Error::Fatal so the exit code leaves the payload. ORDER TRAP: [spec:cg3:req:errors.control-flow-quiet] becomes vacuous here, and node embedder-panic-noise implements it. Edit that node's implements FIRST (nplan_edit remove_impls), then retire the rule — deleting it while a node claims it dangles the ref and fails lint."
                     }
+
+                    {
+                        at 2026-08-15T09:50:46.951235Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Residual library-side quit sites not owned by any node yet, all of which must convert before cg3_quit can be deleted: format_converter.rs (the private 0-arg cg3_quit shim plus its two `_ =>` output-format arms in print_cohort / print_single_window), textual_parser/driver.rs (include-file open failure, empty input), relabeller.rs (post-reindex re-raise). reflow.rs's one site belongs to errors-idiomatic.add-tag-propagation. Everything else left is CLI: 45 sites across tools/, owned by errors-idiomatic.cli. emit_cg3quit_line already has zero callers and can go with them."
+                    }
                 )
             }
 
@@ -1725,6 +1740,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @note
                         text "Split out of errors-idiomatic.parser after sizing. The blast-radius survey recorded the applicator side of the ParseTagState conversion as \"one function — GrammarApplicator::add_tag\". That function has 81 call sites across 18 files: apertium_applicator 15, run_grammar 11, core 9, jsonl 8, matxin 7, plaintext 6, fst 4, niceline 3, grammar 3, reflow 2, and singletons elsewhere, plus 8 in tests. Folding that into the parser node would have made an already-atomic 30-signature conversion span another 81 sites in code that has nothing to do with parsing. Kept separate so the parser conversion stays reviewable. Until this lands, Matcher::add_tag absorbs the ParseError from parse_tag rather than propagating it — which still removes the inherited UB panic characterised in tests/applicator_tag_fallthrough.rs, because the error is handled instead of execution continuing into is_textual with empty text."
+                    }
+
+                    {
+                        at 2026-08-14T16:21:03.598954Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Scope widened to cover reflow.rs:809 as well, moved out of errors-idiomatic.applicator for the same reason add_tag was moved out of the parser node. add_tag_to_reading_rehash holds the \"cannot add a mapping tag to a reading that already has one\" quit; converting it cascades through add_tag_to_reading, which has 82 call sites. Together with add_tag's 81 that is ~163 sites of hot-path tag mutation — one coherent job, and one that has nothing to do with the applicator's EXTERNAL-protocol failures it was sharing a node with. Both ripples are in reflow.rs / match_set.rs / the applicators rather than in parsing, and both want the same answer about whether a tag-mutation failure aborts the rule or the stream."
                     }
                 )
             }

@@ -27,7 +27,7 @@ impl crate::grammar_applicator::Engine<'_> {
         &mut self,
         current: SwId,
         rules: &Uint32IntervalVector,
-    ) -> u32 {
+    ) -> Result<u32, crate::error::RunError> {
         let mut retval = RV_NOTHING;
         let mut section_did_something = false;
 
@@ -112,7 +112,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 // C++ builds two RuleCallback closures aliasing this + the
                 // shared state; the port threads `st` directly (wave 4 — the
                 // raw-pointer trampolines are gone).
-                let rv = self.run_single_rule(current, RuleId(j), &mut st);
+                let rv = self.run_single_rule(current, RuleId(j), &mut st)?;
                 if rv || st.readings_changed {
                     if !((rflags.intersects(RF_NOITERATE)) && self.cfg.section_max_count != 1) {
                         section_did_something = true;
@@ -172,7 +172,7 @@ impl crate::grammar_applicator::Engine<'_> {
         if st.delimited {
             retval |= RV_DELIMITED;
         }
-        retval
+        Ok(retval)
     }
 
     /// Sorter dtor body: re-sort every rule_to_cohorts CohortSet with the

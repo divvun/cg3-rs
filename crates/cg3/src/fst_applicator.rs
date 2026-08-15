@@ -127,7 +127,8 @@ where
     {
         let mut fmt = FstFormat::from_app(self);
         let result =
-            crate::error::catch_fatal(|| self.run_grammar_on_text_impl(&mut fmt, input, output));
+            crate::error::catch_fatal(|| self.run_grammar_on_text_impl(&mut fmt, input, output))?
+                .map_err(crate::error::Cg3Error::from);
         self.did_warn_statictags = fmt.did_warn_statictags;
         result
     }
@@ -145,10 +146,16 @@ where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))?
+            .map_err(crate::error::Cg3Error::from)
     }
 
-    fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_impl<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::RunError>
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         R: std::io::Read + std::io::Seek,
@@ -632,7 +639,7 @@ where
             }
 
             if is_text {
-                self.istext(fmt, &line, &cleaned, output, &mut st);
+                self.istext(fmt, &line, &cleaned, output, &mut st)?;
             }
 
             self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
@@ -669,7 +676,7 @@ where
 
         // Drain buffered windows.
         while self.base.engine().rotate_next().is_some() {
-            self.base.engine().run_grammar_on_window_with(fmt, output);
+            self.base.engine().run_grammar_on_window_with(fmt, output)?;
         }
         self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
@@ -688,6 +695,7 @@ where
             self.base.doc.stream.previous.remove(0);
         }
         let _ = output.flush();
+        Ok(())
     }
 
     /// C++ `istext:` label body of `runGrammarOnText`. Runs for every non-cohort
@@ -702,7 +710,8 @@ where
         cleaned: &[char],
         output: &mut W,
         st: &mut FstStreamState,
-    ) where
+    ) -> Result<(), crate::error::RunError>
+    where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: Write,
     {
@@ -733,7 +742,7 @@ where
                 let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
                 fmt.print_plain_text_line(&mut self.base.engine(), &line_str, output);
             }
-            return;
+            return Ok(());
         }
 
         // Soft-limit lookback.
@@ -887,7 +896,7 @@ where
         // Drain a window if enough have queued up.
         if self.base.doc.stream.next.len() as u32 > self.base.cfg.num_windows {
             self.base.engine().shuffle_windows_down();
-            self.base.engine().run_grammar_on_window_with(fmt, output);
+            self.base.engine().run_grammar_on_window_with(fmt, output)?;
             if self.base.doc.num_windows.is_multiple_of(st.reset_after) {
                 self.base.engine().reset_indexes();
             }
@@ -919,6 +928,7 @@ where
                 fmt.print_plain_text_line(&mut self.base.engine(), &line_str, output);
             }
         }
+        Ok(())
     }
 }
 

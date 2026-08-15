@@ -558,7 +558,8 @@ where
         W: std::io::Write,
     {
         let mut fmt = ApertiumFormat::from_app(self);
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(&mut fmt, input, output))
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(&mut fmt, input, output))?
+            .map_err(crate::error::Cg3Error::from)
     }
 
     /// Run the Apertium parser while routing output through a most-derived
@@ -574,10 +575,16 @@ where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))?
+            .map_err(crate::error::Cg3Error::from)
     }
 
-    fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_impl<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::RunError>
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         R: std::io::Read + std::io::Seek,
@@ -665,7 +672,7 @@ where
             }
 
             if c == '\0' {
-                self.flush(fmt, true, &mut st, c, output);
+                self.flush(fmt, true, &mut st, c, output)?;
                 continue;
             }
 
@@ -711,7 +718,7 @@ where
                         self.base.doc.num_lines
                     );
                     // CG3Quit(1) — abort in C++; keep going in the port.
-                    return;
+                    return Ok(());
                 }
                 st.in_cohort = false;
 
@@ -737,7 +744,7 @@ where
                             "Error: Word-bound blank was not immediately prior to token on line {}",
                             self.base.doc.num_lines
                         );
-                        return;
+                        return Ok(());
                     }
                 }
 
@@ -1020,7 +1027,7 @@ where
 
                 if did_delim && self.base.doc.stream.next.len() as u32 > self.base.cfg.num_windows {
                     self.base.engine().shuffle_windows_down();
-                    self.base.engine().run_grammar_on_window_with(fmt, output);
+                    self.base.engine().run_grammar_on_window_with(fmt, output)?;
                     if reset_after != 0 && self.base.doc.num_windows.is_multiple_of(reset_after) {
                         self.base.engine().reset_indexes();
                     }
@@ -1029,7 +1036,8 @@ where
             }
         }
 
-        self.flush(fmt, false, &mut st, c, output);
+        self.flush(fmt, false, &mut st, c, output)?;
+        Ok(())
     }
 
     /// C++ `ensure_endtag` lambda: if `lSWindow` exists, has cohorts, and the last
@@ -1072,7 +1080,8 @@ where
         st: &mut ApertiumStreamState,
         c: char,
         output: &mut W,
-    ) where
+    ) -> Result<(), crate::error::RunError>
+    where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: Write,
     {
@@ -1127,7 +1136,7 @@ where
 
         // Run the grammar & print results.
         while self.base.engine().rotate_next().is_some() {
-            self.base.engine().run_grammar_on_window_with(fmt, output);
+            self.base.engine().run_grammar_on_window_with(fmt, output)?;
         }
         self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
@@ -1167,6 +1176,7 @@ where
         st.variables_set.clear(0);
         st.variables_output.clear();
         self.base.doc.variables.clear(0);
+        Ok(())
     }
 }
 

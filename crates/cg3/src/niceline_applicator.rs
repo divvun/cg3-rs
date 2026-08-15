@@ -111,10 +111,16 @@ impl<'a> NicelineApplicator<'a> {
         R: Read + Seek,
         W: Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))
+        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))?
+            .map_err(crate::error::Cg3Error::from)
     }
 
-    fn run_grammar_on_text_impl<F, R, W>(&mut self, fmt: &mut F, input: &mut R, output: &mut W)
+    fn run_grammar_on_text_impl<F, R, W>(
+        &mut self,
+        fmt: &mut F,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), crate::error::RunError>
     where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         R: Read + Seek,
@@ -320,7 +326,7 @@ impl<'a> NicelineApplicator<'a> {
                     // Drain a window if enough have queued up.
                     if self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize {
                         self.base.engine().shuffle_windows_down();
-                        self.base.engine().run_grammar_on_window_with(fmt, output);
+                        self.base.engine().run_grammar_on_window_with(fmt, output)?;
                         if self.base.doc.num_windows.is_multiple_of(reset_after) {
                             self.base.reset_indexes();
                         }
@@ -535,7 +541,7 @@ impl<'a> NicelineApplicator<'a> {
             // this point, so the port's bindings simply go out of scope.
         }
         while self.base.engine().rotate_next().is_some() {
-            self.base.engine().run_grammar_on_window_with(fmt, output);
+            self.base.engine().run_grammar_on_window_with(fmt, output)?;
         }
 
         self.base.engine().shuffle_windows_down();
@@ -554,6 +560,7 @@ impl<'a> NicelineApplicator<'a> {
         }
 
         u_fflush(output);
+        Ok(())
     }
 }
 

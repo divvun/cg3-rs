@@ -33,8 +33,8 @@ use crate::cohort::{CT_RELATED, CT_REMOVED, DEP_NO_PARENT, unignore_all};
 use crate::contextual_test::POS_NEGATE;
 use crate::grammar::Grammar;
 use crate::inlines::{
-    cg3_quit, g_app_set_opts_ranged, hash_value_ustring, is_textual, isnl, read_raw, read_utf8_raw,
-    ui8, ui32, write_raw, write_utf8_raw,
+    g_app_set_opts_ranged, hash_value_ustring, is_textual, isnl, read_raw, read_utf8_raw, ui8,
+    ui32, write_raw, write_utf8_raw,
 };
 use crate::options::{Opt, OptionsTable};
 use crate::process::Process;
@@ -449,13 +449,7 @@ impl super::GrammarApplicator {
             for (pat, icase) in specs {
                 match crate::tag_regex::compile_tag_regex(&pat, icase) {
                     Ok(re) => self.cfg.text_delimiters.push(re),
-                    Err(e) => {
-                        // The C++ printed here; before this the port emitted
-                        // nothing at all, because `emit_cg3quit_line` is gated
-                        // on `num_lines != 0` and no input has been read yet.
-                        crate::error::emit_cg3quit_line(file!(), self.doc.num_lines);
-                        bad_regexes.push(e.with_tag(pat));
-                    }
+                    Err(e) => bad_regexes.push(e.with_tag(pat)),
                 }
             }
             if !bad_regexes.is_empty() {
@@ -507,7 +501,6 @@ impl super::GrammarApplicator {
         match crate::tag_regex::compile_tag_regex(&pat, icase) {
             Ok(re) => self.cfg.text_delimiters.push(re),
             Err(e) => {
-                crate::error::emit_cg3quit_line(file!(), self.doc.num_lines);
                 return Err(crate::error::GrammarError::TagRegex(vec![e.with_tag(pat)]).into());
             }
         }
@@ -1341,14 +1334,20 @@ impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn]
     /// C++ `void pipeInCohort(Cohort* cohort, Process& input)`.
-    pub fn pipe_in_cohort(&mut self, cohort: CohortId, input: &mut Process) {
+    pub fn pipe_in_cohort(
+        &mut self,
+        cohort: CohortId,
+        input: &mut Process,
+    ) -> Result<(), crate::error::RunError> {
         let _packet_len: u32 = read_raw(&mut ProcRead(input));
 
         let cs: u32 = read_raw(&mut ProcRead(input));
         let global_number = self.doc.store.cohorts.get(cohort.0).global_number.get();
         if cs != global_number {
-            // "Error: External returned data for cohort ... but we expected ...!"
-            cg3_quit(1, Some(file!()), self.doc.num_lines);
+            return Err(crate::error::RunError::ExternalCohortMismatch {
+                expected: global_number,
+                got: cs,
+            });
         }
 
         let flags: u32 = read_raw(&mut ProcRead(input));
@@ -1388,29 +1387,37 @@ impl Engine<'_> {
             let text = read_utf8_raw(&mut ProcRead(input));
             self.doc.store.cohorts.get_mut(cohort.0).text = text;
         }
+        Ok(())
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn]
     /// C++ `void pipeInSingleWindow(SingleWindow& window, Process& input)`.
-    pub fn pipe_in_single_window(&mut self, window: SwId, input: &mut Process) {
+    pub fn pipe_in_single_window(
+        &mut self,
+        window: SwId,
+        input: &mut Process,
+    ) -> Result<(), crate::error::RunError> {
         let cs: u32 = read_raw(&mut ProcRead(input));
         if cs == 0 {
-            return;
+            return Ok(());
         }
 
         let cs: u32 = read_raw(&mut ProcRead(input));
         let number = self.doc.store.single_windows.get(window.0).number;
         if cs != number {
-            // "Error: External returned data for window ... but we expected ...!"
-            cg3_quit(1, Some(file!()), self.doc.num_lines);
+            return Err(crate::error::RunError::ExternalWindowMismatch {
+                expected: number,
+                got: cs,
+            });
         }
 
         let cs: u32 = read_raw(&mut ProcRead(input));
         for i in 0..cs {
             let cid = self.doc.store.single_windows.get(window.0).cohorts[(i + 1) as usize];
-            self.pipe_in_cohort(cid, input);
+            self.pipe_in_cohort(cid, input)?;
         }
+        Ok(())
     }
 
     // =======================================================================
