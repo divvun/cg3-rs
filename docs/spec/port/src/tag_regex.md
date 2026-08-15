@@ -5,9 +5,14 @@ wild are authored against ICU, so the port must accept ICU syntax or silently
 stop matching. These rules govern the seam between ICU-authored patterns and the
 Rust engine that actually runs them.
 
-> [spec:cg3:req:tag-regex.single-seam]
-> Every tag and text-delimiter pattern MUST be compiled through a single helper.
-> No call site may construct a tag regex directly. Case-insensitivity MUST be
+> [spec:cg3:req:tag-regex.single-seam+1]
+> Every user-authored pattern the C++ compiled with ICU MUST be compiled through
+> a single helper: tag patterns, text-delimiter patterns, and the `--nrules` /
+> `--nrules-v` rule-name filters. No call site may construct one directly. A
+> rule-name filter is not a tag, but it is written by the same author against the
+> same engine and the C++ handed it to the same `uregex_open`; compiling it
+> anywhere else means one spelling has two meanings depending on whether it was
+> typed on the command line or into a grammar. Case-insensitivity MUST be
 > applied as an engine builder flag and MUST NOT be injected into the pattern
 > text, because the binary grammar writer serialises the compiled pattern back
 > out and an injected flag would leak into every emitted `.cg3b`, diverging from

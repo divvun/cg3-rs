@@ -167,7 +167,7 @@ impl std::error::Error for TagRegexError {}
 /// `as_str()`, so an injected `(?i)` would leak into every `.cg3b` we emit. The
 /// flag itself survives a `.cg3b` round-trip in `Tag::type`'s
 /// `T_CASE_INSENSITIVE` bit, which the reader re-derives.
-// [spec:cg3:req:tag-regex.single-seam]
+// [spec:cg3:req:tag-regex.single-seam+1]
 pub fn compile_tag_regex(
     pattern: &str,
     case_insensitive: bool,
@@ -200,7 +200,7 @@ pub fn compile_tag_regex(
 /// every `.cg3b` we emit diverge from the C++ `uregex_pattern` round-trip and
 /// stop being readable as ICU. So [`TagRegex::as_str`] returns the SOURCE,
 /// while matching uses the compiled form.
-// [spec:cg3:req:tag-regex.single-seam]
+// [spec:cg3:req:tag-regex.single-seam+1]
 // [spec:cg3:req:tag-regex.source-fidelity]
 #[derive(Debug, Clone)]
 pub struct TagRegex {
@@ -677,7 +677,7 @@ mod tests {
         }
     }
 
-    // [spec:cg3:req:tag-regex.single-seam/test]
+    // [spec:cg3:req:tag-regex.single-seam+1/test]
     #[test]
     fn case_insensitivity_leaves_the_pattern_bare() {
         let re = compile_tag_regex("abc", true).expect("must compile");

@@ -72,8 +72,6 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 
-use regex::Regex;
-
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::contextual_test::POS_64BIT;
 use crate::flat_unordered_set::Uint32FlatHashSet;
@@ -84,6 +82,7 @@ use crate::rule::Rule;
 use crate::set::Set;
 use crate::strings::Keywords;
 use crate::tag::{COps, T_CASE_INSENSITIVE, T_CONTEXT, T_LOCAL_VARIABLE, T_VARIABLE, Tag};
+use crate::tag_regex::TagRegex;
 use crate::tag_trie::trie_serialize;
 use crate::types::{SetNumber, TagHash};
 
@@ -139,12 +138,14 @@ pub type DeferredOrs = HashMap<CtxId, Vec<u32>>;
 pub struct BinaryGrammar {
     /// C++ `Grammar* grammar` (aliases `result`); OWNED here.
     pub grammar: Grammar,
-    /// C++ base `URegularExpression* nrules` — the `--nrules` name filter.
+    /// C++ base `URegularExpression* nrules` — the `--nrules` name filter,
+    /// compiled through the ICU seam like every other user-authored pattern
+    /// (`[spec:cg3:req:tag-regex.single-seam]`).
     /// Public: C++ main.cpp sets `parser->nrules` on the IGrammarParser base
     /// for BOTH the textual and binary parsers.
-    pub nrules: Option<Regex>,
+    pub nrules: Option<TagRegex>,
     /// C++ base `URegularExpression* nrules_inv` — the `--nrules-inv` filter.
-    pub nrules_inv: Option<Regex>,
+    pub nrules_inv: Option<TagRegex>,
     /// C++ base `uint32_t verbosity`.
     verbosity: u32,
     deferred_tmpls: DeferredTests,

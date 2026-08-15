@@ -1830,6 +1830,13 @@ children (
                         kind @note
                         text "tools/vislcg3.rs:60 compiles the --nrules / --nrules-inv patterns with a bare regex::Regex::new, bypassing crate::tag_regex::compile_tag_regex. [spec:cg3:req:tag-regex.single-seam] says every tag pattern goes through the seam; a rule-name filter is not strictly a tag pattern, which is why this was left alone, but it is user-authored and the C++ compiled it with the same ICU engine as everything else. So an ICU-spelled --nrules pattern silently gets different semantics from the identical pattern in a grammar: no \\Q...\\E, no ICU \\Z or $, and possessive quantifiers mis-parsed rather than rejected. Either route it through the seam or state in the spec why a filter is exempt."
                     }
+
+                    {
+                        at 2026-08-15T16:24:35.453919Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

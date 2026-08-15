@@ -25,6 +25,7 @@ use crate::options::{
 };
 use crate::options_parser::{parse_opts, parse_opts_env};
 use crate::profiler::Profiler;
+use crate::tag_regex::{TagRegex, TagRegexError, compile_tag_regex};
 use crate::textual_parser::TextualParser;
 
 use super::{
@@ -36,28 +37,41 @@ use super::{
 /// A `--nrules` / `--nrules-v` pattern that would not compile.
 ///
 /// The C++ `uregex_open` wording is kept verbatim for parity, and the cause is
-/// reachable underneath it rather than only as text.
+/// reachable underneath it rather than only as text. Only the failure `kind` is
+/// spliced into the message: `TagRegexError`'s own `Display` opens with "cannot
+/// compile regex for tag", which a rule-name filter is not.
 #[derive(Debug, thiserror::Error)]
-#[error("Error: uregex_open returned {source} trying to parse {flag} {pattern}")]
+#[error("Error: uregex_open returned {} trying to parse {flag} {pattern}", .source.kind)]
 struct NrulesError {
     flag: &'static str,
     pattern: String,
     #[source]
-    source: regex::Error,
+    source: Box<TagRegexError>,
 }
 
 /// Compile the `--nrules` / `--nrules-v` pattern held in `options`, or `None`
 /// when the flag was not given.
+///
+/// Through the ICU seam, not `regex::Regex::new`. The C++ compiled these with
+/// `uregex_open` — the same ICU engine as every tag pattern — so a filter and a
+/// grammar tag spelled identically meant identically. Compiling the filter with
+/// a different engine reintroduces exactly the divergences the seam exists to
+/// close, on a pattern the same person authored: no `\Q...\E`, ICU's `\Z`/`$`
+/// misread as end-of-haystack, `[:script=Greek:]` silently read as a literal
+/// character set, and possessive quantifiers taken as ordinary ones so the
+/// filter selects MORE rules than asked for.
+// [spec:cg3:req:tag-regex.single-seam+1]
 fn nrules_pattern(
     options: &crate::options::OptionsTable,
     opt: Opt,
     flag: &'static str,
-) -> Result<Option<regex::Regex>, NrulesError> {
+) -> Result<Option<TagRegex>, NrulesError> {
     if !options[opt as usize].does_occur {
         return Ok(None);
     }
     let pattern = &options[opt as usize].value;
-    regex::Regex::new(pattern)
+    // Case-sensitive: the C++ passes flags 0 to uregex_open.
+    compile_tag_regex(pattern, false)
         .map(Some)
         .map_err(|source| NrulesError {
             flag,

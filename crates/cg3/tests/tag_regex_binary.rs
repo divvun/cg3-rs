@@ -10,7 +10,7 @@
 //! tag `"\Q$1\E.*"S$` is the `icu_literal_quoting_loads` case below.
 
 // [spec:cg3:req:errors.tag-regex-diagnostic/test]
-// [spec:cg3:req:tag-regex.single-seam/test]
+// [spec:cg3:req:tag-regex.single-seam+1/test]
 use cg3::binary_grammar::BinaryGrammar;
 use cg3::error::Cg3Error;
 use cg3::grammar::Grammar;

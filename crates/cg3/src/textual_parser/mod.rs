@@ -41,8 +41,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write;
 
-use regex::Regex;
-
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::ast::{ASTHelper, ASTType, Ast};
 use crate::contextual_test::{
@@ -71,6 +69,7 @@ use crate::tag::{
     T_SET, T_SPECIAL, T_TARGET, T_VARIABLE, T_VARSTRING, T_VSTR, T_WORDFORM, Tag, TagVector,
     TagVectorSet, compare_tag_vector,
 };
+use crate::tag_regex::TagRegex;
 use crate::tag_trie::{trie_get_tags, trie_insert};
 use crate::types::SetNumber;
 mod driver;
@@ -518,8 +517,11 @@ pub struct TextualParser {
     errors: Vec<crate::error::ParseError>,
     /// Signals the `END` directive breaking the `parseFromUChar` loop.
     parse_end_break: bool,
-    pub nrules: Option<Regex>,
-    pub nrules_inv: Option<Regex>,
+    /// C++ base `URegularExpression* nrules` — the `--nrules` name filter,
+    /// compiled through the ICU seam like every other user-authored pattern
+    /// (`[spec:cg3:req:tag-regex.single-seam]`).
+    pub nrules: Option<TagRegex>,
+    pub nrules_inv: Option<TagRegex>,
     /// Wave-4 owned AST builder (C++ `thread_local parse_ast/ast/cur_ast`).
     ast: Ast,
     /// C++ `Profiler* profiler` (raw pointer to main's Profiler) — OWNED here:
