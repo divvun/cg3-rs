@@ -1762,6 +1762,7 @@ children (
                 priority 0
                 kind @refactor
                 deps (errors-idiomatic.parser)
+                sealed true
                 log (
                     {
                         at 2026-08-14T12:22:17.409717Z
@@ -1782,6 +1783,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-15T11:09:05.907978Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }

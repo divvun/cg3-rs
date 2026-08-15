@@ -117,7 +117,7 @@ assertions (
     {id errors-idiomatic.grammar, kind @doing, author "brendan@necessary.nu", at 2026-08-14T16:10:27.100952Z}
     {id errors-idiomatic.constructors, kind @complete, author "brendan@necessary.nu", at 2026-08-15T10:51:33.473617Z}
     {id errors-idiomatic.applicator, kind @complete, author "brendan@necessary.nu", at 2026-08-15T10:51:29.116987Z}
-    {id errors-idiomatic.add-tag-propagation, kind @doing, author "brendan@necessary.nu", at 2026-08-15T10:23:20.394309Z}
+    {id errors-idiomatic.add-tag-propagation, kind @complete, author "brendan@necessary.nu", at 2026-08-15T11:09:05.907978Z}
 )
 
 impl_evidence (
