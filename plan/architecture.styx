@@ -42,15 +42,55 @@ elements (
             [spec:cg3:req:diagnostics.source-identity]
             [spec:cg3:req:diagnostics.source-retained]
             [spec:cg3:req:diagnostics.source-named]
+            [spec:cg3:req:diagnostics.rule-provenance]
         )
         exposes (
             "crates/cg3/src/textual_parser/**"
         )
         depends_on ([arch:cg3:error-model] [arch:cg3:tag-parsing])
-        decisions ([dec:cg3:results-not-unwinding] [dec:cg3:parse-sources-carry-their-name])
+        decisions ([dec:cg3:results-not-unwinding] [dec:cg3:parse-sources-carry-their-name] [dec:cg3:grammar-source-sidecar])
         log (
             {at "2026-08-14T00:00:00Z", kind @established, by "[dec:cg3:results-not-unwinding]"}
             {at "2026-08-15T00:00:00Z", kind @modified, by "[dec:cg3:parse-sources-carry-their-name]"}
+            {at "2026-08-15T00:00:00Z", kind @modified, by "[dec:cg3:grammar-source-sidecar]"}
+        )
+    }
+
+    {
+        id [arch:cg3:binary-format]
+        name "Binary grammar format"
+        kind @boundary
+        lifecycle @active
+        owns (
+            [spec:cg3:req:diagnostics.wire-frozen]
+        )
+        exposes (
+            "crates/cg3/src/binary_grammar.rs"
+        )
+        depends_on ([arch:cg3:error-model])
+        decisions ([dec:cg3:grammar-source-sidecar])
+        log (
+            {at "2026-08-15T00:00:00Z", kind @established, by "[dec:cg3:grammar-source-sidecar]"}
+        )
+    }
+
+    {
+        id [arch:cg3:grammar-sources]
+        name "Grammar source retention"
+        kind @module
+        lifecycle @provisional
+        owns (
+            [spec:cg3:req:diagnostics.sidecar]
+            [spec:cg3:req:diagnostics.sidecar-identity]
+            [spec:cg3:req:diagnostics.source-lazy]
+        )
+        exposes (
+            "crates/cg3/src/grammar_sources.rs"
+        )
+        depends_on ([arch:cg3:error-model] [arch:cg3:binary-format])
+        decisions ([dec:cg3:grammar-source-sidecar])
+        log (
+            {at "2026-08-15T00:00:00Z", kind @established, by "[dec:cg3:grammar-source-sidecar]"}
         )
     }
 
@@ -85,13 +125,17 @@ elements (
         owns (
             [spec:cg3:req:diagnostics.rendered]
             [spec:cg3:req:diagnostics.colour-at-tty]
+            [spec:cg3:req:diagnostics.runtime-placed]
+            [spec:cg3:req:diagnostics.runtime-input-named]
         )
         exposes (
             "crates/cg3/src/diagnostics.rs"
         )
-        depends_on ([arch:cg3:error-model])
+        depends_on ([arch:cg3:error-model] [arch:cg3:grammar-sources])
+        decisions ([dec:cg3:grammar-source-sidecar])
         log (
             {at "2026-08-15T00:00:00Z", kind @established, by "grammar-diagnostics.render"}
+            {at "2026-08-15T00:00:00Z", kind @modified, by "[dec:cg3:grammar-source-sidecar]"}
         )
     }
 

@@ -831,6 +831,11 @@ impl TextualParser {
         if let Err(hard) = self.parse_grammar_data(gi) {
             self.record(hard);
         }
+        // [spec:cg3:req:diagnostics.source-lazy]
+        // The names only. A rule's `provenance` indexes this list, so a runtime
+        // failure can find the file it was written in without the grammar
+        // holding that file's text for the life of the run.
+        self.grammar.source_names = self.grammarbufs.iter().map(|b| b.name.clone()).collect();
         let errors = self.take_errors();
         if errors.is_empty() {
             Ok(())

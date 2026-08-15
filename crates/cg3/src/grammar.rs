@@ -189,6 +189,16 @@ pub struct Grammar {
     pub cmdargs: String,
     pub cmdargs_override: String,
 
+    // [spec:cg3:req:diagnostics.source-lazy]
+    /// ADDED — no C++ analog. The paths of the sources a textual parse read, in
+    /// the order it read them, indexed by
+    /// [`RuleProvenance::source`](crate::rule::RuleProvenance::source). Empty
+    /// after a binary load, which has a companion source file instead.
+    ///
+    /// Paths, not text: a grammar runs to megabytes and almost no run fails, so
+    /// the text is read back only when a failure needs quoting.
+    pub source_names: Vec<String>,
+
     // --- tags ---
     /// Owned tag arena (was `std::vector<Tag*> single_tags_list`); `TagId` indexes it.
     pub single_tags_list: Arena<Tag>,
@@ -302,6 +312,7 @@ impl Default for Grammar {
             total_time: 0.0,
             cmdargs: String::new(),
             cmdargs_override: String::new(),
+            source_names: Vec::new(),
             single_tags_list: Arena::new(),
             single_tags: FlatUnorderedMap::default(),
             sets_list: Arena::new(),

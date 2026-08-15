@@ -2038,12 +2038,26 @@ children (
                 id runtime-diagnostics.rule-provenance
                 title "Record where each rule was written: the textual parser stamps every rule with its source buffer and character span, in memory only, never on the .cg3b wire"
                 priority 0
+                implements {
+                    target-impl ([spec:cg3:req:diagnostics.rule-provenance] [spec:cg3:req:diagnostics.wire-frozen])
+                }
+                log (
+                    {
+                        at 2026-08-15T17:47:54.748359Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {
                 id runtime-diagnostics.sidecar
                 title "Define the grammar source sidecar: cg-comp writes the retained sources and per-rule provenance beside the .cg3b, and a loader reads it lazily, refusing one that does not describe the grammar in hand"
                 priority 0
+                implements {
+                    target-impl ([spec:cg3:req:diagnostics.sidecar] [spec:cg3:req:diagnostics.sidecar-identity])
+                }
                 deps (runtime-diagnostics.rule-provenance)
             }
 
@@ -2051,6 +2065,9 @@ children (
                 id runtime-diagnostics.rt-rule
                 title "Render a runtime rule failure against the grammar that caused it: RT RULE resolves through the sidecar to a file, line and span, and reports as an ariadne diagnostic instead of a bare rule line number"
                 priority 0
+                implements {
+                    target-impl ([spec:cg3:req:diagnostics.source-lazy] [spec:cg3:req:diagnostics.runtime-placed])
+                }
                 deps (runtime-diagnostics.sidecar)
             }
 
@@ -2058,6 +2075,9 @@ children (
                 id runtime-diagnostics.rt-input
                 title "Name the input a runtime failure was reading: RT INPUT carries the input stream's filename alongside the line count it already has, so a failure points at a file rather than at a number"
                 priority 1
+                implements {
+                    target-impl ([spec:cg3:req:diagnostics.runtime-input-named])
+                }
             }
         )
     }

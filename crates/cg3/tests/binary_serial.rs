@@ -268,3 +268,49 @@ fn legacy_10043_rejected() {
     assert_eq!(reader.grammar.num_tags, 0);
     assert_eq!(reader.grammar.contexts.len(), 0);
 }
+
+/// Rule provenance is in-memory state, and the `.cg3b` is frozen at revision
+/// 13898: neither the section list nor the rule record is length-prefixed, so a
+/// field leaking into the stream would not degrade for a C++ reader but
+/// desynchronise it. Proven by writing the same grammar twice — once as parsed,
+/// once with every rule's provenance stripped — and demanding the same bytes.
+// [spec:cg3:req:diagnostics.wire-frozen/test]
+#[test]
+fn provenance_never_reaches_the_wire() {
+    let src = std::fs::read(test_dir("T_Templates").join("grammar.cg3")).expect("read fixture");
+
+    let compile = |strip: bool| -> Vec<u8> {
+        let mut parser = TextualParser::new(Grammar::default(), false);
+        parser
+            .parse_grammar_named(&src, "grammar.cg3")
+            .expect("fixture parses");
+        let mut grammar = parser.grammar;
+        let _ = grammar.reindex(false, false).expect("reindex");
+        if strip {
+            for i in 0..grammar.rule_by_number.capacity() {
+                if grammar.rule_by_number.try_get(i).is_some() {
+                    grammar.rule_by_number.get_mut(i).provenance = None;
+                }
+            }
+        } else {
+            assert!(
+                (0..grammar.rule_by_number.capacity())
+                    .filter_map(|i| grammar.rule_by_number.try_get(i))
+                    .any(|r| r.provenance.is_some()),
+                "the fixture must actually carry provenance for this to prove anything"
+            );
+        }
+        let mut out = Vec::new();
+        let mut writer = BinaryGrammar::new(grammar);
+        writer
+            .write_binary_grammar(&mut out)
+            .expect("write the binary grammar");
+        out
+    };
+
+    assert_eq!(
+        compile(false),
+        compile(true),
+        "the .cg3b must not depend on rule provenance"
+    );
+}

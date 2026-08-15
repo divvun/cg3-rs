@@ -159,6 +159,31 @@ pub const FLAGS_EXCLS: [RuleFlags; FLAGS_COUNT] = {
 /// C++ `typedef std::vector<Rule*> RuleVector`.
 pub type RuleVector = Vec<RuleId>;
 
+// [spec:cg3:req:diagnostics.rule-provenance]
+/// Where a rule was written: which of the parse's sources, and the char span its
+/// text occupies there.
+///
+/// ADDED — no C++ analog. The C++ needs none: it prints at the raise site while
+/// the buffers are still open. This port's applicator raises a runtime failure
+/// long after the parse is gone, so the position has to be carried.
+///
+/// `u32` rather than `usize`: a grammar source larger than 4G characters is not
+/// a thing, and a rule carries one of these unconditionally.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuleProvenance {
+    /// Index into the parse's source list — a name, not a path, because
+    /// `INCLUDE` lets two sources share a base name
+    /// (`[spec:cg3:req:diagnostics.source-identity]`).
+    pub source: u32,
+    /// Char offset of the rule's first keyword character, against the author's
+    /// text with the parser's buffer padding already off.
+    pub begin: u32,
+    /// Char offset one past the rule's last body character — the position of the
+    /// terminating `;`. The same end the profiler records for the rule, so the
+    /// two agree about what "this rule's text" means.
+    pub end: u32,
+}
+
 // [spec:cg3:def:rule.cg3.rule]
 /// C++ `class Rule`.
 ///
@@ -174,6 +199,13 @@ pub struct Rule {
     pub childset1: SetNumber,
     pub childset2: SetNumber,
     pub line: u32,
+    // [spec:cg3:req:diagnostics.wire-frozen]
+    /// Where this rule was written, when a textual parse built it. `None` for a
+    /// rule read back from a `.cg3b`: the binary format is frozen at revision
+    /// 13898 and carries no field for this, so a binary load resolves provenance
+    /// from the companion source file instead
+    /// (`[spec:cg3:req:diagnostics.sidecar]`).
+    pub provenance: Option<RuleProvenance>,
     pub number: u32,
     pub varname: u32,
     pub varvalue: u32, // ToDo: varvalue is unused
@@ -204,6 +236,7 @@ impl Default for Rule {
             childset1: SetNumber(0),
             childset2: SetNumber(0),
             line: 0,
+            provenance: None,
             number: 0,
             varname: 0,
             varvalue: 0,

@@ -162,6 +162,62 @@ fn included_files_are_separate_sources() {
     let _ = std::fs::remove_file(&included);
 }
 
+/// Every rule a parse keeps must know where it was written — which source, and
+/// the span of that source its own text occupies — including the rules that came
+/// out of an `INCLUDE`d file. The span is checked by slicing it back out of the
+/// file it names: anything less proves only that a number was stored.
+// [spec:cg3:req:diagnostics.rule-provenance/test]
+#[test]
+fn rules_know_where_they_were_written() {
+    let dir = std::env::temp_dir().join(format!("cg3-prov-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let included = dir.join("rules.cg3");
+    let top = dir.join("top.cg3");
+    std::fs::write(&included, "SELECT b ;\n").expect("write include");
+    std::fs::write(
+        &top,
+        "DELIMITERS = \"<.>\" ;\nLIST a = x ;\nLIST b = y ;\n\
+         SECTION\nSELECT a ;\nINCLUDE rules.cg3 ;\n",
+    )
+    .expect("write top");
+
+    let mut parser =
+        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+    let bytes = std::fs::read(&top).expect("read top");
+    parser
+        .parse_grammar_named(&bytes, &top.to_string_lossy())
+        .expect("parses");
+    let grammar = parser.grammar;
+
+    assert_eq!(
+        grammar.source_names.len(),
+        2,
+        "the top-level grammar and its include, got {:?}",
+        grammar.source_names
+    );
+
+    let mut quoted: Vec<String> = Vec::new();
+    for i in 0..grammar.rule_by_number.capacity() {
+        let Some(rule) = grammar.rule_by_number.try_get(i) else {
+            continue;
+        };
+        let p = rule.provenance.expect("a parsed rule knows its place");
+        let text = std::fs::read_to_string(&grammar.source_names[p.source as usize])
+            .expect("the source names a readable file");
+        let chars: Vec<char> = text.chars().collect();
+        quoted.push(chars[p.begin as usize..p.end as usize].iter().collect());
+    }
+    quoted.sort();
+    assert_eq!(
+        quoted,
+        vec!["SELECT a ".to_string(), "SELECT b ".to_string()],
+        "each rule's span must slice its own text out of its own source"
+    );
+
+    let _ = std::fs::remove_file(&included);
+    let _ = std::fs::remove_file(&top);
+}
+
 /// A parse told its file name heads its reports with it, instead of the
 /// `<utf8-memory>` placeholder a caller that only had bytes gets.
 // [spec:cg3:req:diagnostics.source-named/test]

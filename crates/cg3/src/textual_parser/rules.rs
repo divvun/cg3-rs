@@ -538,6 +538,16 @@ impl TextualParser {
             // C++ `AST_CLOSE(p)`.
             ast_rule.close(&mut self.ast, *pos);
         } else {
+            // [spec:cg3:req:diagnostics.rule-provenance]
+            // The same span the profiler records below, kept whether or not
+            // anyone is profiling: it is what lets a runtime failure in this
+            // rule quote the rule. Offsets shed `BUF_TEXT_START` so they index
+            // the author's text, like every other span the parser hands out.
+            rule.provenance = Some(crate::rule::RuleProvenance {
+                source: ui32(self.cur_source),
+                begin: ui32(ast_rule_b - BUF_TEXT_START),
+                end: ui32(*pos - BUF_TEXT_START),
+            });
             let rid = self.add_rule_to_grammar(rule);
             if let Some(prof) = self.profiler.as_mut() {
                 // profiler->addRule(rule->number + 1, cur_grammar_n,

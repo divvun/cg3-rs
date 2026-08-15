@@ -307,4 +307,11 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id runtime-diagnostics.rule-provenance, covered_rules (
+        diagnostics.rule-provenance
+        diagnostics.wire-frozen
+    ), covered_claims (
+        {impl_name target-impl, rule diagnostics.rule-provenance}
+        {impl_name target-impl, rule diagnostics.wire-frozen}
+    )}
 )
