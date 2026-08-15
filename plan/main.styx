@@ -1801,6 +1801,7 @@ children (
                 title "Give Process a typed error instead of Result&lt;(), String&gt;"
                 priority 0
                 kind @refactor
+                sealed true
                 log (
                     {
                         at 2026-08-15T14:48:52.480997Z
@@ -1815,6 +1816,13 @@ children (
                         kind @status
                         text "Todo → Doing (nplan start)"
                     }
+
+                    {
+                        at 2026-08-15T16:37:45.588159Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
                 )
             }
 
@@ -1823,6 +1831,7 @@ children (
                 title "Route the --nrules filters through the tag-regex ICU seam"
                 priority 0
                 kind @fix
+                sealed true
                 log (
                     {
                         at 2026-08-15T14:49:07.965495Z
@@ -1837,6 +1846,13 @@ children (
                         kind @status
                         text "Todo → Doing (nplan start)"
                     }
+
+                    {
+                        at 2026-08-15T16:37:49.508177Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
                 )
             }
 
@@ -1845,6 +1861,7 @@ children (
                 title "Stop detect_format swallowing a regex build failure"
                 priority 0
                 kind @fix
+                sealed true
                 log (
                     {
                         at 2026-08-15T14:49:09.987238Z
@@ -1859,6 +1876,13 @@ children (
                         kind @status
                         text "Todo → Doing (nplan start)"
                     }
+
+                    {
+                        at 2026-08-15T16:37:53.494214Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
                 )
             }
 
@@ -1867,6 +1891,7 @@ children (
                 title "Retire the spec rules describing functions the teardown deleted"
                 priority 0
                 kind @docs
+                sealed true
                 log (
                     {
                         at 2026-08-15T14:49:26.17256Z
@@ -1880,6 +1905,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-15T16:37:58.176726Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }

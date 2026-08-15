@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-15T16:37:10.681334Z
+last_sync_at 2026-08-15T16:38:06.52912Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -118,10 +118,10 @@ assertions (
     {id errors-idiomatic.applicator, kind @complete, author "brendan@necessary.nu", at 2026-08-15T10:51:29.116987Z}
     {id errors-idiomatic.add-tag-propagation, kind @complete, author "brendan@necessary.nu", at 2026-08-15T11:09:05.907978Z}
     {id errors-idiomatic-followups.repin-stale-refs, kind @doing, author "brendan@necessary.nu", at 2026-08-15T14:49:41.133905Z}
-    {id errors-idiomatic-followups.process-error-type, kind @doing, author "brendan@necessary.nu", at 2026-08-15T16:20:25.345143Z}
-    {id errors-idiomatic-followups.nrules-seam, kind @doing, author "brendan@necessary.nu", at 2026-08-15T16:24:35.453919Z}
-    {id errors-idiomatic-followups.detect-format-silent, kind @doing, author "brendan@necessary.nu", at 2026-08-15T16:29:51.790143Z}
-    {id errors-idiomatic-followups.retire-dead-rules, kind @doing, author "brendan@necessary.nu", at 2026-08-15T16:33:51.087333Z}
+    {id errors-idiomatic-followups.process-error-type, kind @complete, author "brendan@necessary.nu", at 2026-08-15T16:37:45.588159Z}
+    {id errors-idiomatic-followups.nrules-seam, kind @complete, author "brendan@necessary.nu", at 2026-08-15T16:37:49.508177Z}
+    {id errors-idiomatic-followups.detect-format-silent, kind @complete, author "brendan@necessary.nu", at 2026-08-15T16:37:53.494214Z}
+    {id errors-idiomatic-followups.retire-dead-rules, kind @complete, author "brendan@necessary.nu", at 2026-08-15T16:37:58.176726Z}
 )
 
 impl_evidence (
