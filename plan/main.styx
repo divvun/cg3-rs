@@ -2176,6 +2176,13 @@ children (
                 kind @note
                 text "Found while fixing the magic sniffers (magic-sniff-bounds) — same file, same unchecked-index class, but deliberately left out of that fix because it is NOT the same question. is_cg3b/is_cg3bsf/is_internal are prefix tests, and a prefix test on a too-short input has exactly one defensible answer. is_textual reads s[0] and s[s.len()-1] and asks whether a tag is quoted or angle-bracketed; for an empty tag both readings are arguable, and the C++ front()/back() on empty is UB rather than a defined answer we could port faithfully. It is also entangled: [dec:cg3:parse-tag-aborts-on-invalid] cites this panic as evidence that the empty-tag fall-through was not benign, so making it return false removes the backstop that proved the caller must not get there. Decide the answer and whether the caller-side guarantee is strong enough to stand without it, rather than making it non-panicking by reflex. Note is_textual's sem rule still documents the panic, so today's behaviour is at least honest."
             }
+
+            {
+                at 2026-08-15T22:31:05.119277Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
         )
     }
 )

@@ -139,6 +139,7 @@ assertions (
     {id errors-idiomatic-followups.retire-dead-rules, kind @complete, author "brendan@necessary.nu", at 2026-08-15T16:37:58.176726Z}
     {id retire-unported-decls, kind @doing, author "brendan@necessary.nu", at 2026-08-15T21:47:49.747691Z}
     {id magic-sniff-bounds, kind @doing, author "brendan@necessary.nu", at 2026-08-15T22:24:33.081345Z}
+    {id textual-sniff-bounds, kind @doing, author "brendan@necessary.nu", at 2026-08-15T22:31:05.119277Z}
 )
 
 impl_evidence (

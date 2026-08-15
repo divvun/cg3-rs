@@ -42,9 +42,11 @@ fn observe(txt: &str) -> Result<String, String> {
     }
 }
 
-/// Empty text used to fall through into `inlines::is_textual`, which indexes
-/// `s[0]` unguarded and panicked — inherited C++ UB ("Panics on empty `s`").
-/// Stopping at the guard removes it: the tag is simply not built.
+/// Empty text used to fall through into `inlines::is_textual`, which indexed
+/// `s[0]` unguarded and panicked — inherited C++ UB. Stopping at the guard
+/// removes the fall-through: the tag is simply not built. `is_textual` has
+/// since been made total as well (it answers false for empty), so this test
+/// pins the guard on its own rather than a guard backed by a crash.
 #[test]
 fn empty_varstring_tag_no_longer_panics() {
     let e = observe("").expect_err("empty text builds no tag");

@@ -68,6 +68,13 @@ own doc comment admits the provenance — "Panics on empty `s` (C++ front()/back
 on empty is UB)". So on that path the fall-through reproduces undefined
 behaviour as a crash, and converting the site to `?` removes it outright.
 
+Since then (`textual-sniff-bounds`) `is_textual` has been made total: an empty
+`s` answers false rather than panicking. That does not weaken this decision, but
+it does change what would happen if it were ever reverted — the fall-through
+would intern a tag from empty text instead of crashing on it, which is quieter
+and worse. The guard converted here is now the only thing standing between
+invalid input and a tag built from it.
+
 The other two — a `(`-leading tag and one whose regex will not compile — did
 intern, and now stop. The second is the more telling: it produced a tag with no
 compiled regex, one that could never match the thing it named. The golden and

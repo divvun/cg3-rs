@@ -63,17 +63,18 @@ pub fn clear<C: Clearable>(c: &mut C) {
     }
 }
 
-// [spec:cg3:def:inlines.cg3.is-textual-fn]
-// [spec:cg3:sem:inlines.cg3.is-textual-fn]
+// [spec:cg3:def:inlines.cg3.is-textual-fn+1]
+// [spec:cg3:sem:inlines.cg3.is-textual-fn+1]
 // Ported over bytes (AsRef<[u8]>): the delimiters compared are all ASCII, so a
-// byte-level front/back check is faithful. Panics on empty `s` (C++ front()/
-// back() on empty is UB). PARITY: if the last char is multibyte and non-ASCII,
-// the last byte != '"'/'>' — same result as the C++ (last code unit != '"').
+// byte-level front/back check is faithful. PARITY: if the last char is multibyte
+// and non-ASCII, the last byte != '"'/'>' — same result as the C++ (last code
+// unit != '"').
 #[inline]
 pub fn is_textual<S: AsRef<[u8]>>(s: S) -> bool {
     let s = s.as_ref();
-    let front = s[0];
-    let back = s[s.len() - 1];
+    let (Some(&front), Some(&back)) = (s.first(), s.last()) else {
+        return false;
+    };
     (front == b'"' && back == b'"') || (front == b'<' && back == b'>')
 }
 

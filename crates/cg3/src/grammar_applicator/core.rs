@@ -1930,7 +1930,9 @@ impl Matcher<'_> {
             // (`p = 0` — no near-context at runtime.)
             // A malformed runtime varstring tag stops construction rather than
             // continuing with the input that failed validation (which used to
-            // reach `is_textual` and panic on empty text).
+            // reach `is_textual` and panic on empty text; that panic is gone
+            // too now, so this guard is the only thing stopping it, not a
+            // second line of defence).
             let parsed = crate::parser_helpers::parse_tag(
                 txt,
                 crate::parser_helpers::Near::Text(&[]),

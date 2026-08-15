@@ -336,7 +336,7 @@ fn utf8_io() {
 }
 
 // Magic-byte detectors: feed the actual prefixes.
-// [spec:cg3:sem:inlines.cg3.is-textual-fn/test]
+// [spec:cg3:sem:inlines.cg3.is-textual-fn+1/test]
 // [spec:cg3:sem:inlines.cg3.is-internal-fn+1/test]
 // [spec:cg3:sem:inlines.cg3.is-cg3b-fn+1/test]
 // [spec:cg3:sem:inlines.cg3.is-cg3bsf-fn+1/test]
@@ -347,6 +347,11 @@ fn magic_bytes() {
     assert!(is_textual("<tag>"));
     assert!(!is_textual("plain"));
     assert!(!is_textual("\"unbalanced"));
+    // Empty is neither, and answers so rather than indexing off the end. The
+    // one-character cases are C++ behaviour and stay: front == back.
+    assert!(!is_textual(""));
+    assert!(is_textual("\""));
+    assert!(!is_textual("<"));
 
     // is_internal: leading "_G_".
     assert!(is_internal("_G_foo"));

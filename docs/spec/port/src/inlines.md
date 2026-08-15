@@ -254,13 +254,24 @@ rather than outstanding work.
 > [spec:cg3:def:inlines.cg3.is-textual-fn]
 > inline bool is_textual(const S& s)
 
-> [spec:cg3:sem:inlines.cg3.is-textual-fn]
+> [spec:cg3:sem:inlines.cg3.is-textual-fn+1]
 > Returns true iff `s` is delimited as a textual/tag literal: either
 > `s.front() == '"' && s.back() == '"'` (double-quoted) OR
-> `s.front() == '<' && s.back() == '>'` (angle-bracketed). Uses `front()`
-> and `back()`, so behavior is undefined on an empty `s`. Note a single
-> `'"'` character has front == back == '"' and would return true; a single
-> `'<'` returns false (front '<' but back '<' != '>').
+> `s.front() == '<' && s.back() == '>'` (angle-bracketed). Note a single
+> `'"'` character has front == back == '"' and returns true; a single
+> `'<'` returns false (front '<' but back '<' != '>'). That one-character
+> case is C++ behaviour and MUST be preserved — it is not the empty case.
+>
+> PORT DIVERGENCE: the C++ uses `front()`/`back()`, which on an empty `s` is
+> undefined behaviour; the port MUST return false instead. An empty tag is
+> neither quoted nor bracketed, so false is the answer the predicate's own
+> question has — there is no reading under which nothing is delimited. The
+> port previously reproduced the UB as an out-of-bounds panic, and that panic
+> was the evidence in `[dec:cg3:parse-tag-aborts-on-invalid]` that the
+> empty-tag fall-through was not benign. That decision already stops
+> construction before this point, so the panic was a backstop for a path that
+> no longer exists, and a crate that treats a panic as its own bug should not
+> keep one as a guard against its own callers.
 
 > [spec:cg3:def:inlines.cg3.isalpha-c-fn]
 > inline bool ISALPHA_C(Char p)
