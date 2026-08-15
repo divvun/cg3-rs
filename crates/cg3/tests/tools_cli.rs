@@ -538,6 +538,35 @@ fn cg_conv_main_converts_niceline_stream() {
     );
 }
 
+// [spec:cg3:sem:inlines.cg3.is-cg3bsf-fn+1/test]
+// The format sniff hands the stream magic detector whatever the first read
+// returned, so an empty stream used to index past the end of a zero-length
+// buffer and abort the process. Asserts the reachable path: empty stdin exits
+// cleanly with no output and no panic. `stderr` is captured rather than
+// nulled, because a panic message is exactly what this is looking for.
+#[test]
+fn an_empty_stream_is_not_binary() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cg-conv"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn cg-conv");
+    drop(child.stdin.take().unwrap());
+    let out = child.wait_with_output().expect("wait cg-conv");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !err.contains("panicked"),
+        "cg-conv panicked on empty input: {err}"
+    );
+    assert!(out.status.success(), "cg-conv exited with {}", out.status);
+    assert!(
+        out.stdout.is_empty(),
+        "expected no output, got {:?}",
+        out.stdout
+    );
+}
+
 // [spec:cg3:sem:cg-proc.main-fn+1/test]
 // cg-proc main: getopt loop (-d), binary grammar load, ApertiumApplicator run
 // over the Apertium stream fixture (the test/Apertium/T_Select run.pl protocol:

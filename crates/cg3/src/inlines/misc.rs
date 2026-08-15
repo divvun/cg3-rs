@@ -77,28 +77,25 @@ pub fn is_textual<S: AsRef<[u8]>>(s: S) -> bool {
     (front == b'"' && back == b'"') || (front == b'<' && back == b'>')
 }
 
-// [spec:cg3:def:inlines.cg3.is-internal-fn]
-// [spec:cg3:sem:inlines.cg3.is-internal-fn]
+// [spec:cg3:def:inlines.cg3.is-internal-fn+1]
+// [spec:cg3:sem:inlines.cg3.is-internal-fn+1]
 #[inline]
 pub fn is_internal<S: AsRef<[u8]>>(s: S) -> bool {
-    let s = s.as_ref();
-    s[0] == b'_' && s[1] == b'G' && s[2] == b'_'
+    s.as_ref().starts_with(b"_G_")
 }
 
-// [spec:cg3:def:inlines.cg3.is-cg3b-fn]
-// [spec:cg3:sem:inlines.cg3.is-cg3b-fn]
+// [spec:cg3:def:inlines.cg3.is-cg3b-fn+1]
+// [spec:cg3:sem:inlines.cg3.is-cg3b-fn+1]
 #[inline]
 pub fn is_cg3b<S: AsRef<[u8]>>(s: S) -> bool {
-    let s = s.as_ref();
-    s[0] == b'C' && s[1] == b'G' && s[2] == b'3' && s[3] == b'B'
+    s.as_ref().starts_with(b"CG3B")
 }
 
-// [spec:cg3:def:inlines.cg3.is-cg3bsf-fn]
-// [spec:cg3:sem:inlines.cg3.is-cg3bsf-fn]
+// [spec:cg3:def:inlines.cg3.is-cg3bsf-fn+1]
+// [spec:cg3:sem:inlines.cg3.is-cg3bsf-fn+1]
 #[inline]
 pub fn is_cg3bsf<S: AsRef<[u8]>>(s: S) -> bool {
-    let s = s.as_ref();
-    s[0] == b'C' && s[1] == b'G' && s[2] == b'B' && s[3] == b'F'
+    s.as_ref().starts_with(b"CGBF")
 }
 
 // [spec:cg3:def:inlines.cg3.insert-if-exists-fn]

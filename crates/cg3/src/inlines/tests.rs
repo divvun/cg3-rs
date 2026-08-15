@@ -337,9 +337,9 @@ fn utf8_io() {
 
 // Magic-byte detectors: feed the actual prefixes.
 // [spec:cg3:sem:inlines.cg3.is-textual-fn/test]
-// [spec:cg3:sem:inlines.cg3.is-internal-fn/test]
-// [spec:cg3:sem:inlines.cg3.is-cg3b-fn/test]
-// [spec:cg3:sem:inlines.cg3.is-cg3bsf-fn/test]
+// [spec:cg3:sem:inlines.cg3.is-internal-fn+1/test]
+// [spec:cg3:sem:inlines.cg3.is-cg3b-fn+1/test]
+// [spec:cg3:sem:inlines.cg3.is-cg3bsf-fn+1/test]
 #[test]
 fn magic_bytes() {
     // is_textual: quoted or <...>.
@@ -357,6 +357,18 @@ fn magic_bytes() {
     assert!(!is_cg3b("CG3X"));
     assert!(is_cg3bsf("CGBF....."));
     assert!(!is_cg3bsf("CG3B"));
+
+    // Shorter than the magic answers false. Each prefix walks the magic one
+    // byte at a time, because the C++ `&&` chain short-circuits: a short
+    // buffer only reached the out-of-bounds index when its bytes matched up
+    // to the point where it ran out, so "" and "CGB" failed differently.
+    for n in 0..4 {
+        assert!(!is_cg3b(&"CG3B"[..n]), "is_cg3b on {n}-byte prefix");
+        assert!(!is_cg3bsf(&"CGBF"[..n]), "is_cg3bsf on {n}-byte prefix");
+    }
+    for n in 0..3 {
+        assert!(!is_internal(&"_G_"[..n]), "is_internal on {n}-byte prefix");
+    }
 }
 
 // clear (via the Clearable trait) and size (const array length).

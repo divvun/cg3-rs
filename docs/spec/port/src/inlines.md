@@ -189,20 +189,35 @@ rather than outstanding work.
 > [spec:cg3:def:inlines.cg3.is-cg3b-fn]
 > inline bool is_cg3b(const S& s)
 
-> [spec:cg3:sem:inlines.cg3.is-cg3b-fn]
+> [spec:cg3:sem:inlines.cg3.is-cg3b-fn+1]
 > Returns true iff the first four elements of `s` are exactly `'C'`, `'G'`,
 > `'3'`, `'B'` (`s[0]=='C' && s[1]=='G' && s[2]=='3' && s[3]=='B'`) — the
-> magic prefix of a compiled `.cg3b` binary grammar. Indexes `s[0..3]`
-> without any bounds check; caller must guarantee length >= 4.
+> magic prefix of a compiled `.cg3b` binary grammar.
+>
+> PORT DIVERGENCE: the C++ indexes `s[0..3]` with no bounds check and requires
+> the caller to guarantee length >= 4. The port MUST compare a prefix instead,
+> so that an input shorter than the magic returns false rather than panicking.
+> A magic sniffer exists precisely to answer "is this binary?" about input
+> whose shape is not yet known, so a length it cannot vouch for is the normal
+> case, not a contract violation; and this crate treats a panic as its own bug,
+> which a public function reachable from an embedder must not raise for
+> ordinary input. Note the C++ shape does not even fail consistently: `&&`
+> short-circuits, so a short buffer panics only when its bytes match the magic
+> up to the point where it runs out.
 
 > [spec:cg3:def:inlines.cg3.is-cg3bsf-fn]
 > inline bool is_cg3bsf(const S& s)
 
-> [spec:cg3:sem:inlines.cg3.is-cg3bsf-fn]
+> [spec:cg3:sem:inlines.cg3.is-cg3bsf-fn+1]
 > Returns true iff the first four elements of `s` are exactly `'C'`, `'G'`,
 > `'B'`, `'F'` (`s[0]=='C' && s[1]=='G' && s[2]=='B' && s[3]=='F'`) — the
-> "CGBF" magic distinct from the "CG3B" checked by `is_cg3b`. Indexes
-> `s[0..3]` without bounds checking; length >= 4 required.
+> "CGBF" magic distinct from the "CG3B" checked by `is_cg3b`.
+>
+> PORT DIVERGENCE: as for `is_cg3b`, the port compares a prefix rather than
+> indexing four unchecked elements, so input shorter than the magic returns
+> false. This one is reachable from a CLI, not only from an embedder: the
+> stream format sniff (`detect_format`, via `cg-conv`) hands it whatever the
+> first read returned, so an empty stream panicked before this.
 
 > [spec:cg3:def:inlines.cg3.is-icase-fn]
 > inline size_t IS_ICASE(const Char* p, const C (&uc)[N], const C (&lc)[N])
@@ -226,11 +241,15 @@ rather than outstanding work.
 > [spec:cg3:def:inlines.cg3.is-internal-fn]
 > inline bool is_internal(const S& s)
 
-> [spec:cg3:sem:inlines.cg3.is-internal-fn]
+> [spec:cg3:sem:inlines.cg3.is-internal-fn+1]
 > Returns true iff `s` begins with the three-element sequence `'_'`, `'G'`,
 > `'_'` (`s[0]=='_' && s[1]=='G' && s[2]=='_'`), the marker prefix for
-> CG3-internal names. Indexes `s[0..2]` with no bounds check; caller must
-> ensure length >= 3.
+> CG3-internal names.
+>
+> PORT DIVERGENCE: as for `is_cg3b`, the port compares a prefix rather than
+> indexing three unchecked elements, so a name shorter than the marker returns
+> false. A prefix test on a too-short string has one defensible answer and it
+> is not "crash".
 
 > [spec:cg3:def:inlines.cg3.is-textual-fn]
 > inline bool is_textual(const S& s)
