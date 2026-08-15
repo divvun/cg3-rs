@@ -1921,6 +1921,7 @@ children (
                 title "Re-read and re-pin the annotation sites whose rule version moved under them"
                 priority 0
                 kind @docs
+                sealed true
                 log (
                     {
                         at 2026-08-15T14:49:28.320832Z
@@ -1934,6 +1935,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-15T16:39:59.452807Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }

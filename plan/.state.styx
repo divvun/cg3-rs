@@ -117,7 +117,7 @@ assertions (
     {id errors-idiomatic.constructors, kind @complete, author "brendan@necessary.nu", at 2026-08-15T10:51:33.473617Z}
     {id errors-idiomatic.applicator, kind @complete, author "brendan@necessary.nu", at 2026-08-15T10:51:29.116987Z}
     {id errors-idiomatic.add-tag-propagation, kind @complete, author "brendan@necessary.nu", at 2026-08-15T11:09:05.907978Z}
-    {id errors-idiomatic-followups.repin-stale-refs, kind @doing, author "brendan@necessary.nu", at 2026-08-15T14:49:41.133905Z}
+    {id errors-idiomatic-followups.repin-stale-refs, kind @complete, author "brendan@necessary.nu", at 2026-08-15T16:39:59.452807Z}
     {id errors-idiomatic-followups.process-error-type, kind @complete, author "brendan@necessary.nu", at 2026-08-15T16:37:45.588159Z}
     {id errors-idiomatic-followups.nrules-seam, kind @complete, author "brendan@necessary.nu", at 2026-08-15T16:37:49.508177Z}
     {id errors-idiomatic-followups.detect-format-silent, kind @complete, author "brendan@necessary.nu", at 2026-08-15T16:37:53.494214Z}
