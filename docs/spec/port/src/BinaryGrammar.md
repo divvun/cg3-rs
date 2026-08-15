@@ -81,32 +81,31 @@
 > the `templates` map (`templates.find(hash)->second`), `ucnv_close`, call
 > `grammar->allocateDummySet()`, RESET `is_binary=false`, and return 0.
 
-> [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-contextual-test-10043-fn]
-> ContextualTest* readContextualTest_10043(std::istream& input)
+`[spec:cg3:def:binary-grammar.cg3.binary-grammar.read-contextual-test-10043-fn]`
+stood here, naming
+`ContextualTest* readContextualTest_10043(std::istream& input)`. It is
+obsolesced, not unmet: the legacy pre-10298 reader is out of scope for this port
+(rev 13898 only), and its only caller, `read_binary_grammar_10043`, is an
+erroring stub that refuses legacy input before any contextual test could be
+read. A stub here would be unreachable by construction, and the dead one that
+once carried this id was deleted under the zero-allow ruling (plan node
+`allow-zero.parsers-io`). The scope exclusion itself is unchanged — see the
+module doc's Legacy-reader section. `legacy_10043_rejected` proves the rejection
+happens.
 
-> [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-contextual-test-10043-fn]
-> OUT OF SCOPE for the Rust port (legacy `_10043`, implemented in
-> BinaryGrammar_read_10043.cpp); documented for completeness. Allocates a
-> ContextualTest and reads a u32 field mask, then: bit0 hash; bit1 pos (+ high 32
-> bits if `pos & POS_64BIT`); bit2 offset(int32); bit3 reads a u32 into local
-> `tmpl` but assigns `t->tmpl = reinterpret_cast<ContextualTest*>(u32tmp)` where
-> `u32tmp` is still 0 at that point — a BUG that stores null instead of the read
-> value; the real template number is kept in local `tmpl` and deferred, so the
-> assignment is effectively dead. bit4 target; bit5 line; bit6 relation; bit7
-> barrier; bit8 cbarrier; bit9 offset_sub(int32); bit12 reads a u32 template
-> number and registers `templates[number] = t` (this test IS that template);
-> bit10 ors: read u32 count then push each `contexts_list[u32-1]` to `t->ors`;
-> bit11 linked = `contexts_list[u32-1]`. If local `tmpl` is nonzero, record
-> `deferred_tmpls[t] = tmpl`. Return t. References use 1-based `contexts_list`
-> indices, unlike the modern hash-keyed scheme.
->
-> PORT DIVERGENCE (zero-allow ruling, plan node `allow-zero.parsers-io`): the
-> port carries no item for this rule. Its only caller,
-> `read_binary_grammar_10043`, is itself an erroring stub that refuses legacy
-> input before any contextual test could be read, so a
-> `read_contextual_test_10043` stub was unreachable; the dead stub that
-> previously carried these ids is deleted. The scope exclusion itself is
-> unchanged — see the module doc's Legacy-reader section.
+The C++ behaviour, recorded for completeness: allocates a ContextualTest and
+reads a u32 field mask, then: bit0 hash; bit1 pos (+ high 32 bits if
+`pos & POS_64BIT`); bit2 offset(int32); bit3 reads a u32 into local `tmpl` but
+assigns `t->tmpl = reinterpret_cast<ContextualTest*>(u32tmp)` where `u32tmp` is
+still 0 at that point — a BUG that stores null instead of the read value; the
+real template number is kept in local `tmpl` and deferred, so the assignment is
+effectively dead. bit4 target; bit5 line; bit6 relation; bit7 barrier; bit8
+cbarrier; bit9 offset_sub(int32); bit12 reads a u32 template number and
+registers `templates[number] = t` (this test IS that template); bit10 ors: read
+u32 count then push each `contexts_list[u32-1]` to `t->ors`; bit11 linked =
+`contexts_list[u32-1]`. If local `tmpl` is nonzero, record
+`deferred_tmpls[t] = tmpl`. Return t. References use 1-based `contexts_list`
+indices, unlike the modern hash-keyed scheme.
 
 > [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-contextual-test-fn]
 > ContextualTest* readContextualTest(std::istream& input)

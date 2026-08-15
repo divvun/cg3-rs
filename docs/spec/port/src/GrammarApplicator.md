@@ -1758,8 +1758,15 @@
 > [spec:cg3:def:grammar-applicator.cg3.regexgrps-t]
 > typedef std::vector<UnicodeString> regexgrps_t
 
-> [spec:cg3:def:grammar-applicator.cg3.rule-callback]
-> typedef std::function<void(void)> RuleCallback
+`[spec:cg3:def:grammar-applicator.cg3.rule-callback]` stood here, naming the C++
+`typedef std::function<void(void)> RuleCallback` — the reading/cohort callbacks
+handed to `runSingleRule`. It is obsolesced, not unmet: the only two callbacks
+ever constructed were `reading_cb_dispatch` and `cohort_cb_dispatch`, both
+closing over `this` and the shared per-window state. The port threads that state
+explicitly as `&mut RRState` and calls the dispatch methods directly, so the
+type-erased closures — and the raw-pointer trampolines they would have needed —
+are gone entirely. A `std::function` alias with nothing to alias has no port
+symbol to name.
 
 > [spec:cg3:def:grammar-applicator.cg3.rule-context]
 > struct Rule_Context {

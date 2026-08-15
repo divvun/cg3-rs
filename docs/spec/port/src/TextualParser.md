@@ -1,41 +1,26 @@
 # src/TextualParser.cpp, src/TextualParser.hpp
 
-> [spec:cg3:def:textual-parser.cg3.freq-sorter]
-> struct freq_sorter {
->   const bc::flat_map<Tag*, size_t>& tag_freq;
-> }
+`[spec:cg3:def:textual-parser.cg3.freq-sorter]`, `.freq-sorter-fn` and
+`.operator-fn` stood here, naming the C++ `struct freq_sorter`, its constructor
+`freq_sorter(const bc::flat_map<Tag*, size_t>& tag_freq)`, and
+`bool operator()(Tag* a, Tag* b) const`. They are obsolesced, not unmet: a
+comparator functor is the C++ way to hand a comparison to `std::sort`, and the
+port inlines the comparison at each call site, so no item remains for the
+declarations to name. The uncalled struct reproduction that once carried these
+ids was deleted under the zero-allow ruling (plan node
+`allow-zero.parsers-io`), and re-adding one purely to host an annotation would
+undo that.
 
-> [spec:cg3:def:textual-parser.cg3.freq-sorter.freq-sorter-fn]
-> freq_sorter(const bc::flat_map<Tag*, size_t>& tag_freq)
-
-> [spec:cg3:sem:textual-parser.cg3.freq-sorter.freq-sorter-fn]
-> Constructor for the `freq_sorter` comparator functor. Takes a const
-> reference to a `bc::flat_map<Tag*, size_t>` mapping each tag to its
-> frequency count and stores it by reference in the member `tag_freq`;
-> empty body. Used to reorder tag vectors by descending frequency.
-
-> [spec:cg3:def:textual-parser.cg3.freq-sorter.operator-fn]
-> bool operator()(Tag* a, Tag* b) const
-
-> [spec:cg3:sem:textual-parser.cg3.freq-sorter.operator-fn]
-> `bool operator()(Tag* a, Tag* b) const` - comparator that sorts
-> highest-frequency-first. Looks up `a` and `b` in the referenced
-> `tag_freq` map (dereferencing `find(...)->second` with no end-check,
-> so both keys must be present) and returns
-> `tag_freq[a] > tag_freq[b]` (a orders before b when strictly more
-> frequent). Used with `std::sort` for cheap trie compression.
->
-> PORT DIVERGENCE (zero-allow ruling, plan node `allow-zero.parsers-io`),
-> covering `textual-parser.cg3.freq-sorter`, `.freq-sorter-fn`, and
-> `.operator-fn`: the functor is not ported as a struct. Its live uses are
-> inlined at the two C++ `std::sort(..., fs)` sites in `do_grammar_actions`
-> (`parseTagList` and the eager-set-op path):
-> `tv.sort_by(|&a, &b| tag_freq[&b].cmp(&tag_freq[&a]))` over a
-> `BTreeMap<TagId, usize>` — the same highest-frequency-first order with
-> both keys required present (missing key = panic, as the C++ end-check-free
-> deref). The uncalled struct reproduction that previously carried these ids
-> is deleted; the list_set_parsing_and_composite_tag_ordering spec test
-> asserts the inlined comparator's ordering.
+The comparator sorts highest-frequency-first. C++ looks `a` and `b` up in the
+referenced `tag_freq` map — dereferencing `find(...)->second` with no end-check,
+so both keys must be present — and returns `tag_freq[a] > tag_freq[b]`, so `a`
+orders before `b` when strictly more frequent. Its live uses are the two
+`std::sort(..., fs)` sites in `do_grammar_actions` (`parseTagList` and the eager
+set-op path), where the sort buys cheap trie compression. The port writes
+`tv.sort_by(|&a, &b| tag_freq[&b].cmp(&tag_freq[&a]))` over a
+`BTreeMap<TagId, usize>`: the same order, with both keys still required present
+— a missing key panics, as the C++ end-check-free deref would.
+`list_set_parsing_and_composite_tag_ordering` asserts that ordering.
 
 > [spec:cg3:def:textual-parser.cg3.is-mapping-list-fn]
 > bool is_mapping_list(Grammar* result, Set* s)

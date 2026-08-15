@@ -231,15 +231,14 @@ fn grammar_out_roundtrip_templates() {
 
 // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.set-verbosity-fn/test]
 // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-binary-grammar-10043-fn/test]
-// [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-contextual-test-10043-fn/test]
 // The legacy pre-10298 reader is OUT OF SCOPE for the port (rev 13898 only):
 // readBinaryGrammar_10043 is an ERRORING STUB. Feed the real checked-in
 // test/T_ContextTest/grammar.cg3b.10043 (rev 10043 <= BIN_REV_ANCIENT, read
 // only) and assert the documented rejection (return 1, nothing parsed).
 // set_verbosity(1) stores the verbosity that gates this path's legacy-revision
-// warning. readContextualTest_10043 is UNREACHABLE by design — its only
-// caller errors out first — so its facet sits here on the test proving that
-// rejection happens before any contextual test could be read.
+// warning. This is also what proves readContextualTest_10043 is unreachable —
+// the rejection lands before any contextual test could be read, which is why
+// that rule is retired rather than carried as a stub.
 #[test]
 fn legacy_10043_rejected() {
     let legacy = test_dir("T_ContextTest").join("grammar.cg3b.10043");

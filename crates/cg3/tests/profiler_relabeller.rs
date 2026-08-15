@@ -260,11 +260,11 @@ fn relabeller_trie_copy_helper_reintern() {
 // [spec:cg3:sem:profiler.cg3.profiler.key.operator-fn/test]
 // [spec:cg3:sem:profiler.cg3.profiler.write-fn/test]
 // [spec:cg3:sem:profiler.cg3.profiler.read-fn/test]
-// [spec:cg3:sem:profiler.cg3.sqlite3-exec-fn/test]
 // In-process round-trip through the whole Profiler API: intern (add_string,
 // 1-based ids + dedup), add_grammar (fname-then-grammar order), add_rule /
 // add_context (first-write-wins), Key's (type, id) ordering, write (PRAGMAs +
-// DDL + transaction all go through the sqlite3_exec/execute_batch path; the
+// DDL + transaction all go through the execute_batch path that replaced the
+// C++ sqlite3_exec wrapper; the
 // grammar_ast string is stored under key 0; subsumed contexts pruned), and
 // read (merge into existing maps, key-0 quirk NOT undone).
 #[cfg(feature = "profiler")]

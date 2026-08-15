@@ -304,20 +304,16 @@
 > Trivial setter: assigns the argument `pNullFlush` to the `nullFlush` member.
 > No other side effects.
 
-> [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.test-pr-fn]
-> void testPR(std::ostream& output)
+`[spec:cg3:def:matxin-applicator.cg3.matxin-applicator.test-pr-fn]` stood here,
+naming `void testPR(std::ostream& output)`. It is obsolesced, not unmet, and it
+is the one rule in this port that never had anything to port: the method is
+only DECLARED, in MatxinApplicator.hpp as a public member, with no definition
+anywhere in the C++ source tree. It has no behaviour to reimplement. Nothing
+calls it, so the program still links; taking its address or calling it would be
+an unresolved-symbol error. The corresponding functional test-debug routine
+exists only in the Apertium applicator's `testPR`.
 
-> [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.test-pr-fn]
-> `void testPR(std::ostream& output)` is only DECLARED (in MatxinApplicator.hpp,
-> as a public method) — there is no definition anywhere in the source tree, so
-> it has no behavior to reimplement. It is never called, so the program still
-> links; taking its address or calling it would be an unresolved-symbol error.
-> The Rust port should treat this as a no-op stub (or omit it entirely); the
-> corresponding functional test debug routine lives only in the Apertium
-> applicator's `testPR`.
->
-> PORT DIVERGENCE: the port omits the symbol entirely (plan node
-> allow-zero.applicators) — no C++ definition ever existed, and the dead no-op
-> stub that carried this annotation was pure dead code, so
-> `matxin_applicator.rs` has no `test_pr`.
+The port omits the symbol (plan node `allow-zero.applicators`): the no-op stub
+that once carried this annotation was pure dead code, so `matxin_applicator.rs`
+has no `test_pr`.
 

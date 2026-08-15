@@ -2126,4 +2126,26 @@ children (
             }
         )
     }
+
+    {
+        id retire-unported-decls
+        title "Retire the eight spec rules naming C++ declarations the port deliberately has no counterpart for, recording in prose why each is obsolesced rather than unmet, so coverage stops carrying a permanent unreachable remainder"
+        priority 0
+        kind @docs
+        log (
+            {
+                at 2026-08-15T21:47:49.747691Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+
+            {
+                at 2026-08-15T21:53:07.650931Z
+                author "brendan@necessary.nu"
+                kind @decision
+                text "Retired as rules, preserved as documentation. Each rule's `def:` and `sem:` blockquotes became plain prose in the same file, naming the retired rule literal and recording why it is obsolesced rather than unmet — the `errors.control-flow-quiet` precedent. No C++ description was lost: the 10043 record layout, the freq_sorter comparator semantics and the sqlite3_exec forwarding contract all survive as prose, they just stop carrying a coverage obligation the port can never discharge. Rejected the alternative of empty Rust items existing only to host the annotation: that is exactly what the zero-allow ruling deleted, so re-adding them would undo a decision already made. Four `/test` annotation lines were removed alongside (binary_serial, grammar_parser x2, profiler_relabeller) since a verify facet on a retired rule is an orphan ref; the tests themselves are unchanged and still pin the behaviour. Note relabeller.cg3.freq-sorter is a DIFFERENT rule family that remains covered — only textual-parser.cg3.freq-sorter* was retired."
+            }
+        )
+    }
 )

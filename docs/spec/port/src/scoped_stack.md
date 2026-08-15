@@ -22,11 +22,15 @@
 > are reused across scopes, the borrowed `C` may retain capacity from a
 > previous user (it is `clear()`-ed on release, not on acquire).
 
-> [spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy]
-> struct proxy {
->   size_t z;
->   scoped_stack* ss;
-> }
+`[spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy]` stood here, naming the C++
+`struct proxy { size_t z; scoped_stack* ss; }`. It is obsolesced, not unmet: the
+proxy is a raw back-pointer into the owning stack plus a slot index, and wave 4
+(`w4-unsafe-elimination`) dissolved it — `ScopedStack::get` returns an OWNED
+cleared `C` recycled from a spare list, so the owned value IS the proxy and
+`put`/drop is the destructor. There is no struct left for the declaration to
+name. The proxy's members keep their rules: `.proxy-fn` and `.operator-fn`
+describe behaviour the port still reproduces and are annotated in
+`scoped_stack.rs`; only the aggregate shape has no counterpart.
 
 > [spec:cg3:def:scoped-stack.cg3.scoped-stack.proxy.operator-fn]
 > C* operator->()

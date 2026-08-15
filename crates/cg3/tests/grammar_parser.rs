@@ -147,18 +147,13 @@ fn constructor_trait_surface_and_compat_mode() {
 // allocated by every parse (allocateDummySet). The composite entries (aa bb) /
 // (aa cc) drive the tag-frequency ordering: `aa` is most frequent, so it is
 // sorted first in every stored trie path.
-// freq_sorter itself: the C++ functor's single live use is the inlined
-// highest-frequency-first sort in parseTagList (and the eager-set-op path);
-// the port inlines that sort and does not carry the functor as a struct (see
-// the PORT DIVERGENCE note in TextualParser.md), so its ctor/operator() ids
-// are attached to this test, which drives the exact inlined comparator logic
-// and asserts its ordering.
+// That ordering IS the C++ freq_sorter comparator, which the port inlines
+// rather than carrying as a functor struct; its rules are retired, so this
+// test is where the inlined comparator's behaviour is pinned.
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-list-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.add-tag-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-inline-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.freq-sorter.freq-sorter-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.freq-sorter.operator-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.allocate-set-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.add-set-fn/test]

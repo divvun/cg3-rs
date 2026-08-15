@@ -210,22 +210,17 @@
 > error while committing: ", errmsg)).
 > No return value; the db handle is never explicitly closed.
 
-> [spec:cg3:def:profiler.cg3.sqlite3-exec-fn]
-> inline auto sqlite3_exec(sqlite3* db, const char* sql)
+`[spec:cg3:def:profiler.cg3.sqlite3-exec-fn]` stood here, naming
+`inline auto sqlite3_exec(sqlite3* db, const char* sql)`. It is obsolesced, not
+unmet: the C++ is a thin convenience wrapper, in namespace CG3 and shadowing the
+global, that forwards to `::sqlite3_exec(db, sql, nullptr, nullptr, nullptr)` —
+one or more SQL statements against `db`, no per-row callback, no callback
+argument, no error-message-out pointer — returning its `int` result code. It
+exists only so callers can write two arguments instead of five.
 
-> [spec:cg3:sem:profiler.cg3.sqlite3-exec-fn]
-> A thin convenience wrapper (in namespace CG3, shadowing the global) that
-> forwards to the C API `::sqlite3_exec(db, sql, nullptr, nullptr,
-> nullptr)` — i.e. runs one or more SQL statements in `sql` against `db`
-> with no per-row callback, no callback argument, and no error-message-out
-> pointer — and returns its `int` result code (SQLITE_OK on success). It
-> exists only so callers can write `sqlite3_exec(db, q)` with two
-> arguments instead of five.
->
-> PORT DIVERGENCE (zero-allow ruling, plan node `allow-zero.parsers-io`): not
-> ported as an item. The wrapper exists in C++ only to shorten call sites;
-> the port's `Profiler::write` calls rusqlite's `Connection::execute_batch`
-> (the same no-callback, no-binding batch execution) directly for every
-> PRAGMA/DDL/transaction statement, so a wrapper would have no callers — the
-> uncalled fn that previously carried these ids is deleted.
+The port's `Profiler::write` calls rusqlite's `Connection::execute_batch` — the
+same no-callback, no-binding batch execution — directly for every PRAGMA, DDL
+and transaction statement, so a wrapper would have no callers. The uncalled fn
+that once carried this id was deleted under the zero-allow ruling (plan node
+`allow-zero.parsers-io`).
 
