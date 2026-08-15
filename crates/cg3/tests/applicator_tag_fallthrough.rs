@@ -48,7 +48,7 @@ fn observe(txt: &str) -> Result<String, String> {
 #[test]
 fn empty_varstring_tag_no_longer_panics() {
     let e = observe("").expect_err("empty text builds no tag");
-    assert!(e.contains("could not be constructed"), "{e}");
+    assert!(e.contains("cannot construct tag"), "{e}");
 }
 
 /// A tag opening with `(` trips the second guard. It used to intern verbatim;

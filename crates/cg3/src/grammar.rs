@@ -199,6 +199,14 @@ pub struct Grammar {
     /// the text is read back only when a failure needs quoting.
     pub source_names: Vec<String>,
 
+    // [spec:cg3:req:diagnostics.source-lazy]
+    /// ADDED — no C++ analog. The `.cg3b` this grammar was read from, when it
+    /// was read from one by path, so a runtime failure can find the companion
+    /// source file beside it. `None` for a textual load (which has
+    /// [`source_names`](Self::source_names) instead) and for a binary load
+    /// handed bytes with no file behind them.
+    pub binary_path: Option<String>,
+
     // --- tags ---
     /// Owned tag arena (was `std::vector<Tag*> single_tags_list`); `TagId` indexes it.
     pub single_tags_list: Arena<Tag>,
@@ -313,6 +321,7 @@ impl Default for Grammar {
             cmdargs: String::new(),
             cmdargs_override: String::new(),
             source_names: Vec::new(),
+            binary_path: None,
             single_tags_list: Arena::new(),
             single_tags: FlatUnorderedMap::default(),
             sets_list: Arena::new(),

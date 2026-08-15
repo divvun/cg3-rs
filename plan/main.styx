@@ -2077,6 +2077,14 @@ children (
                     target-impl ([spec:cg3:req:diagnostics.source-lazy] [spec:cg3:req:diagnostics.runtime-placed])
                 }
                 deps (runtime-diagnostics.sidecar)
+                log (
+                    {
+                        at 2026-08-15T19:05:16.721701Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

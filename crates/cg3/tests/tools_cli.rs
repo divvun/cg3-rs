@@ -373,6 +373,120 @@ fn a_bad_grammar_is_reported_against_its_source() {
     let _ = std::fs::remove_file(&grammar);
 }
 
+/// A grammar whose rule asks the running stream for a tag no parser will
+/// accept, with the offending rule in an `INCLUDE`d file so resolving it has to
+/// cross a file boundary. `$1` captures `(x` out of the wordform, and a tag
+/// cannot open with `(`.
+fn runtime_failure_fixture() -> PathBuf {
+    let dir = temp_path("rt-rule");
+    std::fs::create_dir_all(&dir).expect("fixture dir");
+    std::fs::write(
+        dir.join("lists.cg3"),
+        "LIST N = (n) ;\n\nSECTION\nADD (@ok) N ;\nADD (VSTR:$1) (\"<\\(.*\\)>\"r) ;\n",
+    )
+    .expect("write include");
+    std::fs::write(
+        dir.join("nb.cg3"),
+        "DELIMITERS = \"<$.>\" ;\nINCLUDE lists.cg3 ;\n",
+    )
+    .expect("write grammar");
+    std::fs::write(dir.join("input.txt"), "\"<(x>\"\n\t\"x\" n\n").expect("write input");
+    dir
+}
+
+/// Run vislcg3 dir-local over the fixture with `grammar`, returning stderr.
+fn runtime_failure_stderr(dir: &Path, grammar: &str) -> String {
+    let out = Command::new(env!("CARGO_BIN_EXE_vislcg3"))
+        .current_dir(dir)
+        .arg("-g")
+        .arg(grammar)
+        .arg("-I")
+        .arg("input.txt")
+        .output()
+        .expect("spawn vislcg3");
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+/// `RT RULE 3467` names no file, and its line may belong to any of a dozen
+/// `INCLUDE`d ones. A runtime rule failure must instead quote the rule, out of
+/// the file it was actually written in — from a textual grammar, which has the
+/// sources' names in hand, and equally from a `.cg3b`, which has only what the
+/// companion file beside it supplies.
+// [spec:cg3:req:diagnostics.runtime-placed/test]
+// [spec:cg3:req:diagnostics.source-lazy/test]
+#[test]
+fn a_runtime_rule_failure_quotes_its_grammar() {
+    let dir = runtime_failure_fixture();
+
+    for (label, grammar) in [("textual", "nb.cg3"), ("binary", "nb.cg3b")] {
+        if grammar.ends_with("b") {
+            let status = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
+                .current_dir(&dir)
+                .arg("nb.cg3")
+                .arg("nb.cg3b")
+                .status()
+                .expect("spawn cg-comp");
+            assert!(status.success(), "cg-comp exited with {status}");
+        }
+        let stderr = runtime_failure_stderr(&dir, grammar);
+
+        assert!(
+            stderr.contains("cannot construct tag `(x`"),
+            "{label}: the report must name the tag that failed: {stderr}"
+        );
+        assert!(
+            stderr.contains("lists.cg3:5"),
+            "{label}: it must name the INCLUDEd file the rule was written in: {stderr}"
+        );
+        assert!(
+            stderr.contains("ADD (VSTR:$1)"),
+            "{label}: it must quote the rule that asked: {stderr}"
+        );
+        assert!(
+            stderr.contains("this rule asked for it"),
+            "{label}: the quoted rule must be marked: {stderr}"
+        );
+        assert!(
+            !stderr.contains("RT RULE"),
+            "{label}: a placed failure must not fall back to the bare label: {stderr}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// With no companion file — a `.cg3b` the C++ compiled, one shipped without its
+/// source, one whose companion is stale — there is nothing to quote, and the
+/// report falls back to exactly the label and line it always gave rather than
+/// guessing at a location.
+// [spec:cg3:req:diagnostics.runtime-placed/test]
+#[test]
+fn a_runtime_failure_falls_back_unresolved() {
+    let dir = runtime_failure_fixture();
+    let status = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
+        .current_dir(&dir)
+        .arg("nb.cg3")
+        .arg("nb.cg3b")
+        .status()
+        .expect("spawn cg-comp");
+    assert!(status.success());
+    std::fs::remove_file(dir.join("nb.cg3b.cg3src")).expect("drop the companion file");
+
+    let stderr = runtime_failure_stderr(&dir, "nb.cg3b");
+    assert!(
+        stderr.contains("RT RULE") && stderr.contains("on line 5"),
+        "the fallback must be the label and line, unchanged: {stderr}"
+    );
+    assert!(
+        stderr.contains("cannot construct tag `(x`"),
+        "the tag that failed is known without any sources: {stderr}"
+    );
+    assert!(
+        !stderr.contains("ADD (VSTR:$1)"),
+        "nothing may be quoted when there is no source to quote from: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // [spec:cg3:sem:cg-comp.end-program-fn+3/test]
 // cg-comp's endProgram: wrong argc (no args) prints the version + usage banner
 // to stdout and exits EXIT_FAILURE.

@@ -262,6 +262,106 @@ pub fn read_sidecar(binary: &Path) -> Option<GrammarSources> {
     Some(out)
 }
 
+// [spec:cg3:req:diagnostics.source-lazy]
+/// Materialise the sources of a loaded grammar — the ONE path a runtime failure
+/// takes to get at the text it wants to quote, whichever way the grammar was
+/// loaded.
+///
+/// Call this on the failure path and nowhere else. Both branches do real I/O:
+/// a textual load re-reads the files it was parsed from, and a binary load reads
+/// the companion file plus the `.cg3b` its stamp covers. That cost is the reason
+/// nothing retains the text — see `[dec:cg3:grammar-source-sidecar]`.
+///
+/// `None` whenever the sources cannot be had: a grammar parsed from bytes with
+/// no file behind them, a `.cg3b` with no companion file or a stale one, a
+/// source since deleted. The caller then reports what it always reported.
+///
+/// A textual load's re-read is checked the only way it can be — every span is
+/// bounds-tested against the text that comes back
+/// ([`GrammarSources::locate`]), so a file truncated since the parse yields no
+/// place rather than the wrong one.
+pub fn resolve(grammar: &Grammar) -> Option<GrammarSources> {
+    if let Some(binary) = grammar.binary_path.as_deref() {
+        return read_sidecar(Path::new(binary));
+    }
+    if grammar.source_names.is_empty() {
+        return None;
+    }
+    let mut sources = Vec::with_capacity(grammar.source_names.len());
+    for name in &grammar.source_names {
+        match std::fs::read_to_string(name) {
+            Ok(text) => sources.push(ParseSource {
+                name: name.clone(),
+                text,
+            }),
+            Err(e) => {
+                tracing::debug!("cannot re-read grammar source {name}: {e}");
+                return None;
+            }
+        }
+    }
+    Some(GrammarSources {
+        sources,
+        rules: provenance_of(grammar),
+    })
+}
+
+/// How much of the offending rule the one-line runtime summary quotes. Matches
+/// the parser's own near-context width.
+const RT_NEAR_CHARS: usize = 20;
+
+// [spec:cg3:req:diagnostics.runtime-placed]
+/// Upgrade a runtime failure from the label and line the applicator's
+/// `error_at` could give it to the rule it happened in, quoted.
+///
+/// `RT RULE 3467` is the whole of what the C++ could say, because by the time a
+/// stream runs the grammar text is gone — and for a `.cg3b` it may never have
+/// been on this machine. It is not a location: it names no file, and the line
+/// may belong to any of a dozen `INCLUDE`d ones. `rule`'s NUMBER is the stable
+/// key that resolves all of that, being both the plan the grammar was built
+/// against and the one thing that survives into the binary.
+///
+/// Returns the error untouched, with no sources, whenever it cannot be placed —
+/// no rule in flight, no companion source file or a stale one, a grammar source
+/// since deleted. The caller then reports exactly what it reported before,
+/// which is the fallback the spec asks for rather than a guess at where the
+/// failure was.
+pub fn place_in_grammar(
+    grammar: &Grammar,
+    rule: Option<crate::arena::RuleId>,
+    mut error: crate::error::ParseError,
+) -> (crate::error::ParseError, Vec<ParseSource>) {
+    let number = match rule {
+        Some(rid) if grammar.rule_by_number[rid.0].line != 0 => {
+            grammar.rule_by_number[rid.0].number
+        }
+        // No rule in flight: this failure belongs to the input stream, which is
+        // not in the grammar and has nothing here to quote.
+        _ => return (error, Vec::new()),
+    };
+
+    let Some(resolved) = resolve(grammar) else {
+        return (error, Vec::new());
+    };
+    let Some(span) = resolved.locate(number) else {
+        return (error, Vec::new());
+    };
+
+    let source = &resolved.sources[span.source];
+    error.file = crate::uextras::basename(Some(&source.name)).to_string();
+    // The head of the rule, so the one-line summary says something even where
+    // the quoted report cannot be shown.
+    error.near = source
+        .text
+        .chars()
+        .skip(span.range.start)
+        .take(span.range.len().min(RT_NEAR_CHARS))
+        .take_while(|&c| c != '\n' && c != '\r')
+        .collect();
+    error.span = Some(span);
+    (error, resolved.sources)
+}
+
 /// `u32` byte length + UTF-8 bytes. Not `write_utf8`: that carries the C++
 /// format's 16-bit host-order prefix, which wraps past 65535 bytes — and a
 /// grammar source is routinely larger than that.

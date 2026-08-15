@@ -113,6 +113,29 @@ pub enum ParseErrorKind {
     /// Nothing to parse.
     #[error("input is empty - cannot continue")]
     EmptyInput,
+    // [spec:cg3:req:diagnostics.runtime-placed]
+    /// A failure the running stream hit, attributed to the rule that caused it.
+    ///
+    /// What went wrong and what the failure is POINTING AT are two different
+    /// axes, and they only coincide for a parse error: a tag that will not
+    /// compile is marked on the tag while the grammar is being read, and on the
+    /// whole RULE that asked for it while the grammar is being run — the tag
+    /// itself was built from the stream and is nowhere in the source. This wraps
+    /// the cause rather than replacing it, so the message is unchanged and a
+    /// consumer can still match on what actually failed.
+    ///
+    /// The tag text lives here because this is the headline a rendered report
+    /// shows, and `parseTag failed` without the tag it failed on is the shape of
+    /// diagnostic this work exists to remove.
+    ///
+    /// `Box<str>` rather than `String`: this variant is built once on a failure
+    /// path and never appended to, and a growable one would make
+    /// [`ParseErrorKind`] the largest thing every `Result` in the parser carries.
+    #[error("cannot construct tag `{text}` ({cause})")]
+    RuntimeTag {
+        text: Box<str>,
+        cause: Box<ParseErrorKind>,
+    },
 }
 
 impl ParseErrorKind {
@@ -223,15 +246,25 @@ pub enum RunError {
     ExternalWindowMismatch { expected: u32, got: u32 },
     /// A tag the running stream asked for could not be constructed.
     ///
-    /// The text is carried because a runtime tag has no file and no useful
-    /// "near" context — the offending input IS the whole tag — and the inner
-    /// `ParseError` says which rule or input line asked for it. See
+    /// The text is carried because the offending input IS the whole tag, and the
+    /// inner `ParseError` says which rule or input line asked for it. See
     /// `[dec:cg3:parse-tag-aborts-on-invalid]`.
-    #[error("tag `{text}` could not be constructed: {source}")]
+    // [spec:cg3:req:diagnostics.runtime-placed]
+    /// `sources` is the grammar the rule was written in, resolved on this
+    /// failure path and only here — empty when it could not be
+    /// (`[spec:cg3:req:diagnostics.source-lazy]`). It travels with the error for
+    /// the same reason [`GrammarError::Parse`]'s does: the span is worthless
+    /// without the text it points into.
+    ///
+    /// The message is the inner error's alone: that already names the tag (via
+    /// [`ParseErrorKind::RuntimeTag`]) as well as the rule and file it was asked
+    /// for in, and saying the tag twice on one line is worse than saying it once.
+    #[error("{source}")]
     TagConstruction {
         text: String,
         #[source]
         source: Box<ParseError>,
+        sources: Vec<ParseSource>,
     },
     /// C++ `addTagToReading`: a reading may carry at most one mapping tag, and
     /// a second distinct one was `CG3Quit(1)` — a fatal from the middle of the
@@ -282,11 +315,30 @@ impl Cg3Error {
 /// quote and the spans to mark, and a grammar author reading a syntax error
 /// wants the line they wrote. The one-line summary still follows, because a
 /// count is the one thing the reports do not say.
+///
+/// A failure while RUNNING goes through the same renderer when it was placed in
+/// the grammar that caused it — a rule that asked for a tag no parser will
+/// accept is a grammar bug, and its author wants the rule quoted just as much
+/// (`[spec:cg3:req:diagnostics.runtime-placed]`). A failure that could not be
+/// placed carries no sources and falls through to the summary alone, which is
+/// what it always was.
 // [spec:cg3:req:errors.tag-regex-diagnostic]
 // [spec:cg3:req:diagnostics.rendered]
+// [spec:cg3:req:diagnostics.runtime-placed]
 pub fn report_cli(e: &Cg3Error) {
-    if let Cg3Error::Grammar(GrammarError::Parse { errors, sources }) = e {
-        crate::diagnostics::report_parse_failure(errors, sources);
+    match e {
+        Cg3Error::Grammar(GrammarError::Parse { errors, sources }) => {
+            crate::diagnostics::report_parse_failure(errors, sources);
+        }
+        Cg3Error::Run(RunError::TagConstruction {
+            source, sources, ..
+        }) if !sources.is_empty() => {
+            crate::diagnostics::report_parse_failure(
+                std::slice::from_ref(source.as_ref()),
+                sources,
+            );
+        }
+        _ => {}
     }
     tracing::error!("{e}");
 }

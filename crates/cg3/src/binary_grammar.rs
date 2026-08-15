@@ -209,7 +209,14 @@ impl BinaryGrammar {
                 source,
             })?;
         let mut cur = std::io::Cursor::new(data);
-        self.parse_grammar_reader(&mut cur)
+        let rv = self.parse_grammar_reader(&mut cur);
+        // [spec:cg3:req:diagnostics.source-lazy]
+        // The path, not the text: it is what lets a runtime failure find the
+        // companion source file, and it costs nothing until one happens. Only
+        // this entry point can supply it — the buffer overloads were handed
+        // bytes with no file behind them.
+        self.grammar.binary_path = Some(filename.to_string());
+        rv
     }
 
     /// C++ `int parse_grammar(const char* buffer, size_t length)`: writes the

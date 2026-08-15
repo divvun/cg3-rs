@@ -1931,16 +1931,38 @@ impl Matcher<'_> {
             // A malformed runtime varstring tag stops construction rather than
             // continuing with the input that failed validation (which used to
             // reach `is_textual` and panic on empty text).
-            crate::parser_helpers::parse_tag(
+            let parsed = crate::parser_helpers::parse_tag(
                 txt,
                 crate::parser_helpers::Near::Text(&[]),
                 self,
                 !r#type.intersects(T_PRESERVE_ESC),
-            )
-            .map_err(|source| crate::error::RunError::TagConstruction {
-                text: txt.to_string(),
-                source: Box::new(source),
-            })?
+            );
+            match parsed {
+                Ok(tag) => tag,
+                Err(mut e) => {
+                    // The tag names itself in the failure from here on: it came
+                    // off the stream, so it appears nowhere in the grammar and
+                    // no span can point at it.
+                    e.kind = crate::error::ParseErrorKind::RuntimeTag {
+                        text: txt.into(),
+                        cause: Box::new(e.kind),
+                    };
+                    // Placed here rather than inside `error_at`: resolving the
+                    // grammar's sources reads files, and the sources have to
+                    // travel with the error, which an `error_at` returning one
+                    // `ParseError` cannot do.
+                    let (source, sources) = crate::grammar_sources::place_in_grammar(
+                        self.grammar,
+                        self.scratch.current_rule,
+                        e,
+                    );
+                    return Err(crate::error::RunError::TagConstruction {
+                        text: txt.to_string(),
+                        source: Box::new(source),
+                        sources,
+                    });
+                }
+            }
         } else {
             let mut t = Tag::default();
             crate::tag::parse_tag_raw(&mut t, txt, self.grammar);
