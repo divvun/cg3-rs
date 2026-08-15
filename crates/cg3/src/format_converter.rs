@@ -50,8 +50,8 @@ fn unsupported_output(kind: StreamFormatKind) -> crate::error::RunError {
     }
 }
 
-// [spec:cg3:def:format-converter.cg3.detect-format-fn]
-// [spec:cg3:sem:format-converter.cg3.detect-format-fn]
+// [spec:cg3:def:format-converter.cg3.detect-format-fn+1]
+// [spec:cg3:sem:format-converter.cg3.detect-format-fn+1]
 /// C++ free fn `cg3_sformat detectFormat(std::string_view buf8)`. Sniffs the
 /// stream format of a UTF-8 buffer; the FIRST matching rule wins.
 ///
@@ -77,32 +77,9 @@ pub fn detect_format(buf8: &str) -> StreamFormatKind {
     // Cap the scanned window at BUF_SIZE chars (mirrors the UTF-16 BUF_SIZE cap).
     let buffer: String = buf8.chars().take(BUF_SIZE).collect();
 
-    // 3. Try each regex in turn; first match wins. Patterns/flags per the spec.
-    // A `.*?^` DOTALL+MULTILINE bridge between the wordform and baseform lines.
-    let patterns: &[(&str, StreamFormatKind)] = &[
-        // `^"<[^>]+>".*?^\s+"[^"]+"` DOTALL|MULTILINE → CG
-        (r#"(?sm)^"<[^>]+>".*?^\s+"[^"]+""#, Cg),
-        // `^\S+ *\t *\[\S+\]` DOTALL|MULTILINE → NICELINE
-        (r"(?sm)^\S+ *\t *\[\S+\]", Niceline),
-        // `^\S+ *\t *"\S+"` DOTALL|MULTILINE → NICELINE
-        (r#"(?sm)^\S+ *\t *"\S+""#, Niceline),
-        // `\^[^/]+(/[^<]+(<[^>]+>)+)+\$` DOTALL|MULTILINE → APERTIUM
-        // (literal ^ / $; no leading anchor, so it matches anywhere).
-        (r"(?sm)\^[^/]+(/[^<]+(<[^>]+>)+)+\$", Apertium),
-        // `^\S+\t\S+(\+\S+)+$` DOTALL|MULTILINE → FST
-        (r"(?sm)^\S+\t\S+(\+\S+)+$", Fst),
-        // `^\{` MULTILINE only (NO DOTALL) → JSONL
-        (r"(?m)^\{", Jsonl),
-    ];
-
-    for (pat, fmt) in patterns {
-        // ICU compiles once per call and matches; `Regex::new` is the analog.
-        // (The C++ never resets `status` between calls; a compile/find failure
-        // there simply yields no match — mirrored by treating a build error as
-        // "no match", though these literals always compile.)
-        if let Ok(rx) = regex::Regex::new(pat)
-            && rx.is_match(&buffer)
-        {
+    // 3. Try each regex in turn; first match wins.
+    for (rx, fmt) in SNIFF_PATTERNS.iter() {
+        if rx.is_match(&buffer) {
             return *fmt;
         }
     }
@@ -110,6 +87,52 @@ pub fn detect_format(buf8: &str) -> StreamFormatKind {
     // 6. No match → PLAIN.
     Plain
 }
+
+/// The `detectFormat` sniff patterns and the format each one identifies, in
+/// priority order, compiled once.
+///
+/// The C++ calls `uregex_open` per pattern per call and never resets `status`
+/// between them, so a pattern that failed to build simply yielded no match. The
+/// port reproduced that with `if let Ok(rx) = Regex::new(pat)`, which made a
+/// pattern that would not compile indistinguishable from one that did not match:
+/// the stream fell through to `Plain` and nothing said why. These are crate
+/// literals, not user input, so a build failure is a bug in this crate — which
+/// is what `[spec:cg3:req:errors.result-primary]` keeps panics for — and the
+/// `LazyLock` makes it fire as one instead of silently mis-classifying a stream.
+/// `format_sniff_patterns_compile` catches it at test time regardless.
+static SNIFF_PATTERNS: std::sync::LazyLock<Vec<(regex::Regex, StreamFormatKind)>> =
+    std::sync::LazyLock::new(|| {
+        // A `.*?^` DOTALL+MULTILINE bridge between the wordform and baseform lines.
+        SNIFF_SOURCES
+            .iter()
+            .map(|&(pat, fmt)| {
+                let rx = regex::Regex::new(pat)
+                    .unwrap_or_else(|e| panic!("detectFormat pattern `{pat}` must compile: {e}"));
+                (rx, fmt)
+            })
+            .collect()
+    });
+
+/// Pattern sources for [`SNIFF_PATTERNS`], kept separate so a test can compile
+/// them without tripping the `LazyLock`'s panic first.
+const SNIFF_SOURCES: &[(&str, StreamFormatKind)] = &[
+    // `^"<[^>]+>".*?^\s+"[^"]+"` DOTALL|MULTILINE → CG
+    (r#"(?sm)^"<[^>]+>".*?^\s+"[^"]+""#, StreamFormatKind::Cg),
+    // `^\S+ *\t *\[\S+\]` DOTALL|MULTILINE → NICELINE
+    (r"(?sm)^\S+ *\t *\[\S+\]", StreamFormatKind::Niceline),
+    // `^\S+ *\t *"\S+"` DOTALL|MULTILINE → NICELINE
+    (r#"(?sm)^\S+ *\t *"\S+""#, StreamFormatKind::Niceline),
+    // `\^[^/]+(/[^<]+(<[^>]+>)+)+\$` DOTALL|MULTILINE → APERTIUM
+    // (literal ^ / $; no leading anchor, so it matches anywhere).
+    (
+        r"(?sm)\^[^/]+(/[^<]+(<[^>]+>)+)+\$",
+        StreamFormatKind::Apertium,
+    ),
+    // `^\S+\t\S+(\+\S+)+$` DOTALL|MULTILINE → FST
+    (r"(?sm)^\S+\t\S+(\+\S+)+$", StreamFormatKind::Fst),
+    // `^\{` MULTILINE only (NO DOTALL) → JSONL
+    (r"(?m)^\{", StreamFormatKind::Jsonl),
+];
 
 // [spec:cg3:def:format-converter.cg3.format-converter]
 /// C++ `class FormatConverter` (multi-inheritance → composition; see the module
@@ -468,5 +491,22 @@ impl StreamFormat for ConvFormat {
             // CG / APERTIUM / FST / NICELINE / PLAIN / default → base.
             _ => e.print_plain_text_line(line, output),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every sniff pattern must build. The old `if let Ok(rx) = Regex::new(pat)`
+    /// made a pattern that would not build look exactly like a stream that is
+    /// not that format, so a typo would have shipped as "everything is Plain".
+    // [spec:cg3:sem:format-converter.cg3.detect-format-fn+1/test]
+    #[test]
+    fn format_sniff_patterns_compile() {
+        for (pat, _) in SNIFF_SOURCES {
+            regex::Regex::new(pat).unwrap_or_else(|e| panic!("`{pat}` must compile: {e}"));
+        }
+        assert_eq!(SNIFF_PATTERNS.len(), SNIFF_SOURCES.len());
     }
 }

@@ -1852,6 +1852,13 @@ children (
                         kind @note
                         text "format_converter.rs:103 is `if let Ok(rx) = regex::Regex::new(pat) && rx.is_match(&buffer)`, so a pattern that fails to build is indistinguishable from one that does not match, and the stream silently falls through to Plain. The comment argues the C++ behaved the same way and that these literals always compile — both true today, and both reasons the failure has never been seen. It is the last `if let Ok(..)` swallow left in the crate now that math_parser's two consumers report. Cheapest honest fix: compile the sniff patterns once in a LazyLock and let a build failure be the bug it would be."
                     }
+
+                    {
+                        at 2026-08-15T16:29:51.790143Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

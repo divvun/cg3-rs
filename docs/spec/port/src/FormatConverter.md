@@ -3,7 +3,7 @@
 > [spec:cg3:def:format-converter.cg3.detect-format-fn]
 > cg3_sformat detectFormat(std::string_view buf8)
 
-> [spec:cg3:sem:format-converter.cg3.detect-format-fn]
+> [spec:cg3:sem:format-converter.cg3.detect-format-fn+1]
 > Free function that sniffs the stream format of a UTF-8 buffer `buf8` and
 > returns a `cg3_sformat`. Order matters; the first match wins.
 >
@@ -42,6 +42,16 @@
 > The CG pattern relies on lazy `.*?` spanning newlines (DOTALL) between the two
 > anchored lines. This function NEVER returns `CG3SF_MATXIN` — Matxin input is
 > not auto-detected.
+>
+> DIVERGENCE: the port compiles the patterns ONCE, and a pattern that fails to
+> build is a panic rather than a silent no-match. Because the C++ never resets
+> `status`, a failed `uregex_openC` there is indistinguishable from a stream that
+> simply is not that format, and the sniff falls through to `CG3SF_PLAIN` with no
+> diagnostic. The patterns are crate literals, not input, so a build failure is a
+> bug in this crate — `[spec:cg3:req:errors.result-primary]` reserves panics for
+> exactly that — and mis-classifying every stream as plain text is a far worse
+> outcome than failing loudly. Matching behaviour for patterns that DO build is
+> unchanged.
 
 > [spec:cg3:def:format-converter.cg3.format-converter]
 > class FormatConverter : public ApertiumApplicator, public BinaryApplicator, public FSTApplicator, public JsonlApplicator, public MatxinApplicator, public Nic... {

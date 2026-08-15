@@ -537,7 +537,7 @@ fn jsonl_conv_roundtrip() {
 // free detectFormat sniffer. Both a CG-detected and a Niceline-detected input
 // are pushed through auto-detection and must produce the same output as the
 // explicitly-flagged runs.
-// [spec:cg3:sem:format-converter.cg3.detect-format-fn/test]
+// [spec:cg3:sem:format-converter.cg3.detect-format-fn+1/test]
 // [spec:cg3:sem:format-converter.cg3.format-converter.format-converter-fn/test]
 // [spec:cg3:sem:format-converter.cg3.format-converter.detect-format-fn/test]
 // [spec:cg3:sem:format-converter.cg3.format-converter.run-grammar-on-text-fn/test]
