@@ -2103,6 +2103,27 @@ children (
                     }
                 )
             }
+
+            {
+                id runtime-diagnostics.relabel-carry
+                title "Carry the source companion across a relabel: cg-relabel rewrites a .cg3b and leaves the sidecar describing the old one, so a relabelled grammar reports runtime failures with no location at all"
+                priority 1
+                kind @fix
+                log (
+                    {
+                        at 2026-08-15T21:36:45.498008Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Recorded as prose on [dec:cg3:grammar-source-sidecar] when the sidecar landed, but never given a node. Relabelling rewrites tags rather than rules, so the per-rule provenance stays accurate across the rewrite — the sidecar is not invalidated by relabelling, it is merely orphaned by the .cg3b identity stamp changing. So the fix is to re-stamp and re-emit the companion alongside the rewritten binary, not to regenerate provenance. Verified with the sidecar deliberately staled: the loader refuses it and degrades to the bare RT RULE line rather than quoting the wrong source, so today's behaviour is safe, just uninformative."
+                    }
+                )
+            }
+
+            {
+                id runtime-diagnostics.rt-input-reachable
+                title "Establish whether a runtime input failure is reachable at all: every stream applicator calls add_tag with an empty TagType, which cannot fail, so decide if the RT INPUT label is dead in the port and in the C++ both, and either reach it from a CLI test or retire it"
+                priority 2
+            }
         )
     }
 )
