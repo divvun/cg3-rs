@@ -10,8 +10,7 @@ use crate::contextual_test::{POS_CAREFUL, POS_NUMERIC_BRANCH, copy_cntx};
 use crate::grammar::Grammar;
 use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::{
-    cg3_quit, hash_value_ustring, isspace, skipln_chars, skipto_chars, skiptows_chars,
-    skipws_chars, ui32,
+    hash_value_ustring, isspace, skipln_chars, skipto_chars, skiptows_chars, skipws_chars, ui32,
 };
 use crate::set::{ST_TAG_UNIFY, Set};
 use crate::strings::Keywords;
@@ -358,13 +357,13 @@ impl TextualParser {
                     b
                 }
                 Err(e) => {
-                    tracing::error!(
-                        "{}: Error: Cannot stat {} due to error {} - bailing out!",
-                        self.filebase,
-                        abspath,
-                        e
-                    );
-                    cg3_quit(1, None, 0);
+                    return Err(self.parse_error_at(
+                        String::new(),
+                        crate::error::ParseErrorKind::IncludeUnreadable {
+                            path: abspath,
+                            source: e,
+                        },
+                    ));
                 }
             },
         };
@@ -554,8 +553,12 @@ impl TextualParser {
         let len = buf.len();
 
         if len <= 4 || buf[4] == '\0' {
-            tracing::error!("{}: Error: Input is empty - cannot continue!", fname);
-            cg3_quit(1, None, 0);
+            return Err(crate::error::ParseError {
+                file: basename(Some(&fname)).to_string(),
+                line: self.grammar.lines,
+                near: String::new(),
+                kind: crate::error::ParseErrorKind::EmptyInput,
+            });
         }
 
         // C++: `if (profiler) { parse_ast = true; }` — profiling implies AST
@@ -608,7 +611,14 @@ impl TextualParser {
                 // The C++ unwound here, which ran every in-scope ~ASTHelper();
                 // restore the AST cursor to the pre-directive depth by hand.
                 self.ast.truncate_cursor(ast_depth);
+                // Not every parse error is resumable — see
+                // `ParseErrorKind::is_fatal`. The C++ terminated at those; this
+                // loop reports them and stops reading.
+                let fatal = e.kind.is_fatal();
                 self.record(e);
+                if fatal {
+                    break;
+                }
                 if self.error_count() >= MAX_PARSE_ERRORS {
                     tracing::error!("{}: Too many errors - giving up...", self.filebase);
                     break;
@@ -771,15 +781,11 @@ impl TextualParser {
         self.grammarbufs
             .push(crate::ast::SrcBuf::from(data.as_slice()));
         let gi = self.grammarbufs.len() - 1;
-        // Deep grammar-construction fatals (grammar.rs allocate_tag/add_set/... and
-        // the parse driver's own `cg3_quit` sites) unwind as `Cg3Exit`; capture
-        // them at this parse boundary and surface as `Err(Cg3Error)` carrying the
-        // exact exit code. A per-directive `ParseError` is already recovered inside
-        // `parse_from_u_char`; only a boundary escape reaches `catch_fatal`.
-        // A recoverable error stops only its own directive; the loop records
-        // it and continues, so `Ok` here still means "found errors" if any were
-        // accumulated. A hard error is one the parser could not resume from.
-        if let Err(hard) = crate::error::catch_fatal(|| self.parse_grammar_data(gi))? {
+        // A recoverable error stops only its own directive: the loop inside
+        // `parse_from_u_char` records it and continues, so `Ok` here still means
+        // "found errors" if any were accumulated. What reaches this frame is an
+        // error the parser could not resume from, and it joins the same list.
+        if let Err(hard) = self.parse_grammar_data(gi) {
             self.record(hard);
         }
         let errors = self.take_errors();

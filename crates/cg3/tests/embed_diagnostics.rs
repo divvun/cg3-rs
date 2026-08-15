@@ -1,77 +1,19 @@
-//! What an EMBEDDER sees on stderr — the path that does not go through
-//! `run_cli`.
+//! What an EMBEDDER gets back from a failed load: the shape of the error value,
+//! not a diagnostic it has to scrape out of a log.
 //!
-//! The parser ports the C++ `throw int` parse-error recovery as
-//! `panic_any(ParseError)`, caught once per directive so parsing can continue.
-//! The default panic hook prints for every one of those, several frames before
-//! the catch, so a library consumer got `thread 'main' panicked ... Box<dyn
-//! Any>` for an ordinary bad grammar — reading like a crash next to the `Err`
-//! it also returned.
-//!
-//! Asserting this needs a real process: panic output is a property of the
-//! process's hook, not of a return value. The test re-executes its own binary
-//! and reads the child's stderr.
-
-use std::process::Command;
-
-const CHILD: &str = "CG3_EMBED_DIAGNOSTICS_CHILD";
+//! The process-level half of this file is gone with the mechanism it watched.
+//! The parser used to port the C++ `throw int` recovery as a caught panic, so a
+//! library consumer saw `thread 'main' panicked ... Box<dyn Any>` for an
+//! ordinary bad grammar, and a process-global hook existed to hide it. Nothing
+//! unwinds any more, so there is nothing to suppress and nothing to assert
+//! about a child process's stderr.
 
 /// Two bad regex tags plus the rule that references the first set, so the
-/// parser recovers more than once and would print more than one panic.
+/// parser recovers more than once.
 const BAD_GRAMMAR: &str = "DELIMITERS = \"<.>\" ;\n\
                            LIST a = \"[:script=Greek:]\"r ;\n\
                            LIST b = \"[:script=Latin:]\"r ;\n\
                            SELECT a ;\n";
-
-fn child_loads_a_bad_grammar() {
-    cg3::tools::init_diagnostics();
-    let mut parser =
-        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
-    let err = parser
-        .parse_grammar_utf8(BAD_GRAMMAR.as_bytes())
-        .expect_err("this grammar must not parse");
-    // Print through the same channel an embedder would, so the parent can
-    // confirm the child really reached the failure rather than exiting early.
-    eprintln!("embedder saw: {err}");
-}
-
-// [spec:cg3:req:errors.control-flow-quiet/test]
-#[test]
-fn embedder_sees_no_panic_noise() {
-    if std::env::var(CHILD).is_ok() {
-        child_loads_a_bad_grammar();
-        return;
-    }
-
-    let exe = std::env::current_exe().expect("path to this test binary");
-    let out = Command::new(exe)
-        .env(CHILD, "1")
-        .args(["--exact", "embedder_sees_no_panic_noise", "--nocapture"])
-        .output()
-        .expect("re-exec the test binary");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-
-    assert!(out.status.success(), "child failed:\n{stderr}");
-    // The child must actually have hit the recovery path — otherwise the
-    // absence of panic noise below would prove nothing.
-    assert!(
-        stderr.contains("on line 2 near"),
-        "child never reached the parse errors:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("embedder saw: grammar could not be parsed"),
-        "child did not return the error to its caller:\n{stderr}"
-    );
-
-    assert!(
-        !stderr.contains("panicked at"),
-        "recoverable parse errors leaked Rust panic noise to an embedder:\n{stderr}"
-    );
-    assert!(
-        !stderr.contains("Box<dyn Any>"),
-        "control-flow payload reached stderr:\n{stderr}"
-    );
-}
 
 /// Errors are layered by boundary: a grammar that will not load surfaces as a
 /// `GrammarError`, never as a stream variant, and the collection of failures
@@ -104,7 +46,7 @@ fn tag_regex_failures_name_the_tag() {
         cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
     parser.parse_grammar_utf8(src.as_bytes()).expect("parses");
     let mut grammar = parser.grammar;
-    grammar.reindex(false, false).unwrap();
+    let _ = grammar.reindex(false, false).unwrap();
 
     let mut applicator = cg3::grammar_applicator::GrammarApplicator::new(grammar);
     let err = applicator
@@ -120,7 +62,7 @@ fn tag_regex_failures_name_the_tag() {
 }
 
 /// A bad grammar reports EVERY recoverable error in one pass, not just the
-/// first — the property the old catch_unwind provided as a side effect and the
+/// first — the property the old caught unwind provided as a side effect and the
 /// accumulating loop now provides on purpose.
 // [spec:cg3:req:errors.parse-reports-all/test]
 #[test]

@@ -160,7 +160,7 @@ fn inprocess_binary_roundtrip() {
         .parse_grammar_utf8(&src)
         .expect("textual parse failed");
     let mut grammar = parser.grammar;
-    grammar.reindex(false, false).unwrap();
+    let _ = grammar.reindex(false, false).unwrap();
 
     let num_tags = grammar.num_tags;
     let num_sets = grammar.sets_list_order.len();
@@ -255,8 +255,13 @@ fn legacy_10043_rejected() {
         .parse_grammar_buffer(&blob)
         .expect_err("legacy 10043 grammar must be rejected by the stub");
     assert!(
-        err.to_string().contains("legacy .cg3b rev <10373"),
-        "the rejection must say which revision it refused, got {err}"
+        matches!(
+            err,
+            cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::LegacyRevision {
+                found: 10043
+            })
+        ),
+        "the rejection must name the revision it refused, got {err:?}"
     );
     // Nothing was parsed: the grammar stays empty and is never marked binary.
     assert!(!reader.grammar.is_binary);

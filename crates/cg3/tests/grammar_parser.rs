@@ -557,7 +557,7 @@ fn print_ast_dumps_xml() {
 #[test]
 fn reindex_builds_runtime_indexes() {
     let mut p = parse_fixture("test/T_SetParentChild/grammar.cg3");
-    p.grammar.reindex(false, false).unwrap();
+    let _ = p.grammar.reindex(false, false).unwrap();
     let g = &p.grammar;
 
     // Rule indexes: set->rules and tag->rules were populated.

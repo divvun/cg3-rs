@@ -29,7 +29,7 @@ fn cg3b_with_pattern(marker: &str, pattern: &str) -> Vec<u8> {
         .parse_grammar_utf8(src.as_bytes())
         .expect("fixture grammar must compile");
     let mut grammar = parser.grammar;
-    grammar.reindex(false, false).unwrap();
+    let _ = grammar.reindex(false, false).unwrap();
     let mut writer = BinaryGrammar::new(grammar);
     let mut blob: Vec<u8> = Vec::new();
     writer.write_binary_grammar(&mut blob).unwrap();
@@ -77,7 +77,7 @@ fn written_patterns_keep_icu_spelling() {
             .parse_grammar_utf8(src.as_bytes())
             .unwrap_or_else(|e| panic!("{tag} must compile: {e}"));
         let mut grammar = parser.grammar;
-        grammar.reindex(false, false).unwrap();
+        let _ = grammar.reindex(false, false).unwrap();
         let mut writer = BinaryGrammar::new(grammar);
         let mut blob: Vec<u8> = Vec::new();
         writer.write_binary_grammar(&mut blob).unwrap();
@@ -151,7 +151,7 @@ fn all_bad_tags_are_reported_together() {
     let mut parser = TextualParser::new(Grammar::default(), false);
     parser.parse_grammar_utf8(src.as_bytes()).unwrap();
     let mut grammar = parser.grammar;
-    grammar.reindex(false, false).unwrap();
+    let _ = grammar.reindex(false, false).unwrap();
     let mut writer = BinaryGrammar::new(grammar);
     let mut blob: Vec<u8> = Vec::new();
     writer.write_binary_grammar(&mut blob).unwrap();

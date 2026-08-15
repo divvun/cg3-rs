@@ -137,7 +137,7 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<Grammar, Gra
         parser.grammar
     };
 
-    parsed
+    let _ = parsed
         .reindex(false, false)
         .map_err(|source| GrammarLoadError::Reindex {
             path: filename.to_string(),

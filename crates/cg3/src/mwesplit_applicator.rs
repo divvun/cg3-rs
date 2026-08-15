@@ -94,10 +94,10 @@ impl MweSplitApplicator {
             dtag.expect("the dummy delimiter tag is a literal and cannot fail"),
             dset,
         );
-        // Internal conv grammar (used_tags=false, no static sets): reindex /
-        // set_grammar cannot fatal here. If they ever did, re-raise as the
-        // residual `Cg3Exit` unwind so the exact exit code is preserved.
-        base.grammar.reindex(false, false)?;
+        // Internal conv grammar (used_tags=false, no static sets): neither
+        // reindex nor set_grammar can fail on it. Propagated rather than
+        // unwrapped, because "cannot fail here" is an argument, not a type.
+        let _ = base.grammar.reindex(false, false)?;
         base.set_grammar()?;
         base.cfg.is_conv = true;
         Ok(MweSplitApplicator { base })

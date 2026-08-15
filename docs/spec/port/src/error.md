@@ -56,17 +56,15 @@ rules govern what an error value carries.
 > channel carrying the information, and MUST NOT be emitted at a level that
 > forces an embedder to show its users the name of an ICU C function.
 
-> [spec:cg3:req:errors.control-flow-quiet]
-> Unwinds this crate raises as control flow MUST NOT produce Rust panic output,
-> at every boundary that can observe them — not only the CLI entry points. The
-> parser ports the C++ `throw int` parse-error recovery as a panic caught once
-> per directive, so the default hook would otherwise print
-> `thread '...' panicked ... Box<dyn Any>` for every recoverable parse error,
-> several frames before the catch. A library consumer would see that alongside
-> the perfectly good error value it also gets, and it reads as a crash. The
-> suppression MUST be limited to the payload types this crate raises and always
-> catches, and MUST chain to any hook already installed, so a genuine bug —
-> here or in the host — still reports normally.
+`[spec:cg3:req:errors.control-flow-quiet]` stood here. It required this crate's
+control-flow unwinds to stay off stderr, because the parser's `throw int` port
+raised a panic per recoverable parse error and the default hook printed it
+several frames before the catch — an embedder saw what read as a crash next to
+the perfectly good error value it also got. The rule was met by a process-global
+panic hook that suppressed this crate's own payload types. It is obsolesced, not
+unmet: `[dec:cg3:results-not-unwinding]` removed the last unwind this crate
+raises as a signal, so there is nothing left to keep quiet and the hook is gone
+with it. A panic from this crate now means a bug in this crate, and must print.
 
 > [spec:cg3:req:errors.parse-result]
 > Grammar parse and binary-grammar entry points MUST report success as `Ok(())`

@@ -104,7 +104,7 @@ fn conv_base() -> cg3::grammar_applicator::GrammarApplicator {
         .allocate_tag("__CG3_DUMMY_STRINGBIT__")
         .unwrap();
     base.grammar.add_tag_to_set(dummy_tag, delim);
-    base.grammar.reindex(false, false).unwrap();
+    let _ = base.grammar.reindex(false, false).unwrap();
     base.set_grammar().unwrap();
     base
 }
@@ -219,7 +219,7 @@ fn apertium_test_pr_roundtrip() {
     p.parse_grammar_utf8(b"DELIMITERS = \".\" ;\nSELECT (foo) ;\n")
         .expect("minimal grammar failed to parse");
     let mut g = p.grammar;
-    g.reindex(false, false).unwrap();
+    let _ = g.reindex(false, false).unwrap();
     let mut base =
         cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
     base.grammar = g;

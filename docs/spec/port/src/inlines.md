@@ -26,7 +26,7 @@
 > [spec:cg3:def:inlines.cg3.cg3-quit-fn]
 > [[noreturn]]
 
-> [spec:cg3:sem:inlines.cg3.cg3-quit-fn]
+> [spec:cg3:sem:inlines.cg3.cg3-quit-fn+1]
 > `CG3Quit(int32_t c = 0, const char* file = nullptr, uint32_t line = 0)`,
 > marked `[[noreturn]]`. If BOTH `file` is non-null AND `line` is non-zero,
 > it flushes `std::cerr` (`std::cerr << std::flush`) then writes the line
@@ -35,6 +35,11 @@
 > process with exit code `c` and running atexit/static destructors. Never
 > returns. If file is null or line is 0, no message is printed — it just
 > exits.
+> DIVERGENCE: the port has no counterpart. Terminating the process from inside
+> library code is what `[dec:cg3:results-not-unwinding]` bans, and every site
+> that used to call this returns its failure instead; only the `src/bin`
+> wrappers call `process::exit`, on a code their `main_*` returned. This rule is
+> therefore deliberately uncovered on the target side.
 
 > [spec:cg3:def:inlines.cg3.clear-fn]
 > inline void clear(C& c)

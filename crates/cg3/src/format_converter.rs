@@ -40,11 +40,14 @@ use crate::types::UStringView;
 
 const BUF_SIZE: usize = 1000;
 
-/// `CG3Quit()` (no args) — the C++ default-branch abort. Faithful: exits(1) with
-/// no diagnostic (the C++ macro passes `__FILE__`/`__LINE__` only under debug;
-/// the release path aborts). Routed here for invalid/Matxin format arms.
-fn cg3_quit() -> ! {
-    crate::inlines::cg3_quit(1, None, 0)
+/// The C++ default-branch `CG3Quit()` for an output format this converter has
+/// no arm for — MATXIN, which never had one, and the invalid sentinel. It
+/// aborted with no diagnostic at all; naming the format is the whole point of
+/// replacing it.
+fn unsupported_output(kind: StreamFormatKind) -> crate::error::RunError {
+    crate::error::RunError::UnsupportedOutputFormat {
+        format: format!("{kind:?}"),
+    }
 }
 
 // [spec:cg3:def:format-converter.cg3.detect-format-fn]
@@ -156,7 +159,7 @@ impl FormatConverter {
         // The internal conv grammar is built here from literals, so neither of
         // these can fail on user input — but they return Result, and turning
         // that back into a panic is the thing this project is removing.
-        base.grammar.reindex(false, false)?;
+        let _ = base.grammar.reindex(false, false)?;
         base.set_grammar()?;
 
         // PlaintextApplicator's C++ constructor runs as one of
@@ -299,7 +302,10 @@ impl FormatConverter {
             }
             // MATXIN has no C++ converter case; invalid values share its
             // default branch.
-            _ => Err(crate::error::Cg3Error::fatal(1, None)),
+            other => Err(crate::error::RunError::UnsupportedInputFormat {
+                format: format!("{other:?}"),
+            }
+            .into()),
         }
     }
 
@@ -400,7 +406,7 @@ impl StreamFormat for ConvFormat {
             Plain => self.plaintext.print_cohort_e(e, cohort, output, profiling),
             Jsonl => self.jsonl.print_cohort_e(e, cohort, output, profiling),
             Binary => {}
-            _ => cg3_quit(),
+            other => return Err(unsupported_output(other)),
         }
         Ok(())
     }
@@ -437,7 +443,7 @@ impl StreamFormat for ConvFormat {
                 .bin_print_single_window(e, window, output, profiling),
             // MATXIN has no C++ converter case; invalid values share its
             // default branch.
-            _ => cg3_quit(),
+            other => return Err(unsupported_output(other)),
         }
         Ok(())
     }

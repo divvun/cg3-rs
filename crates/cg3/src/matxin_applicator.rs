@@ -733,7 +733,7 @@ impl MatxinApplicator {
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(input, output))?
+        self.run_grammar_on_text_impl(input, output)
             .map_err(crate::error::Cg3Error::from)
     }
 

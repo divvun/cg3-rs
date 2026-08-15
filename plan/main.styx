@@ -1465,15 +1465,19 @@ children (
         id embedder-panic-noise
         title "Stop control-flow unwinds printing Rust panic noise at library boundaries"
         kind @fix
-        implements {
-            target-impl ([spec:cg3:req:errors.control-flow-quiet])
-        }
         log (
             {
                 at 2026-08-14T11:03:00.125363Z
                 author "brendan@necessary.nu"
                 kind @status
                 text "Todo → Doing (nplan start)"
+            }
+
+            {
+                at 2026-08-15T10:55:12.5827Z
+                author "brendan@necessary.nu"
+                kind @decision
+                text "implements cleared before errors-idiomatic.teardown retires [spec:cg3:req:errors.control-flow-quiet]. The rule required this crate's control-flow unwinds to stay off stderr; teardown removes the last of them, so there is nothing left to keep quiet and the rule is vacuous rather than unmet. The panic filter this node installed goes with it. Ordering is forced: the rule cannot be deleted while a node's implements still names it, or the reference dangles and lint fails."
             }
         )
     }
@@ -1572,12 +1576,20 @@ children (
                 priority 0
                 kind @refactor
                 deps (errors-idiomatic.types)
+                sealed true
                 log (
                     {
                         at 2026-08-14T16:17:27.809827Z
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-15T10:51:33.473617Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
@@ -1588,12 +1600,20 @@ children (
                 priority 0
                 kind @refactor
                 deps (errors-idiomatic.types)
+                sealed true
                 log (
                     {
                         at 2026-08-15T09:50:49.934058Z
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-15T10:51:29.116987Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }

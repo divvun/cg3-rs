@@ -29,13 +29,14 @@ use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::is_cg3b;
 use crate::matxin_applicator::MatxinApplicator;
 use crate::options::{
-    Opt, grammar_options_default, grammar_options_override, options, options_default,
-    options_override,
+    grammar_options_default, grammar_options_override, options, options_default, options_override,
 };
 use crate::options_parser::{parse_opts, parse_opts_env};
 use crate::textual_parser::TextualParser;
 
-use super::{EXIT_FAILURE, basename, fail, print_divvun_version, print_divvun_version_line};
+use super::{
+    EXIT_FAILURE, basename, fail, merge_options, print_divvun_version, print_divvun_version_line,
+};
 
 // [spec:cg3:def:cg-proc.end-program-fn+3]
 // [spec:cg3:sem:cg-proc.end-program-fn+3]
@@ -324,14 +325,7 @@ pub fn main_proc(args: &[String]) -> i32 {
 
     parse_opts_env("CG3_DEFAULT", &mut options_default);
     parse_opts_env("CG3_OVERRIDE", &mut options_override);
-    for i in 0..Opt::NumOptions as usize {
-        if options_default[i].does_occur && !options[i].does_occur {
-            options[i] = options_default[i].clone();
-        }
-        if options_override[i].does_occur {
-            options[i] = options_override[i].clone();
-        }
-    }
+    merge_options(&mut options, &options_default, &options_override, None);
 
     // Grammar grammar; — owned by the parser, moved out after parse.
     let optind = getopt.optind;
@@ -398,14 +392,12 @@ pub fn main_proc(args: &[String]) -> i32 {
     if !grammar.cmdargs_override.is_empty() {
         parse_opts(&grammar.cmdargs_override, &mut grammar_options_override);
     }
-    for i in 0..Opt::NumOptions as usize {
-        if grammar_options_default[i].does_occur && !options[i].does_occur {
-            options[i] = grammar_options_default[i].clone();
-        }
-        if grammar_options_override[i].does_occur && !options_override[i].does_occur {
-            options[i] = grammar_options_override[i].clone();
-        }
-    }
+    merge_options(
+        &mut options,
+        &grammar_options_default,
+        &grammar_options_override,
+        Some(&options_override),
+    );
 
     // Build the applicator for the chosen stream format. The ported base owns its
     // grammar (setGrammar takes no arg), so the parsed grammar is moved into the

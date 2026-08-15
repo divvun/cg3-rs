@@ -141,6 +141,22 @@ pub type SetsByTag = HashMap<u32, DynBitset>;
 /// Represented as `BTreeMap` (sorted associative container).
 pub type Parentheses = BTreeMap<u32, u32>;
 
+/// What a completed [`Grammar::reindex`] leaves its caller to do.
+///
+/// The C++ `exit(0)`s inside `reindex` once the `--show-tags` dump has been
+/// written. That is a successful stop, and success does not travel in the error
+/// channel — `[spec:cg3:req:errors.exit-codes-at-cli]` puts the decision at the
+/// boundary that owns the exit code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub enum Reindexed {
+    /// Nothing further; the grammar is ready to use.
+    Done,
+    /// `used_tags` was asked for and the dump has been written. The caller is
+    /// done, successfully.
+    DumpedTags,
+}
+
 // [spec:cg3:def:grammar.cg3.grammar]
 /// The parsed/loaded grammar: owner of all static tags, sets, rules and
 /// contextual tests, plus every runtime lookup index built by `reindex`.
@@ -1524,14 +1540,17 @@ impl Grammar {
     // [spec:cg3:sem:grammar.cg3.grammar.reindex-fn]
     /// Core finalization pass (21 steps). Marks used sets/tags/contexts, numbers
     /// the sets, builds every runtime index, and rewrites hash-based refs into
-    /// number-based ones. All `u_fprintf` diagnostics are deferred I/O; the
-    /// `used_tags` dump still `exit(0)`s the process (flagged quirk). See the
+    /// number-based ones. All `u_fprintf` diagnostics are deferred I/O. See the
     /// SET-NUMBER RECONCILIATION note for the `sets_list`/`number` handling.
+    ///
+    /// `used_tags` asks for the tag dump, after which the C++ `exit(0)`s. That
+    /// is a successful stop, not a failure, so it comes back as
+    /// [`Reindexed::DumpedTags`] rather than an error carrying exit code 0.
     pub fn reindex(
         &mut self,
         unused_sets: bool,
         used_tags: bool,
-    ) -> Result<(), crate::error::Cg3Error> {
+    ) -> Result<Reindexed, crate::error::Cg3Error> {
         // (1) Reset set state.
         let all_content_sets: Vec<SetId> = self.sets_by_contents.values().copied().collect();
         for sid in &all_content_sets {
@@ -2129,16 +2148,15 @@ impl Grammar {
             }
         }
 
-        // (21) used_tags dump → exit(0) (flagged quirk: terminates). Wave 4:
-        // returned as a Cg3Error carrying exit code 0; the binaries convert it
-        // to the exit.
+        // (21) used_tags dump → the C++ exit(0)s here. The caller stops, and
+        // stops successfully.
         if used_tags {
             // for tag in single_tags with T_USED: print toUString(true) to
             // ux_stdout — deferred I/O.
-            return Err(crate::error::Cg3Error::fatal(0, None));
+            return Ok(Reindexed::DumpedTags);
         }
 
-        Ok(())
+        Ok(Reindexed::Done)
     }
 }
 

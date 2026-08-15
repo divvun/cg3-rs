@@ -567,7 +567,7 @@ where
         W: std::io::Write,
     {
         let mut fmt = ApertiumFormat::from_app(self);
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(&mut fmt, input, output))?
+        self.run_grammar_on_text_impl(&mut fmt, input, output)
             .map_err(crate::error::Cg3Error::from)
     }
 
@@ -584,7 +584,7 @@ where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))?
+        self.run_grammar_on_text_impl(fmt, input, output)
             .map_err(crate::error::Cg3Error::from)
     }
 

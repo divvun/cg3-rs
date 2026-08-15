@@ -121,13 +121,32 @@ pub(crate) const EXIT_FAILURE: i32 = 1;
 /// do with an exit status.
 pub(crate) fn fail(e: &crate::error::Cg3Error) -> i32 {
     crate::error::report_cli(e);
-    match e {
-        // TRANSITIONAL: an unconverted library `CG3Quit(code)` still carries the
-        // code it would have terminated with, so honour it while such sites
-        // exist. `errors-idiomatic.teardown` deletes the variant and this arm
-        // with it, leaving EXIT_FAILURE for everything.
-        crate::error::Cg3Error::Fatal { code, .. } => *code,
-        crate::error::Cg3Error::Grammar(_) | crate::error::Cg3Error::Run(_) => EXIT_FAILURE,
+    EXIT_FAILURE
+}
+
+// --- Option-table merging --------------------------------------------------------
+
+/// Merge one pair of option tables onto `options`: `defaults` fill only what is
+/// still unset, `overrides` win outright.
+///
+/// Each tool runs this twice — once for the `CG3_DEFAULT` / `CG3_OVERRIDE`
+/// environment tables, once for the grammar's own `cmdargs`. The second pass
+/// additionally declines to overwrite anything the environment already forced,
+/// which is what `already_forced` names.
+pub(crate) fn merge_options(
+    options: &mut crate::options::OptionsTable,
+    defaults: &crate::options::OptionsTable,
+    overrides: &crate::options::OptionsTable,
+    already_forced: Option<&crate::options::OptionsTable>,
+) {
+    for i in 0..crate::options::Opt::NumOptions as usize {
+        if defaults[i].does_occur && !options[i].does_occur {
+            options[i] = defaults[i].clone();
+        }
+        let forced = already_forced.is_some_and(|t| t[i].does_occur);
+        if overrides[i].does_occur && !forced {
+            options[i] = overrides[i].clone();
+        }
     }
 }
 

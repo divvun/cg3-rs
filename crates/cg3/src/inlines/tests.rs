@@ -588,18 +588,3 @@ fn concat_builds_string() {
     details::_concat(&mut m, &["y", "z"]);
     assert_eq!(m, "xyz");
 }
-
-// cg3_quit is `-> !` (calls std::process::exit). It cannot be called in a
-// unit test without aborting the whole test binary, so it is NOT invoked.
-// We reference it here (in a never-executed branch) so this facet is
-// genuinely attached to code that names the function, honestly documenting
-// that it is uncallable in-process.
-// [spec:cg3:sem:inlines.cg3.cg3-quit-fn/test]
-#[test]
-fn cg3_quit_is_noreturn() {
-    // Take a function pointer to the noreturn fn without calling it; this
-    // type-checks its signature (i32, Option<&str>, u32) -> ! . We never
-    // dispatch it, because doing so would exit the process.
-    let f: Option<fn(i32, Option<&str>, u32) -> !> = Some(cg3_quit);
-    assert!(f.is_some());
-}

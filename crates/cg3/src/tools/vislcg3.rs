@@ -15,7 +15,7 @@
 use std::io::{Read, Write};
 
 use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::Grammar;
+use crate::grammar::{Grammar, Reindexed};
 use crate::grammar_writer::GrammarWriter;
 use crate::icu_uoptions::u_parse_args;
 use crate::inlines::is_cg3b;
@@ -29,7 +29,8 @@ use crate::textual_parser::TextualParser;
 
 use super::{
     CG3_COPYRIGHT_STRING, CG3_TOO_OLD, DIVVUN_COPYRIGHT_STRING, DIVVUN_REPOSITORY, EXIT_FAILURE,
-    U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, fail, print_divvun_version_line, to_uargv,
+    U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, fail, merge_options, print_divvun_version_line,
+    to_uargv,
 };
 
 /// A `--nrules` / `--nrules-v` pattern that would not compile.
@@ -97,14 +98,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
     parse_opts_env("CG3_DEFAULT", &mut options_default);
     parse_opts_env("CG3_OVERRIDE", &mut options_override);
-    for i in 0..Opt::NumOptions as usize {
-        if options_default[i].does_occur && !options[i].does_occur {
-            options[i] = options_default[i].clone();
-        }
-        if options_override[i].does_occur {
-            options[i] = options_override[i].clone();
-        }
-    }
+    merge_options(&mut options, &options_default, &options_override, None);
 
     let occ = |opts: &crate::options::OptionsTable, o: Opt| opts[o as usize].does_occur;
 
@@ -360,14 +354,12 @@ pub fn main_run(args: &[String]) -> i32 {
     if !grammar.cmdargs_override.is_empty() {
         parse_opts(&grammar.cmdargs_override, &mut grammar_options_override);
     }
-    for i in 0..Opt::NumOptions as usize {
-        if grammar_options_default[i].does_occur && !options[i].does_occur {
-            options[i] = grammar_options_default[i].clone();
-        }
-        if grammar_options_override[i].does_occur && !options_override[i].does_occur {
-            options[i] = grammar_options_override[i].clone();
-        }
-    }
+    merge_options(
+        &mut options,
+        &grammar_options_default,
+        &grammar_options_override,
+        Some(&options_override),
+    );
 
     // --prefix: override the mapping prefix (must match a binary grammar's).
     if occ(&options, Opt::MappingPrefix) {
@@ -388,11 +380,15 @@ pub fn main_run(args: &[String]) -> i32 {
     if verbose {
         tracing::info!("Reindexing grammar...");
     }
-    if let Err(e) = grammar.reindex(
+    match grammar.reindex(
         occ(&options, Opt::ShowUnusedSets),
         occ(&options, Opt::ShowTags),
     ) {
-        return fail(&e);
+        // --show-tags: the dump is the whole job. The C++ exit(0)s inside
+        // reindex; the exit code is decided here instead.
+        Ok(Reindexed::DumpedTags) => return U_ZERO_ERROR,
+        Ok(Reindexed::Done) => {}
+        Err(e) => return fail(&e),
     }
 
     if verbose {

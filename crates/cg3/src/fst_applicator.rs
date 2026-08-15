@@ -126,9 +126,9 @@ where
         W: std::io::Write,
     {
         let mut fmt = FstFormat::from_app(self);
-        let result =
-            crate::error::catch_fatal(|| self.run_grammar_on_text_impl(&mut fmt, input, output))?
-                .map_err(crate::error::Cg3Error::from);
+        let result = self
+            .run_grammar_on_text_impl(&mut fmt, input, output)
+            .map_err(crate::error::Cg3Error::from);
         self.did_warn_statictags = fmt.did_warn_statictags;
         result
     }
@@ -146,7 +146,7 @@ where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))?
+        self.run_grammar_on_text_impl(fmt, input, output)
             .map_err(crate::error::Cg3Error::from)
     }
 

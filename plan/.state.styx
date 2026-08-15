@@ -116,8 +116,8 @@ assertions (
     {id errors-idiomatic.port-phase-over, kind @doing, author "brendan@necessary.nu", at 2026-08-14T12:07:37.051286Z}
     {id errors-idiomatic.characterise-fallthrough, kind @complete, author "brendan@necessary.nu", at 2026-08-14T13:34:37.671473Z}
     {id errors-idiomatic.grammar, kind @doing, author "brendan@necessary.nu", at 2026-08-14T16:10:27.100952Z}
-    {id errors-idiomatic.constructors, kind @doing, author "brendan@necessary.nu", at 2026-08-14T16:17:27.809827Z}
-    {id errors-idiomatic.applicator, kind @doing, author "brendan@necessary.nu", at 2026-08-15T09:50:49.934058Z}
+    {id errors-idiomatic.constructors, kind @complete, author "brendan@necessary.nu", at 2026-08-15T10:51:33.473617Z}
+    {id errors-idiomatic.applicator, kind @complete, author "brendan@necessary.nu", at 2026-08-15T10:51:29.116987Z}
     {id errors-idiomatic.add-tag-propagation, kind @doing, author "brendan@necessary.nu", at 2026-08-15T10:23:20.394309Z}
 )
 
@@ -264,5 +264,10 @@ impl_evidence (
     ), rule_versions_seen (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
+    )}
+    {id errors-idiomatic.teardown, covered_rules (
+        errors.result-primary
+    ), covered_claims (
+        {impl_name target-impl, rule errors.result-primary}
     )}
 )

@@ -809,7 +809,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         // slots; tags are never freed during relabelling, so `capacity()` (the
         // grammar's own size analog, see its reindex) equals that count.
         self.grammar.sets_by_tag.clear();
-        self.grammar.reindex(false, false)?;
+        let _ = self.grammar.reindex(false, false)?;
         self.grammar.num_tags = self.grammar.single_tags_list.capacity() as usize;
         Ok(())
     }

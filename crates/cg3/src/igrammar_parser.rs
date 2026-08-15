@@ -51,9 +51,10 @@ pub trait IGrammarParser {
     // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.parse-grammar-fn]
     /// C++ pure-virtual `int parse_grammar(const char* buffer, size_t length) = 0`.
     /// Parses the grammar held in the in-memory byte buffer `input` into
-    /// `grammar`. Success is `Ok(())`; the C++ nonzero return (recoverable parse
-    /// errors) is [`crate::error::Cg3Error::Parse`], and a fatal is an
-    /// `Err(Cg3Error)` carrying the C++ `cg3_quit` exit code. The C++
+    /// `grammar`. Success is `Ok(())` and nothing else; the C++ nonzero return
+    /// (a count of recoverable parse errors) becomes
+    /// [`GrammarError::Parse`](crate::error::GrammarError::Parse), and every
+    /// other load failure its own `GrammarError` variant. The C++
     /// `(const char*, size_t)` buffer+length pair collapses to Rust
     /// `input: &[u8]`; the destination `Grammar*` (the C++ `result` member) is
     /// passed as `&mut Grammar`.

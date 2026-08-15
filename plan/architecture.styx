@@ -12,19 +12,17 @@ elements (
         id [arch:cg3:error-model]
         name "Error model"
         kind @module
-        lifecycle @contested
+        lifecycle @active
         owns (
             [spec:cg3:req:errors.result-primary]
             [spec:cg3:req:errors.layered]
             [spec:cg3:req:errors.context]
             [spec:cg3:req:errors.exit-codes-at-cli]
-            [spec:cg3:req:errors.control-flow-quiet]
             [spec:cg3:req:errors.tag-regex-diagnostic]
             [spec:cg3:req:errors.parse-result]
         )
         exposes (
             "crates/cg3/src/error.rs"
-            "crates/cg3/src/inlines/misc.rs::cg3_quit"
         )
         decisions ([dec:cg3:results-not-unwinding] [dec:cg3:layered-error-types])
         log (

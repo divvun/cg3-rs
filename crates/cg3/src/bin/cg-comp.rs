@@ -5,7 +5,5 @@ fn main() {
         return;
     }
     cg3::tools::init_diagnostics();
-    std::process::exit(cg3::error::run_cli(|| {
-        cg3::tools::cg_comp::main_comp(&args)
-    }));
+    std::process::exit(cg3::tools::cg_comp::main_comp(&args));
 }

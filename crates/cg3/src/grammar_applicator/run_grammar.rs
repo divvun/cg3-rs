@@ -1428,13 +1428,11 @@ impl super::GrammarApplicator {
     /// virtual print dispatch for a derived most-derived object
     /// (MweSplitApplicator, FormatConverter, ...).
     ///
-    /// The deep engine fatals (mid-stream input errors — external-process
-    /// start/write, mapping-tag conflicts, invalid-format arms) raise a
-    /// `Cg3Exit` unwind from the hot run loop (79-caller `add_tag_to_reading`,
-    /// the externals dispatch, ...). This boundary captures them via
-    /// [`crate::error::catch_fatal`] and returns `Err(Cg3Error)` carrying the
-    /// exact exit code, so embedders get a real error at the run entry without
-    /// the unwind escaping.
+    /// Mid-stream failures — external-process start/write, mapping-tag
+    /// conflicts, a tag that would not build, an output format with no arm —
+    /// travel out of the run loop as a [`RunError`](crate::error::RunError) and
+    /// widen to [`Cg3Error`](crate::error::Cg3Error) here, at the entry an
+    /// embedder called.
     pub fn run_grammar_on_text_with<F, R, W>(
         &mut self,
         fmt: &mut F,
@@ -1449,12 +1447,8 @@ impl super::GrammarApplicator {
         // C++ `runGrammarOnText` runs `index()` first; done here (needs `&mut
         // cfg`) before the read-only split view is taken for the driver body.
         self.index();
-        // The run engine reports its own failures now; catch_fatal remains only
-        // for the residual Cg3Exit sites elsewhere in the engine.
-        crate::error::catch_fatal(|| {
-            self.engine()
-                .run_grammar_on_text_with_impl(fmt, input, output)
-        })?
-        .map_err(crate::error::Cg3Error::from)
+        self.engine()
+            .run_grammar_on_text_with_impl(fmt, input, output)
+            .map_err(crate::error::Cg3Error::from)
     }
 }

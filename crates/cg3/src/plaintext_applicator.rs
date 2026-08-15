@@ -110,7 +110,7 @@ where
         W: Write,
     {
         let mut fmt = PlaintextFormat;
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(&mut fmt, input, output))?
+        self.run_grammar_on_text_impl(&mut fmt, input, output)
             .map_err(crate::error::Cg3Error::from)
     }
 
@@ -127,7 +127,7 @@ where
         R: Read + Seek,
         W: Write,
     {
-        crate::error::catch_fatal(|| self.run_grammar_on_text_impl(fmt, input, output))?
+        self.run_grammar_on_text_impl(fmt, input, output)
             .map_err(crate::error::Cg3Error::from)
     }
 

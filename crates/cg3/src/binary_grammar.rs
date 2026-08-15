@@ -194,30 +194,19 @@ impl BinaryGrammar {
     /// grammar is owned). The C++ ifstream exception mask (throw on short read) is
     /// not modelled — `read_be` swallows short reads (see `crate::inlines`).
     pub fn parse_grammar_filename(&mut self, filename: &str) -> Result<(), crate::error::Cg3Error> {
-        let meta = match std::fs::metadata(filename) {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::error!(
-                    "Error: Cannot stat {} due to error {} - bailing out!",
-                    filename,
-                    e
-                );
-                return Err(crate::error::Cg3Error::fatal(1, None));
+        let meta = std::fs::metadata(filename).map_err(|source| {
+            crate::error::GrammarError::Unreadable {
+                path: filename.to_string(),
+                source,
             }
-        };
+        })?;
         self.grammar.grammar_size = meta.len() as usize;
 
-        let data = match std::fs::read(filename) {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::error!(
-                    "Error: Cannot stat {} due to error {} - bailing out!",
-                    filename,
-                    e
-                );
-                return Err(crate::error::Cg3Error::fatal(1, None));
-            }
-        };
+        let data =
+            std::fs::read(filename).map_err(|source| crate::error::GrammarError::Unreadable {
+                path: filename.to_string(),
+                source,
+            })?;
         let mut cur = std::io::Cursor::new(data);
         self.parse_grammar_reader(&mut cur)
     }
@@ -260,14 +249,10 @@ impl BinaryGrammar {
         // Header: 4 magic bytes.
         let mut magic = [0u8; 4];
         if input.read_exact(&mut magic).is_err() {
-            tracing::error!("Error: Error reading first 4 bytes from grammar!");
-            return Err(crate::error::Cg3Error::fatal(1, None));
+            return Err(crate::error::GrammarError::TruncatedHeader.into());
         }
         if !is_cg3b(magic) {
-            tracing::error!(
-                "Error: Grammar does not begin with magic bytes - cannot load as binary!"
-            );
-            return Err(crate::error::Cg3Error::fatal(1, None));
+            return Err(crate::error::GrammarError::NotBinary.into());
         }
 
         let bin_revision = read_be::<u32, _>(input);
@@ -280,23 +265,15 @@ impl BinaryGrammar {
                 );
             }
             // input.seekg(0) — OMITTED: the 10043 path is an erroring stub.
-            return Err(self.read_binary_grammar_10043(input));
+            return Err(self.read_binary_grammar_10043(input, bin_revision).into());
         }
-        if bin_revision < CG3_TOO_OLD {
-            tracing::error!(
-                "Error: Grammar revision is {}, but this loader requires {} or later!",
-                bin_revision,
-                CG3_TOO_OLD
-            );
-            return Err(crate::error::Cg3Error::fatal(1, None));
-        }
-        if bin_revision > CG3_FEATURE_REV {
-            tracing::error!(
-                "Error: Grammar revision is {}, but this loader only knows up to revision {}!",
-                bin_revision,
-                CG3_FEATURE_REV
-            );
-            return Err(crate::error::Cg3Error::fatal(1, None));
+        if !(CG3_TOO_OLD..=CG3_FEATURE_REV).contains(&bin_revision) {
+            return Err(crate::error::GrammarError::Revision {
+                found: bin_revision,
+                min: CG3_TOO_OLD,
+                max: CG3_FEATURE_REV,
+            }
+            .into());
         }
 
         self.grammar.is_binary = true;
@@ -877,10 +854,12 @@ impl BinaryGrammar {
     ///
     /// The refusal is an `Err`, not the old `Ok(1)`: it is a load failure, and
     /// encoding it in the success arm is exactly the C-ism this API shed.
-    fn read_binary_grammar_10043<R: Read>(&mut self, _input: &mut R) -> crate::error::Cg3Error {
-        let msg = "legacy .cg3b rev <10373 not supported (readBinaryGrammar_10043 not ported)";
-        tracing::error!("Error: {msg}.");
-        crate::error::Cg3Error::fatal(1, Some(msg.to_string()))
+    fn read_binary_grammar_10043<R: Read>(
+        &mut self,
+        _input: &mut R,
+        found: u32,
+    ) -> crate::error::GrammarError {
+        crate::error::GrammarError::LegacyRevision { found }
     }
 
     /// The C++ dense `sets_list` VECTOR (`Grammar::sets_list_order`): position 0
@@ -1474,8 +1453,7 @@ impl BinaryGrammar {
             fields |= 1 << 0;
             write_be(&mut buffer, hash);
         } else {
-            tracing::error!("Error: Context on line {} had hash 0!", line);
-            return Err(crate::error::Cg3Error::fatal(1, None));
+            return Err(crate::error::GrammarError::ContextHashZero { line }.into());
         }
         if !pos.is_empty() {
             fields |= 1 << 1;
