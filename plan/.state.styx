@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-15T11:08:26.440376Z
+last_sync_at 2026-08-15T14:53:22.926926Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -34,7 +34,6 @@ derived_priorities (
     {id all-tools-version-banner.impl, priority 3, derived_at 2026-08-14T10:13:48.791798Z}
     {id all-tools-version-banner.port-spec, priority 3, derived_at 2026-08-14T10:13:48.791798Z}
     {id all-tools-version-banner.spec, priority 2, derived_at 2026-08-14T10:13:48.791798Z}
-    {id embedder-panic-noise, priority 0, derived_at 2026-08-14T11:03:50.332478Z}
     {id issue-2-main-rule-repin, priority 3, derived_at 2026-08-10T10:24:24.995876Z}
     {id issue-2-version-banner.impl, priority 2, derived_at 2026-08-10T10:24:24.995876Z}
     {id issue-2-version-banner.spec, priority 1, derived_at 2026-08-10T10:24:24.995876Z}
