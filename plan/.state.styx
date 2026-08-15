@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-15T17:17:57.26163Z
+last_sync_at 2026-08-15T17:32:55.675095Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -200,6 +200,16 @@ impl_evidence (
         {id grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn, version 0}
         {id grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn, version 0}
     )}
+    {id grammar-diagnostics.render, covered_rules (
+        diagnostics.colour-at-tty
+        diagnostics.rendered
+    ), covered_claims (
+        {impl_name target-impl, rule diagnostics.colour-at-tty}
+        {impl_name target-impl, rule diagnostics.rendered}
+    ), rule_versions_seen (
+        {id diagnostics.colour-at-tty, version 0}
+        {id diagnostics.rendered, version 0}
+    )}
     {id grammar-diagnostics.spans, covered_rules (
         diagnostics.errors-carried
         diagnostics.source-identity
@@ -296,12 +306,5 @@ impl_evidence (
     ), rule_versions_seen (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
-    )}
-    {id grammar-diagnostics.render, covered_rules (
-        diagnostics.colour-at-tty
-        diagnostics.rendered
-    ), covered_claims (
-        {impl_name target-impl, rule diagnostics.colour-at-tty}
-        {impl_name target-impl, rule diagnostics.rendered}
     )}
 )
