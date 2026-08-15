@@ -148,6 +148,23 @@ pub enum RunError {
     ExternalCohortMismatch { expected: u32, got: u32 },
     #[error("EXTERNAL returned data for window {got}, expected {expected}")]
     ExternalWindowMismatch { expected: u32, got: u32 },
+    /// A tag the running stream asked for could not be constructed.
+    ///
+    /// The text is carried because a runtime tag has no file and no useful
+    /// "near" context — the offending input IS the whole tag — and the inner
+    /// `ParseError` says which rule or input line asked for it. See
+    /// `[dec:cg3:parse-tag-aborts-on-invalid]`.
+    #[error("tag `{text}` could not be constructed: {source}")]
+    TagConstruction {
+        text: String,
+        #[source]
+        source: Box<ParseError>,
+    },
+    /// C++ `addTagToReading`: a reading may carry at most one mapping tag, and
+    /// a second distinct one was `CG3Quit(1)` — a fatal from the middle of the
+    /// hot loop. `line` is the grammar line in flight.
+    #[error("cannot add a mapping tag to a reading which already is mapped, on line {line}")]
+    MappingTagConflict { line: u32 },
     #[error("input contains sub-readings, which this output format cannot represent")]
     SubReadingsUnsupported,
     #[error("output format {format} cannot be written here")]

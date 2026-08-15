@@ -154,7 +154,7 @@ where
         variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
         variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
         variables_output: &mut crate::sorted_vector::Uint32SortedVector,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         let tag_any = self.base.grammar.tag_any;
 
         // Helper: intern a slice [start, end) of `cleaned` as a tag, returning
@@ -181,7 +181,7 @@ where
             if c.is_none() && d.is_none() {
                 // Case (a): single bare identifier.
                 let ident = slice_str(s0, len);
-                let tag = self.base.add_tag(&ident, crate::tag::TagType::empty());
+                let tag = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
                 let hash = self.base.grammar.single_tags_list.get(tag.0).hash.get();
                 variables_set.insert((hash, tag_any));
                 variables_rem.erase(hash);
@@ -210,7 +210,7 @@ where
                                 a = tag_any;
                             } else {
                                 let ident = slice_str(ss, dd);
-                                let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
+                                let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
                                 a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                             }
                             // if (c) { *c = 0; s = c + 1; }
@@ -228,7 +228,7 @@ where
                                 b = tag_any;
                             } else {
                                 let val = slice_str(dd + 1, val_end);
-                                let t = self.base.add_tag(&val, crate::tag::TagType::empty());
+                                let t = self.base.add_tag(&val, crate::tag::TagType::empty())?;
                                 b = self.base.grammar.single_tags_list.get(t.0).hash.get();
                             }
                             if c.is_none() {
@@ -250,7 +250,7 @@ where
                                 a = tag_any;
                             } else {
                                 let ident = slice_str(ss, cc);
-                                let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
+                                let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
                                 a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                             }
                             s = Some(cc + 1);
@@ -269,7 +269,7 @@ where
                             a = tag_any;
                         } else {
                             let ident = slice_str(ss, cc);
-                            let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
+                            let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
                             a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                         }
                         s = Some(cc + 1);
@@ -284,7 +284,7 @@ where
                         if c.is_none() && d.is_none() {
                             // final bare identifier.
                             let ident = slice_str(ss, len);
-                            let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
+                            let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
                             a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                             variables_set.insert((a, tag_any));
                             variables_rem.erase(a);
@@ -308,7 +308,7 @@ where
                 // slice non-empty).
                 if s < cc {
                     let ident = slice_str(s, cc);
-                    let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
+                    let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
                     let a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                     variables_set.erase(a);
                     variables_rem.insert(a);
@@ -320,7 +320,7 @@ where
             // if (s && s[0]) — trailing identifier.
             if s < len {
                 let ident = slice_str(s, len);
-                let t = self.base.add_tag(&ident, crate::tag::TagType::empty());
+                let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
                 let a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                 variables_set.erase(a);
                 variables_rem.insert(a);
@@ -328,6 +328,7 @@ where
             }
         }
         // Neither prefix matched → do nothing.
+        Ok(())
     }
 
     // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.process-reading-fn]
@@ -336,8 +337,13 @@ where
     /// Tag* wform)`. Parses one Apertium analysis string (already extracted
     /// between `/` and the next `/`/`$`) into `c_reading`, incl. sub-readings.
     /// `p` is the `Vec<char>` reading buffer (mutable: `esc_lt` → `<` rewrites).
-    pub fn process_reading(&mut self, c_reading: ReadingId, mut p: Vec<char>, wform: TagId) {
-        self.base.engine().add_tag_to_reading(c_reading, wform);
+    pub fn process_reading(
+        &mut self,
+        c_reading: ReadingId,
+        mut p: Vec<char>,
+        wform: TagId,
+    ) -> Result<(), crate::error::RunError> {
+        self.base.engine().add_tag_to_reading(c_reading, wform)?;
 
         let mut taglist: TagList = Vec::new();
         let mut bf: UString = String::from("\"");
@@ -376,7 +382,7 @@ where
                     continue;
                 }
                 let tagtext: String = p[i..n].iter().collect();
-                let t = self.base.add_tag(&tagtext, crate::tag::TagType::empty());
+                let t = self.base.add_tag(&tagtext, crate::tag::TagType::empty())?;
                 // bf.size() == 1 means only the opening quote so far.
                 if bf.chars().count() == 1 {
                     prefix_tags.push(t);
@@ -398,7 +404,7 @@ where
             // sub-reading delimiter `+`
             if n < len && p[n] == '+' {
                 bf.push('"');
-                let base_tag = self.base.add_tag(&bf, crate::tag::TagType::empty());
+                let base_tag = self.base.add_tag(&bf, crate::tag::TagType::empty())?;
                 taglist.push(base_tag);
                 taglist.extend(tags.iter().copied());
                 taglist.extend(prefix_tags.iter().copied());
@@ -411,7 +417,7 @@ where
 
         // Final segment (bf always holds the quote → non-empty).
         bf.push('"');
-        let base_tag = self.base.add_tag(&bf, crate::tag::TagType::empty());
+        let base_tag = self.base.add_tag(&bf, crate::tag::TagType::empty())?;
         taglist.push(base_tag);
         taglist.extend(tags.iter().copied());
         taglist.extend(prefix_tags.iter().copied());
@@ -446,7 +452,7 @@ where
                         let nr = Reading::allocate_reading(&mut self.base.doc.store, parent);
                         self.base.doc.store.readings.get_mut(reading.0).next = Some(nr);
                         reading = nr;
-                        self.base.engine().add_tag_to_reading(reading, wform);
+                        self.base.engine().add_tag_to_reading(reading, wform)?;
                     }
                     // Add tags from ri forward to end.
                     let mut mappings: TagList = Vec::new();
@@ -459,14 +465,14 @@ where
                         if is_mapping {
                             mappings.push(iter);
                         } else {
-                            self.base.engine().add_tag_to_reading(reading, iter);
+                            self.base.engine().add_tag_to_reading(reading, iter)?;
                         }
                     }
                     if !mappings.is_empty() {
                         let parent = self.base.doc.store.readings.get(reading.0).parent.unwrap();
                         self.base
                             .engine()
-                            .split_mappings(&mut mappings, parent, reading, true);
+                            .split_mappings(&mut mappings, parent, reading, true)?;
                     }
                     // Pop trailing non-baseform tags, then the baseform.
                     while let Some(&last) = taglist.last() {
@@ -490,6 +496,7 @@ where
                 }
             }
         }
+        Ok(())
     }
 
     /// C++ overload `processReading(Reading*, UString&, Tag*)` → forwards.
@@ -498,16 +505,17 @@ where
         c_reading: ReadingId,
         reading_string: &str,
         wform: TagId,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         let p: Vec<char> = reading_string.chars().collect();
-        self.process_reading(c_reading, p, wform);
+        self.process_reading(c_reading, p, wform)?;
+        Ok(())
     }
 
     // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.test-pr-fn]
     // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.test-pr-fn]
     /// C++ `void ApertiumApplicator::testPR(std::ostream& output)`. Round-trips six
     /// hard-coded analysis strings through `processReading`/`printReading`.
-    pub fn test_pr<W: Write>(&mut self, output: &mut W) {
+    pub fn test_pr<W: Write>(&mut self, output: &mut W) -> Result<(), crate::error::RunError> {
         let texts = [
             "venir<vblex><imp><p2><sg>",
             "venir<vblex><inf>+lo<prn><enc><p3><nt><sg>",
@@ -519,7 +527,7 @@ where
         for text in texts {
             let reading = alloc_reading(&mut self.base.doc.store, None);
             let wform = tag_by_hash(&self.base.grammar, TagHash(self.base.grammar.tag_any));
-            self.process_reading_str(reading, text, wform);
+            self.process_reading_str(reading, text, wform)?;
             let mut reading = reading;
             if self.base.grammar.sub_readings_ltr
                 && self.base.doc.store.readings.get(reading.0).next.is_some()
@@ -538,6 +546,7 @@ where
             let opt = Some(reading);
             free_reading(&mut self.base.doc.store, opt);
         }
+        Ok(())
     }
 
     // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.run-grammar-on-text-fn]
@@ -636,11 +645,13 @@ where
         self.base.cfg.begintag = {
             let t = self
                 .base
-                .add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
+                .add_tag(STR_BEGINTAG, crate::tag::TagType::empty())?;
             self.base.grammar.single_tags_list.get(t.0).hash
         };
         self.base.cfg.endtag = {
-            let t = self.base.add_tag(STR_ENDTAG, crate::tag::TagType::empty());
+            let t = self
+                .base
+                .add_tag(STR_ENDTAG, crate::tag::TagType::empty())?;
             self.base.grammar.single_tags_list.get(t.0).hash
         };
 
@@ -709,7 +720,7 @@ where
                         &mut st.variables_set,
                         &mut st.variables_rem,
                         &mut st.variables_output,
-                    );
+                    )?;
                 }
             } else if !st.in_blank && c == '$' {
                 if !st.in_cohort {
@@ -775,14 +786,14 @@ where
 
                 // Create a window if none.
                 if st.c_swindow.is_none() {
-                    self.ensure_endtag(st.l_swindow);
+                    self.ensure_endtag(st.l_swindow)?;
                     let sw = {
                         let base = &mut *self.base;
                         base.doc
                             .stream
                             .alloc_append_single_window(&mut base.doc.store)
                     };
-                    self.base.engine().init_empty_single_window(sw);
+                    self.base.engine().init_empty_single_window(sw)?;
                     // Move the variable collections into the window (C++
                     // `cSWindow->variables_set = variables_set; ...clear()`).
                     let set_pairs = collect_map(&st.variables_set);
@@ -831,7 +842,7 @@ where
                     p += 1;
                 }
                 wf.push_str(">\"");
-                let wf_tid = self.base.add_tag(&wf, crate::tag::TagType::empty());
+                let wf_tid = self.base.add_tag(&wf, crate::tag::TagType::empty())?;
                 self.base.doc.store.cohorts.get_mut(cc.0).wordform = Some(wf_tid);
 
                 // Static reading.
@@ -854,8 +865,8 @@ where
                             continue;
                         }
                         if tchars[p] == '>' {
-                            let t = self.base.add_tag(&tagbuf, crate::tag::TagType::empty());
-                            self.base.engine().add_tag_to_reading(wread, t);
+                            let t = self.base.add_tag(&tagbuf, crate::tag::TagType::empty())?;
+                            self.base.engine().add_tag_to_reading(wread, t)?;
                             tagbuf.clear();
                             p += 1;
                             continue;
@@ -885,7 +896,7 @@ where
                         if tchars[p] == '/' || tchars[p] == '$' {
                             let c_reading = alloc_reading(&mut self.base.doc.store, Some(cc));
                             let wf_tid2 = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                            self.process_reading(c_reading, rbuf.clone(), wf_tid2);
+                            self.process_reading(c_reading, rbuf.clone(), wf_tid2)?;
                             let mut c_reading = c_reading;
                             if self.base.grammar.sub_readings_ltr
                                 && self.base.doc.store.readings.get(c_reading.0).next.is_some()
@@ -930,7 +941,7 @@ where
 
                 // Magic reading.
                 if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                    self.base.engine().init_empty_cohort(cc);
+                    self.base.engine().init_empty_cohort(cc)?;
                 }
                 {
                     let base = &mut *self.base;
@@ -976,12 +987,12 @@ where
                     if self
                         .base
                         .engine()
-                        .does_set_match_cohort_normal(cc, sd, None)
+                        .does_set_match_cohort_normal(cc, sd, None)?
                     {
                         let readings = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
                             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                            self.base.engine().add_tag_to_reading(r, et);
+                            self.base.engine().add_tag_to_reading(r, et)?;
                         }
                         st.l_swindow = Some(cs);
                         st.c_swindow = None;
@@ -998,7 +1009,9 @@ where
                             [self.base.grammar.delimiters.unwrap().0]
                             .number
                             .get();
-                        self.base.engine().does_set_match_cohort_normal(cc, d, None)
+                        self.base
+                            .engine()
+                            .does_set_match_cohort_normal(cc, d, None)?
                     };
                     if hard || delim_match {
                         if !self.base.cfg.is_conv && cohorts_size >= self.base.cfg.hard_limit {
@@ -1016,7 +1029,7 @@ where
                         let readings = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in readings {
                             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                            self.base.engine().add_tag_to_reading(r, et);
+                            self.base.engine().add_tag_to_reading(r, et)?;
                         }
                         st.l_swindow = Some(cs);
                         st.c_swindow = None;
@@ -1043,10 +1056,12 @@ where
     /// C++ `ensure_endtag` lambda: if `lSWindow` exists, has cohorts, and the last
     /// cohort's front reading lacks `endtag`, add `endtag` to every reading of that
     /// last cohort.
-    fn ensure_endtag(&mut self, l_swindow: Option<SwId>) {
-        let Some(ls) = l_swindow else { return };
+    fn ensure_endtag(&mut self, l_swindow: Option<SwId>) -> Result<(), crate::error::RunError> {
+        let Some(ls) = l_swindow else { return Ok(()) };
         let cohorts = self.base.doc.store.single_windows.get(ls.0).cohorts.clone();
-        let Some(&back) = cohorts.last() else { return };
+        let Some(&back) = cohorts.last() else {
+            return Ok(());
+        };
         let readings = self.base.doc.store.cohorts.get(back.0).readings.clone();
         // readings.front()->tags.count(endtag) == 0
         let front_lacks = match readings.first() {
@@ -1065,9 +1080,10 @@ where
         if front_lacks {
             for r in readings {
                 let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                self.base.engine().add_tag_to_reading(r, et);
+                self.base.engine().add_tag_to_reading(r, et)?;
             }
         }
+        Ok(())
     }
 
     /// C++ `flush(bool n)` lambda from `runGrammarOnText`. Drains all pending
@@ -1085,7 +1101,7 @@ where
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: Write,
     {
-        self.ensure_endtag(st.l_swindow);
+        self.ensure_endtag(st.l_swindow)?;
 
         let back_swindow = if n { self.base.doc.stream.back() } else { None };
         if let Some(bs) = back_swindow {
@@ -1141,7 +1157,7 @@ where
         self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
             let tmp = self.base.doc.stream.previous[0];
-            fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
+            fmt.print_single_window(&mut self.base.engine(), tmp, output, false)?;
             let opt = Some(tmp);
             {
                 let base = &mut *self.base;
@@ -1765,8 +1781,9 @@ impl crate::grammar_applicator::stream_format::StreamFormat for ApertiumFormat {
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         self.print_cohort_e(e, cohort, output, profiling);
+        Ok(())
     }
 
     fn print_single_window<W: Write>(
@@ -1775,8 +1792,9 @@ impl crate::grammar_applicator::stream_format::StreamFormat for ApertiumFormat {
         window: SwId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         self.print_single_window_e(e, window, output, profiling);
+        Ok(())
     }
 
     fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W) {

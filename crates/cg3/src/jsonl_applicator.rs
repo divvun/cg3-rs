@@ -122,7 +122,7 @@ impl<'a> JsonlApplicator<'a> {
         &mut self,
         reading_obj: &Value,
         parent_cohort: CohortId,
-    ) -> Option<ReadingId> {
+    ) -> Result<Option<ReadingId>, crate::error::RunError> {
         let obj = match reading_obj {
             Value::Object(m) => m,
             _ => {
@@ -130,7 +130,7 @@ impl<'a> JsonlApplicator<'a> {
                     "Error: Expected reading object, but got different type on line {}.",
                     self.base.doc.num_lines
                 );
-                return None;
+                return Ok(None);
             }
         };
 
@@ -145,7 +145,7 @@ impl<'a> JsonlApplicator<'a> {
             .get(parent_cohort.0)
             .wordform
             .expect("parseJsonReading: cohort has no wordform");
-        self.base.engine().add_tag_to_reading(c_reading, wordform);
+        self.base.engine().add_tag_to_reading(c_reading, wordform)?;
 
         // Baseform ("l").
         if let Some(l_val) = obj.get("l") {
@@ -155,8 +155,8 @@ impl<'a> JsonlApplicator<'a> {
                 base_tag.push('"');
                 base_tag.push_str(&base_str);
                 base_tag.push('"');
-                let tid = self.base.add_tag(&base_tag, crate::tag::TagType::empty());
-                self.base.engine().add_tag_to_reading(c_reading, tid);
+                let tid = self.base.add_tag(&base_tag, crate::tag::TagType::empty())?;
+                self.base.engine().add_tag_to_reading(c_reading, tid)?;
             } else {
                 tracing::warn!(
                     "Warning: Empty 'l' (baseform) in reading on line {}.",
@@ -177,7 +177,7 @@ impl<'a> JsonlApplicator<'a> {
             for tag_val in tags_arr {
                 let tag_str = json_to_ustring(tag_val);
                 if !tag_str.is_empty() {
-                    let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty());
+                    let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty())?;
                     let (ttype, first_char) = {
                         let t = self.base.grammar.single_tags_list.get(tag.0);
                         (t.r#type, tag_str.chars().next().unwrap_or('\0'))
@@ -187,21 +187,21 @@ impl<'a> JsonlApplicator<'a> {
                     {
                         mappings.push(tag);
                     } else {
-                        self.base.engine().add_tag_to_reading(c_reading, tag);
+                        self.base.engine().add_tag_to_reading(c_reading, tag)?;
                     }
                 }
             }
             if !mappings.is_empty() {
                 self.base
                     .engine()
-                    .split_mappings(&mut mappings, parent_cohort, c_reading, true);
+                    .split_mappings(&mut mappings, parent_cohort, c_reading, true)?;
             }
         }
 
         // Subreading ("s").
         if let Some(sub_reading_val) = obj.get("s") {
             if sub_reading_val.is_object() {
-                let sub = self.parse_json_reading(sub_reading_val, parent_cohort);
+                let sub = self.parse_json_reading(sub_reading_val, parent_cohort)?;
                 if let Some(sub) = sub {
                     self.base.doc.store.readings.get_mut(c_reading.0).next = Some(sub);
                 } else {
@@ -236,7 +236,7 @@ impl<'a> JsonlApplicator<'a> {
             );
         }
 
-        Some(c_reading)
+        Ok(Some(c_reading))
     }
 
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn]
@@ -244,7 +244,11 @@ impl<'a> JsonlApplicator<'a> {
     /// C++ `void parseJsonCohort(const json::Value& obj, SingleWindow* cSWindow,
     /// Cohort*& cCohort)`. Parses one cohort object into a new cohort, assigning
     /// it into the returned value.
-    fn parse_json_cohort(&mut self, obj: &Map<String, Value>, c_swindow: SwId) -> CohortId {
+    fn parse_json_cohort(
+        &mut self,
+        obj: &Map<String, Value>,
+        c_swindow: SwId,
+    ) -> Result<CohortId, crate::error::RunError> {
         let c_cohort = crate::cohort::alloc_cohort(&mut self.base.doc.store, Some(c_swindow));
         let gn = self.base.doc.cohorts.next_cohort_number();
         self.base
@@ -269,7 +273,9 @@ impl<'a> JsonlApplicator<'a> {
         wform_tag.push_str("\"<");
         wform_tag.push_str(&wform_str);
         wform_tag.push_str(">\"");
-        let wf = self.base.add_tag(&wform_tag, crate::tag::TagType::empty());
+        let wf = self
+            .base
+            .add_tag(&wform_tag, crate::tag::TagType::empty())?;
         self.base.doc.store.cohorts.get_mut(c_cohort.0).wordform = Some(wf);
 
         // Text ("z").
@@ -289,7 +295,7 @@ impl<'a> JsonlApplicator<'a> {
             if self.base.doc.store.cohorts.get(c_cohort.0).wread.is_none() {
                 let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
                 self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
-                self.base.engine().add_tag_to_reading(wread, wf);
+                self.base.engine().add_tag_to_reading(wread, wf)?;
                 let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
                 self.base.doc.store.readings.get_mut(wread.0).baseform = Some(wf_hash);
             }
@@ -297,7 +303,7 @@ impl<'a> JsonlApplicator<'a> {
             for tag_val in sts {
                 let tag_str = json_to_ustring(tag_val);
                 if !tag_str.is_empty() {
-                    let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty());
+                    let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty())?;
                     let hash = self.base.grammar.single_tags_list.get(tag.0).hash;
                     // Pushed directly to the list, NOT via addTagToReading.
                     self.base
@@ -321,7 +327,7 @@ impl<'a> JsonlApplicator<'a> {
                     );
                     continue;
                 }
-                let c_reading = self.parse_json_reading(reading_val, c_cohort);
+                let c_reading = self.parse_json_reading(reading_val, c_cohort)?;
                 if let Some(c_reading) = c_reading {
                     crate::cohort::append_reading(&mut self.base.doc.store, c_cohort, c_reading);
                     self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
@@ -343,7 +349,7 @@ impl<'a> JsonlApplicator<'a> {
             .readings
             .is_empty()
         {
-            self.base.engine().init_empty_cohort(c_cohort);
+            self.base.engine().init_empty_cohort(c_cohort)?;
         }
         crate::inlines::insert_if_exists(
             &mut self
@@ -380,7 +386,7 @@ impl<'a> JsonlApplicator<'a> {
                 if !dr_val.is_object() {
                     continue;
                 }
-                let del_r = self.parse_json_reading(dr_val, c_cohort);
+                let del_r = self.parse_json_reading(dr_val, c_cohort)?;
                 if let Some(del_r) = del_r {
                     self.base.doc.store.readings.get_mut(del_r.0).deleted = true;
                     self.base
@@ -399,7 +405,7 @@ impl<'a> JsonlApplicator<'a> {
             }
         }
 
-        c_cohort
+        Ok(c_cohort)
     }
 
     // =======================================================================
@@ -548,7 +554,7 @@ impl<'a> JsonlApplicator<'a> {
                             if is_last {
                                 let rs = self.base.doc.store.cohorts.get(lc.0).readings.clone();
                                 for r in rs {
-                                    self.add_endtag(r);
+                                    self.add_endtag(r)?;
                                 }
                             }
                         }
@@ -568,7 +574,7 @@ impl<'a> JsonlApplicator<'a> {
                         self.base.engine().shuffle_windows_down();
                         while !self.base.doc.stream.previous.is_empty() {
                             let tmp = self.base.doc.stream.previous[0];
-                            fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
+                            fmt.print_single_window(&mut self.base.engine(), tmp, output, false)?;
                             crate::single_window::free_swindow(
                                 &mut self.base.doc.store,
                                 &mut self.base.doc.cohorts,
@@ -603,11 +609,11 @@ impl<'a> JsonlApplicator<'a> {
                         if let Some(eq) = payload.find('=') {
                             let key_str = &payload[..eq];
                             let value_str = &payload[eq + '='.len_utf8()..];
-                            key_tag = self.base.add_tag(key_str, crate::tag::TagType::empty());
-                            let vt = self.base.add_tag(value_str, crate::tag::TagType::empty());
+                            key_tag = self.base.add_tag(key_str, crate::tag::TagType::empty())?;
+                            let vt = self.base.add_tag(value_str, crate::tag::TagType::empty())?;
                             value_hash = self.base.grammar.single_tags_list.get(vt.0).hash.get();
                         } else {
-                            key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty());
+                            key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty())?;
                             value_hash = self.base.grammar.tag_any;
                         }
                         let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash.get();
@@ -617,7 +623,7 @@ impl<'a> JsonlApplicator<'a> {
                         variables_output.insert(key_hash);
                     } else if cmd_ustr.starts_with(STR_CMD_REMVAR) {
                         let payload = substr_strip_prefix_and_last(&cmd_ustr, STR_CMD_REMVAR);
-                        let key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty());
+                        let key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty())?;
                         let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash.get();
                         variables_set.erase(key_hash);
                         variables_rem.insert(key_hash);
@@ -682,7 +688,7 @@ impl<'a> JsonlApplicator<'a> {
                         .doc
                         .stream
                         .alloc_append_single_window(&mut self.base.doc.store);
-                    self.base.engine().init_empty_single_window(sw);
+                    self.base.engine().init_empty_single_window(sw)?;
 
                     // Transfer local variable state into the window, then clear
                     // locals. C++: `cSWindow->variables_set = variables_set;
@@ -704,7 +710,7 @@ impl<'a> JsonlApplicator<'a> {
                 }
 
                 let sw = c_swindow.unwrap();
-                let cc = self.parse_json_cohort(obj, sw);
+                let cc = self.parse_json_cohort(obj, sw)?;
                 // cCohort is never null in this port (alloc always succeeds), so the
                 // "Failed to create cohort" branch is unreachable.
 
@@ -728,13 +734,13 @@ impl<'a> JsonlApplicator<'a> {
                             .get();
                         self.base
                             .engine()
-                            .does_set_match_cohort_normal(cc, sd, None)
+                            .does_set_match_cohort_normal(cc, sd, None)?
                     };
                 if soft_hit {
                     // verbose Info: deferred.
                     let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                     for r in rs {
-                        self.add_endtag(r);
+                        self.add_endtag(r)?;
                     }
                     c_swindow = None;
                     did_delim = true;
@@ -745,7 +751,9 @@ impl<'a> JsonlApplicator<'a> {
                                 [self.base.grammar.delimiters.unwrap().0]
                                 .number
                                 .get();
-                            self.base.engine().does_set_match_cohort_normal(cc, d, None)
+                            self.base
+                                .engine()
+                                .does_set_match_cohort_normal(cc, d, None)?
                         });
                     if hard_hit {
                         if cohorts_len >= self.base.cfg.hard_limit as usize {
@@ -757,7 +765,7 @@ impl<'a> JsonlApplicator<'a> {
                         }
                         let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
-                            self.add_endtag(r);
+                            self.add_endtag(r)?;
                         }
                         c_swindow = None;
                         did_delim = true;
@@ -783,7 +791,7 @@ impl<'a> JsonlApplicator<'a> {
                 if let Some(&last) = cohorts.last() {
                     let rs = self.base.doc.store.cohorts.get(last.0).readings.clone();
                     for r in rs {
-                        self.add_endtag(r);
+                        self.add_endtag(r)?;
                     }
                 }
             }
@@ -798,7 +806,7 @@ impl<'a> JsonlApplicator<'a> {
             self.base.engine().shuffle_windows_down();
             while !self.base.doc.stream.previous.is_empty() {
                 let tmp = self.base.doc.stream.previous[0];
-                fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
+                fmt.print_single_window(&mut self.base.engine(), tmp, output, false)?;
                 crate::single_window::free_swindow(
                     &mut self.base.doc.store,
                     &mut self.base.doc.cohorts,
@@ -856,9 +864,10 @@ impl<'a> JsonlApplicator<'a> {
     /// `addTagToReading(*iter, endtag)` — the C++ `uint32_t` overload: resolve the
     /// `endtag` hash to its `TagId` (via `grammar->single_tags[hash]`), then add.
     /// Not a manifest symbol — a helper deduplicating the repeated end-tagging.
-    fn add_endtag(&mut self, reading: ReadingId) {
+    fn add_endtag(&mut self, reading: ReadingId) -> Result<(), crate::error::RunError> {
         let endtag_id = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-        self.base.engine().add_tag_to_reading(reading, endtag_id);
+        self.base.engine().add_tag_to_reading(reading, endtag_id)?;
+        Ok(())
     }
 }
 
@@ -1287,8 +1296,9 @@ impl crate::grammar_applicator::stream_format::StreamFormat for JsonlFormat {
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         self.print_cohort_e(e, cohort, output, profiling);
+        Ok(())
     }
 
     fn print_single_window<W: Write>(
@@ -1297,8 +1307,9 @@ impl crate::grammar_applicator::stream_format::StreamFormat for JsonlFormat {
         window: SwId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         self.print_single_window_e(e, window, output, profiling);
+        Ok(())
     }
 
     fn print_stream_command<W: Write>(&mut self, _e: &mut Engine<'_>, cmd: &str, output: &mut W) {

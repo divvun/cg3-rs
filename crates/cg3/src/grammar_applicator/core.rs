@@ -381,7 +381,11 @@ impl super::GrammarApplicator {
     /// [`Engine`](super::Engine) because it is reached from the peeled contextual
     /// matcher knot (`generate_varstring_tag` → `add_tag`). This one-line
     /// split-borrow forwarder is the Stage-C boundary between the two callers.
-    pub fn add_tag(&mut self, txt: &str, r#type: crate::tag::TagType) -> TagId {
+    pub fn add_tag(
+        &mut self,
+        txt: &str,
+        r#type: crate::tag::TagType,
+    ) -> Result<TagId, crate::error::RunError> {
         self.engine().add_tag(txt, r#type)
     }
 
@@ -399,18 +403,18 @@ impl super::GrammarApplicator {
     /// here the grammar is owned at construction (`new(grammar)`), so this
     /// operates on `self.grammar` and takes no argument.
     pub fn set_grammar(&mut self) -> Result<(), crate::error::Cg3Error> {
-        let tb = self.add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
-        let te = self.add_tag(STR_ENDTAG, crate::tag::TagType::empty());
-        let ts = self.add_tag(STR_DUMMY, crate::tag::TagType::empty());
+        let tb = self.add_tag(STR_BEGINTAG, crate::tag::TagType::empty())?;
+        let te = self.add_tag(STR_ENDTAG, crate::tag::TagType::empty())?;
+        let ts = self.add_tag(STR_DUMMY, crate::tag::TagType::empty())?;
         self.cfg.tag_begin = Some(tb);
         self.cfg.begintag = self.grammar.single_tags_list[tb.0].hash;
         self.cfg.endtag = self.grammar.single_tags_list[te.0].hash;
         self.cfg.substtag = self.grammar.single_tags_list[ts.0].hash;
 
         let mp: String = self.grammar.mapping_prefix.to_string();
-        let k = self.add_tag("_MPREFIX", crate::tag::TagType::empty());
+        let k = self.add_tag("_MPREFIX", crate::tag::TagType::empty())?;
         self.cfg.mprefix_key = self.grammar.single_tags_list[k.0].hash;
-        let v = self.add_tag(&mp, crate::tag::TagType::empty());
+        let v = self.add_tag(&mp, crate::tag::TagType::empty())?;
         self.cfg.mprefix_value = self.grammar.single_tags_list[v.0].hash;
 
         let n = self.grammar.sets_list.capacity() as usize;
@@ -1250,7 +1254,12 @@ impl Engine<'_> {
     /// C++ `void pipeInReading(Reading* reading, Process& input, bool force)`.
     /// The debug `u_fprintf(ux_stderr, ...)` traces are elided (`ux_stderr`
     /// placeholder). `reflowReading` lives in the empty reflow.rs partial.
-    pub fn pipe_in_reading(&mut self, reading: ReadingId, input: &mut Process, force: bool) {
+    pub fn pipe_in_reading(
+        &mut self,
+        reading: ReadingId,
+        input: &mut Process,
+        force: bool,
+    ) -> Result<(), crate::error::RunError> {
         let cs: u32 = read_raw(&mut ProcRead(input));
 
         let mut buf = vec![0u8; cs as usize];
@@ -1261,7 +1270,7 @@ impl Engine<'_> {
 
         // Not marked modified -> skip the heavy lifting.
         if !force && (flags & (1 << 0)) == 0 {
-            return;
+            return Ok(());
         }
 
         {
@@ -1284,7 +1293,7 @@ impl Engine<'_> {
                 self.grammar.single_tags_list[tid.0].tag.clone()
             };
             if str != cur {
-                let tag = self.add_tag(&str, crate::tag::TagType::empty());
+                let tag = self.add_tag(&str, crate::tag::TagType::empty())?;
                 self.doc.store.readings.get_mut(reading.0).baseform =
                     Some(self.grammar.single_tags_list[tag.0].hash);
             }
@@ -1316,7 +1325,7 @@ impl Engine<'_> {
         let cs: u32 = read_raw(&mut ss);
         for _ in 0..cs {
             let str = read_utf8_raw(&mut ss);
-            let tag = self.add_tag(&str, crate::tag::TagType::empty());
+            let tag = self.add_tag(&str, crate::tag::TagType::empty())?;
             let hash = self.grammar.single_tags_list[tag.0].hash;
             self.doc
                 .store
@@ -1328,7 +1337,8 @@ impl Engine<'_> {
 
         // reflowReading(*reading) — direct now that the pipe fns use
         // self.doc.store (the old take/swap dance is gone).
-        self.reflow_reading(reading);
+        self.reflow_reading(reading)?;
+        Ok(())
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn]
@@ -1372,7 +1382,7 @@ impl Engine<'_> {
             .map(|t| self.grammar.single_tags_list[t.0].tag.clone())
             .unwrap_or_default();
         if str != cur_wf {
-            let tag = self.add_tag(&str, crate::tag::TagType::empty());
+            let tag = self.add_tag(&str, crate::tag::TagType::empty())?;
             self.doc.store.cohorts.get_mut(cohort.0).wordform = Some(tag);
             force_readings = true;
         }
@@ -1380,7 +1390,7 @@ impl Engine<'_> {
         let cs: u32 = read_raw(&mut ProcRead(input));
         for i in 0..cs {
             let rid = self.doc.store.cohorts.get(cohort.0).readings[i as usize];
-            self.pipe_in_reading(rid, input, force_readings);
+            self.pipe_in_reading(rid, input, force_readings)?;
         }
 
         if flags & (1 << 0) != 0 {
@@ -1887,14 +1897,21 @@ impl Matcher<'_> {
     /// C++ `Tag* addTag(const UChar* txt, uint32_t type)` — interns a tag from
     /// text and returns its canonical `TagId`. Collapses the three C++ overloads
     /// (`const UChar*` / `const UString&` / `UStringView`), which all map onto
-    /// `&str`. Returns `TagId`.
+    /// `&str`.
     ///
     /// The `T_VARSTRING` branch is the applicator instantiation of the
     /// `parser_helpers.hpp` template: `::CG3::parseTag(txt, 0, *this,
     /// !(type & T_PRESERVE_ESC))` — full tag parsing (prefixes, r/i/v/l/p
     /// suffixes, regex compile, numeric `<…>`), so runtime-generated tags get
-    /// their T_REGEXP / T_SET / T_NUMERICAL / … semantics.
-    pub fn add_tag(&mut self, txt: &str, r#type: crate::tag::TagType) -> TagId {
+    /// their T_REGEXP / T_SET / T_NUMERICAL / … semantics. That is the branch
+    /// that can fail, and the failure is the caller's: there is no tag to hand
+    /// back, so the stream cannot go on pretending there is
+    /// (`[dec:cg3:parse-tag-aborts-on-invalid]`).
+    pub fn add_tag(
+        &mut self,
+        txt: &str,
+        r#type: crate::tag::TagType,
+    ) -> Result<TagId, crate::error::RunError> {
         // Fast path: an existing un-seeded slot whose text matches exactly.
         let thash = hash_value_ustring(txt, 0);
         {
@@ -1903,7 +1920,7 @@ impl Matcher<'_> {
                 let tid = it.get().1;
                 let t = &self.grammar.single_tags_list[tid.0];
                 if !t.tag.is_empty() && t.tag == txt {
-                    return tid;
+                    return Ok(tid);
                 }
             }
         }
@@ -1913,21 +1930,12 @@ impl Matcher<'_> {
             // (`p = 0` — no near-context at runtime.)
             // A malformed runtime varstring tag stops construction rather than
             // continuing with the input that failed validation (which used to
-            // reach `is_textual` and panic on empty text). Propagating to this
-            // function's 81 callers is errors-idiomatic.add-tag-propagation; for
-            // now the failure is reported and an empty tag interned in its place.
-            match crate::parser_helpers::parse_tag(
-                txt,
-                &[],
-                self,
-                !r#type.intersects(T_PRESERVE_ESC),
-            ) {
-                Ok(tid) => tid,
-                Err(e) => {
-                    tracing::error!("Error: parseTag failed: {e}");
-                    return self.add_tag_ptr(Tag::default());
-                }
-            }
+            // reach `is_textual` and panic on empty text).
+            crate::parser_helpers::parse_tag(txt, &[], self, !r#type.intersects(T_PRESERVE_ESC))
+                .map_err(|source| crate::error::RunError::TagConstruction {
+                    text: txt.to_string(),
+                    source: Box::new(source),
+                })?
         } else {
             let mut t = Tag::default();
             crate::tag::parse_tag_raw(&mut t, txt, self.grammar);
@@ -2003,7 +2011,7 @@ impl Matcher<'_> {
         if reflow {
             self.reflow_textuals();
         }
-        tag
+        Ok(tag)
     }
 }
 

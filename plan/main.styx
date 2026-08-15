@@ -1756,6 +1756,13 @@ children (
                         kind @note
                         text "Scope widened to cover reflow.rs:809 as well, moved out of errors-idiomatic.applicator for the same reason add_tag was moved out of the parser node. add_tag_to_reading_rehash holds the \"cannot add a mapping tag to a reading that already has one\" quit; converting it cascades through add_tag_to_reading, which has 82 call sites. Together with add_tag's 81 that is ~163 sites of hot-path tag mutation — one coherent job, and one that has nothing to do with the applicator's EXTERNAL-protocol failures it was sharing a node with. Both ripples are in reflow.rs / match_set.rs / the applicators rather than in parsing, and both want the same answer about whether a tag-mutation failure aborts the rule or the stream."
                     }
+
+                    {
+                        at 2026-08-15T10:23:20.394309Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
         )

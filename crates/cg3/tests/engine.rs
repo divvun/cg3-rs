@@ -582,7 +582,9 @@ fn add_tag_reflow_ignores_non_dependency_union_roles() {
     let tag = engine.grammar.add_tag(numeric);
     let hash = engine.grammar.single_tags_list[tag.0].hash.get();
 
-    engine.add_tag_to_reading_rehash(reading, tag, false);
+    engine
+        .add_tag_to_reading_rehash(reading, tag, false)
+        .expect("the reading takes the tag");
 
     assert!(
         engine
@@ -613,14 +615,18 @@ fn add_tag_reflow_preserves_dependency_parent() {
     let window = alloc_swindow(&mut engine.doc.store, None);
     let cohort = alloc_cohort(&mut engine.doc.store, Some(window));
     let reading = alloc_reading(&mut engine.doc.store, Some(cohort));
-    let tag = engine.add_tag("#7->3", TagType::empty());
+    let tag = engine
+        .add_tag("#7->3", TagType::empty())
+        .expect("tag interns");
     assert!(
         engine.grammar.single_tags_list[tag.0]
             .r#type
             .intersects(T_DEPENDENCY)
     );
 
-    engine.add_tag_to_reading_rehash(reading, tag, false);
+    engine
+        .add_tag_to_reading_rehash(reading, tag, false)
+        .expect("the reading takes the tag");
 
     let cohort = engine.doc.store.cohorts.get(cohort.0);
     assert_eq!(cohort.dep_self, Some(GlobalNumber(7)));
@@ -645,13 +651,17 @@ fn add_tag_reflow_preserves_relation_target() {
     let window = alloc_swindow(&mut engine.doc.store, None);
     let cohort = alloc_cohort(&mut engine.doc.store, Some(window));
     let reading = alloc_reading(&mut engine.doc.store, Some(cohort));
-    let tag = engine.add_tag("R:linked:3", TagType::empty());
+    let tag = engine
+        .add_tag("R:linked:3", TagType::empty())
+        .expect("tag interns");
     let relation = &engine.grammar.single_tags_list[tag.0];
     assert!(relation.r#type.intersects(T_RELATION));
     assert_eq!(relation.dep_parent(), 3);
     let relation_hash = relation.comparison_hash;
 
-    engine.add_tag_to_reading_rehash(reading, tag, false);
+    engine
+        .add_tag_to_reading_rehash(reading, tag, false)
+        .expect("the reading takes the tag");
 
     let targets = engine
         .doc

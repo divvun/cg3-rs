@@ -309,9 +309,14 @@ impl FormatConverter {
     /// output, bool profiling)`. Dispatches on `fmt_output`. `CG3SF_BINARY` is a
     /// no-op (binary emits whole windows elsewhere); `CG3SF_MATXIN`/`default` →
     /// `CG3Quit()`.
-    pub fn print_cohort<W: Write>(&mut self, cohort: CohortId, output: &mut W, profiling: bool) {
+    pub fn print_cohort<W: Write>(
+        &mut self,
+        cohort: CohortId,
+        output: &mut W,
+        profiling: bool,
+    ) -> Result<(), crate::error::RunError> {
         self.fmt
-            .print_cohort(&mut self.base.engine(), cohort, output, profiling);
+            .print_cohort(&mut self.base.engine(), cohort, output, profiling)
     }
 
     // [spec:cg3:def:format-converter.cg3.format-converter.print-single-window-fn]
@@ -320,9 +325,14 @@ impl FormatConverter {
     /// std::ostream& output, bool profiling)`. Dispatches on `fmt_output`.
     /// `CG3SF_BINARY` emits a whole-window packet; `CG3SF_MATXIN`/`default` →
     /// `CG3Quit()`.
-    pub fn print_single_window<W: Write>(&mut self, window: SwId, output: &mut W, profiling: bool) {
+    pub fn print_single_window<W: Write>(
+        &mut self,
+        window: SwId,
+        output: &mut W,
+        profiling: bool,
+    ) -> Result<(), crate::error::RunError> {
         self.fmt
-            .print_single_window(&mut self.base.engine(), window, output, profiling);
+            .print_single_window(&mut self.base.engine(), window, output, profiling)
     }
 
     // [spec:cg3:def:format-converter.cg3.format-converter.print-stream-command-fn]
@@ -377,7 +387,7 @@ impl StreamFormat for ConvFormat {
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         use StreamFormatKind::*;
         match e.cfg.fmt_output {
             Cg => {
@@ -392,6 +402,7 @@ impl StreamFormat for ConvFormat {
             Binary => {}
             _ => cg3_quit(),
         }
+        Ok(())
     }
 
     fn print_single_window<W: Write>(
@@ -400,7 +411,7 @@ impl StreamFormat for ConvFormat {
         window: SwId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         use StreamFormatKind::*;
         match e.cfg.fmt_output {
             Cg => {
@@ -428,6 +439,7 @@ impl StreamFormat for ConvFormat {
             // default branch.
             _ => cg3_quit(),
         }
+        Ok(())
     }
 
     fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W) {

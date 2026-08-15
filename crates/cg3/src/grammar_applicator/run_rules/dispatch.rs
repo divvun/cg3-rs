@@ -2,7 +2,7 @@
 //!
 //! Split out of the wave-2 monolithic `run_rules.rs` (wave 4, w4-file-split-fmt).
 
-use crate::arena::{CohortId, CtxId, ReadingId, RuleId, TagId};
+use crate::arena::{CohortId, CtxId, ReadingId, RuleId, SetId, TagId};
 use crate::cohort::CohortSet;
 use crate::inlines::insert_if_exists;
 use crate::reading::ReadingList;
@@ -20,6 +20,48 @@ use crate::types::TagHash;
 use super::*;
 
 impl crate::grammar_applicator::Engine<'_> {
+    /// The varstring-expanded first tag of an optional taglist set — the
+    /// `maplist` / `sublist` shape JUMP and SETVARIABLE both read off a rule.
+    fn rr_first_tag_of(
+        &mut self,
+        set: Option<SetId>,
+    ) -> Result<Option<TagId>, crate::error::RunError> {
+        match set {
+            Some(s) => self.rr_first_taglist_tag(s),
+            None => Ok(None),
+        }
+    }
+
+    /// REMVARIABLE's lookup: the key of the first variable `tag` names. A regex
+    /// or case-insensitive tag scans the variable table; anything else is an
+    /// exact hash hit.
+    fn rr_find_variable(&mut self, tag: TagId) -> Option<u32> {
+        let (ttype, thash) = {
+            let t = self.grammar.single_tags_list.get(tag.0);
+            (t.r#type, t.hash)
+        };
+        let scan = |e: &mut Self, icase: bool| {
+            let tagv = e.grammar.single_tags_list.get(tag.0).clone();
+            let vars: Vec<(u32, u32)> = e.variables_entries();
+            vars.into_iter().map(|(k, _)| k).find(|&k| {
+                if icase {
+                    e.does_tag_match_icase(k, &tagv, false) != 0
+                } else {
+                    e.does_tag_match_regexp(k, &tagv, false) != 0
+                }
+            })
+        };
+        if ttype.intersects(crate::tag::T_REGEXP) {
+            scan(self, false)
+        } else if ttype.intersects(crate::tag::T_CASE_INSENSITIVE) {
+            scan(self, true)
+        } else if self.doc.variables.find(thash.get()) != self.doc.variables.end() {
+            Some(thash.get())
+        } else {
+            None
+        }
+    }
+
     // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
     // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
@@ -158,12 +200,12 @@ impl crate::grammar_applicator::Engine<'_> {
                 st.readings_changed = true;
             }
             if self.doc.store.cohorts.get(target.0).readings.is_empty() {
-                self.init_empty_cohort(target);
+                self.init_empty_cohort(target)?;
             }
             st.selected.clear();
         } else if rtype == KJump {
             let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
-            if let Some(to) = maplist.and_then(|ml| self.rr_first_taglist_tag(ml)) {
+            if let Some(to) = self.rr_first_tag_of(maplist)? {
                 let to_hash = self.grammar.single_tags_list.get(to.0).hash;
                 let anchor = self.grammar.anchors.find(to_hash.get());
                 if anchor == self.grammar.anchors.end() {
@@ -189,40 +231,9 @@ impl crate::grammar_applicator::Engine<'_> {
                     let mut tag = tag0;
                     let ttype = self.grammar.single_tags_list.get(tag.0).r#type;
                     if ttype.intersects(T_VARSTRING) {
-                        tag = self.generate_varstring_tag_id(tag);
+                        tag = self.generate_varstring_tag_id(tag)?;
                     }
-                    let (tt, th) = {
-                        let t = self.grammar.single_tags_list.get(tag.0);
-                        (t.r#type, t.hash)
-                    };
-                    let found: Option<u32> = if tt.intersects(crate::tag::T_REGEXP) {
-                        let tagv = self.grammar.single_tags_list.get(tag.0).clone();
-                        let vars: Vec<(u32, u32)> = self.variables_entries();
-                        let mut f = None;
-                        for (k, _) in vars {
-                            if self.does_tag_match_regexp(k, &tagv, false) != 0 {
-                                f = Some(k);
-                                break;
-                            }
-                        }
-                        f
-                    } else if tt.intersects(crate::tag::T_CASE_INSENSITIVE) {
-                        let tagv = self.grammar.single_tags_list.get(tag.0).clone();
-                        let vars: Vec<(u32, u32)> = self.variables_entries();
-                        let mut f = None;
-                        for (k, _) in vars {
-                            if self.does_tag_match_icase(k, &tagv, false) != 0 {
-                                f = Some(k);
-                                break;
-                            }
-                        }
-                        f
-                    } else if self.doc.variables.find(th.get()) != self.doc.variables.end() {
-                        Some(th.get())
-                    } else {
-                        None
-                    };
-                    if let Some(key) = found {
+                    if let Some(key) = self.rr_find_variable(tag) {
                         if rflags.intersects(RF_OUTPUT) {
                             self.doc
                                 .store
@@ -238,8 +249,8 @@ impl crate::grammar_applicator::Engine<'_> {
         } else if rtype == KSetvariable {
             let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
             let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
-            let name = maplist.and_then(|ml| self.rr_first_taglist_tag(ml));
-            let value = sublist.and_then(|sl| self.rr_first_taglist_tag(sl));
+            let name = self.rr_first_tag_of(maplist)?;
+            let value = self.rr_first_tag_of(sublist)?;
             if let (Some(name), Some(value)) = (name, value) {
                 let nh = self.grammar.single_tags_list.get(name.0).hash;
                 let vh = self.grammar.single_tags_list.get(value.0).hash;
@@ -261,7 +272,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 (c.parent.unwrap(), c.local_number)
             };
             if (self.doc.store.single_windows.get(parent.0).cohorts.len() as u32) > ln + 1 {
-                self.delimit_at(st.current, cohort);
+                self.delimit_at(st.current, cohort)?;
                 st.delimited = true;
                 st.readings_changed = true;
             }
@@ -353,7 +364,7 @@ impl crate::grammar_applicator::Engine<'_> {
             if rflags.intersects(RF_IGNORED) {
                 let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
                 let mut cohorts = CohortSet::new();
-                self.rr_collect_subtree(st.current, &mut cohorts, apply, childset1);
+                self.rr_collect_subtree(st.current, &mut cohorts, apply, childset1)?;
                 for c in cohorts.iter_rev().copied().collect::<Vec<_>>() {
                     self.rr_ignore_cohort(rnumber, c);
                 }
@@ -380,7 +391,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 let rs = self.doc.store.cohorts.get(back.0).readings.clone();
                 let endtag = self.tag_by_hash(self.cfg.endtag);
                 for r in rs {
-                    self.add_tag_to_reading(r, endtag);
+                    self.add_tag_to_reading(r, endtag)?;
                     if self.update_valid_rules(
                         &st.rules.clone(),
                         &mut st.intersects,
@@ -495,44 +506,44 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             KAddcohortAfter | KAddcohortBefore => {
                 self.trace(rnumber, rsub_reading);
-                self.rr_addcohort(st, rule);
+                self.rr_addcohort(st, rule)?;
                 st.readings_changed = true;
                 self.scratch.reset_cohorts_for_loop = true;
             }
             KSplitcohort => {
-                self.rr_splitcohort(st, rule);
+                self.rr_splitcohort(st, rule)?;
             }
             KAdd | KMap => {
-                self.rr_add_map(st, rule, rtype, rflags, rnumber, rsub_reading);
+                self.rr_add_map(st, rule, rtype, rflags, rnumber, rsub_reading)?;
             }
             KRestore => {
-                self.rr_restore(rule, rflags, rnumber, rsub_reading);
+                self.rr_restore(rule, rflags, rnumber, rsub_reading)?;
                 self.scratch.finish_reading_loop = false;
             }
             KReplace => {
-                self.rr_replace(st, rule, rnumber, rsub_reading);
+                self.rr_replace(st, rule, rnumber, rsub_reading)?;
             }
             KSubstitute => {
-                self.rr_substitute(st, rule, rnumber, rsub_reading);
+                self.rr_substitute(st, rule, rnumber, rsub_reading)?;
             }
             KAppend => {
                 self.trace(rnumber, rsub_reading);
-                self.rr_append(st, rule, rnumber);
+                self.rr_append(st, rule, rnumber)?;
                 st.readings_changed = true;
                 self.scratch.finish_reading_loop = false;
             }
             KCopy => {
-                self.rr_copy(st, rule, rnumber, rsub_reading);
+                self.rr_copy(st, rule, rnumber, rsub_reading)?;
             }
             KMergecohorts => {
-                self.rr_mergecohorts(st, rule);
+                self.rr_mergecohorts(st, rule)?;
             }
             KCopycohort => {
-                self.rr_copycohort(st, rule, rnumber);
+                self.rr_copycohort(st, rule, rnumber)?;
             }
             KSetparent | KSetchild | KAddrelation | KSetrelation | KRemrelation | KAddrelations
             | KSetrelations | KRemrelations => {
-                self.rr_dep_relation(st, rule, rtype, rnumber, rsub_reading);
+                self.rr_dep_relation(st, rule, rtype, rnumber, rsub_reading)?;
                 self.scratch.finish_reading_loop = false;
             }
             KRemparent => {
@@ -547,11 +558,11 @@ impl crate::grammar_applicator::Engine<'_> {
             KSwitchparent => {
                 self.scratch.finish_reading_loop = false;
                 self.trace(rnumber, rsub_reading);
-                self.rr_switchparent(rule);
+                self.rr_switchparent(rule)?;
             }
             KMoveAfter | KMoveBefore | KSwitch => {
                 self.scratch.finish_reading_loop = false;
-                self.rr_move_switch(st, rule, rtype, rnumber);
+                self.rr_move_switch(st, rule, rtype, rnumber)?;
             }
             KWith => {
                 self.trace(rnumber, rsub_reading);
@@ -569,7 +580,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// `getTagList(*rule->maplist, theTags)` with `T_VSTR` pre-varstringify, then
     /// full varstringify per tag — the C++ prologue shared by ADDCOHORT/APPEND/
     /// SPLITCOHORT/COPYCOHORT. Returns the expanded, varstring-resolved tag list.
-    pub(crate) fn rr_maplist_tags(&mut self, rule: RuleId) -> TagList {
+    pub(crate) fn rr_maplist_tags(
+        &mut self,
+        rule: RuleId,
+    ) -> Result<TagList, crate::error::RunError> {
         let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
         let mut out = TagList::new();
         if let Some(ml) = maplist {
@@ -583,12 +597,12 @@ impl crate::grammar_applicator::Engine<'_> {
                     .r#type
                     .intersects(T_VARSTRING)
                 {
-                    t = self.generate_varstring_tag_id(t);
+                    t = self.generate_varstring_tag_id(t)?;
                 }
                 out.push(t);
             }
         }
-        out
+        Ok(out)
     }
 
     /// K_WITH: mark TRACE, then run each sub-rule (repeating while `RF_REPEAT`),
@@ -630,7 +644,7 @@ impl crate::grammar_applicator::Engine<'_> {
 
     /// K_SWITCHPARENT: reparent the target cohort above its current parent (and
     /// siblings) — the per-cohort dependency rotation.
-    fn rr_switchparent(&mut self, rule: RuleId) {
+    fn rr_switchparent(&mut self, rule: RuleId) -> Result<(), crate::error::RunError> {
         let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
         let child = self.get_apply_to().cohort.unwrap();
         let current = self.doc.store.cohorts.get(child.0).parent.unwrap();
@@ -642,7 +656,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let cohorts = self.doc.store.single_windows.get(current.0).cohorts.clone();
         for c in cohorts {
             if self.doc.store.cohorts.get(c.0).dep_parent == Some(parent_gn)
-                && self.does_set_match_cohort_normal(c, childset1, None)
+                && self.does_set_match_cohort_normal(c, childset1, None)?
             {
                 siblings.push(c);
             }
@@ -659,6 +673,7 @@ impl crate::grammar_applicator::Engine<'_> {
         for s in siblings {
             self.attach_parent_child(child, s, false, false);
         }
+        Ok(())
     }
 
     /// K_RESTORE: move readings back from `deleted`/`delayed`/`ignored` whose
@@ -669,7 +684,7 @@ impl crate::grammar_applicator::Engine<'_> {
         rflags: crate::rule::RuleFlags,
         rnumber: u32,
         rsub_reading: i32,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         let cohort = self.get_apply_to().cohort.unwrap();
         let maplist_num = self
             .grammar
@@ -693,7 +708,7 @@ impl crate::grammar_applicator::Engine<'_> {
         };
         let mut keep: ReadingList = Vec::new();
         for rid in list {
-            if self.does_set_match_reading(rid, maplist_num, false, false) {
+            if self.does_set_match_reading(rid, maplist_num, false, false)? {
                 {
                     let r = self.doc.store.readings.get_mut(rid.0);
                     r.deleted = false;
@@ -713,6 +728,7 @@ impl crate::grammar_applicator::Engine<'_> {
         if did_restore {
             self.trace(rnumber, rsub_reading);
         }
+        Ok(())
     }
 
     /// C++ `APPEND_TAGLIST_TO_READING(taglist, reading)` macro: varstringify each
@@ -725,7 +741,7 @@ impl crate::grammar_applicator::Engine<'_> {
         taglist: &TagList,
         reading: ReadingId,
         mappings: &mut TagList,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         let mapping_prefix = self.grammar.mapping_prefix;
         for &t0 in taglist {
             let mut tter = t0;
@@ -736,7 +752,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 .r#type
                 .intersects(T_VARSTRING)
             {
-                tter = self.generate_varstring_tag_id(tter);
+                tter = self.generate_varstring_tag_id(tter)?;
             }
             let (ttype, thash, first) = {
                 let t = self.grammar.single_tags_list.get(tter.0);
@@ -746,18 +762,19 @@ impl crate::grammar_applicator::Engine<'_> {
             if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                 mappings.push(tter);
             } else {
-                hash = self.add_tag_to_reading(reading, tter);
+                hash = self.add_tag_to_reading(reading, tter)?;
             }
             if self.update_valid_rules(&st.rules.clone(), &mut st.intersects, hash.get(), reading) {
                 st.iter_val = rnumber;
             }
         }
+        Ok(())
     }
 
     /// C++ `FILL_TAG_LIST(taglist)` macro: keep only the pattern tags that appear
     /// in the apply-to reading, replacing `T_SPECIAL` ones with the concrete
     /// matched tag. Operates on the apply-to subreading.
-    fn rr_fill_tag_list(&mut self, taglist: &mut TagList) {
+    fn rr_fill_tag_list(&mut self, taglist: &mut TagList) -> Result<(), crate::error::RunError> {
         let reading = self.get_apply_to().subreading.unwrap();
         let mut out: TagList = Vec::new();
         for &tt in taglist.iter() {
@@ -773,13 +790,14 @@ impl crate::grammar_applicator::Engine<'_> {
                 out.push(tt);
             } else if ttype.intersects(T_SPECIAL) {
                 let tagv = self.grammar.single_tags_list.get(tt.0).clone();
-                let stag = self.does_tag_match_reading(reading, &tagv, false, true);
+                let stag = self.does_tag_match_reading(reading, &tagv, false, true)?;
                 if stag != 0 {
                     out.push(self.tag_by_hash(TagHash(stag)));
                 }
             }
         }
         *taglist = out;
+        Ok(())
     }
 
     /// K_ADD / K_MAP.
@@ -791,7 +809,7 @@ impl crate::grammar_applicator::Engine<'_> {
         rflags: crate::rule::RuleFlags,
         rnumber: u32,
         rsub_reading: i32,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         self.trace(rnumber, rsub_reading);
         let reading = self.get_apply_to().subreading.unwrap();
         let state_hash = self.doc.store.readings.get(reading.0).hash;
@@ -807,7 +825,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let mut did_insert = false;
         if childset1 != 0 {
             let mut spot_tags = self.get_tag_list_of_set_number(childset1, false);
-            self.rr_fill_tag_list(&mut spot_tags);
+            self.rr_fill_tag_list(&mut spot_tags)?;
             // Find the spot in reading.tags_list matching all of spot_tags.
             let tags_list = self.doc.store.readings.get(reading.0).tags_list.clone();
             let spot_hashes: Vec<u32> = spot_tags
@@ -829,17 +847,17 @@ impl crate::grammar_applicator::Engine<'_> {
                     at += spot_tags.len();
                 }
                 if at < self.doc.store.readings.get(reading.0).tags_list.len() {
-                    self.rr_insert_taglist_to_reading(st, at, &the_tags, reading, &mut mappings);
+                    self.rr_insert_taglist_to_reading(st, at, &the_tags, reading, &mut mappings)?;
                     did_insert = true;
                 }
             }
         }
         if !did_insert {
-            self.rr_append_taglist_to_reading(st, rnumber, &the_tags, reading, &mut mappings);
+            self.rr_append_taglist_to_reading(st, rnumber, &the_tags, reading, &mut mappings)?;
         }
         if !mappings.is_empty() {
             let cohort = self.get_apply_to().cohort.unwrap();
-            self.split_mappings(&mut mappings, cohort, reading, rtype == KMap);
+            self.split_mappings(&mut mappings, cohort, reading, rtype == KMap)?;
         }
         if rtype == KMap {
             self.doc.store.readings.get_mut(reading.0).mapped = true;
@@ -847,11 +865,18 @@ impl crate::grammar_applicator::Engine<'_> {
         if self.doc.store.readings.get(reading.0).hash != state_hash {
             st.readings_changed = true;
         }
+        Ok(())
     }
 
     /// K_REPLACE: replace the reading's whole tag list (wordform + maplist tags,
     /// preserving `SUBSTITUTE`-excepted tags and re-adding the baseform).
-    fn rr_replace(&mut self, st: &mut RRState, rule: RuleId, rnumber: u32, rsub_reading: i32) {
+    fn rr_replace(
+        &mut self,
+        st: &mut RRState,
+        rule: RuleId,
+        rnumber: u32,
+        rsub_reading: i32,
+    ) -> Result<(), crate::error::RunError> {
         let reading = self.get_apply_to().subreading.unwrap();
         let cohort = self.get_apply_to().cohort.unwrap();
         let state_hash = self.doc.store.readings.get(reading.0).hash;
@@ -882,7 +907,7 @@ impl crate::grammar_applicator::Engine<'_> {
             .baseform
             .unwrap_or(TagHash(0));
         self.doc.store.readings.get_mut(reading.0).baseform = None;
-        self.reflow_reading(reading);
+        self.reflow_reading(reading)?;
 
         let mut mappings = TagList::new();
         let the_tags = {
@@ -892,26 +917,32 @@ impl crate::grammar_applicator::Engine<'_> {
                 None => TagList::new(),
             }
         };
-        self.rr_append_taglist_to_reading(st, rnumber, &the_tags, reading, &mut mappings);
+        self.rr_append_taglist_to_reading(st, rnumber, &the_tags, reading, &mut mappings)?;
         for tter in excepts {
-            self.add_tag_to_reading(reading, tter);
+            self.add_tag_to_reading(reading, tter)?;
         }
         if self.doc.store.readings.get(reading.0).baseform.is_none() {
             let bf_tag = self.tag_by_hash(bform);
-            self.add_tag_to_reading(reading, bf_tag);
+            self.add_tag_to_reading(reading, bf_tag)?;
         }
         if !mappings.is_empty() {
-            self.split_mappings(&mut mappings, cohort, reading, true);
+            self.split_mappings(&mut mappings, cohort, reading, true)?;
         }
         if self.doc.store.readings.get(reading.0).hash != state_hash {
             st.readings_changed = true;
         }
+        Ok(())
     }
 
     /// K_APPEND: append fresh readings (each starting at a baseform) to the cohort.
-    fn rr_append(&mut self, st: &mut RRState, rule: RuleId, rnumber: u32) {
+    fn rr_append(
+        &mut self,
+        st: &mut RRState,
+        rule: RuleId,
+        rnumber: u32,
+    ) -> Result<(), crate::error::RunError> {
         let cohort = self.get_apply_to().cohort.unwrap();
-        let the_tags = self.rr_maplist_tags(rule);
+        let the_tags = self.rr_maplist_tags(rule)?;
         // Group tags into readings, each starting at a T_BASEFORM.
         let mut readings: Vec<TagList> = Vec::new();
         let mut have_bf = false;
@@ -936,7 +967,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 &mut self.doc.store.cohorts.get_mut(cohort.0).possible_sets,
                 sets_any.as_ref(),
             );
-            self.add_tag_to_reading(creading, wordform);
+            self.add_tag_to_reading(creading, wordform)?;
             {
                 let r = self.doc.store.readings.get_mut(creading.0);
                 r.hit_by.push(rnumber);
@@ -954,7 +985,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     .r#type
                     .intersects(T_VARSTRING)
                 {
-                    tter = self.generate_varstring_tag_id(tter);
+                    tter = self.generate_varstring_tag_id(tter)?;
                 }
                 let (ttype, first) = {
                     let t = self.grammar.single_tags_list.get(tter.0);
@@ -963,7 +994,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                     mappings.push(tter);
                 } else {
-                    hash = self.add_tag_to_reading(creading, tter);
+                    hash = self.add_tag_to_reading(creading, tter)?;
                 }
                 if self.update_valid_rules(
                     &st.rules.clone(),
@@ -975,7 +1006,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 }
             }
             if !mappings.is_empty() {
-                self.split_mappings(&mut mappings, cohort, creading, false);
+                self.split_mappings(&mut mappings, cohort, creading, false)?;
             }
             crate::cohort::append_reading(&mut self.doc.store, cohort, creading);
         }
@@ -993,11 +1024,18 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             self.doc.store.cohorts.get_mut(cohort.0).readings = keep;
         }
+        Ok(())
     }
 
     /// K_COPY: clone the apply-to reading, then optionally strip `sublist` tags and
     /// splice in maplist tags (at a `childset1` spot or appended).
-    fn rr_copy(&mut self, st: &mut RRState, rule: RuleId, rnumber: u32, _rsub_reading: i32) {
+    fn rr_copy(
+        &mut self,
+        st: &mut RRState,
+        rule: RuleId,
+        rnumber: u32,
+        _rsub_reading: i32,
+    ) -> Result<(), crate::error::RunError> {
         let cohort = self.get_apply_to().cohort.unwrap();
         let src = self.get_apply_to().reading.unwrap();
         // C++ `allocateAppendReading(*get_apply_to().reading)` — exactly ONE
@@ -1040,7 +1078,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let mut did_insert = false;
         if childset1 != 0 {
             let mut spot_tags = self.get_tag_list_of_set_number(childset1, false);
-            self.rr_fill_tag_list(&mut spot_tags);
+            self.rr_fill_tag_list(&mut spot_tags)?;
             let tags_list = self.doc.store.readings.get(creading.0).tags_list.clone();
             let spot_hashes: Vec<u32> = spot_tags
                 .iter()
@@ -1066,18 +1104,19 @@ impl crate::grammar_applicator::Engine<'_> {
                 }
             }
             if at < self.doc.store.readings.get(creading.0).tags_list.len() {
-                self.rr_insert_taglist_to_reading(st, at, &the_tags, creading, &mut mappings);
+                self.rr_insert_taglist_to_reading(st, at, &the_tags, creading, &mut mappings)?;
                 did_insert = true;
             }
         }
         if !did_insert {
-            self.rr_append_taglist_to_reading(st, rnumber, &the_tags, creading, &mut mappings);
+            self.rr_append_taglist_to_reading(st, rnumber, &the_tags, creading, &mut mappings)?;
         }
         if !mappings.is_empty() {
-            self.split_mappings(&mut mappings, cohort, creading, true);
+            self.split_mappings(&mut mappings, cohort, creading, true)?;
         }
         st.readings_changed = true;
-        self.reflow_reading(creading);
+        self.reflow_reading(creading)?;
+        Ok(())
     }
 
     /// `TRACE` variant that pushes `rnumber` onto a specific reading's `hit_by`
@@ -1095,7 +1134,13 @@ impl crate::grammar_applicator::Engine<'_> {
     /// K_SUBSTITUTE: remove the `sublist` tags from the subreading (marking the
     /// spot with `substtag`) then splice in the `maplist` tags at that spot.
     /// Faithful port of the substitute action (append-any special-cased).
-    fn rr_substitute(&mut self, st: &mut RRState, rule: RuleId, rnumber: u32, rsub_reading: i32) {
+    fn rr_substitute(
+        &mut self,
+        st: &mut RRState,
+        rule: RuleId,
+        rnumber: u32,
+        rsub_reading: i32,
+    ) -> Result<(), crate::error::RunError> {
         let cohort = self.get_apply_to().cohort.unwrap();
         let sr = self.get_apply_to().subreading.unwrap();
         let state_hash = self.doc.store.readings.get(sr.0).hash;
@@ -1113,7 +1158,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 == self.grammar.tag_any;
 
         // FILL_TAG_LIST equivalent on the subreading.
-        self.rr_fill_tag_list_of(sr, &mut the_tags);
+        self.rr_fill_tag_list_of(sr, &mut the_tags)?;
         let the_hashes: Vec<u32> = the_tags
             .iter()
             .map(|t| self.grammar.single_tags_list.get(t.0).hash.get())
@@ -1171,7 +1216,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 .tags_list
                 .push(substtag);
             tpos = self.doc.store.readings.get(sr.0).tags_list.len();
-            self.reflow_reading(sr);
+            self.reflow_reading(sr)?;
         }
 
         if tpos != usize::MAX {
@@ -1213,7 +1258,7 @@ impl crate::grammar_applicator::Engine<'_> {
                             .r#type
                             .intersects(T_VARSTRING)
                         {
-                            tag = self.generate_varstring_tag_id(tag);
+                            tag = self.generate_varstring_tag_id(tag)?;
                         }
                         let (thash, ttype, first) = {
                             let t = self.grammar.single_tags_list.get(tag.0);
@@ -1249,9 +1294,9 @@ impl crate::grammar_applicator::Engine<'_> {
                     idx += 1;
                 }
             }
-            self.reflow_reading(sr);
+            self.reflow_reading(sr)?;
             if !mappings.is_empty() {
-                self.split_mappings(&mut mappings, cohort, sr, true);
+                self.split_mappings(&mut mappings, cohort, sr, true)?;
             }
             // Wordform swap across the parent's readings (rare path).
             let parent = self.doc.store.readings.get(sr.0).parent.unwrap();
@@ -1268,7 +1313,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     };
                     for r in rs {
                         self.del_tag_from_reading(r, pwf);
-                        self.add_tag_to_reading(r, wf);
+                        self.add_tag_to_reading(r, wf)?;
                     }
                 }
                 self.doc.store.cohorts.get_mut(parent.0).wordform = Some(wf);
@@ -1296,11 +1341,16 @@ impl crate::grammar_applicator::Engine<'_> {
         if self.doc.store.readings.get(sr.0).hash != state_hash {
             st.readings_changed = true;
         }
+        Ok(())
     }
 
     /// FILL_TAG_LIST on an explicit reading (not the apply-to) — used by
     /// SUBSTITUTE which operates on `get_apply_to().subreading`.
-    fn rr_fill_tag_list_of(&mut self, reading: ReadingId, taglist: &mut TagList) {
+    fn rr_fill_tag_list_of(
+        &mut self,
+        reading: ReadingId,
+        taglist: &mut TagList,
+    ) -> Result<(), crate::error::RunError> {
         let mut out: TagList = Vec::new();
         for &tt in taglist.iter() {
             let (thash, ttype) = {
@@ -1315,13 +1365,14 @@ impl crate::grammar_applicator::Engine<'_> {
                 out.push(tt);
             } else if ttype.intersects(T_SPECIAL) {
                 let tagv = self.grammar.single_tags_list.get(tt.0).clone();
-                let stag = self.does_tag_match_reading(reading, &tagv, false, true);
+                let stag = self.does_tag_match_reading(reading, &tagv, false, true)?;
                 if stag != 0 {
                     out.push(self.tag_by_hash(TagHash(stag)));
                 }
             }
         }
         *taglist = out;
+        Ok(())
     }
 
     /// K_SETPARENT/K_SETCHILD and the ADD/SET/REM RELATION(S) family: locate the
@@ -1338,10 +1389,10 @@ impl crate::grammar_applicator::Engine<'_> {
         rtype: Keywords,
         rnumber: u32,
         rsub_reading: i32,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         let dep_target = match self.grammar.rule_by_number.get(rule.0).dep_target {
             Some(dt) => dt,
-            None => return,
+            None => return Ok(()),
         };
         let rflags = self.grammar.rule_by_number.get(rule.0).flags;
         let orgoffset = self.grammar.contexts_arena[dep_target.0].offset;
@@ -1372,7 +1423,7 @@ impl crate::grammar_applicator::Engine<'_> {
             };
             let mut attach_out: Option<CohortId> = None;
             let res =
-                self.run_contextual_test(tparent, tlocal, dep_target, Some(&mut attach_out), None);
+                self.run_contextual_test(tparent, tlocal, dep_target, Some(&mut attach_out), None)?;
             if res.is_some()
                 && let Some(mut attach) = attach_out
             {
@@ -1399,7 +1450,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         (c.parent, c.local_number)
                     };
                     let tg = self
-                        .run_contextual_test(aparent, alocal, it, None, None)
+                        .run_contextual_test(aparent, alocal, it, None, None)?
                         .is_some();
                     self.profile_rule_context(tg, rule, it);
                     if !tg {
@@ -1418,7 +1469,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 if good {
                     let temp = self.scratch.context_stack.last().unwrap().target.clone();
                     self.scratch.context_stack.last_mut().unwrap().target = orgtarget.clone();
-                    let attached = self.rr_dep_target_cb(st, rule, rtype, rnumber, rsub_reading);
+                    let attached = self.rr_dep_target_cb(st, rule, rtype, rnumber, rsub_reading)?;
                     if attached {
                         break;
                     } else {
@@ -1444,6 +1495,7 @@ impl crate::grammar_applicator::Engine<'_> {
             }
         }
         self.grammar.contexts_arena[dep_target.0].offset = orgoffset;
+        Ok(())
     }
 
     /// `set_mark` targeting the current frame with a concrete cohort (the dep loop
@@ -1463,7 +1515,7 @@ impl crate::grammar_applicator::Engine<'_> {
         rtype: Keywords,
         rnumber: u32,
         rsub_reading: i32,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         let _ = st;
         let rflags = self.grammar.rule_by_number.get(rule.0).flags;
         let mut target = self
@@ -1530,7 +1582,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 self.doc.deps.has_dep = true;
                 st.readings_changed = true;
             }
-            return attached;
+            return Ok(attached);
         }
 
         // Relation family.
@@ -1551,7 +1603,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 .r#type
                 .intersects(T_VARSTRING)
             {
-                tter = self.generate_varstring_tag_id(tter);
+                tter = self.generate_varstring_tag_id(tter)?;
             }
             let thash = self.grammar.single_tags_list.get(tter.0).hash;
             let attach_gn = self.doc.store.cohorts.get(attach.0).global_number.get();
@@ -1567,7 +1619,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         .cohorts
                         .get_mut(target.0)
                         .add_relation(thash.get(), attach_gn);
-                    self.rr_add_relation_rtag(target, tter, attach_gn);
+                    self.rr_add_relation_rtag(target, tter, attach_gn)?;
                 }
                 KSetrelation | KSetrelations => {
                     if !is_plural {
@@ -1580,7 +1632,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         .cohorts
                         .get_mut(target.0)
                         .set_relation(thash.get(), attach_gn);
-                    self.rr_set_relation_rtag(target, tter, attach_gn);
+                    self.rr_set_relation_rtag(target, tter, attach_gn)?;
                 }
                 _ => {
                     rel_did_anything |= self
@@ -1589,7 +1641,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         .cohorts
                         .get_mut(target.0)
                         .rem_relation(thash.get(), attach_gn);
-                    self.rr_rem_relation_rtag(target, tter, attach_gn);
+                    self.rr_rem_relation_rtag(target, tter, attach_gn)?;
                 }
             }
         }
@@ -1610,7 +1662,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     .r#type
                     .intersects(T_VARSTRING)
                 {
-                    tter = self.generate_varstring_tag_id(tter);
+                    tter = self.generate_varstring_tag_id(tter)?;
                 }
                 let thash = self.grammar.single_tags_list.get(tter.0).hash;
                 match rtype {
@@ -1622,7 +1674,7 @@ impl crate::grammar_applicator::Engine<'_> {
                             .cohorts
                             .get_mut(attach.0)
                             .add_relation(thash.get(), target_gn);
-                        self.rr_add_relation_rtag(attach, tter, target_gn);
+                        self.rr_add_relation_rtag(attach, tter, target_gn)?;
                     }
                     KSetrelations => {
                         crate::cohort::set_related(&mut self.doc.store, attach);
@@ -1632,7 +1684,7 @@ impl crate::grammar_applicator::Engine<'_> {
                             .cohorts
                             .get_mut(attach.0)
                             .set_relation(thash.get(), target_gn);
-                        self.rr_set_relation_rtag(attach, tter, target_gn);
+                        self.rr_set_relation_rtag(attach, tter, target_gn)?;
                     }
                     _ => {
                         rel_did_anything |= self
@@ -1641,7 +1693,7 @@ impl crate::grammar_applicator::Engine<'_> {
                             .cohorts
                             .get_mut(attach.0)
                             .rem_relation(thash.get(), target_gn);
-                        self.rr_rem_relation_rtag(attach, tter, target_gn);
+                        self.rr_rem_relation_rtag(attach, tter, target_gn)?;
                     }
                 }
             }
@@ -1673,6 +1725,6 @@ impl crate::grammar_applicator::Engine<'_> {
             st.readings_changed = true;
         }
         // Relation rules never scan onward.
-        true
+        Ok(true)
     }
 }

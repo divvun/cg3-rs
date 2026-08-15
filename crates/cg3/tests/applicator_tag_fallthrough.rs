@@ -10,6 +10,10 @@
 //! continuing. The golden and Apertium suites passed unchanged either side of
 //! the change, which is the evidence that closed
 //! `[dec:cg3:parse-tag-aborts-on-invalid]`.
+//!
+//! The failure used to stop at `add_tag`, which logged it and interned an empty
+//! tag in its place. It now reaches the caller as a `RunError`, so what these
+//! assert is the error rather than the substitute tag it used to leave behind.
 
 use cg3::grammar::Grammar;
 use cg3::grammar_applicator::GrammarApplicator;
@@ -28,11 +32,14 @@ fn applicator() -> GrammarApplicator {
     GrammarApplicator::new(grammar)
 }
 
-/// What `add_tag` yields for input that fails validation inside `parse_tag`.
-fn observe(txt: &str) -> String {
+/// What `add_tag` yields for input that fails validation inside `parse_tag`:
+/// the rendered failure, or the tag text if one was built after all.
+fn observe(txt: &str) -> Result<String, String> {
     let mut app = applicator();
-    let id = app.add_tag(txt, T_VARSTRING);
-    app.grammar.single_tags_list[id.0].tag.clone()
+    match app.add_tag(txt, T_VARSTRING) {
+        Ok(id) => Ok(app.grammar.single_tags_list[id.0].tag.clone()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Empty text used to fall through into `inlines::is_textual`, which indexes
@@ -40,17 +47,18 @@ fn observe(txt: &str) -> String {
 /// Stopping at the guard removes it: the tag is simply not built.
 #[test]
 fn empty_varstring_tag_no_longer_panics() {
-    assert_eq!(observe(""), "", "no tag is constructed from empty text");
+    let e = observe("").expect_err("empty text builds no tag");
+    assert!(e.contains("could not be constructed"), "{e}");
 }
 
 /// A tag opening with `(` trips the second guard. It used to intern verbatim;
 /// construction now stops there.
 #[test]
 fn paren_leading_varstring_tag_is_not_interned() {
-    assert_eq!(
-        observe("(foo"),
-        "",
-        "a `(`-leading varstring tag is no longer built"
+    let e = observe("(foo").expect_err("a `(`-leading varstring tag is not built");
+    assert!(
+        e.contains("`(foo`"),
+        "the failure names the offending tag: {e}"
     );
 }
 
@@ -59,11 +67,8 @@ fn paren_leading_varstring_tag_is_not_interned() {
 /// Construction now stops instead.
 #[test]
 fn uncompilable_regex_varstring_tag_is_not_interned() {
-    let mut app = applicator();
-    let id = app.add_tag("\"[:script=Greek:]\"r", T_VARSTRING);
-    let tag = &app.grammar.single_tags_list[id.0];
-    assert!(tag.regexp.is_none(), "no regex compiled");
-    assert!(tag.tag.is_empty(), "and no tag built from the bad pattern");
+    let e = observe("\"[:script=Greek:]\"r").expect_err("no tag built from a bad pattern");
+    assert!(e.contains("[:script=Greek:]"), "{e}");
 }
 
 /// The non-varstring path does NOT go through `parse_tag`, so it is unaffected
@@ -71,6 +76,8 @@ fn uncompilable_regex_varstring_tag_is_not_interned() {
 #[test]
 fn plain_tags_bypass_the_parse_tag_path() {
     let mut app = applicator();
-    let id = app.add_tag("\"<word>\"", TagType::empty());
+    let id = app
+        .add_tag("\"<word>\"", TagType::empty())
+        .expect("a plain tag never goes near parse_tag");
     assert_eq!(app.grammar.single_tags_list[id.0].tag, "\"<word>\"");
 }

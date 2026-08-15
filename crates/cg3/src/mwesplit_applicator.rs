@@ -139,9 +139,10 @@ impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
         cohort: crate::arena::CohortId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         let trace = e.cfg.trace;
         e.print_cohort(cohort, output, profiling, trace);
+        Ok(())
     }
 
     fn print_single_window<W: std::io::Write>(
@@ -150,8 +151,8 @@ impl crate::grammar_applicator::stream_format::StreamFormat for MweSplitFormat {
         window: crate::arena::SwId,
         output: &mut W,
         profiling: bool,
-    ) {
-        e.mwe_print_single_window(window, output, profiling);
+    ) -> Result<(), crate::error::RunError> {
+        e.mwe_print_single_window(window, output, profiling)
     }
 
     fn print_stream_command<W: std::io::Write>(
@@ -223,7 +224,10 @@ impl Engine<'_> {
     /// Splits one MWE cohort into a vector of new cohorts (one per component
     /// word), or returns the original cohort unchanged if it cannot/should not be
     /// split.
-    pub fn mwe_split_mwe(&mut self, cohort: CohortId) -> Vec<CohortId> {
+    pub fn mwe_split_mwe(
+        &mut self,
+        cohort: CohortId,
+    ) -> Result<Vec<CohortId>, crate::error::RunError> {
         // rtrimblank = { ' ', '\n', '\r', '\t' }; textprefix = ":".
         const RTRIMBLANK: &[char] = &[' ', '\n', '\r', '\t'];
         const TEXTPREFIX: &str = ":";
@@ -246,7 +250,7 @@ impl Engine<'_> {
                 // "Some but not all main-readings ... not splitting." warning: deferred.
             }
             cos.push(cohort);
-            return cos;
+            return Ok(cos);
         }
 
         let parent = self
@@ -315,10 +319,10 @@ impl Engine<'_> {
                             // "Ambiguous wordform-tags for same cohort ... not splitting." deferred.
                             cos.clear();
                             cos.push(cohort);
-                            return cos;
+                            return Ok(cos);
                         }
                     }
-                    let wf_id = self.add_tag(&wf, crate::tag::TagType::empty());
+                    let wf_id = self.add_tag(&wf, crate::tag::TagType::empty())?;
                     self.doc.store.cohorts.get_mut(c.0).wordform = Some(wf_id);
 
                     // Blank/text handling.
@@ -397,7 +401,7 @@ impl Engine<'_> {
         let orig_text = self.doc.store.cohorts.get(cohort.0).text.clone();
         self.doc.store.cohorts.get_mut(cos[0].0).text = orig_text;
         cos.reverse();
-        cos
+        Ok(cos)
     }
 
     // [spec:cg3:def:mwe-split-applicator.cg3.mwe-split-applicator.print-single-window-fn]
@@ -413,7 +417,7 @@ impl Engine<'_> {
         window: SwId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         // Variables block.
         let vars_output: Vec<u32> = self
             .doc
@@ -474,7 +478,7 @@ impl Engine<'_> {
         let cs = ui32(self.doc.store.single_windows.get(window.0).cohorts.len());
         for c in 0..cs {
             let cohort = self.doc.store.single_windows.get(window.0).cohorts[c as usize];
-            let split = self.mwe_split_mwe(cohort);
+            let split = self.mwe_split_mwe(cohort)?;
             for iter in split {
                 // Inherited GrammarApplicator::printCohort.
                 let trace = self.cfg.trace;
@@ -494,6 +498,7 @@ impl Engine<'_> {
             let _ = writeln!(output, "{STR_CMD_FLUSH}");
         }
         u_fflush(output);
+        Ok(())
     }
 }
 

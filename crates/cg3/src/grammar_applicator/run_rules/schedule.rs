@@ -239,7 +239,7 @@ impl crate::grammar_applicator::Engine<'_> {
         cs: &mut CohortSet,
         head: CohortId,
         cset: u32,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         if cset != 0 {
             let head_gn = self.doc.store.cohorts.get(head.0).global_number;
             let cohorts = self.doc.store.single_windows.get(current.0).cohorts.clone();
@@ -249,7 +249,8 @@ impl crate::grammar_applicator::Engine<'_> {
                     (c.global_number, c.dep_parent)
                 };
                 if gn == head_gn
-                    || (dp == Some(head_gn) && self.does_set_match_cohort_normal(*iter, cset, None))
+                    || (dp == Some(head_gn)
+                        && self.does_set_match_cohort_normal(*iter, cset, None)?)
                 {
                     self.cohortset_insert(cs, *iter);
                 }
@@ -272,10 +273,15 @@ impl crate::grammar_applicator::Engine<'_> {
         } else {
             self.cohortset_insert(cs, head);
         }
+        Ok(())
     }
 
     /// `make_relation_rtag(tag, id)`: intern the textual `R:<tag>:<id>` tag.
-    fn rr_make_relation_rtag(&mut self, tag: TagId, id: u32) -> TagId {
+    fn rr_make_relation_rtag(
+        &mut self,
+        tag: TagId,
+        id: u32,
+    ) -> Result<TagId, crate::error::RunError> {
         let base = self.grammar.single_tags_list.get(tag.0).tag.clone();
         let tmp: UString = format!("R:{}:{}", base, id);
         // C++ `addTag(tmp)` is the `addTag(const UChar*)` convenience overload →
@@ -284,18 +290,29 @@ impl crate::grammar_applicator::Engine<'_> {
     }
 
     /// `add_relation_rtag(cohort, tag, id)`.
-    pub(crate) fn rr_add_relation_rtag(&mut self, cohort: CohortId, tag: TagId, id: u32) {
-        let nt = self.rr_make_relation_rtag(tag, id);
+    pub(crate) fn rr_add_relation_rtag(
+        &mut self,
+        cohort: CohortId,
+        tag: TagId,
+        id: u32,
+    ) -> Result<(), crate::error::RunError> {
+        let nt = self.rr_make_relation_rtag(tag, id)?;
         let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in rs {
-            self.add_tag_to_reading(r, nt);
+            self.add_tag_to_reading(r, nt)?;
         }
+        Ok(())
     }
 
     /// `set_relation_rtag(cohort, tag, id)`: erase existing `R:<tag>:*` tags then
     /// add the new one.
-    pub(crate) fn rr_set_relation_rtag(&mut self, cohort: CohortId, tag: TagId, id: u32) {
-        let nt = self.rr_make_relation_rtag(tag, id);
+    pub(crate) fn rr_set_relation_rtag(
+        &mut self,
+        cohort: CohortId,
+        tag: TagId,
+        id: u32,
+    ) -> Result<(), crate::error::RunError> {
+        let nt = self.rr_make_relation_rtag(tag, id)?;
         let base = self.grammar.single_tags_list.get(tag.0).tag.clone();
         let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in rs {
@@ -323,17 +340,24 @@ impl crate::grammar_applicator::Engine<'_> {
                 }
             }
             self.doc.store.readings.get_mut(r.0).tags_list = new_list;
-            self.add_tag_to_reading(r, nt);
+            self.add_tag_to_reading(r, nt)?;
         }
+        Ok(())
     }
 
     /// `rem_relation_rtag(cohort, tag, id)`.
-    pub(crate) fn rr_rem_relation_rtag(&mut self, cohort: CohortId, tag: TagId, id: u32) {
-        let nt = self.rr_make_relation_rtag(tag, id);
+    pub(crate) fn rr_rem_relation_rtag(
+        &mut self,
+        cohort: CohortId,
+        tag: TagId,
+        id: u32,
+    ) -> Result<(), crate::error::RunError> {
+        let nt = self.rr_make_relation_rtag(tag, id)?;
         let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in rs {
             self.del_tag_from_reading(r, nt);
         }
+        Ok(())
     }
 
     /// `insert_taglist_to_reading(iter, taglist, reading, mappings)` — insert
@@ -347,7 +371,7 @@ impl crate::grammar_applicator::Engine<'_> {
         taglist: &TagList,
         reading: ReadingId,
         mappings: &mut TagList,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         let mapping_prefix = self.grammar.mapping_prefix;
         for &tag0 in taglist {
             let mut tag = tag0;
@@ -358,7 +382,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 .r#type
                 .intersects(T_VARSTRING)
             {
-                tag = self.generate_varstring_tag_id(tag);
+                tag = self.generate_varstring_tag_id(tag)?;
             }
             let (thash, ttype, first_char) = {
                 let t = self.grammar.single_tags_list.get(tag.0);
@@ -384,7 +408,8 @@ impl crate::grammar_applicator::Engine<'_> {
                 st.iter_val = self.grammar.rule_by_number.get(rule).number;
             }
         }
-        self.reflow_reading(reading);
+        self.reflow_reading(reading)?;
+        Ok(())
     }
 }
 

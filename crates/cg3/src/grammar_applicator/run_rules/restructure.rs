@@ -25,11 +25,11 @@ impl crate::grammar_applicator::Engine<'_> {
         rule: RuleId,
         rtype: Keywords,
         rnumber: u32,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         let current = st.current;
         let dep_target = match self.grammar.rule_by_number.get(rule.0).dep_target {
             Some(dt) => dt,
-            None => return,
+            None => return Ok(()),
         };
         let rflags = self.grammar.rule_by_number.get(rule.0).flags;
         // State hash before.
@@ -50,7 +50,7 @@ impl crate::grammar_applicator::Engine<'_> {
             crate::grammar_applicator::ReadingSpec::default();
         let mut attach_out: Option<CohortId> = None;
         let res =
-            self.run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None);
+            self.run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None)?;
         let attach0 = attach_out;
         let same_parent = attach0
             .map(|a| {
@@ -59,7 +59,7 @@ impl crate::grammar_applicator::Engine<'_> {
             })
             .unwrap_or(false);
         if !(res.is_some() && attach0.is_some() && same_parent) {
-            return;
+            return Ok(());
         }
         let mut attach = attach0.unwrap();
         self.profile_rule_context(true, rule, dep_target);
@@ -84,7 +84,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 (cc.parent, cc.local_number)
             };
             let tg = self
-                .run_contextual_test(aparent, alocal, it, None, None)
+                .run_contextual_test(aparent, alocal, it, None, None)?
                 .is_some();
             self.profile_rule_context(tg, rule, it);
             if !tg {
@@ -93,7 +93,7 @@ impl crate::grammar_applicator::Engine<'_> {
             }
         }
         if !good || cohort == attach || self.doc.store.cohorts.get(cohort.0).local_number == 0 {
-            return;
+            return Ok(());
         }
 
         // swapper<Cohort*>(RF_REVERSE, attach, cohort)
@@ -109,7 +109,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let mut cohorts_set = CohortSet::new();
         if rtype == KSwitch {
             if self.doc.store.cohorts.get(attach.0).local_number == 0 {
-                return;
+                return Ok(());
             }
             let cln = self.doc.store.cohorts.get(cohort.0).local_number as usize;
             let aln = self.doc.store.cohorts.get(attach.0).local_number as usize;
@@ -122,8 +122,8 @@ impl crate::grammar_applicator::Engine<'_> {
             self.rr_swap_all_cohorts(current, cohort, attach);
         } else {
             let mut edges = CohortSet::new();
-            self.rr_collect_subtree(current, &mut edges, attach, childset2);
-            self.rr_collect_subtree(current, &mut cohorts_set, cohort, childset1);
+            self.rr_collect_subtree(current, &mut edges, attach, childset2)?;
+            self.rr_collect_subtree(current, &mut cohorts_set, cohort, childset1)?;
 
             let mut need_clean = false;
             for iter in cohorts_set.as_slice() {
@@ -147,7 +147,7 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             if cohorts_set.empty() || edges.empty() {
                 self.scratch.finish_reading_loop = false;
-                return;
+                return Ok(());
             }
 
             // Erase the moved cohorts from `cohorts` (in reverse local order).
@@ -175,7 +175,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 self.doc.store.cohorts.get(edges.back().0).local_number + 1
             } as usize;
             if spot > self.doc.store.single_windows.get(current.0).cohorts.len() {
-                return;
+                return Ok(());
             }
             let ins: Vec<CohortId> = cohorts_set.iter_rev().copied().collect();
             for cc in ins {
@@ -199,7 +199,7 @@ impl crate::grammar_applicator::Engine<'_> {
             if hitcount as usize > limit {
                 st.should_bail = true;
                 self.scratch.finish_cohort_loop = false;
-                return;
+                return Ok(());
             }
             let cohorts_vec: Vec<CohortId> = cohorts_set.as_slice().to_vec();
             for cc in cohorts_vec {
@@ -211,6 +211,7 @@ impl crate::grammar_applicator::Engine<'_> {
             st.readings_changed = true;
             st.do_sort = true;
         }
+        Ok(())
     }
 
     /// Hash of the window's cohort order + first-reading hashes (the C++ move/switch
@@ -293,7 +294,7 @@ impl crate::grammar_applicator::Engine<'_> {
         rule: RuleId,
         insertion: CohortId,
         withs: Option<&CohortSet>,
-    ) -> (CohortId, usize) {
+    ) -> Result<(CohortId, usize), crate::error::RunError> {
         let mut spaces_in_added_wf = 0usize;
         let current = st.current;
         let ccohort = crate::cohort::alloc_cohort(&mut self.doc.store, Some(current));
@@ -301,7 +302,7 @@ impl crate::grammar_applicator::Engine<'_> {
             let gn = self.doc.cohorts.next_cohort_number();
             self.doc.store.cohorts.get_mut(ccohort.0).global_number = gn;
         }
-        let the_tags = self.rr_maplist_tags(rule);
+        let the_tags = self.rr_maplist_tags(rule)?;
 
         // Partition into wordform + baseform-led readings.
         let mut wf: Option<TagId> = None;
@@ -393,7 +394,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     .r#type
                     .intersects(T_VARSTRING)
                 {
-                    tter = self.generate_varstring_tag_id(tter);
+                    tter = self.generate_varstring_tag_id(tter)?;
                 }
                 let (ttype, first) = {
                     let t = self.grammar.single_tags_list.get(tter.0);
@@ -402,7 +403,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                     mappings.push(tter);
                 } else {
-                    hash = self.add_tag_to_reading(creading, tter);
+                    hash = self.add_tag_to_reading(creading, tter)?;
                 }
                 if self.update_valid_rules(
                     &st.rules.clone(),
@@ -414,7 +415,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 }
             }
             if !mappings.is_empty() {
-                self.split_mappings(&mut mappings, ccohort, creading, false);
+                self.split_mappings(&mut mappings, ccohort, creading, false)?;
             }
             crate::cohort::append_reading(&mut self.doc.store, ccohort, creading);
         }
@@ -439,7 +440,7 @@ impl crate::grammar_applicator::Engine<'_> {
         }
 
         if self.doc.store.cohorts.get(ccohort.0).readings.is_empty() {
-            self.init_empty_cohort(ccohort);
+            self.init_empty_cohort(ccohort)?;
             if self.cfg.trace {
                 let r = self.doc.store.cohorts.get(ccohort.0).readings[0];
                 let rn = self.grammar.rule_by_number.get(rule.0).number;
@@ -451,7 +452,7 @@ impl crate::grammar_applicator::Engine<'_> {
         // Insert into the window relative to `insertion`'s subtree.
         let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
         let mut cohorts = CohortSet::new();
-        self.rr_collect_subtree(current, &mut cohorts, insertion, childset1);
+        self.rr_collect_subtree(current, &mut cohorts, insertion, childset1)?;
         if rtype == KAddcohortBefore {
             let ln = self.doc.store.cohorts.get(cohorts.front().0).local_number as usize;
             self.doc
@@ -473,7 +474,7 @@ impl crate::grammar_applicator::Engine<'_> {
         }
         self.rr_renumber(current);
         self.doc.stream.rebuild_cohort_links(&mut self.doc.store);
-        (ccohort, spaces_in_added_wf)
+        Ok((ccohort, spaces_in_added_wf))
     }
 
     /// MERGECOHORTS dependency/relation re-attachment for a freshly added cohort.
@@ -656,10 +657,14 @@ impl crate::grammar_applicator::Engine<'_> {
 
     /// K_ADDCOHORT_AFTER / K_ADDCOHORT_BEFORE: add a cohort then fix up the `<<<`
     /// end tag if the new cohort became the last.
-    pub(crate) fn rr_addcohort(&mut self, st: &mut RRState, rule: RuleId) {
+    pub(crate) fn rr_addcohort(
+        &mut self,
+        st: &mut RRState,
+        rule: RuleId,
+    ) -> Result<(), crate::error::RunError> {
         let apply = self.get_apply_to().cohort.unwrap();
         // (spaces_in_added_wf: C++ "not used here")
-        let (ccohort, _spaces_in_added_wf) = self.rr_add_cohort(st, rule, apply, None);
+        let (ccohort, _spaces_in_added_wf) = self.rr_add_cohort(st, rule, apply, None)?;
         let current = st.current;
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
         let last = *self
@@ -680,7 +685,7 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             let brs = self.doc.store.cohorts.get(ccohort.0).readings.clone();
             for r in brs {
-                self.add_tag_to_reading(r, endtag_id);
+                self.add_tag_to_reading(r, endtag_id)?;
                 if self.update_valid_rules(
                     &st.rules.clone(),
                     &mut st.intersects,
@@ -692,11 +697,16 @@ impl crate::grammar_applicator::Engine<'_> {
             }
         }
         self.index_single_window(current);
+        Ok(())
     }
 
     /// K_MERGECOHORTS: resolve the `withs` set via the rule's dep tests, add the
     /// merged cohort, then remove every merged-in cohort. Fixes the `<<<` end tag.
-    pub(crate) fn rr_mergecohorts(&mut self, st: &mut RRState, rule: RuleId) {
+    pub(crate) fn rr_mergecohorts(
+        &mut self,
+        st: &mut RRState,
+        rule: RuleId,
+    ) -> Result<(), crate::error::RunError> {
         let target = self.get_apply_to().cohort.unwrap();
         let mut withs = CohortSet::new();
         withs.insert(target);
@@ -725,13 +735,13 @@ impl crate::grammar_applicator::Engine<'_> {
             };
             let mut attach: Option<CohortId> = None;
             let tg = self
-                .run_contextual_test(tparent, tlocal, it, Some(&mut attach), None)
+                .run_contextual_test(tparent, tlocal, it, Some(&mut attach), None)?
                 .is_some()
                 && attach.is_some();
             self.profile_rule_context(tg, rule, it);
             if !tg {
                 self.scratch.finish_reading_loop = false;
-                return;
+                return Ok(());
             }
             if let Some(at) = self.get_attach_to().cohort {
                 merge_at = at;
@@ -745,7 +755,7 @@ impl crate::grammar_applicator::Engine<'_> {
             }
         }
 
-        let (cc, mut spaces_in_added_wf) = self.rr_add_cohort(st, rule, merge_at, Some(&withs));
+        let (cc, mut spaces_in_added_wf) = self.rr_add_cohort(st, rule, merge_at, Some(&withs))?;
         self.scratch.context_stack.last_mut().unwrap().target.cohort = Some(cc);
 
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
@@ -793,7 +803,7 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             let brs = self.doc.store.cohorts.get(back.0).readings.clone();
             for r in brs {
-                self.add_tag_to_reading(r, endtag_id);
+                self.add_tag_to_reading(r, endtag_id)?;
                 if self.update_valid_rules(
                     &st.rules.clone(),
                     &mut st.intersects,
@@ -807,6 +817,7 @@ impl crate::grammar_applicator::Engine<'_> {
         self.index_single_window(current);
         st.readings_changed = true;
         self.scratch.reset_cohorts_for_loop = true;
+        Ok(())
     }
 
     /// K_COPYCOHORT: resolve an `attach` cohort via `rule.dep_target` (+ dep_tests),
@@ -815,7 +826,12 @@ impl crate::grammar_applicator::Engine<'_> {
     /// splice the copy into the window relative to `attach`'s subtree
     /// (BEFORE/AFTER via `childset2`). RF_REVERSE swaps source/target and selects
     /// `childset1`. Faithful port of the C++ `K_COPYCOHORT` action.
-    pub(crate) fn rr_copycohort(&mut self, st: &mut RRState, rule: RuleId, rnumber: u32) {
+    pub(crate) fn rr_copycohort(
+        &mut self,
+        st: &mut RRState,
+        rule: RuleId,
+        rnumber: u32,
+    ) -> Result<(), crate::error::RunError> {
         let current = st.current;
         let cohort = self
             .scratch
@@ -834,13 +850,13 @@ impl crate::grammar_applicator::Engine<'_> {
         }
         let dep_target = match self.grammar.rule_by_number.get(rule.0).dep_target {
             Some(dt) => dt,
-            None => return,
+            None => return Ok(()),
         };
         let mut attach_out: Option<CohortId> = None;
         let res =
-            self.run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None);
+            self.run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None)?;
         if !(res.is_some() && attach_out.is_some()) {
-            return;
+            return Ok(());
         }
         let mut attach = attach_out.unwrap();
         self.profile_rule_context(true, rule, dep_target);
@@ -865,7 +881,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 (cc.parent, cc.local_number)
             };
             let tg = self
-                .run_contextual_test(aparent, alocal, it, None, None)
+                .run_contextual_test(aparent, alocal, it, None, None)?
                 .is_some();
             self.profile_rule_context(tg, rule, it);
             if !tg {
@@ -875,7 +891,7 @@ impl crate::grammar_applicator::Engine<'_> {
         }
 
         if !good || cohort == attach || self.doc.store.cohorts.get(cohort.0).local_number == 0 {
-            return;
+            return Ok(());
         }
 
         let rflags = self.grammar.rule_by_number.get(rule.0).flags;
@@ -903,7 +919,7 @@ impl crate::grammar_applicator::Engine<'_> {
             sets_any.as_ref(),
         );
 
-        let the_tags = self.rr_maplist_tags(rule);
+        let the_tags = self.rr_maplist_tags(rule)?;
 
         // excepts: sublist tags matched on the apply-to subreading, plus the raw
         // sublist tags.
@@ -942,7 +958,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                         mappings.push(tter);
                     } else {
-                        hash = self.add_tag_to_reading(creading, tter);
+                        hash = self.add_tag_to_reading(creading, tter)?;
                     }
                     if self.update_valid_rules(
                         &st.rules.clone(),
@@ -965,7 +981,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                         mappings.push(tter);
                     } else {
-                        hash = self.add_tag_to_reading(creading, tter);
+                        hash = self.add_tag_to_reading(creading, tter)?;
                     }
                     if self.update_valid_rules(
                         &st.rules.clone(),
@@ -977,7 +993,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     }
                 }
                 if !mappings.is_empty() {
-                    self.split_mappings(&mut mappings, ccohort, creading, false);
+                    self.split_mappings(&mut mappings, ccohort, creading, false)?;
                 }
                 rs.push(creading);
                 rc = self.doc.store.readings.get(r.0).next;
@@ -990,7 +1006,7 @@ impl crate::grammar_applicator::Engine<'_> {
         }
 
         if self.doc.store.cohorts.get(ccohort.0).readings.is_empty() {
-            self.init_empty_cohort(ccohort);
+            self.init_empty_cohort(ccohort)?;
             if self.cfg.trace {
                 let r = self.doc.store.cohorts.get(ccohort.0).readings[0];
                 self.doc.store.readings.get_mut(r.0).hit_by.push(rnumber);
@@ -1017,7 +1033,7 @@ impl crate::grammar_applicator::Engine<'_> {
             let wtags = self.doc.store.readings.get(wread.0).tags_list.clone();
             for hash0 in wtags {
                 let tter = self.tag_by_hash(TagHash(hash0));
-                let hash = self.add_tag_to_reading(cwread, tter);
+                let hash = self.add_tag_to_reading(cwread, tter)?;
                 if self.update_valid_rules(
                     &st.rules.clone(),
                     &mut st.intersects,
@@ -1034,7 +1050,7 @@ impl crate::grammar_applicator::Engine<'_> {
         self.doc.deps.dep_window.insert(cgn, ccohort);
 
         let mut edges = CohortSet::new();
-        self.rr_collect_subtree(attach_parent, &mut edges, attach, childset);
+        self.rr_collect_subtree(attach_parent, &mut edges, attach, childset)?;
 
         if rflags.intersects(RF_BEFORE) {
             let front = edges.front();
@@ -1064,6 +1080,7 @@ impl crate::grammar_applicator::Engine<'_> {
         self.index_single_window(attach_parent);
         st.readings_changed = true;
         self.scratch.reset_cohorts_for_loop = true;
+        Ok(())
     }
 
     /// K_SPLITCOHORT: replace the apply-to cohort with a run of new cohorts built
@@ -1074,11 +1091,15 @@ impl crate::grammar_applicator::Engine<'_> {
     /// parent"); the `R:*` tag (or the last cohort) receives the transferred named
     /// relations. Text is handed to the last new cohort, then the source cohort is
     /// removed. Faithful port of the C++ `K_SPLITCOHORT` action.
-    pub(crate) fn rr_splitcohort(&mut self, st: &mut RRState, rule: RuleId) {
+    pub(crate) fn rr_splitcohort(
+        &mut self,
+        st: &mut RRState,
+        rule: RuleId,
+    ) -> Result<(), crate::error::RunError> {
         let current = st.current;
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
 
-        let the_tags = self.rr_maplist_tags(rule);
+        let the_tags = self.rr_maplist_tags(rule)?;
 
         // Partition into (cohort, readings) groups delimited by T_WORDFORM tags.
         // `cohorts` holds the new cohort ids; `groups` holds per-cohort reading
@@ -1247,7 +1268,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                         mappings.push(tter);
                     } else {
-                        hash = self.add_tag_to_reading(creading, tter);
+                        hash = self.add_tag_to_reading(creading, tter)?;
                     }
                     if self.update_valid_rules(
                         &st.rules.clone(),
@@ -1259,13 +1280,13 @@ impl crate::grammar_applicator::Engine<'_> {
                     }
                 }
                 if !mappings.is_empty() {
-                    self.split_mappings(&mut mappings, ccohort, creading, false);
+                    self.split_mappings(&mut mappings, ccohort, creading, false)?;
                 }
                 crate::cohort::append_reading(&mut self.doc.store, ccohort, creading);
             }
 
             if self.doc.store.cohorts.get(ccohort.0).readings.is_empty() {
-                self.init_empty_cohort(ccohort);
+                self.init_empty_cohort(ccohort)?;
             }
 
             let cgn = self.doc.store.cohorts.get(ccohort.0).global_number;
@@ -1437,6 +1458,7 @@ impl crate::grammar_applicator::Engine<'_> {
         self.index_single_window(current);
         st.readings_changed = true;
         self.scratch.reset_cohorts_for_loop = true;
+        Ok(())
     }
 
     /// SPLITCOHORT `all_cohorts` splice: reproduces

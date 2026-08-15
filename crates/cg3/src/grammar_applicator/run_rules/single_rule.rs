@@ -64,12 +64,12 @@ impl crate::grammar_applicator::Engine<'_> {
 
         // Run the body; the scope_guard `popper` (pop cohortsets/rocits) runs on
         // EVERY exit path, so it is applied here after the body returns.
-        let anything_changed = self.run_single_rule_body(current, rule, rnumber, cohortset, st);
+        let anything_changed = self.run_single_rule_body(current, rule, rnumber, cohortset, st)?;
 
         // popper dtor: cohortsets.pop_back(); rocits.pop_back();
         self.scratch.cohortsets.pop();
         self.scratch.rocits.pop();
-        anything_changed
+        Ok(anything_changed)
     }
 
     /// C++ `override_cohortset` lambda. When `in_nested`, (re)build
@@ -562,7 +562,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 // First check: does the rule target match?
                 let target_matches = rtarget.get() != 0 && {
                     let bypass = set_type.intersects(ST_CHILD_UNIFY | ST_SPECIAL);
-                    self.does_set_match_reading(reading, rtarget.get(), bypass, false)
+                    self.does_set_match_reading(reading, rtarget.get(), bypass, false)?
                 };
                 if target_matches {
                     let mut regex_prop = true;
@@ -620,7 +620,7 @@ impl crate::grammar_applicator::Engine<'_> {
                                     test,
                                     deep_ref.take(),
                                     Some(cohort),
-                                )
+                                )?
                             } else {
                                 self.run_contextual_test(
                                     Some(current),
@@ -628,7 +628,7 @@ impl crate::grammar_applicator::Engine<'_> {
                                     test,
                                     deep_ref.take(),
                                     None,
-                                )
+                                )?
                             };
                             let ctx_push = if self.scratch.merge_with.is_some() {
                                 self.scratch.merge_with
@@ -1121,14 +1121,19 @@ impl crate::grammar_applicator::Engine<'_> {
     /// C++ `getTagList(*set).front()`-style first-tag helper with varstring
     /// resolution — returns the first tag of a set's expanded tag list, varstring-
     /// generated. Used by JUMP / SETVARIABLE.
-    pub(crate) fn rr_first_taglist_tag(&mut self, set: SetId) -> Option<TagId> {
+    pub(crate) fn rr_first_taglist_tag(
+        &mut self,
+        set: SetId,
+    ) -> Result<Option<TagId>, crate::error::RunError> {
         let list = self.get_tag_list_of_set(set, false);
-        let first = list.first().copied()?;
+        let Some(first) = list.first().copied() else {
+            return Ok(None);
+        };
         let ttype = self.grammar.single_tags_list.get(first.0).r#type;
         if ttype.intersects(T_VARSTRING) {
-            Some(self.generate_varstring_tag_id(first))
+            Ok(Some(self.generate_varstring_tag_id(first)?))
         } else {
-            Some(first)
+            Ok(Some(first))
         }
     }
 }

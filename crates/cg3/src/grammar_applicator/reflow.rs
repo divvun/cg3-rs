@@ -148,11 +148,11 @@ impl Engine<'_> {
     /// (run_grammar) already passes a `TagId`, so this is the single `TagId`
     /// form. Ported over `char`s (the "one code unit" analog of the C++ UChar
     /// splice: keep everything except the chars at index 1 and `len-2`).
-    pub fn make_base_from_word(&mut self, tag: TagId) -> TagId {
+    pub fn make_base_from_word(&mut self, tag: TagId) -> Result<TagId, crate::error::RunError> {
         let chars: Vec<char> = self.grammar.single_tags_list[tag.0].tag.chars().collect();
         let len = chars.len();
         if len < 4 {
-            return tag;
+            return Ok(tag);
         }
         // n.resize(len-2); n[0] = n[len-3] = '"'; copy len-4 units from tag[2].
         let mut n: Vec<char> = vec!['\0'; len - 2];
@@ -669,7 +669,7 @@ impl Engine<'_> {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-reading-fn]
     /// C++ `void reflowReading(Reading& reading)` — rebuilds every derived tag
     /// index of the reading from its `tags_list`.
-    pub fn reflow_reading(&mut self, reading: ReadingId) {
+    pub fn reflow_reading(&mut self, reading: ReadingId) -> Result<(), crate::error::RunError> {
         {
             let r = self.doc.store.readings.get_mut(reading.0);
             r.tags.clear();
@@ -696,10 +696,11 @@ impl Engine<'_> {
         for tter in tlist {
             // addTagToReading(reading, tter, false) — the uint32_t/rehash form.
             let tid = self.grammar.single_tags.find(tter).get().1;
-            self.add_tag_to_reading_rehash(reading, tid, false);
+            self.add_tag_to_reading_rehash(reading, tid, false)?;
         }
 
         reading_rehash(&mut self.doc.store.readings, self.grammar, reading);
+        Ok(())
     }
 
     // =======================================================================
@@ -713,7 +714,11 @@ impl Engine<'_> {
     /// C++ `uint32_t addTagToReading(Reading& reading, Tag* tag)` (the 2-arg form
     /// with default `rehash = true`). See `add_tag_to_reading_rehash` for the
     /// full body.
-    pub fn add_tag_to_reading(&mut self, reading: ReadingId, tag: TagId) -> TagHash {
+    pub fn add_tag_to_reading(
+        &mut self,
+        reading: ReadingId,
+        tag: TagId,
+    ) -> Result<TagHash, crate::error::RunError> {
         self.add_tag_to_reading_rehash(reading, tag, true)
     }
 
@@ -721,18 +726,22 @@ impl Engine<'_> {
     /// Adds `tag`, updates every derived index of the reading, the parent
     /// cohort's flags, and (when `grammar->has_bag_of_tags`) the window
     /// bag-of-tags; returns the (possibly varstring-substituted) tag's hash.
+    ///
+    /// Two things can fail: expanding a varstring tag, and a second distinct
+    /// mapping tag on one reading — the C++ `CG3Quit(1)` from the middle of the
+    /// hot loop. Both end the stream rather than the process, and both say why.
     pub fn add_tag_to_reading_rehash(
         &mut self,
         reading: ReadingId,
         mut tag: TagId,
         rehash: bool,
-    ) -> TagHash {
+    ) -> Result<TagHash, crate::error::RunError> {
         if self.grammar.single_tags_list[tag.0]
             .r#type
             .intersects(T_VARSTRING)
         {
             let tval = self.grammar.single_tags_list[tag.0].clone();
-            tag = self.generate_varstring_tag(&tval);
+            tag = self.generate_varstring_tag(&tval)?;
         }
 
         // Snapshot the tag's scalar fields (it lives in the grammar arena).
@@ -804,9 +813,13 @@ impl Engine<'_> {
             if let Some(m) = existing
                 && m != tag
             {
-                // "Error: addTagToReading() cannot add a mapping tag ..." →
-                // CG3Quit(1). I/O deferred; the quit is faithful.
-                crate::inlines::cg3_quit(1, Some(file!()), self.grammar.lines);
+                // C++: print "cannot add a mapping tag to a reading which
+                // already is mapped!" and CG3Quit(1) from the middle of the hot
+                // loop. The message the port used to drop now travels in the
+                // value, and the stream ends instead of the process.
+                return Err(crate::error::RunError::MappingTagConflict {
+                    line: self.grammar.lines,
+                });
             }
             self.doc.store.readings.get_mut(reading.0).mapping = Some(tag);
         }
@@ -940,7 +953,7 @@ impl Engine<'_> {
             }
         }
 
-        thash
+        Ok(thash)
     }
 
     // =======================================================================
@@ -1033,7 +1046,7 @@ impl Engine<'_> {
         cohort: CohortId,
         reading: ReadingId,
         mapped: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         // First pass (mutating): expand varstrings; hoist non-mapping tags.
         let mapping_prefix = self.grammar.mapping_prefix;
         let mut idx = 0usize;
@@ -1044,7 +1057,7 @@ impl Engine<'_> {
                 .intersects(T_VARSTRING)
             {
                 let tval = self.grammar.single_tags_list[t.0].clone();
-                t = self.generate_varstring_tag(&tval);
+                t = self.generate_varstring_tag(&tval)?;
                 mappings[idx] = t;
             }
             let (ttype, first_char) = {
@@ -1052,7 +1065,7 @@ impl Engine<'_> {
                 (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
             };
             if !(ttype.intersects(T_MAPPING) || first_char == mapping_prefix) {
-                self.add_tag_to_reading(reading, t);
+                self.add_tag_to_reading(reading, t)?;
                 mappings.remove(idx);
             } else {
                 idx += 1;
@@ -1104,7 +1117,7 @@ impl Engine<'_> {
                 n.number = ui32((reading_number as usize).wrapping_sub(i));
             }
             i -= 1;
-            let mp = self.add_tag_to_reading(nr, ttag);
+            let mp = self.add_tag_to_reading(nr, ttag)?;
             if mp != ttag_hash {
                 let mtid = self.grammar.single_tags.find(mp.get()).get().1;
                 self.doc.store.readings.get_mut(nr.0).mapping = Some(mtid);
@@ -1118,13 +1131,14 @@ impl Engine<'_> {
         // The original reading takes the reserved `tag`.
         self.doc.store.readings.get_mut(reading.0).mapped = mapped;
         let tag_hash = self.grammar.single_tags_list[tag.0].hash;
-        let mp = self.add_tag_to_reading(reading, tag);
+        let mp = self.add_tag_to_reading(reading, tag)?;
         if mp != tag_hash {
             let mtid = self.grammar.single_tags.find(mp.get()).get().1;
             self.doc.store.readings.get_mut(reading.0).mapping = Some(mtid);
         } else {
             self.doc.store.readings.get_mut(reading.0).mapping = Some(tag);
         }
+        Ok(())
     }
 }
 
@@ -1140,9 +1154,9 @@ impl Engine<'_> {
         all_mappings: &mut super::AllMappings,
         cohort: CohortId,
         mapped: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         if all_mappings.is_empty() {
-            return;
+            return Ok(());
         }
         let readings: ReadingList = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for reading in readings {
@@ -1150,7 +1164,7 @@ impl Engine<'_> {
                 Some(m) => m,
                 None => continue,
             };
-            self.split_mappings(&mut mlist, cohort, reading, mapped);
+            self.split_mappings(&mut mlist, cohort, reading, mapped)?;
         }
         // std::sort(cohort.readings, Reading::cmp_number).
         self.sort_cohort_readings(cohort);
@@ -1166,6 +1180,7 @@ impl Engine<'_> {
             }
         }
         all_mappings.clear();
+        Ok(())
     }
 
     /// `std::sort(cohort.readings.begin(), .end(), Reading::cmp_number)` — a
@@ -1346,7 +1361,11 @@ impl Engine<'_> {
     /// `current`'s new last cohort (which receives the END tag). `current.parent`
     /// (the owning `Window`) resolves to `self.doc.stream` (the engine singleton
     /// views of the dissolved document window).
-    pub fn delimit_at(&mut self, current: SwId, cohort: CohortId) -> CohortId {
+    pub fn delimit_at(
+        &mut self,
+        current: SwId,
+        cohort: CohortId,
+    ) -> Result<CohortId, crate::error::RunError> {
         let mut cohort = cohort;
         let mut nwin: Option<SwId> = None;
         if self.doc.stream.current == Some(current) {
@@ -1420,7 +1439,7 @@ impl Engine<'_> {
             .find(self.cfg.begintag.get())
             .get()
             .1;
-        self.add_tag_to_reading(creading, begintag_tid);
+        self.add_tag_to_reading(creading, begintag_tid)?;
         crate::cohort::append_reading(&mut self.doc.store, ccohort, creading);
         crate::single_window::append_cohort(
             &mut self.doc.store,
@@ -1503,11 +1522,11 @@ impl Engine<'_> {
         let endtag_tid = self.grammar.single_tags.find(self.cfg.endtag.get()).get().1;
         let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for reading in rs {
-            self.add_tag_to_reading(reading, endtag_tid);
+            self.add_tag_to_reading(reading, endtag_tid)?;
         }
         self.doc.stream.rebuild_cohort_links(&mut self.doc.store);
 
-        cohort
+        Ok(cohort)
     }
 }
 
@@ -1536,7 +1555,7 @@ impl Matcher<'_> {
     /// ICU `UnicodeString` ops map to `Vec<char>` splicing (`findAndReplace`,
     /// `lastIndexOf`) and `char::to_uppercase`/`to_lowercase` (the ICU full
     /// case mapping analog; parity risk for locale-specific mappings, noted).
-    pub fn generate_varstring_tag(&mut self, tag: &Tag) -> TagId {
+    pub fn generate_varstring_tag(&mut self, tag: &Tag) -> Result<TagId, crate::error::RunError> {
         let mut tmp: Vec<char> = tag.tag.chars().collect();
         let mut did_something = false;
 

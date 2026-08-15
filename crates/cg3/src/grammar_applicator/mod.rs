@@ -926,7 +926,7 @@ impl Engine<'_> {
         set: u32,
         bypass_index: bool,
         unif_mode: bool,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         self.matcher()
             .does_set_match_reading(reading, set, bypass_index, unif_mode)
     }
@@ -936,7 +936,7 @@ impl Engine<'_> {
         cohort: CohortId,
         set: u32,
         context: Option<&mut CohortMatchContext>,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         self.matcher()
             .does_set_match_cohort_normal(cohort, set, context)
     }
@@ -947,7 +947,7 @@ impl Engine<'_> {
         tag: &crate::tag::Tag,
         unif_mode: bool,
         bypass_index: bool,
-    ) -> u32 {
+    ) -> Result<u32, crate::error::RunError> {
         self.matcher()
             .does_tag_match_reading(reading, tag, unif_mode, bypass_index)
     }
@@ -987,7 +987,7 @@ impl Engine<'_> {
         test: CtxId,
         deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
-    ) -> Option<CohortId> {
+    ) -> Result<Option<CohortId>, crate::error::RunError> {
         self.matcher()
             .run_contextual_test(sw, position, test, deep, origin)
     }
@@ -1000,11 +1000,18 @@ impl Engine<'_> {
         self.matcher().does_wordforms_match(cword, rword)
     }
 
-    pub fn generate_varstring_tag(&mut self, tag: &crate::tag::Tag) -> TagId {
+    pub fn generate_varstring_tag(
+        &mut self,
+        tag: &crate::tag::Tag,
+    ) -> Result<TagId, crate::error::RunError> {
         self.matcher().generate_varstring_tag(tag)
     }
 
-    pub fn add_tag(&mut self, txt: &str, r#type: crate::tag::TagType) -> TagId {
+    pub fn add_tag(
+        &mut self,
+        txt: &str,
+        r#type: crate::tag::TagType,
+    ) -> Result<TagId, crate::error::RunError> {
         self.matcher().add_tag(txt, r#type)
     }
 

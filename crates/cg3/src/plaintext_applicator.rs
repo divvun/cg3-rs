@@ -192,7 +192,7 @@ where
                 if let Some(cc) = c_cohort
                     && self.base.doc.store.cohorts.get(cc.0).readings.is_empty()
                 {
-                    self.base.engine().init_empty_cohort(cc);
+                    self.base.engine().init_empty_cohort(cc)?;
                 }
 
                 // (a) Soft-limit lookback (the ONLY split path that can fire).
@@ -210,9 +210,13 @@ where
                             .get();
                         let cohorts = self.base.doc.store.single_windows.get(sw.0).cohorts.clone();
                         for &c in cohorts.iter().rev() {
-                            if self.base.engine().does_set_match_cohort_normal(c, sd, None) {
+                            if self
+                                .base
+                                .engine()
+                                .does_set_match_cohort_normal(c, sd, None)?
+                            {
                                 did_soft_lookback = false;
-                                let cohort = self.base.engine().delimit_at(sw, c);
+                                let cohort = self.base.engine().delimit_at(sw, c)?;
                                 let parent =
                                     self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
                                 c_swindow = self.base.doc.store.single_windows.get(parent.0).next;
@@ -237,14 +241,14 @@ where
                             .get();
                         self.base
                             .engine()
-                            .does_set_match_cohort_normal(cc, sd, None)
+                            .does_set_match_cohort_normal(cc, sd, None)?
                     };
                     if over_soft && sd_hit {
                         let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
                             let te = self.base.cfg.endtag;
                             let tid = tag_by_hash(&self.base.grammar, te);
-                            self.base.engine().add_tag_to_reading(r, tid);
+                            self.base.engine().add_tag_to_reading(r, tid)?;
                         }
                         {
                             let base = &mut *self.base;
@@ -277,14 +281,16 @@ where
                                 [self.base.grammar.delimiters.unwrap().0]
                                 .number
                                 .get();
-                            self.base.engine().does_set_match_cohort_normal(cc, d, None)
+                            self.base
+                                .engine()
+                                .does_set_match_cohort_normal(cc, d, None)?
                         };
                     if over_hard || delim_hit {
                         let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
                             let te = self.base.cfg.endtag;
                             let tid = tag_by_hash(&self.base.grammar, te);
-                            self.base.engine().add_tag_to_reading(r, tid);
+                            self.base.engine().add_tag_to_reading(r, tid)?;
                         }
                         {
                             let base = &mut *self.base;
@@ -313,7 +319,7 @@ where
                             .stream
                             .alloc_append_single_window(&mut base.doc.store)
                     };
-                    self.base.engine().init_empty_single_window(sw);
+                    self.base.engine().init_empty_single_window(sw)?;
                     l_swindow = Some(sw);
                     // lCohort = cSWindow->cohorts[0] (the boundary cohort).
                     l_cohort = Some(self.base.doc.store.single_windows.get(sw.0).cohorts[0]);
@@ -385,7 +391,7 @@ where
                     let gn = self.base.doc.cohorts.next_cohort_number();
                     let token_str: String = token.iter().collect();
                     let wf_text = format!("\"<{token_str}>\"");
-                    let wf = self.base.add_tag(&wf_text, crate::tag::TagType::empty());
+                    let wf = self.base.add_tag(&wf_text, crate::tag::TagType::empty())?;
                     {
                         let c = self.base.doc.store.cohorts.get_mut(cc.0);
                         c.global_number = gn;
@@ -397,11 +403,13 @@ where
                     // throughout (see the module DEAD-code note).
                     l_cohort = Some(cc);
                     self.base.doc.num_cohorts += 1;
-                    let cr = self.base.engine().init_empty_cohort(cc);
+                    let cr = self.base.engine().init_empty_cohort(cc)?;
                     self.base.doc.store.readings.get_mut(cr.0).noprint = !self.add_tags;
                     if self.add_tags {
-                        let tag = self.base.add_tag("<cg-conv>", crate::tag::TagType::empty());
-                        self.base.engine().add_tag_to_reading(cr, tag);
+                        let tag = self
+                            .base
+                            .add_tag("<cg-conv>", crate::tag::TagType::empty())?;
+                        self.base.engine().add_tag_to_reading(cr, tag)?;
                     }
                     if self.add_tags && (first_upper || all_upper || mixed_upper) {
                         let baseform = self
@@ -417,25 +425,25 @@ where
                         let base_tag_text = format!("\"{lowered}\"");
                         let bt = self
                             .base
-                            .add_tag(&base_tag_text, crate::tag::TagType::empty());
-                        self.base.engine().add_tag_to_reading(cr, bt);
+                            .add_tag(&base_tag_text, crate::tag::TagType::empty())?;
+                        self.base.engine().add_tag_to_reading(cr, bt)?;
                         if all_upper {
                             let t = self
                                 .base
-                                .add_tag("<all-upper>", crate::tag::TagType::empty());
-                            self.base.engine().add_tag_to_reading(cr, t);
+                                .add_tag("<all-upper>", crate::tag::TagType::empty())?;
+                            self.base.engine().add_tag_to_reading(cr, t)?;
                         }
                         if first_upper {
                             let t = self
                                 .base
-                                .add_tag("<first-upper>", crate::tag::TagType::empty());
-                            self.base.engine().add_tag_to_reading(cr, t);
+                                .add_tag("<first-upper>", crate::tag::TagType::empty())?;
+                            self.base.engine().add_tag_to_reading(cr, t)?;
                         }
                         if mixed_upper && !all_upper {
                             let t = self
                                 .base
-                                .add_tag("<mixed-upper>", crate::tag::TagType::empty());
-                            self.base.engine().add_tag_to_reading(cr, t);
+                                .add_tag("<mixed-upper>", crate::tag::TagType::empty())?;
+                            self.base.engine().add_tag_to_reading(cr, t)?;
                         }
                     }
                     {
@@ -503,13 +511,13 @@ where
                 );
             }
             if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                self.base.engine().init_empty_cohort(cc);
+                self.base.engine().init_empty_cohort(cc)?;
             }
             let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let te = self.base.cfg.endtag;
                 let tid = tag_by_hash(&self.base.grammar, te);
-                self.base.engine().add_tag_to_reading(r, tid);
+                self.base.engine().add_tag_to_reading(r, tid)?;
             }
             // C++ nulls cReading/cCohort/cSWindow here; nothing reads them past
             // this point, so the port's bindings simply go out of scope.
@@ -522,7 +530,7 @@ where
         self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
             let tmp = self.base.doc.stream.previous[0];
-            fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
+            fmt.print_single_window(&mut self.base.engine(), tmp, output, false)?;
             let t = Some(tmp);
             {
                 let base = &mut *self.base;
@@ -605,8 +613,9 @@ impl crate::grammar_applicator::stream_format::StreamFormat for PlaintextFormat 
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         self.print_cohort_e(e, cohort, output, profiling);
+        Ok(())
     }
 
     fn print_single_window<W: Write>(
@@ -615,8 +624,9 @@ impl crate::grammar_applicator::stream_format::StreamFormat for PlaintextFormat 
         window: SwId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         self.print_single_window_e(e, window, output, profiling);
+        Ok(())
     }
 
     fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W) {

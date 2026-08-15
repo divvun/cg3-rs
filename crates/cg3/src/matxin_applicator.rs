@@ -196,7 +196,11 @@ impl MatxinApplicator {
     // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.process-reading-fn]
     /// C++ `void MatxinApplicator::processReading(Reading* cReading, const UChar*
     /// reading_string)`. Parses one Matxin/Apertium-style analysis string.
-    pub fn process_reading(&mut self, c_reading: ReadingId, reading_string: &[char]) {
+    pub fn process_reading(
+        &mut self,
+        c_reading: ReadingId,
+        reading_string: &[char],
+    ) -> Result<(), crate::error::RunError> {
         let s = reading_string;
         let len = s.len();
 
@@ -254,13 +258,13 @@ impl MatxinApplicator {
         }
         base.push('"');
 
-        let tag = self.base.add_tag(&base, crate::tag::TagType::empty());
+        let tag = self.base.add_tag(&base, crate::tag::TagType::empty())?;
 
         if unknown {
             let h = self.base.grammar.single_tags_list.get(tag.0).hash;
             self.base.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
-            self.base.engine().add_tag_to_reading(c_reading, tag);
-            return;
+            self.base.engine().add_tag_to_reading(c_reading, tag)?;
+            return Ok(());
         }
 
         let mut taglist: TagVector = vec![tag];
@@ -302,7 +306,7 @@ impl MatxinApplicator {
                             bf.push_str(&tmptag);
                         }
                         bf.push('"');
-                        let t = self.base.add_tag(&bf, crate::tag::TagType::empty());
+                        let t = self.base.add_tag(&bf, crate::tag::TagType::empty())?;
                         taglist.push(t);
                         tmptag.clear();
                         joiner = false;
@@ -319,7 +323,7 @@ impl MatxinApplicator {
                         continue;
                     }
                     intag = false;
-                    let t = self.base.add_tag(&tmptag, crate::tag::TagType::empty());
+                    let t = self.base.add_tag(&tmptag, crate::tag::TagType::empty())?;
                     taglist.push(t);
                     tmptag.clear();
                     joiner = false;
@@ -375,14 +379,14 @@ impl MatxinApplicator {
                         if is_mapping {
                             mappings.push(iter);
                         } else {
-                            self.base.engine().add_tag_to_reading(reading, iter);
+                            self.base.engine().add_tag_to_reading(reading, iter)?;
                         }
                     }
                     if !mappings.is_empty() {
                         let parent = self.base.doc.store.readings.get(reading.0).parent.unwrap();
                         self.base
                             .engine()
-                            .split_mappings(&mut mappings, parent, reading, true);
+                            .split_mappings(&mut mappings, parent, reading, true)?;
                     }
                     while let Some(&last) = taglist.last() {
                         if self
@@ -402,6 +406,7 @@ impl MatxinApplicator {
                 }
             }
         }
+        Ok(())
     }
 
     // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.print-reading-fn]
@@ -778,11 +783,13 @@ impl MatxinApplicator {
         self.base.cfg.begintag = {
             let t = self
                 .base
-                .add_tag(STR_BEGINTAG, crate::tag::TagType::empty());
+                .add_tag(STR_BEGINTAG, crate::tag::TagType::empty())?;
             self.base.grammar.single_tags_list.get(t.0).hash
         };
         self.base.cfg.endtag = {
-            let t = self.base.add_tag(STR_ENDTAG, crate::tag::TagType::empty());
+            let t = self
+                .base
+                .add_tag(STR_ENDTAG, crate::tag::TagType::empty())?;
             self.base.grammar.single_tags_list.get(t.0).hash
         };
 
@@ -866,7 +873,7 @@ impl MatxinApplicator {
             if let Some(cc) = c_cohort
                 && self.base.doc.store.cohorts.get(cc.0).readings.is_empty()
             {
-                self.base.engine().init_empty_cohort(cc);
+                self.base.engine().init_empty_cohort(cc)?;
             }
             // Soft-limit break.
             if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
@@ -882,9 +889,9 @@ impl MatxinApplicator {
                     if self
                         .base
                         .engine()
-                        .does_set_match_cohort_normal(cc, sd, None)
+                        .does_set_match_cohort_normal(cc, sd, None)?
                     {
-                        self.add_endtag_all(cc);
+                        self.add_endtag_all(cc)?;
                         append_cohort(
                             &mut self.base.doc.store,
                             &mut self.base.doc.cohorts,
@@ -908,7 +915,9 @@ impl MatxinApplicator {
                     let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0]
                         .number
                         .get();
-                    self.base.engine().does_set_match_cohort_normal(cc, d, None)
+                    self.base
+                        .engine()
+                        .does_set_match_cohort_normal(cc, d, None)?
                 };
                 if hard || delim_match {
                     if !self.base.cfg.is_conv && cohorts_size >= self.base.cfg.hard_limit {
@@ -922,7 +931,7 @@ impl MatxinApplicator {
                             self.base.doc.num_lines
                         );
                     }
-                    self.add_endtag_all(cc);
+                    self.add_endtag_all(cc)?;
                     append_cohort(
                         &mut self.base.doc.store,
                         &mut self.base.doc.cohorts,
@@ -956,7 +965,7 @@ impl MatxinApplicator {
                     self.base.grammar.sets_any.as_ref(),
                 );
                 let bt = tag_by_hash(&self.base.grammar, self.base.cfg.begintag);
-                self.base.engine().add_tag_to_reading(cr, bt);
+                self.base.engine().add_tag_to_reading(cr, bt)?;
                 append_reading(&mut self.base.doc.store, cc, cr);
                 append_cohort(
                     &mut self.base.doc.store,
@@ -1011,7 +1020,7 @@ impl MatxinApplicator {
                 }
             }
             wordform.push_str(">\"");
-            let wf_tid = self.base.add_tag(&wordform, crate::tag::TagType::empty());
+            let wf_tid = self.base.add_tag(&wordform, crate::tag::TagType::empty())?;
             self.base.doc.store.cohorts.get_mut(cc.0).wordform = Some(wf_tid);
             self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
 
@@ -1034,8 +1043,8 @@ impl MatxinApplicator {
                         continue;
                     }
                     if inchar == '>' {
-                        let t = self.base.add_tag(&tagbuf, crate::tag::TagType::empty());
-                        self.base.engine().add_tag_to_reading(wread, t);
+                        let t = self.base.add_tag(&tagbuf, crate::tag::TagType::empty())?;
+                        self.base.engine().add_tag_to_reading(wread, t)?;
                         tagbuf.clear();
                         continue;
                     }
@@ -1066,8 +1075,8 @@ impl MatxinApplicator {
                         );
                     }
                     let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                    self.base.engine().add_tag_to_reading(cr, wf);
-                    self.process_reading(cr, &current_reading);
+                    self.base.engine().add_tag_to_reading(cr, wf)?;
+                    self.process_reading(cr, &current_reading)?;
                     let mut cr = cr;
                     if self.base.grammar.sub_readings_ltr
                         && self.base.doc.store.readings.get(cr.0).next.is_some()
@@ -1083,8 +1092,8 @@ impl MatxinApplicator {
                 if inchar == '/' {
                     let cr = alloc_reading(&mut self.base.doc.store, Some(cc));
                     let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                    self.base.engine().add_tag_to_reading(cr, wf);
-                    self.process_reading(cr, &current_reading);
+                    self.base.engine().add_tag_to_reading(cr, wf)?;
+                    self.process_reading(cr, &current_reading)?;
                     let mut cr2 = cr;
                     if self.base.grammar.sub_readings_ltr
                         && self.base.doc.store.readings.get(cr2.0).next.is_some()
@@ -1127,9 +1136,9 @@ impl MatxinApplicator {
                 cc,
             );
             if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                self.base.engine().init_empty_cohort(cc);
+                self.base.engine().init_empty_cohort(cc)?;
             }
-            self.add_endtag_all(cc);
+            self.add_endtag_all(cc)?;
             // C++ nulls cReading/cCohort/cSWindow here; nothing reads them past
             // this point, so the port's bindings simply go out of scope.
         }
@@ -1162,12 +1171,13 @@ impl MatxinApplicator {
     }
 
     /// C++ `for (auto iter : cCohort->readings) addTagToReading(*iter, endtag);`.
-    fn add_endtag_all(&mut self, cohort: CohortId) {
+    fn add_endtag_all(&mut self, cohort: CohortId) -> Result<(), crate::error::RunError> {
         let readings = self.base.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in readings {
             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-            self.base.engine().add_tag_to_reading(r, et);
+            self.base.engine().add_tag_to_reading(r, et)?;
         }
+        Ok(())
     }
 }
 

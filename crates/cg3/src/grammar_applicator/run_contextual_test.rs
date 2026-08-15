@@ -27,7 +27,7 @@
 //! - `run_contextual_test(&mut self, sw: Option<SwId>, position: u32, test:
 //!   CtxId, deep: Option<&mut Option<CohortId>>, origin: Option<CohortId>) ->
 //!   Option<CohortId>` — the exact shape match_set.rs already calls
-//!   (`self.run_contextual_test(cparent, clocal, l, context.deep, Some(cohort))`),
+//!   (`self.run_contextual_test(cparent, clocal, l, context.deep, Some(cohort))?`),
 //!   where `cparent: Option<SwId>`, `clocal: u32` (a cohort's `local_number`).
 //!
 //! ARENA-MODEL / SIGNATURE NOTES
@@ -180,7 +180,7 @@ impl Matcher<'_> {
         rvs: &mut u8,
         mut deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
-    ) -> (Option<CohortId>, bool) {
+    ) -> Result<(Option<CohortId>, bool), crate::error::RunError> {
         let mut retval_v = false;
         let retval = &mut retval_v;
         let mut cohort: Option<CohortId> = Some(cohort);
@@ -235,14 +235,14 @@ impl Matcher<'_> {
         };
 
         if test_pos.intersects(POS_CAREFUL) {
-            *retval = self.does_set_match_cohort_careful(cid, test_target, Some(&mut context));
+            *retval = self.does_set_match_cohort_careful(cid, test_target, Some(&mut context))?;
             if !context.matched_target && (test_pos.intersects(POS_SCANFIRST)) {
                 context.did_test = true;
                 // Intentionally ignoring the return value to populate matched_target.
-                self.does_set_match_cohort_normal(cid, test_target, Some(&mut context));
+                self.does_set_match_cohort_normal(cid, test_target, Some(&mut context))?;
             }
         } else {
-            *retval = self.does_set_match_cohort_normal(cid, test_target, Some(&mut context));
+            *retval = self.does_set_match_cohort_normal(cid, test_target, Some(&mut context))?;
         }
 
         // origin loop-back detection.
@@ -282,7 +282,7 @@ impl Matcher<'_> {
                 matched_tests: false,
                 in_barrier: true,
             };
-            let barrier = self.does_set_match_cohort_normal(cid, test_barrier, Some(&mut bctx));
+            let barrier = self.does_set_match_cohort_normal(cid, test_barrier, Some(&mut bctx))?;
             if barrier {
                 self.scratch.seen_barrier = true;
                 *rvs |= TRV_BREAK | TRV_BARRIER;
@@ -302,7 +302,8 @@ impl Matcher<'_> {
                 matched_tests: false,
                 in_barrier: true,
             };
-            let cbarrier = self.does_set_match_cohort_careful(cid, test_cbarrier, Some(&mut cbctx));
+            let cbarrier =
+                self.does_set_match_cohort_careful(cid, test_cbarrier, Some(&mut cbctx))?;
             if cbarrier {
                 self.scratch.seen_barrier = true;
                 *rvs |= TRV_BREAK | TRV_BARRIER;
@@ -318,7 +319,7 @@ impl Matcher<'_> {
         if !*retval && !self.scratch.context_stack.is_empty() {
             self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = regexgrpz;
         }
-        (cohort, retval_v)
+        Ok((cohort, retval_v))
     }
 
     /// C++ overload `Cohort* runSingleTest(SingleWindow* sWindow, size_t i, ...)`:
@@ -332,11 +333,11 @@ impl Matcher<'_> {
         rvs: &mut u8,
         deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
-    ) -> (Option<CohortId>, bool) {
+    ) -> Result<(Option<CohortId>, bool), crate::error::RunError> {
         let len = self.single_windows.get(sw.0).cohorts.len() as i32;
         if i < 0 || i >= len {
             *rvs |= TRV_BREAK;
-            return (None, false);
+            return Ok((None, false));
         }
         let cohort = self.single_windows.get(sw.0).cohorts[i as usize];
         self.run_single_test(cohort, test, rvs, deep, origin)
@@ -458,7 +459,7 @@ impl Matcher<'_> {
         tmpl: CtxId,
         cdeep: &mut Option<CohortId>,
         origin: Option<CohortId>,
-    ) -> Option<CohortId> {
+    ) -> Result<Option<CohortId>, crate::error::RunError> {
         let min = self.scratch.tmpl_cntx.min;
         let max = self.scratch.tmpl_cntx.max;
         let in_template = self.scratch.tmpl_cntx.in_template;
@@ -499,7 +500,7 @@ impl Matcher<'_> {
         }
 
         // cohort = runContextualTest(sWindow, position, tmpl, &cdeep, origin)
-        let mut cohort = self.run_contextual_test(sw, position, tmpl, Some(&mut *cdeep), origin);
+        let mut cohort = self.run_contextual_test(sw, position, tmpl, Some(&mut *cdeep), origin)?;
 
         if override_applied {
             let t = &mut self.grammar.contexts_arena[tmpl.0];
@@ -528,7 +529,7 @@ impl Matcher<'_> {
             self.scratch.tmpl_cntx.in_template = in_template;
         }
 
-        cohort
+        Ok(cohort)
     }
 
     // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn]
@@ -547,7 +548,7 @@ impl Matcher<'_> {
         test: CtxId,
         mut deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
-    ) -> Option<CohortId> {
+    ) -> Result<Option<CohortId>, crate::error::RunError> {
         let mut sw = sw;
         let mut position = position;
         let mut origin = origin;
@@ -599,7 +600,7 @@ impl Matcher<'_> {
 
         if !retval {
             // Jump failed because the position does not exist.
-            return self.finalize_got_a_cohort(sw, test, cohort, retval);
+            return Ok(self.finalize_got_a_cohort(sw, test, cohort, retval));
         }
 
         let test_tmpl = self.grammar.contexts_arena[test.0].tmpl;
@@ -607,7 +608,7 @@ impl Matcher<'_> {
 
         if let Some(tmpl) = test_tmpl {
             let mut cdeep: Option<CohortId> = None;
-            cohort = self.run_contextual_test_tmpl(sw, position, test, tmpl, &mut cdeep, origin);
+            cohort = self.run_contextual_test_tmpl(sw, position, test, tmpl, &mut cdeep, origin)?;
             if let Some(d) = deep.as_deref_mut() {
                 *d = cdeep;
             }
@@ -617,7 +618,7 @@ impl Matcher<'_> {
             for iter in ors {
                 self.scratch.dep_deep_seen.clear();
                 cohort =
-                    self.run_contextual_test_tmpl(sw, position, test, iter, &mut cdeep, origin);
+                    self.run_contextual_test_tmpl(sw, position, test, iter, &mut cdeep, origin)?;
                 if cohort.is_some() {
                     break;
                 }
@@ -690,7 +691,7 @@ impl Matcher<'_> {
                 it = Some(ItSel::DepGlob(key));
             } else if test_pos.intersects(POS_DEP_CHILD | POS_DEP_SIBLING) {
                 let nc =
-                    self.run_dependency_test(sw_id, cid, test, deep.as_deref_mut(), origin, None);
+                    self.run_dependency_test(sw_id, cid, test, deep.as_deref_mut(), origin, None)?;
                 if let Some(nc) = nc {
                     cohort = Some(nc);
                     retval = true;
@@ -702,7 +703,8 @@ impl Matcher<'_> {
                     retval = !retval;
                 }
             } else if test_pos.intersects(POS_LEFT_PAR | POS_RIGHT_PAR) {
-                let nc = self.run_parenthesis_test(sw_id, cid, test, deep.as_deref_mut(), origin);
+                let nc =
+                    self.run_parenthesis_test(sw_id, cid, test, deep.as_deref_mut(), origin)?;
                 if let Some(nc) = nc {
                     cohort = Some(nc);
                     retval = true;
@@ -710,7 +712,7 @@ impl Matcher<'_> {
                     retval = false;
                 }
             } else if test_pos.intersects(POS_RELATION) {
-                let nc = self.run_relation_test(sw_id, cid, test, deep.as_deref_mut(), origin);
+                let nc = self.run_relation_test(sw_id, cid, test, deep.as_deref_mut(), origin)?;
                 if let Some(nc) = nc {
                     cohort = Some(nc);
                     retval = true;
@@ -722,14 +724,14 @@ impl Matcher<'_> {
                 }
             } else if test_pos.intersects(POS_BAG_OF_TAGS) {
                 let test_target = self.grammar.contexts_arena[test.0].target.get();
-                let mut m = self.match_bag_of_tags(sw_id, test_target);
+                let mut m = self.match_bag_of_tags(sw_id, test_target)?;
                 if !m && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT | POS_SPAN_RIGHT)) {
                     let mut left = self.single_windows.get(sw_id.0).previous;
                     let mut right = self.single_windows.get(sw_id.0).next;
                     while left.is_some() || right.is_some() {
                         if left.is_some() && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) {
                             let lw = left.unwrap();
-                            m = self.match_bag_of_tags(lw, test_target);
+                            m = self.match_bag_of_tags(lw, test_target)?;
                             left = self.single_windows.get(lw.0).previous;
                         } else {
                             left = None;
@@ -737,7 +739,7 @@ impl Matcher<'_> {
                         if right.is_some() && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT))
                         {
                             let rw = right.unwrap();
-                            m = self.match_bag_of_tags(rw, test_target);
+                            m = self.match_bag_of_tags(rw, test_target)?;
                             right = self.single_windows.get(rw.0).next;
                         } else {
                             right = None;
@@ -754,7 +756,7 @@ impl Matcher<'_> {
                     let test_linked = self.grammar.contexts_arena[test.0].linked;
                     if let Some(l) = test_linked {
                         cohort =
-                            self.run_contextual_test(sw, position, l, deep.as_deref_mut(), origin);
+                            self.run_contextual_test(sw, position, l, deep.as_deref_mut(), origin)?;
                     }
                 } else {
                     retval = false;
@@ -766,7 +768,7 @@ impl Matcher<'_> {
                     deep: deep.as_deref_mut(),
                     origin,
                 };
-                let (c, rv) = self.run_scan(sw_id, cid, pos, args, retval);
+                let (c, rv) = self.run_scan(sw_id, cid, pos, args, retval)?;
                 cohort = c;
                 retval = rv;
             } else if test_offset < 0 {
@@ -791,13 +793,13 @@ impl Matcher<'_> {
 
             if let Some(sel) = it {
                 let args = TestArgs { test, deep, origin };
-                let (c, rv) = self.run_iter(sel, org_swin, position, cid, args, retval);
+                let (c, rv) = self.run_iter(sel, org_swin, position, cid, args, retval)?;
                 cohort = c;
                 retval = rv;
             }
         }
 
-        self.finalize_got_a_cohort(sw, test, cohort, retval)
+        Ok(self.finalize_got_a_cohort(sw, test, cohort, retval))
     }
 
     /// C++ `label_gotACohort:` finalize block of `runContextualTest`.
@@ -888,7 +890,7 @@ impl Matcher<'_> {
         cohort: CohortId,
         args: TestArgs<'_>,
         mut retval: bool,
-    ) -> (Option<CohortId>, bool) {
+    ) -> Result<(Option<CohortId>, bool), crate::error::RunError> {
         let TestArgs {
             test,
             mut deep,
@@ -914,7 +916,7 @@ impl Matcher<'_> {
             );
             let self_c = self.single_windows.get(org.0).cohorts[position as usize];
             (nc, retval) =
-                self.run_single_test(self_c, test, &mut rvs, deep.as_deref_mut(), origin);
+                self.run_single_test(self_c, test, &mut rvs, deep.as_deref_mut(), origin)?;
             if !retval && (rvs & TRV_BREAK_DEFAULT != 0) {
                 rvs &= !(TRV_BREAK | TRV_BREAK_DEFAULT);
             }
@@ -944,7 +946,7 @@ impl Matcher<'_> {
                     break;
                 }
                 (nc, retval) =
-                    self.run_single_test(itc, test, &mut rvs, deep.as_deref_mut(), origin);
+                    self.run_single_test(itc, test, &mut rvs, deep.as_deref_mut(), origin)?;
                 if (test_pos.intersects(POS_ALL)) && !retval {
                     nc = None;
                     break;
@@ -967,7 +969,7 @@ impl Matcher<'_> {
             retval = true;
             nc = Some(cohort);
         }
-        (nc, retval)
+        Ok((nc, retval))
     }
 
     /// C++ `**it` — the iterator's current cohort (dispatch by selected pool).
@@ -1059,7 +1061,7 @@ impl Matcher<'_> {
         pos: i32,
         args: TestArgs<'_>,
         mut retval: bool,
-    ) -> (Option<CohortId>, bool) {
+    ) -> Result<(Option<CohortId>, bool), crate::error::RunError> {
         let TestArgs {
             test,
             mut deep,
@@ -1077,13 +1079,13 @@ impl Matcher<'_> {
 
         if test_pos.intersects(POS_SELF) {
             (cohort, retval) =
-                self.run_single_test(start_cohort, test, &mut rvs, deep.as_deref_mut(), origin);
+                self.run_single_test(start_cohort, test, &mut rvs, deep.as_deref_mut(), origin)?;
             if !retval && (rvs & TRV_BREAK_DEFAULT != 0) {
                 rvs &= !(TRV_BREAK | TRV_BREAK_DEFAULT);
             }
         }
         if (rvs & TRV_BREAK != 0) && retval {
-            return (cohort, retval);
+            return Ok((cohort, retval));
         }
 
         let mut i: i32 = 1;
@@ -1097,9 +1099,9 @@ impl Matcher<'_> {
                     &mut rvs,
                     deep.as_deref_mut(),
                     origin,
-                );
+                )?;
                 if (rvs & TRV_BREAK != 0) && retval {
-                    return (cohort, retval);
+                    return Ok((cohort, retval));
                 } else if rvs & TRV_BREAK != 0 {
                     left = None;
                     if test_pos.intersects(POS_NOT) {
@@ -1126,9 +1128,9 @@ impl Matcher<'_> {
                     &mut rvs,
                     deep.as_deref_mut(),
                     origin,
-                );
+                )?;
                 if (rvs & TRV_BREAK != 0) && retval {
-                    return (cohort, retval);
+                    return Ok((cohort, retval));
                 } else if rvs & TRV_BREAK != 0 {
                     right = None;
                     if test_pos.intersects(POS_NOT) {
@@ -1150,7 +1152,7 @@ impl Matcher<'_> {
             }
             i += 1;
         }
-        (cohort, retval)
+        Ok((cohort, retval))
     }
 
     // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.get-cohort-in-window-fn]
@@ -1247,13 +1249,13 @@ impl Matcher<'_> {
         mut deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
         self_cohort: Option<CohortId>,
-    ) -> Option<CohortId> {
+    ) -> Result<Option<CohortId>, crate::error::RunError> {
         let mut rv: Option<CohortId> = None;
 
         let selfc = match self_cohort {
             Some(s) => {
                 if s == current {
-                    return None;
+                    return Ok(None);
                 }
                 s
             }
@@ -1268,7 +1270,7 @@ impl Matcher<'_> {
         if test_pos.intersects(POS_DEP_DEEP) {
             let key = (test_hash, self.cohorts.get(current.0).global_number.get());
             if self.scratch.dep_deep_seen.contains(key) {
-                return None;
+                return Ok(None);
             }
             self.scratch.dep_deep_seen.insert(key);
         }
@@ -1276,12 +1278,12 @@ impl Matcher<'_> {
         if (test_pos.intersects(POS_SELF)) && (!test_pos.intersects(MASK_POS_LORR)) {
             let mut rvs: u8 = 0;
             let (tmc, retval) =
-                self.run_single_test(current, test, &mut rvs, deep.as_deref_mut(), origin);
+                self.run_single_test(current, test, &mut rvs, deep.as_deref_mut(), origin)?;
             if retval {
-                return tmc;
+                return Ok(tmc);
             }
             if rvs & TRV_BARRIER != 0 {
-                return None;
+                return Ok(None);
             }
         }
 
@@ -1315,7 +1317,7 @@ impl Matcher<'_> {
                                 dp.map_or(crate::cohort::DEP_NO_PARENT, |g| g.get())
                             );
                         }
-                        return None;
+                        return Ok(None);
                     }
                 }
             }
@@ -1403,7 +1405,7 @@ impl Matcher<'_> {
             let mut rvs: u8 = 0;
             if good {
                 (_, retval) =
-                    self.run_single_test(cohort, test, &mut rvs, deep.as_deref_mut(), origin);
+                    self.run_single_test(cohort, test, &mut rvs, deep.as_deref_mut(), origin)?;
             }
             if test_pos.intersects(POS_ALL) {
                 if !retval {
@@ -1426,7 +1428,7 @@ impl Matcher<'_> {
                     deep.as_deref_mut(),
                     origin,
                     Some(selfc),
-                );
+                )?;
                 if let Some(tmc) = tmc {
                     rv = Some(tmc);
                     break;
@@ -1434,7 +1436,7 @@ impl Matcher<'_> {
             }
         }
 
-        rv
+        Ok(rv)
     }
 
     // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-parenthesis-test-fn]
@@ -1451,10 +1453,10 @@ impl Matcher<'_> {
         test: CtxId,
         deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
-    ) -> Option<CohortId> {
+    ) -> Result<Option<CohortId>, crate::error::RunError> {
         let ln = self.cohorts.get(current.0).local_number;
         if ln < self.scratch.par_left_pos || ln > self.scratch.par_right_pos {
-            return None;
+            return Ok(None);
         }
         let mut rv: Option<CohortId> = None;
 
@@ -1465,11 +1467,11 @@ impl Matcher<'_> {
         } else {
             self.single_windows.get(sw.0).cohorts[self.scratch.par_right_pos as usize]
         };
-        let (_, retval) = self.run_single_test(cohort, test, &mut rvs, deep, origin);
+        let (_, retval) = self.run_single_test(cohort, test, &mut rvs, deep, origin)?;
         if retval {
             rv = Some(cohort);
         }
-        rv
+        Ok(rv)
     }
 
     // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-relation-test-fn]
@@ -1489,11 +1491,11 @@ impl Matcher<'_> {
         test: CtxId,
         mut deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
-    ) -> Option<CohortId> {
+    ) -> Result<Option<CohortId>, crate::error::RunError> {
         {
             let c = self.cohorts.get(current.0);
             if (!c.r#type.intersects(CT_RELATED)) || c.relations.is_empty() {
-                return None;
+                return Ok(None);
             }
         }
 
@@ -1512,7 +1514,7 @@ impl Matcher<'_> {
                 break;
             }
             let tclone = self.grammar.single_tags_list[rtag_id.0].clone();
-            rtag_id = self.generate_varstring_tag(&tclone);
+            rtag_id = self.generate_varstring_tag(&tclone)?;
         }
         let (rtag_hash, rtag_type) = {
             let t = &self.grammar.single_tags_list[rtag_id.0];
@@ -1598,7 +1600,7 @@ impl Matcher<'_> {
         for iter in rels {
             let mut rvs: u8 = 0;
             let (_, retval) =
-                self.run_single_test(iter, test, &mut rvs, deep.as_deref_mut(), origin);
+                self.run_single_test(iter, test, &mut rvs, deep.as_deref_mut(), origin)?;
             if test_pos.intersects(POS_ALL) {
                 if !retval {
                     rv = None;
@@ -1615,7 +1617,7 @@ impl Matcher<'_> {
         if rv.is_none() {
             self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = regexgrpz;
         }
-        rv
+        Ok(rv)
     }
 
     /// POS_BAG_OF_TAGS match against a window's embedded `bag_of_tags` reading.
@@ -1624,11 +1626,11 @@ impl Matcher<'_> {
     /// `bypass_index = true`, then the slot is freed. Port adaptation — the
     /// embedded-value `Reading&` of the C++ `doesSetMatchReading(sWindow->
     /// bag_of_tags, test->target, true)` has no arena identity.
-    fn match_bag_of_tags(&mut self, sw: SwId, target: u32) -> bool {
+    fn match_bag_of_tags(&mut self, sw: SwId, target: u32) -> Result<bool, crate::error::RunError> {
         let bag = clone_reading(&self.single_windows.get(sw.0).bag_of_tags);
         let rid = self.readings.alloc(bag);
-        let m = self.does_set_match_reading(crate::arena::ReadingId(rid), target, true, false);
+        let m = self.does_set_match_reading(crate::arena::ReadingId(rid), target, true, false)?;
         self.readings.free_slot(rid);
-        m
+        Ok(m)
     }
 }

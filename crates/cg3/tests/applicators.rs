@@ -226,7 +226,8 @@ fn apertium_test_pr_roundtrip() {
     base.set_grammar().unwrap();
     let mut a = cg3::apertium_applicator::ApertiumApplicator::new(base);
     let mut out: Vec<u8> = Vec::new();
-    a.test_pr(&mut out);
+    a.test_pr(&mut out)
+        .expect("testPR round-trips its fixtures");
     let text = String::from_utf8(out).unwrap();
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(
@@ -746,20 +747,20 @@ fn format_converter_print_dispatch() {
     let (sw, cohort) = {
         let b = fc.base_mut();
         let sw = b.doc.stream.alloc_append_single_window(&mut b.doc.store);
-        b.engine().init_empty_single_window(sw);
+        b.engine().init_empty_single_window(sw).unwrap();
         let c = cg3::cohort::alloc_cohort(&mut b.doc.store, Some(sw));
-        let wf = b.add_tag("\"<word>\"", cg3::tag::TagType::empty());
+        let wf = b.add_tag("\"<word>\"", cg3::tag::TagType::empty()).unwrap();
         {
             let co = b.doc.store.cohorts.get_mut(c.0);
             co.wordform = Some(wf);
             co.global_number = cg3::types::GlobalNumber(1);
         }
         let r = cg3::reading::alloc_reading(&mut b.doc.store, Some(c));
-        b.engine().add_tag_to_reading(r, wf);
-        let bf = b.add_tag("\"word\"", cg3::tag::TagType::empty());
-        b.engine().add_tag_to_reading(r, bf);
-        let t = b.add_tag("X", cg3::tag::TagType::empty());
-        b.engine().add_tag_to_reading(r, t);
+        b.engine().add_tag_to_reading(r, wf).unwrap();
+        let bf = b.add_tag("\"word\"", cg3::tag::TagType::empty()).unwrap();
+        b.engine().add_tag_to_reading(r, bf).unwrap();
+        let t = b.add_tag("X", cg3::tag::TagType::empty()).unwrap();
+        b.engine().add_tag_to_reading(r, t).unwrap();
         cg3::cohort::append_reading(&mut b.doc.store, c, r);
         cg3::single_window::append_cohort(
             &mut b.doc.store,
@@ -775,7 +776,7 @@ fn format_converter_print_dispatch() {
     // printCohort → NICELINE arm.
     fc.base_mut().cfg.fmt_output = StreamFormatKind::Niceline;
     let mut out: Vec<u8> = Vec::new();
-    fc.print_cohort(cohort, &mut out, false);
+    fc.print_cohort(cohort, &mut out, false).unwrap();
     let text = String::from_utf8(out).unwrap();
     assert!(
         text.contains("word\t[word]"),
@@ -786,7 +787,7 @@ fn format_converter_print_dispatch() {
     // printSingleWindow → JSONL arm (one JSON object per cohort).
     fc.base_mut().cfg.fmt_output = StreamFormatKind::Jsonl;
     let mut out: Vec<u8> = Vec::new();
-    fc.print_single_window(sw, &mut out, false);
+    fc.print_single_window(sw, &mut out, false).unwrap();
     let text = String::from_utf8(out).unwrap();
     assert!(
         text.contains("\"w\":\"word\""),

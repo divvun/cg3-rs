@@ -32,7 +32,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// takes a `const Tag*`; the arena port takes `&Tag`, so run_rules — which
     /// threads `TagId`s — needs this shim.
     #[inline]
-    pub(crate) fn generate_varstring_tag_id(&mut self, tag: TagId) -> TagId {
+    pub(crate) fn generate_varstring_tag_id(
+        &mut self,
+        tag: TagId,
+    ) -> Result<TagId, crate::error::RunError> {
         let t = self.grammar.single_tags_list.get(tag.0).clone();
         self.generate_varstring_tag(&t)
     }
@@ -994,7 +997,7 @@ impl crate::grammar_applicator::Engine<'_> {
             // C++ `printSingleWindow(tmp, *ux_stdout)` — print to the live
             // output writer threaded in by the driver, in the most-derived
             // applicator's format.
-            fmt.print_single_window(self, tmp, output, false);
+            fmt.print_single_window(self, tmp, output, false)?;
             let opt = Some(tmp);
             crate::single_window::free_swindow(
                 &mut self.doc.store,

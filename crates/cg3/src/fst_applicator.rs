@@ -260,7 +260,7 @@ where
                                     .stream
                                     .alloc_append_single_window(&mut base.doc.store)
                             };
-                            self.base.engine().init_empty_single_window(sw);
+                            self.base.engine().init_empty_single_window(sw)?;
                             st.c_swindow = Some(sw);
                             st.l_swindow = Some(sw);
                             self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
@@ -268,7 +268,7 @@ where
                         }
                         let cc = alloc_cohort(&mut self.base.doc.store, st.c_swindow);
                         let gn = self.base.doc.cohorts.next_cohort_number();
-                        let wf = self.base.add_tag(&tag, crate::tag::TagType::empty());
+                        let wf = self.base.add_tag(&tag, crate::tag::TagType::empty())?;
                         {
                             let c = self.base.doc.store.cohorts.get_mut(cc.0);
                             c.global_number = gn;
@@ -325,7 +325,7 @@ where
                             );
                         }
                         let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                        self.base.engine().add_tag_to_reading(c_reading, wf);
+                        self.base.engine().add_tag_to_reading(c_reading, wf)?;
 
                         // const UChar* base = space; (index into cleaned). A quoted
                         // baseform reassignment (base = tag.data()) is tracked with
@@ -376,7 +376,7 @@ where
                             wtag_buf.push_str(&formatted);
                             wtag_buf.push('>');
                             wtag_tag =
-                                Some(self.base.add_tag(&wtag_buf, crate::tag::TagType::empty()));
+                                Some(self.base.add_tag(&wtag_buf, crate::tag::TagType::empty())?);
                         }
 
                         // Initial baseform, because it may end on '+'.
@@ -493,7 +493,9 @@ where
                                     Some(s) => s.clone(),
                                     None => cleaned_cstr(&cleaned, base_idx),
                                 };
-                                let t = self.base.add_tag(&base_text, crate::tag::TagType::empty());
+                                let t = self
+                                    .base
+                                    .add_tag(&base_text, crate::tag::TagType::empty())?;
                                 let (ttype, tfirst) = {
                                     let tg = self.base.grammar.single_tags_list.get(t.0);
                                     (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
@@ -503,14 +505,14 @@ where
                                 {
                                     mappings.push(t);
                                 } else {
-                                    self.base.engine().add_tag_to_reading(c_reading, t);
+                                    self.base.engine().add_tag_to_reading(c_reading, t)?;
                                 }
                                 // if (hash && hash[0] == 0) { ... new sub-reading ... }
                                 if let Some(hidx) = hash
                                     && cleaned[hidx] == '\0'
                                 {
                                     if let Some(wt) = wtag_tag {
-                                        self.base.engine().add_tag_to_reading(c_reading, wt);
+                                        self.base.engine().add_tag_to_reading(c_reading, wt)?;
                                     }
                                     let parent =
                                         self.base.doc.store.readings.get(c_reading.0).parent;
@@ -559,7 +561,9 @@ where
                                 Some(s) => s.clone(),
                                 None => cleaned_cstr(&cleaned, base_idx),
                             };
-                            let t = self.base.add_tag(&base_text, crate::tag::TagType::empty());
+                            let t = self
+                                .base
+                                .add_tag(&base_text, crate::tag::TagType::empty())?;
                             let (ttype, tfirst) = {
                                 let tg = self.base.grammar.single_tags_list.get(t.0);
                                 (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
@@ -569,11 +573,11 @@ where
                             {
                                 mappings.push(t);
                             } else {
-                                self.base.engine().add_tag_to_reading(c_reading, t);
+                                self.base.engine().add_tag_to_reading(c_reading, t)?;
                             }
                         }
                         if let Some(wt) = wtag_tag {
-                            self.base.engine().add_tag_to_reading(c_reading, wt);
+                            self.base.engine().add_tag_to_reading(c_reading, wt)?;
                         }
                         // if (!cReading->baseform) { baseform = wordform->hash; warn }
                         if self
@@ -618,14 +622,17 @@ where
                                 .engine()
                                 .del_tag_from_reading_hash(c_reading, bf_hash);
                             let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                            let base = self.base.engine().make_base_from_word(wf);
+                            let base = self.base.engine().make_base_from_word(wf)?;
                             let h = self.base.grammar.single_tags_list.get(base.0).hash;
                             self.base.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
                         }
                         if !mappings.is_empty() {
-                            self.base
-                                .engine()
-                                .split_mappings(&mut mappings, cc, c_reading, true);
+                            self.base.engine().split_mappings(
+                                &mut mappings,
+                                cc,
+                                c_reading,
+                                true,
+                            )?;
                         }
                         if self.base.grammar.sub_readings_ltr
                             && self.base.doc.store.readings.get(c_reading.0).next.is_some()
@@ -665,12 +672,12 @@ where
                 );
             }
             if self.base.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                self.base.engine().init_empty_cohort(cc);
+                self.base.engine().init_empty_cohort(cc)?;
             }
             let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                self.base.engine().add_tag_to_reading(r, et);
+                self.base.engine().add_tag_to_reading(r, et)?;
             }
         }
 
@@ -681,7 +688,7 @@ where
         self.base.engine().shuffle_windows_down();
         while !self.base.doc.stream.previous.is_empty() {
             let tmp = self.base.doc.stream.previous[0];
-            fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
+            fmt.print_single_window(&mut self.base.engine(), tmp, output, false)?;
             let t = Some(tmp);
             {
                 let base = &mut *self.base;
@@ -719,14 +726,14 @@ where
         if let Some(cc) = st.c_cohort
             && self.base.doc.store.cohorts.get(cc.0).readings.is_empty()
         {
-            self.base.engine().init_empty_cohort(cc);
+            self.base.engine().init_empty_cohort(cc)?;
         }
 
         // is_conv fast path.
         if self.base.cfg.is_conv {
             if let Some(cc) = st.c_cohort {
                 self.base.doc.store.cohorts.get_mut(cc.0).local_number = 1;
-                fmt.print_cohort(&mut self.base.engine(), cc, output, false);
+                fmt.print_cohort(&mut self.base.engine(), cc, output, false)?;
                 let opt = Some(cc);
                 {
                     let base = &mut *self.base;
@@ -756,9 +763,13 @@ where
                     .get();
                 let cohorts = self.base.doc.store.single_windows.get(cs.0).cohorts.clone();
                 for &c in reversed(&cohorts) {
-                    if self.base.engine().does_set_match_cohort_normal(c, sd, None) {
+                    if self
+                        .base
+                        .engine()
+                        .does_set_match_cohort_normal(c, sd, None)?
+                    {
                         st.did_soft_lookback = false;
-                        let cohort = self.base.engine().delimit_at(cs, c);
+                        let cohort = self.base.engine().delimit_at(cs, c)?;
                         // cSWindow = cohort->parent->next;
                         let parent = self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
                         st.c_swindow = self.base.doc.store.single_windows.get(parent.0).next;
@@ -782,13 +793,13 @@ where
                     .get();
                 self.base
                     .engine()
-                    .does_set_match_cohort_normal(cc, sd, None)
+                    .does_set_match_cohort_normal(cc, sd, None)?
             };
             if over_soft && sd_hit {
                 let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
                     let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                    self.base.engine().add_tag_to_reading(r, et);
+                    self.base.engine().add_tag_to_reading(r, et)?;
                 }
                 {
                     let base = &mut *self.base;
@@ -816,7 +827,9 @@ where
                     let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0]
                         .number
                         .get();
-                    self.base.engine().does_set_match_cohort_normal(cc, d, None)
+                    self.base
+                        .engine()
+                        .does_set_match_cohort_normal(cc, d, None)?
                 };
             if over_hard || delim_hit {
                 if !self.base.cfg.is_conv && over_hard {
@@ -833,7 +846,7 @@ where
                 let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
                     let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                    self.base.engine().add_tag_to_reading(r, et);
+                    self.base.engine().add_tag_to_reading(r, et)?;
                 }
                 {
                     let base = &mut *self.base;
@@ -860,7 +873,7 @@ where
                     .stream
                     .alloc_append_single_window(&mut base.doc.store)
             };
-            self.base.engine().init_empty_single_window(sw);
+            self.base.engine().init_empty_single_window(sw)?;
             st.l_swindow = Some(sw);
             // lCohort = cSWindow->cohorts[0];
             st.l_cohort = self
@@ -1212,8 +1225,9 @@ impl crate::grammar_applicator::stream_format::StreamFormat for FstFormat {
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         self.print_cohort_e(e, cohort, output, profiling);
+        Ok(())
     }
 
     fn print_single_window<W: Write>(
@@ -1222,8 +1236,9 @@ impl crate::grammar_applicator::stream_format::StreamFormat for FstFormat {
         window: SwId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         self.print_single_window_e(e, window, output, profiling);
+        Ok(())
     }
 
     fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W) {

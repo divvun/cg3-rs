@@ -43,7 +43,7 @@ pub trait StreamFormat {
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
-    );
+    ) -> Result<(), crate::error::RunError>;
 
     /// Virtual `printSingleWindow(SingleWindow*, std::ostream&, bool)`.
     fn print_single_window<W: Write>(
@@ -52,7 +52,7 @@ pub trait StreamFormat {
         window: SwId,
         output: &mut W,
         profiling: bool,
-    );
+    ) -> Result<(), crate::error::RunError>;
 
     /// Virtual `printStreamCommand(UStringView, std::ostream&)`.
     fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W);
@@ -73,9 +73,10 @@ impl StreamFormat for CgFormat {
         cohort: CohortId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         let trace = e.cfg.trace;
         e.print_cohort(cohort, output, profiling, trace);
+        Ok(())
     }
 
     fn print_single_window<W: Write>(
@@ -84,9 +85,10 @@ impl StreamFormat for CgFormat {
         window: SwId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         let trace = e.cfg.trace;
         e.print_single_window(window, output, profiling, trace);
+        Ok(())
     }
 
     fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W) {

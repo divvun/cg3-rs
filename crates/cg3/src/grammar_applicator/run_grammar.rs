@@ -134,7 +134,10 @@ impl super::Engine<'_> {
     /// wordform `tag_begin`, holding one reading whose baseform is `begintag`, the
     /// ANY set flagged on the cohort, and the `begintag` tag added. Touches no
     /// numReadings/numCohorts counters.
-    pub fn init_empty_single_window(&mut self, c_swindow: crate::arena::SwId) {
+    pub fn init_empty_single_window(
+        &mut self,
+        c_swindow: crate::arena::SwId,
+    ) -> Result<(), crate::error::RunError> {
         let c_cohort = crate::cohort::alloc_cohort(&mut self.doc.store, Some(c_swindow));
         // cCohort->global_number = gWindow->cohort_counter++;
         let gn = self.doc.cohorts.next_cohort_number();
@@ -154,7 +157,7 @@ impl super::Engine<'_> {
         // addTagToReading(*cReading, begintag);  [uint32_t overload —
         // resolves the hash via grammar->single_tags[hash], then the Tag* form]
         let begin_tag_id = super::core::tag_by_hash(self.grammar, self.cfg.begintag);
-        self.add_tag_to_reading(c_reading, begin_tag_id);
+        self.add_tag_to_reading(c_reading, begin_tag_id)?;
         // cCohort->appendReading(cReading);
         crate::cohort::append_reading(&mut self.doc.store, c_cohort, c_reading);
         // cSWindow->appendCohort(cCohort);
@@ -172,6 +175,7 @@ impl super::Engine<'_> {
                 self.doc.deps.dep_highest_seen = ds;
             }
         }
+        Ok(())
     }
 
     // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.init-empty-cohort-fn]
@@ -186,7 +190,7 @@ impl super::Engine<'_> {
     pub fn init_empty_cohort(
         &mut self,
         c_cohort: crate::arena::CohortId,
-    ) -> crate::arena::ReadingId {
+    ) -> Result<crate::arena::ReadingId, crate::error::RunError> {
         let c_reading = crate::reading::alloc_reading(&mut self.doc.store, Some(c_cohort));
         // cCohort.wordform is dereferenced unconditionally (`->hash`).
         let wordform = self
@@ -198,7 +202,7 @@ impl super::Engine<'_> {
             .expect("initEmptyCohort: cohort has no wordform");
         if self.cfg.allow_magic_readings {
             // baseform = makeBaseFromWord(cCohort.wordform)->hash
-            let base = self.make_base_from_word(wordform);
+            let base = self.make_base_from_word(wordform)?;
             let h = self.grammar.single_tags_list.get(base.0).hash;
             self.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
         } else {
@@ -211,12 +215,12 @@ impl super::Engine<'_> {
             self.grammar.sets_any.as_ref(),
         );
         // addTagToReading(*cReading, cCohort.wordform);  [Tag* overload]
-        self.add_tag_to_reading(c_reading, wordform);
+        self.add_tag_to_reading(c_reading, wordform)?;
         self.doc.store.readings.get_mut(c_reading.0).noprint = true;
         // cCohort.appendReading(cReading);
         crate::cohort::append_reading(&mut self.doc.store, c_cohort, c_reading);
         self.doc.num_readings = self.doc.num_readings.wrapping_add(1);
-        c_reading
+        Ok(c_reading)
     }
 
     /// The C++ `got_reading:` GOTO LABEL body from `runGrammarOnText` (the block
@@ -231,7 +235,7 @@ impl super::Engine<'_> {
         scope: GotReadingScope<'_>,
         c_cohort: crate::arena::CohortId,
         is_deleted: bool,
-    ) -> GotReading {
+    ) -> Result<GotReading, crate::error::RunError> {
         let GotReadingScope {
             cleaned,
             line,
@@ -257,7 +261,7 @@ impl super::Engine<'_> {
             let back = indents.last().unwrap().1;
             if self.doc.store.readings.get(back.0).next.is_some() {
                 // "Sub-reading … will be ignored and lost …": deferred emission.
-                return GotReading::Continue;
+                return Ok(GotReading::Continue);
             }
             let parent = self.doc.store.readings.get(back.0).parent;
             let cr = crate::reading::Reading::allocate_reading(&mut self.doc.store, parent);
@@ -279,7 +283,7 @@ impl super::Engine<'_> {
             self.grammar.sets_any.as_ref(),
         );
         let wordform = self.doc.store.cohorts.get(c_cohort.0).wordform.unwrap();
-        self.add_tag_to_reading(c_reading, wordform);
+        self.add_tag_to_reading(c_reading, wordform)?;
 
         // UChar* space = &cleaned[1]; UChar* base = space;
         let mut space = 1usize;
@@ -325,7 +329,7 @@ impl super::Engine<'_> {
                 cleaned.insert(0, ';');
                 line.insert(0, ';');
             }
-            return GotReading::Istext;
+            return Ok(GotReading::Istext);
         }
 
         self.doc.store.readings.get_mut(c_reading.0).deleted = is_deleted;
@@ -342,7 +346,7 @@ impl super::Engine<'_> {
                     if base < cleaned.len() && cleaned[base] != '\0' {
                         let base_text: String =
                             cleaned[base..].iter().take_while(|&&c| c != '\0').collect();
-                        let tag = self.add_tag(&base_text, crate::tag::TagType::empty());
+                        let tag = self.add_tag(&base_text, crate::tag::TagType::empty())?;
                         let (ttype, first_char) = {
                             let t = &self.grammar.single_tags_list[tag.0];
                             (t.r#type, t.tag.chars().next().unwrap_or('\0'))
@@ -354,7 +358,7 @@ impl super::Engine<'_> {
                             self.grammar.single_tags_list[tag.0].r#type |= crate::tag::T_MAPPING;
                             all_mappings.entry(c_reading).or_default().push(tag);
                         } else {
-                            self.add_tag_to_reading(c_reading, tag);
+                            self.add_tag_to_reading(c_reading, tag)?;
                         }
                     }
                     base = space;
@@ -367,7 +371,7 @@ impl super::Engine<'_> {
         }
         if base < cleaned.len() && cleaned[base] != '\0' {
             let base_text: String = cleaned[base..].iter().take_while(|&&c| c != '\0').collect();
-            let tag = self.add_tag(&base_text, crate::tag::TagType::empty());
+            let tag = self.add_tag(&base_text, crate::tag::TagType::empty())?;
             let (ttype, first_char) = {
                 let t = &self.grammar.single_tags_list[tag.0];
                 (t.r#type, t.tag.chars().next().unwrap_or('\0'))
@@ -377,7 +381,7 @@ impl super::Engine<'_> {
                 self.grammar.single_tags_list[tag.0].r#type |= crate::tag::T_MAPPING;
                 all_mappings.entry(c_reading).or_default().push(tag);
             } else {
-                self.add_tag_to_reading(c_reading, tag);
+                self.add_tag_to_reading(c_reading, tag)?;
             }
         }
         if self.doc.store.readings.get(c_reading.0).baseform.is_none() {
@@ -397,7 +401,7 @@ impl super::Engine<'_> {
                     mlist.pop();
                 }
                 let mut ml = all_mappings.remove(&c_reading).unwrap();
-                self.split_mappings(&mut ml, c_cohort, c_reading, true);
+                self.split_mappings(&mut ml, c_cohort, c_reading, true)?;
             }
             // readings->back()->rehash();
             let list_back = if is_deleted {
@@ -458,7 +462,7 @@ impl super::Engine<'_> {
                 let rs = self.doc.store.cohorts.get(last_cohort.0).readings.clone();
                 for r in rs {
                     let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
-                    self.add_tag_to_reading(r, tid);
+                    self.add_tag_to_reading(r, tid)?;
                 }
             }
 
@@ -466,7 +470,7 @@ impl super::Engine<'_> {
                 .doc
                 .stream
                 .alloc_append_single_window(&mut self.doc.store);
-            self.init_empty_single_window(nsw);
+            self.init_empty_single_window(nsw)?;
             *c_swindow = Some(nsw);
 
             // cSWindow->variables_set = variables_set; variables_set.clear(); …
@@ -505,12 +509,12 @@ impl super::Engine<'_> {
                 self.doc.store.cohorts.get_mut(c_cohort.0).parent = *c_swindow;
                 let rs = self.doc.store.cohorts.get(c_cohort.0).readings.clone();
                 for rit in rs {
-                    self.reflow_reading(rit);
+                    self.reflow_reading(rit)?;
                 }
             }
         }
 
-        GotReading::Normal
+        Ok(GotReading::Normal)
     }
 
     /// C++ `cCohort->appendReading(cReading, cCohort->deleted)` — the 2-arg
@@ -592,7 +596,7 @@ impl super::Engine<'_> {
                 .doc
                 .stream
                 .alloc_append_single_window(&mut self.doc.store);
-            self.init_empty_single_window(sw);
+            self.init_empty_single_window(sw)?;
             c_swindow = Some(sw);
             l_swindow = Some(sw);
         }
@@ -644,7 +648,7 @@ impl super::Engine<'_> {
                     if let Some(cc) = c_cohort
                         && self.doc.store.cohorts.get(cc.0).readings.is_empty()
                     {
-                        self.init_empty_cohort(cc);
+                        self.init_empty_cohort(cc)?;
                     }
 
                     // (a) Soft-limit lookback.
@@ -660,9 +664,9 @@ impl super::Engine<'_> {
                                 .get();
                             let cohorts = self.doc.store.single_windows.get(sw.0).cohorts.clone();
                             for &c in cohorts.iter().rev() {
-                                if self.does_set_match_cohort_normal(c, sd, None) {
+                                if self.does_set_match_cohort_normal(c, sd, None)? {
                                     did_soft_lookback = false;
-                                    let cohort = self.delimit_at(sw, c);
+                                    let cohort = self.delimit_at(sw, c)?;
                                     // cSWindow = cohort->parent->next;
                                     let parent =
                                         self.doc.store.cohorts.get(cohort.0).parent.unwrap();
@@ -686,16 +690,16 @@ impl super::Engine<'_> {
                                 [self.grammar.soft_delimiters.unwrap().0]
                                 .number
                                 .get();
-                            self.does_set_match_cohort_normal(cc, sd, None)
+                            self.does_set_match_cohort_normal(cc, sd, None)?
                         };
                         if sd_hit {
                             // verbose soft-limit warning: deferred.
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
-                                self.add_tag_to_reading(r, tid);
+                                self.add_tag_to_reading(r, tid)?;
                             }
-                            self.split_all_mappings(&mut all_mappings, cc, true);
+                            self.split_all_mappings(&mut all_mappings, cc, true)?;
                             crate::single_window::append_cohort(
                                 &mut self.doc.store,
                                 &mut self.doc.cohorts,
@@ -729,16 +733,16 @@ impl super::Engine<'_> {
                                 let d = self.grammar.sets_list[self.grammar.delimiters.unwrap().0]
                                     .number
                                     .get();
-                                self.does_set_match_cohort_normal(cc, d, None)
+                                self.does_set_match_cohort_normal(cc, d, None)?
                             };
                         if over_hard || delim_hit {
                             // (!is_conv && over_hard) "Hard limit ... forcing break": deferred.
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
-                                self.add_tag_to_reading(r, tid);
+                                self.add_tag_to_reading(r, tid)?;
                             }
-                            self.split_all_mappings(&mut all_mappings, cc, true);
+                            self.split_all_mappings(&mut all_mappings, cc, true)?;
                             crate::single_window::append_cohort(
                                 &mut self.doc.store,
                                 &mut self.doc.cohorts,
@@ -768,7 +772,7 @@ impl super::Engine<'_> {
                             .doc
                             .stream
                             .alloc_append_single_window(&mut self.doc.store);
-                        self.init_empty_single_window(sw);
+                        self.init_empty_single_window(sw)?;
                         l_swindow = Some(sw);
                         c_swindow = Some(sw);
                         c_cohort = None;
@@ -778,7 +782,7 @@ impl super::Engine<'_> {
 
                     // Pending cCohort: split mappings + append it.
                     if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
-                        self.split_all_mappings(&mut all_mappings, cc, true);
+                        self.split_all_mappings(&mut all_mappings, cc, true)?;
                         crate::single_window::append_cohort(
                             &mut self.doc.store,
                             &mut self.doc.cohorts,
@@ -822,7 +826,7 @@ impl super::Engine<'_> {
                     let gn = self.doc.cohorts.next_cohort_number();
                     // wordform = addTag(&cleaned[0]) (up to the NUL at space+1).
                     let wf_text: String = cleaned.iter().take_while(|&&c| c != '\0').collect();
-                    let wf = self.add_tag(&wf_text, crate::tag::TagType::empty());
+                    let wf = self.add_tag(&wf_text, crate::tag::TagType::empty())?;
                     {
                         let c = self.doc.store.cohorts.get_mut(cc.0);
                         c.global_number = gn;
@@ -840,7 +844,7 @@ impl super::Engine<'_> {
                     if cleaned[space] != '\0' {
                         let wread = crate::reading::alloc_reading(&mut self.doc.store, Some(cc));
                         self.doc.store.cohorts.get_mut(cc.0).wread = Some(wread);
-                        self.add_tag_to_reading(wread, wf);
+                        self.add_tag_to_reading(wread, wf)?;
                         while cleaned[space] != '\0' {
                             crate::inlines::skipws_chars(&cleaned, &mut space, '\0', '\0', true);
                             let mut n = space;
@@ -854,8 +858,8 @@ impl super::Engine<'_> {
                                 .iter()
                                 .take_while(|&&c| c != '\0')
                                 .collect();
-                            let tag = self.add_tag(&tag_text, crate::tag::TagType::empty());
-                            self.add_tag_to_reading(wread, tag);
+                            let tag = self.add_tag(&tag_text, crate::tag::TagType::empty())?;
+                            self.add_tag_to_reading(wread, tag)?;
                             space = n + 1;
                         }
                     }
@@ -887,7 +891,7 @@ impl super::Engine<'_> {
                     l_swindow: &mut l_swindow,
                     did_soft_lookback: &mut did_soft_lookback,
                 };
-                match self.got_reading(scope, c_cohort.unwrap(), is_deleted) {
+                match self.got_reading(scope, c_cohort.unwrap(), is_deleted)? {
                     GotReading::Continue => {
                         // C++ `cReading = nullptr; continue;` — the `continue`
                         // re-enters the read loop WITHOUT running the trailing
@@ -918,7 +922,7 @@ impl super::Engine<'_> {
                             self.doc.store.single_windows.get_mut(bsw.0).flush_after = true;
                         }
                         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
-                            self.split_all_mappings(&mut all_mappings, cc, true);
+                            self.split_all_mappings(&mut all_mappings, cc, true)?;
                             crate::single_window::append_cohort(
                                 &mut self.doc.store,
                                 &mut self.doc.cohorts,
@@ -934,12 +938,12 @@ impl super::Engine<'_> {
                                 }
                             }
                             if self.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                                self.init_empty_cohort(cc);
+                                self.init_empty_cohort(cc)?;
                             }
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
-                                self.add_tag_to_reading(r, tid);
+                                self.add_tag_to_reading(r, tid)?;
                             }
                             // cReading = lReading = nullptr; etc.
                             l_reading = None;
@@ -957,7 +961,7 @@ impl super::Engine<'_> {
                         self.shuffle_windows_down();
                         while !self.doc.stream.previous.is_empty() {
                             let tmp = self.doc.stream.previous[0];
-                            fmt.print_single_window(self, tmp, output, false);
+                            fmt.print_single_window(self, tmp, output, false)?;
                             crate::single_window::free_swindow(
                                 &mut self.doc.store,
                                 &mut self.doc.cohorts,
@@ -1005,7 +1009,7 @@ impl super::Engine<'_> {
                                 .iter()
                                 .take_while(|&&ch| ch != '\0')
                                 .collect();
-                            let tag = self.add_tag(&s_text, crate::tag::TagType::empty());
+                            let tag = self.add_tag(&s_text, crate::tag::TagType::empty())?;
                             let h = self.grammar.single_tags_list[tag.0].hash.get();
                             *variables_set.index_or_insert(h) = self.grammar.tag_any;
                             variables_rem.erase(h);
@@ -1029,7 +1033,7 @@ impl super::Engine<'_> {
                                             .take_while(|&&ch| ch != '\0')
                                             .collect();
                                         let atag =
-                                            self.add_tag(&s_text, crate::tag::TagType::empty());
+                                            self.add_tag(&s_text, crate::tag::TagType::empty())?;
                                         a = self.grammar.single_tags_list[atag.0].hash.get();
                                     }
                                     if let Some(ci) = c {
@@ -1045,7 +1049,7 @@ impl super::Engine<'_> {
                                             .take_while(|&&ch| ch != '\0')
                                             .collect();
                                         let btag =
-                                            self.add_tag(&d_text, crate::tag::TagType::empty());
+                                            self.add_tag(&d_text, crate::tag::TagType::empty())?;
                                         b = self.grammar.single_tags_list[btag.0].hash.get();
                                     }
                                     if c.is_none() {
@@ -1067,7 +1071,7 @@ impl super::Engine<'_> {
                                             .take_while(|&&ch| ch != '\0')
                                             .collect();
                                         let atag =
-                                            self.add_tag(&s_text, crate::tag::TagType::empty());
+                                            self.add_tag(&s_text, crate::tag::TagType::empty())?;
                                         a = self.grammar.single_tags_list[atag.0].hash.get();
                                     }
                                     s = Some(ci + 1);
@@ -1084,7 +1088,7 @@ impl super::Engine<'_> {
                                             .take_while(|&&ch| ch != '\0')
                                             .collect();
                                         let atag =
-                                            self.add_tag(&s_text, crate::tag::TagType::empty());
+                                            self.add_tag(&s_text, crate::tag::TagType::empty())?;
                                         a = self.grammar.single_tags_list[atag.0].hash.get();
                                         *variables_set.index_or_insert(a) = self.grammar.tag_any;
                                         variables_rem.erase(a);
@@ -1111,7 +1115,7 @@ impl super::Engine<'_> {
                             if cleaned[s] != '\0' {
                                 let s_text: String =
                                     cleaned[s..].iter().take_while(|&&ch| ch != '\0').collect();
-                                let atag = self.add_tag(&s_text, crate::tag::TagType::empty());
+                                let atag = self.add_tag(&s_text, crate::tag::TagType::empty())?;
                                 let a = self.grammar.single_tags_list[atag.0].hash.get();
                                 variables_set.erase(a);
                                 variables_rem.insert(a);
@@ -1123,7 +1127,7 @@ impl super::Engine<'_> {
                         if cleaned[s] != '\0' {
                             let s_text: String =
                                 cleaned[s..].iter().take_while(|&&ch| ch != '\0').collect();
-                            let atag = self.add_tag(&s_text, crate::tag::TagType::empty());
+                            let atag = self.add_tag(&s_text, crate::tag::TagType::empty())?;
                             let a = self.grammar.single_tags_list[atag.0].hash.get();
                             variables_set.erase(a);
                             variables_rem.insert(a);
@@ -1149,9 +1153,9 @@ impl super::Engine<'_> {
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
                                 let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
-                                self.add_tag_to_reading(r, tid);
+                                self.add_tag_to_reading(r, tid)?;
                             }
-                            self.split_all_mappings(&mut all_mappings, cc, true);
+                            self.split_all_mappings(&mut all_mappings, cc, true)?;
                             let sw = c_swindow.unwrap();
                             crate::single_window::append_cohort(
                                 &mut self.doc.store,
@@ -1210,7 +1214,7 @@ impl super::Engine<'_> {
 
         // Pending cCohort + cSWindow at EOF.
         if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
-            self.split_all_mappings(&mut all_mappings, cc, true);
+            self.split_all_mappings(&mut all_mappings, cc, true)?;
             crate::single_window::append_cohort(
                 &mut self.doc.store,
                 &mut self.doc.cohorts,
@@ -1226,12 +1230,12 @@ impl super::Engine<'_> {
                 }
             }
             if self.doc.store.cohorts.get(cc.0).readings.is_empty() {
-                self.init_empty_cohort(cc);
+                self.init_empty_cohort(cc)?;
             }
             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
             for r in rs {
                 let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
-                self.add_tag_to_reading(r, tid);
+                self.add_tag_to_reading(r, tid)?;
             }
             // C++ also nulls cReading/cCohort here; nothing below reads them.
             c_swindow = None;
@@ -1246,7 +1250,7 @@ impl super::Engine<'_> {
                     .doc
                     .stream
                     .alloc_append_single_window(&mut self.doc.store);
-                self.init_empty_single_window(sw);
+                self.init_empty_single_window(sw)?;
                 c_swindow = Some(sw);
             }
             if let Some(sw) = c_swindow {
@@ -1267,7 +1271,7 @@ impl super::Engine<'_> {
         self.shuffle_windows_down();
         while !self.doc.stream.previous.is_empty() {
             let tmp = self.doc.stream.previous[0];
-            fmt.print_single_window(self, tmp, output, false);
+            fmt.print_single_window(self, tmp, output, false)?;
             let t = Some(tmp);
             crate::single_window::free_swindow(
                 &mut self.doc.store,

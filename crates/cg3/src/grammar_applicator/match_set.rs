@@ -337,7 +337,7 @@ impl Matcher<'_> {
         tag: &Tag,
         unif_mode: bool,
         bypass_index: bool,
-    ) -> u32 {
+    ) -> Result<u32, crate::error::RunError> {
         let mut retval: u32 = 0;
         let mut m: u32 = 0;
 
@@ -360,12 +360,12 @@ impl Matcher<'_> {
                 let it = self.grammar.sets_by_name.find(sh0);
                 it.get().1
             };
-            m = self.does_set_match_reading(reading, sh, bypass_index, unif_mode) as u32;
+            m = self.does_set_match_reading(reading, sh, bypass_index, unif_mode)? as u32;
         } else if tag.r#type.intersects(T_VARSTRING) {
             // (3) varstring: generate the concrete tag, recurse
-            let nt = self.generate_varstring_tag(tag);
+            let nt = self.generate_varstring_tag(tag)?;
             let nt_tag = self.grammar.single_tags_list[nt.0].clone();
-            m = self.does_tag_match_reading(reading, &nt_tag, unif_mode, bypass_index);
+            m = self.does_tag_match_reading(reading, &nt_tag, unif_mode, bypass_index)?;
         } else if tag.r#type.intersects(T_META) {
             // (4) META regex against the cohort's parenthetical text
             if let Some(re) = tag.regexp.as_ref() {
@@ -662,7 +662,7 @@ impl Matcher<'_> {
         if m != 0 {
             retval = m;
         }
-        retval
+        Ok(retval)
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-trie-fn]
@@ -684,7 +684,7 @@ impl Matcher<'_> {
         special: bool,
         path: &mut Vec<TagId>,
         unif_mode: bool,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         // Snapshot this level's entries (ascending Tag::hash) with a short borrow;
         // the trie borrow is released before any `&mut self` call below. `path`
         // names the node whose child-trie is walked here — an empty `path` walks
@@ -695,13 +695,13 @@ impl Matcher<'_> {
                     .keys()
                     .map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
                     .collect(),
-                None => return false,
+                None => return Ok(false),
             }
         };
         entries.sort_by_key(|e| e.1);
         for (tid, _h) in entries {
             let tagv = self.grammar.single_tags_list[tid.0].clone();
-            let matched = self.does_tag_match_reading(reading, &tagv, unif_mode, false) != 0;
+            let matched = self.does_tag_match_reading(reading, &tagv, unif_mode, false)? != 0;
             if matched {
                 if tagv.r#type.intersects(T_FAILFAST) {
                     continue;
@@ -724,20 +724,20 @@ impl Matcher<'_> {
                         }
                     }
                     path.pop();
-                    return true;
+                    return Ok(true);
                 }
                 if has_child
                     && self.does_set_match_reading_trie(
                         reading, set_number, set, special, path, unif_mode,
-                    )
+                    )?
                 {
                     path.pop();
-                    return true;
+                    return Ok(true);
                 }
                 path.pop();
             }
         }
-        false
+        Ok(false)
     }
 
     /// Resolve `set`'s `trie`/`trie_special` (per `special`) down `path` (a
@@ -783,7 +783,7 @@ impl Matcher<'_> {
         reading: ReadingId,
         set_number: u32,
         unif_mode: bool,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         let mut retval = false;
 
         // Fail-fast pre-check. Snapshot the ff_tags ids with a short borrow.
@@ -797,8 +797,8 @@ impl Matcher<'_> {
         };
         for tid in ff {
             let tagv = self.grammar.single_tags_list[tid.0].clone();
-            if self.does_tag_match_reading(reading, &tagv, unif_mode, false) != 0 {
-                return false;
+            if self.does_tag_match_reading(reading, &tagv, unif_mode, false)? != 0 {
+                return Ok(false);
             }
         }
 
@@ -852,7 +852,7 @@ impl Matcher<'_> {
                     if has_child
                         && self.does_set_match_reading_trie(
                             reading, set_number, set_number, false, &mut path, unif_mode,
-                        )
+                        )?
                     {
                         retval = true;
                         break;
@@ -878,10 +878,10 @@ impl Matcher<'_> {
                 let mut path: Vec<TagId> = Vec::new();
                 retval = self.does_set_match_reading_trie(
                     reading, set_number, set_number, true, &mut path, unif_mode,
-                );
+                )?;
             }
         }
-        retval
+        Ok(retval)
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn]
@@ -896,14 +896,14 @@ impl Matcher<'_> {
         set: u32,
         bypass_index: bool,
         unif_mode: bool,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         if !bypass_index && !unif_mode {
             let rhash = self.readings.get(reading.0).hash;
             if self.scratch.index_reading_set_no[set as usize].contains(rhash) {
-                return false;
+                return Ok(false);
             }
             if self.scratch.index_reading_set_yes[set as usize].contains(rhash) {
-                return true;
+                return Ok(true);
             }
         }
 
@@ -924,7 +924,7 @@ impl Matcher<'_> {
             // step (short borrows), so no grammar borrow aliases the `&mut self`
             // re-entry — the C++ `&kv` node identity is carried as an address-free
             // `UnifKey` (`(special, TagId path)`), leaving this case plain safe code.
-            retval = self.does_set_match_reading_tags(reading, snumber, tagunif || unif_mode);
+            retval = self.does_set_match_reading_tags(reading, snumber, tagunif || unif_mode)?;
         } else if stype.intersects(ST_SET_UNIFY) {
             // (c) &&-unified set
             let usets_idx = self
@@ -951,7 +951,7 @@ impl Matcher<'_> {
                         tnum,
                         bypass_index,
                         tagunif || unif_mode,
-                    ) {
+                    )? {
                         self.scratch.unif_sets_store[usets_idx]
                             .entry(snumber)
                             .or_default()
@@ -970,7 +970,7 @@ impl Matcher<'_> {
                     .unwrap_or_default();
                 let mut sets = self.scratch.ss_u32sv.get();
                 for usi in stored {
-                    if self.does_set_match_reading(reading, usi, bypass_index, unif_mode) {
+                    if self.does_set_match_reading(reading, usi, bypass_index, unif_mode)? {
                         sets.insert(usi);
                     }
                 }
@@ -988,7 +988,7 @@ impl Matcher<'_> {
                     ssets[i],
                     bypass_index,
                     tagunif || unif_mode,
-                );
+                )?;
                 let mut failfast = false;
                 while i < size - 1 && sset_ops[i] != S_OR {
                     match sset_ops[i] {
@@ -999,7 +999,7 @@ impl Matcher<'_> {
                                     ssets[i + 1],
                                     bypass_index,
                                     tagunif || unif_mode,
-                                );
+                                )?;
                             }
                         }
                         x if x == S_FAILFAST => {
@@ -1008,7 +1008,7 @@ impl Matcher<'_> {
                                 ssets[i + 1],
                                 bypass_index,
                                 tagunif || unif_mode,
-                            ) {
+                            )? {
                                 m = false;
                                 failfast = true;
                             }
@@ -1019,7 +1019,7 @@ impl Matcher<'_> {
                                 ssets[i + 1],
                                 bypass_index,
                                 tagunif || unif_mode,
-                            ) {
+                            )? {
                                 m = false;
                             }
                         }
@@ -1070,7 +1070,7 @@ impl Matcher<'_> {
             let rhash = self.readings.get(reading.0).hash;
             self.scratch.index_reading_set_no[set as usize].insert(rhash);
         }
-        retval
+        Ok(retval)
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn]
@@ -1084,7 +1084,7 @@ impl Matcher<'_> {
         cohort: CohortId,
         set: u32,
         context: &mut CohortMatchContext,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         let mut retval = true;
         let mut reset = false;
         let mut linked: Option<crate::arena::CtxId> = None;
@@ -1117,7 +1117,7 @@ impl Matcher<'_> {
                         l,
                         context.deep.as_deref_mut(),
                         Some(cohort),
-                    )
+                    )?
                 } else {
                     self.run_contextual_test(
                         cparent,
@@ -1125,7 +1125,7 @@ impl Matcher<'_> {
                         l,
                         context.deep.as_deref_mut(),
                         context.origin,
-                    )
+                    )?
                 };
                 context.matched_tests = res.is_some();
                 let child_unify = self
@@ -1146,7 +1146,7 @@ impl Matcher<'_> {
             self.scratch.tmpl_cntx.min = min;
             self.scratch.tmpl_cntx.max = max;
         }
-        retval
+        Ok(retval)
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-helper-fn]
@@ -1161,7 +1161,7 @@ impl Matcher<'_> {
         reading: ReadingId,
         set: u32,
         mut context: Option<&mut CohortMatchContext>,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         let mut retval = false;
         let mut utags = self.scratch.ss_utags.get();
         let mut usets = self.scratch.ss_usets.get();
@@ -1193,7 +1193,7 @@ impl Matcher<'_> {
         }
 
         let bypass = stype.intersects(ST_CHILD_UNIFY | ST_SPECIAL);
-        if self.does_set_match_reading(reading, snumber, bypass, false) {
+        if self.does_set_match_reading(reading, snumber, bypass, false)? {
             retval = true;
             if let Some(ctx) = context.as_deref_mut() {
                 if ctx.options.intersects(POS_ATTACH_TO) {
@@ -1223,7 +1223,7 @@ impl Matcher<'_> {
                     .intersects(POS_ATTACH_TO);
                 {
                     let ctx = context.as_deref_mut().unwrap();
-                    retval = self.does_set_match_cohort_test_linked(cohort, set, ctx);
+                    retval = self.does_set_match_cohort_test_linked(cohort, set, ctx)?;
                 }
                 if attach {
                     // reading.matched_tests = retval — retval can be FALSE, so
@@ -1281,7 +1281,7 @@ impl Matcher<'_> {
         if !retval && !self.scratch.context_stack.is_empty() {
             self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = orz;
         }
-        retval
+        Ok(retval)
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-normal-fn]
@@ -1294,7 +1294,7 @@ impl Matcher<'_> {
         cohort: CohortId,
         set: u32,
         mut context: Option<&mut CohortMatchContext>,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         let mut retval = false;
 
         let opts = context.as_deref().map(|c| c.options).unwrap_or_default();
@@ -1303,7 +1303,7 @@ impl Matcher<'_> {
         if guard {
             let ps = &self.cohorts.get(cohort.0).possible_sets;
             if set as usize >= ps.len() || !ps[set as usize] {
-                return retval;
+                return Ok(retval);
             }
         }
 
@@ -1312,7 +1312,8 @@ impl Matcher<'_> {
         if let Some(wr) = wread {
             let in_barrier = context.as_deref().map(|c| c.in_barrier).unwrap_or(false);
             if context.is_none() || !in_barrier {
-                retval = self.does_set_match_cohort_helper(cohort, wr, set, context.as_deref_mut());
+                retval =
+                    self.does_set_match_cohort_helper(cohort, wr, set, context.as_deref_mut())?;
             }
         }
         if retval {
@@ -1321,7 +1322,7 @@ impl Matcher<'_> {
                 Some(c) => c.did_test,
             };
             if done {
-                return retval;
+                return Ok(retval);
             }
         }
 
@@ -1353,7 +1354,12 @@ impl Matcher<'_> {
                         continue;
                     }
                 }
-                if self.does_set_match_cohort_helper(cohort, reading, set, context.as_deref_mut()) {
+                if self.does_set_match_cohort_helper(
+                    cohort,
+                    reading,
+                    set,
+                    context.as_deref_mut(),
+                )? {
                     retval = true;
                     // Back-fill the attach_to parent reading (helper only knew the subreading).
                     if !self.scratch.context_stack.is_empty() {
@@ -1379,7 +1385,7 @@ impl Matcher<'_> {
                 };
                 let did_test = context.as_deref().map(|c| c.did_test).unwrap_or(false);
                 if retval && (context.is_none() || !has_linked || did_test) {
-                    return retval;
+                    return Ok(retval);
                 }
             }
         }
@@ -1391,7 +1397,7 @@ impl Matcher<'_> {
             .unwrap_or(false);
         if do_tl {
             let ctx = context.unwrap();
-            retval = self.does_set_match_cohort_test_linked(cohort, set, ctx);
+            retval = self.does_set_match_cohort_test_linked(cohort, set, ctx)?;
         }
 
         // DIVERGENCE (operator decision, plan node
@@ -1404,7 +1410,7 @@ impl Matcher<'_> {
         // index maintained by reflow and the stream parsers; the matcher only
         // READS it.
 
-        retval
+        Ok(retval)
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn]
@@ -1417,7 +1423,7 @@ impl Matcher<'_> {
         cohort: CohortId,
         set: u32,
         mut context: Option<&mut CohortMatchContext>,
-    ) -> bool {
+    ) -> Result<bool, crate::error::RunError> {
         let mut retval = false;
 
         let opts = context.as_deref().map(|c| c.options).unwrap_or_default();
@@ -1426,7 +1432,7 @@ impl Matcher<'_> {
         if guard {
             let ps = &self.cohorts.get(cohort.0).possible_sets;
             if set as usize >= ps.len() || !ps[set as usize] {
-                return retval;
+                return Ok(retval);
             }
         }
 
@@ -1457,8 +1463,12 @@ impl Matcher<'_> {
                         continue;
                     }
                 }
-                retval =
-                    self.does_set_match_cohort_helper(cohort, reading, set, context.as_deref_mut());
+                retval = self.does_set_match_cohort_helper(
+                    cohort,
+                    reading,
+                    set,
+                    context.as_deref_mut(),
+                )?;
                 if !retval {
                     break;
                 }
@@ -1474,10 +1484,10 @@ impl Matcher<'_> {
             .unwrap_or(false);
         if do_tl {
             let ctx = context.unwrap();
-            retval = self.does_set_match_cohort_test_linked(cohort, set, ctx);
+            retval = self.does_set_match_cohort_test_linked(cohort, set, ctx)?;
         }
 
-        retval
+        Ok(retval)
     }
 
     /// Builds the C++ `ReadingList* lists[4]` array: slot 0 = `cohort.readings`;

@@ -174,12 +174,15 @@ impl<'a> BinaryApplicator<'a> {
     /// Reads the type byte, dispatches WINDOW/COMMAND, then in a SEPARATE `if`
     /// (not chained, faithful) dispatches TEXT. `ux_stdin` is threaded as an
     /// explicit `input` param (the base field is a placeholder).
-    pub fn read_packet<R: Read>(&mut self, input: &mut R) -> BinaryPacket {
+    pub fn read_packet<R: Read>(
+        &mut self,
+        input: &mut R,
+    ) -> Result<BinaryPacket, crate::error::RunError> {
         let mut packet = BinaryPacket::default();
         let ty: u8 = read_le(input);
         packet.r#type = BinaryPacketType::from_u8(ty);
         if packet.r#type == BinaryPacketType::BfpWindow {
-            packet.window = self.read_window(input);
+            packet.window = self.read_window(input)?;
         } else if packet.r#type == BinaryPacketType::BfpCommand {
             packet.command = self.read_command(input);
         }
@@ -187,7 +190,7 @@ impl<'a> BinaryApplicator<'a> {
             self.read_text(input);
             packet.text_set = true;
         }
-        packet
+        Ok(packet)
     }
 
     // [spec:cg3:def:binary-applicator.cg3.binary-applicator.read-command-fn]
@@ -213,14 +216,17 @@ impl<'a> BinaryApplicator<'a> {
     /// `SingleWindow` (all integers LE). Returns the new window id, or `None` at
     /// EOF (C++ `payload = nullptr`). No bounds checking on tag indices (UB on a
     /// malformed index — faithful).
-    pub fn read_window<R: Read>(&mut self, input: &mut R) -> Option<SwId> {
+    pub fn read_window<R: Read>(
+        &mut self,
+        input: &mut R,
+    ) -> Result<Option<SwId>, crate::error::RunError> {
         let cs: u32 = read_le(input);
 
-        // if (ux_stdin->eof()) { payload = nullptr; return; } — modelled as a
+        // if (ux_stdin->eof()) { payload = nullptr; return Ok(()); } — modelled as a
         // short read of the body (read_exact fails → EOF).
         let mut buf = vec![0u8; cs as usize];
         if input.read_exact(&mut buf).is_err() && cs != 0 {
-            return None;
+            return Ok(None);
         }
 
         let c_swindow = self
@@ -228,7 +234,7 @@ impl<'a> BinaryApplicator<'a> {
             .doc
             .stream
             .alloc_append_single_window(&mut self.base.doc.store);
-        self.base.engine().init_empty_single_window(c_swindow);
+        self.base.engine().init_empty_single_window(c_swindow)?;
 
         let mut pos = 0usize;
 
@@ -269,7 +275,7 @@ impl<'a> BinaryApplicator<'a> {
         for _ in 0..tag_count {
             let tg = read_str!();
             let first = tg.chars().next().unwrap_or('\0');
-            let tid = self.base.add_tag(&tg, crate::tag::TagType::empty());
+            let tid = self.base.add_tag(&tg, crate::tag::TagType::empty())?;
             // tg[0] == grammar->mapping_prefix ? |= T_MAPPING : &= ~T_MAPPING.
             let t = self.base.grammar.single_tags_list.get_mut(tid.0);
             if first == self.base.grammar.mapping_prefix {
@@ -351,13 +357,13 @@ impl<'a> BinaryApplicator<'a> {
                 let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
                 self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
                 let wf = window_tags[wf_idx];
-                self.base.engine().add_tag_to_reading(wread, wf);
+                self.base.engine().add_tag_to_reading(wread, wf)?;
                 for tn in 0..stag_count {
                     let ti = read_u16!() as usize;
                     let rehash = tn + 1 == stag_count;
                     self.base
                         .engine()
-                        .add_tag_to_reading_rehash(wread, window_tags[ti], rehash);
+                        .add_tag_to_reading_rehash(wread, window_tags[ti], rehash)?;
                 }
             }
 
@@ -417,7 +423,7 @@ impl<'a> BinaryApplicator<'a> {
             // Readings.
             let reading_count = read_u16!();
             if reading_count == 0 {
-                self.base.engine().init_empty_cohort(c_cohort);
+                self.base.engine().init_empty_cohort(c_cohort)?;
             }
             let mut prev: Option<crate::arena::ReadingId> = None;
             for _ in 0..reading_count {
@@ -431,14 +437,14 @@ impl<'a> BinaryApplicator<'a> {
                     .get(c_cohort.0)
                     .wordform
                     .unwrap();
-                self.base.engine().add_tag_to_reading(c_reading, wf);
+                self.base.engine().add_tag_to_reading(c_reading, wf)?;
 
                 let rflags = read_u16!();
 
                 let base_idx = read_u16!() as usize;
                 self.base
                     .engine()
-                    .add_tag_to_reading(c_reading, window_tags[base_idx]);
+                    .add_tag_to_reading(c_reading, window_tags[base_idx])?;
 
                 let rtag_count = read_u16!();
                 let mut mappings = crate::tag::TagList::new();
@@ -451,13 +457,13 @@ impl<'a> BinaryApplicator<'a> {
                     {
                         mappings.push(tid);
                     } else {
-                        self.base.engine().add_tag_to_reading(c_reading, tid);
+                        self.base.engine().add_tag_to_reading(c_reading, tid)?;
                     }
                 }
                 if !mappings.is_empty() {
                     self.base
                         .engine()
-                        .split_mappings(&mut mappings, c_cohort, c_reading, true);
+                        .split_mappings(&mut mappings, c_cohort, c_reading, true)?;
                 }
 
                 if let Some(prev_reading) = prev
@@ -496,7 +502,7 @@ impl<'a> BinaryApplicator<'a> {
                         .find(self.base.cfg.endtag.get())
                         != self.base.doc.store.readings.get(r.0).tags.end();
                     if !has {
-                        self.base.engine().add_tag_to_reading(r, endtag_id);
+                        self.base.engine().add_tag_to_reading(r, endtag_id)?;
                     }
                 }
             }
@@ -520,7 +526,7 @@ impl<'a> BinaryApplicator<'a> {
             );
         }
 
-        Some(c_swindow)
+        Ok(Some(c_swindow))
     }
 
     // =======================================================================
@@ -954,8 +960,9 @@ impl crate::grammar_applicator::stream_format::StreamFormat for BinaryFormat {
         _cohort: CohortId,
         _output: &mut W,
         _profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         // Binary streams are emitted as whole-window packets.
+        Ok(())
     }
 
     fn print_single_window<W: Write>(
@@ -964,8 +971,9 @@ impl crate::grammar_applicator::stream_format::StreamFormat for BinaryFormat {
         window: SwId,
         output: &mut W,
         profiling: bool,
-    ) {
+    ) -> Result<(), crate::error::RunError> {
         self.bin_print_single_window(e, window, output, profiling);
+        Ok(())
     }
 
     fn print_stream_command<W: Write>(&mut self, _e: &mut Engine<'_>, cmd: &str, output: &mut W) {
@@ -1056,7 +1064,7 @@ impl<'x> BinaryApplicator<'x> {
             if at_eof {
                 break;
             }
-            let packet = self.read_packet(&mut input);
+            let packet = self.read_packet(&mut input)?;
             match packet.r#type {
                 BinaryPacketType::BfpWindow => {
                     self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
@@ -1129,7 +1137,7 @@ impl<'x> BinaryApplicator<'x> {
         while !self.base.doc.stream.previous.is_empty() {
             let tmp = self.base.doc.stream.previous[0];
             // C++ virtual printSingleWindow — the most-derived format decides.
-            fmt.print_single_window(&mut self.base.engine(), tmp, output, false);
+            fmt.print_single_window(&mut self.base.engine(), tmp, output, false)?;
             let t = Some(tmp);
             crate::single_window::free_swindow(
                 &mut self.base.doc.store,
