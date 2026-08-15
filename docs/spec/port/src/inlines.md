@@ -23,23 +23,22 @@
 > wrapped container reference `c.t`. Paired with `end(Reversed<T>)` it makes
 > a range-based for over a `Reversed<T>` iterate in reverse order.
 
-> [spec:cg3:def:inlines.cg3.cg3-quit-fn]
-> [[noreturn]]
+`[spec:cg3:def:inlines.cg3.cg3-quit-fn]` and its `sem` stood here. They described
+`CG3Quit(int32_t c = 0, const char* file = nullptr, uint32_t line = 0)`, marked
+`[[noreturn]]`: if BOTH `file` was non-null AND `line` non-zero it flushed
+`std::cerr` (`std::cerr << std::flush`), wrote `CG3Quit triggered from <file>
+line <line>.` followed by `std::endl` (newline + flush), and then called
+`exit(c)` — terminating the process with exit code `c`, running atexit/static
+destructors, never returning. With a null file or a zero line it printed nothing
+and just exited.
 
-> [spec:cg3:sem:inlines.cg3.cg3-quit-fn+1]
-> `CG3Quit(int32_t c = 0, const char* file = nullptr, uint32_t line = 0)`,
-> marked `[[noreturn]]`. If BOTH `file` is non-null AND `line` is non-zero,
-> it flushes `std::cerr` (`std::cerr << std::flush`) then writes the line
-> `CG3Quit triggered from <file> line <line>.` followed by `std::endl`
-> (newline + flush) to `std::cerr`. Then it calls `exit(c)`, terminating the
-> process with exit code `c` and running atexit/static destructors. Never
-> returns. If file is null or line is 0, no message is printed — it just
-> exits.
-> DIVERGENCE: the port has no counterpart. Terminating the process from inside
-> library code is what `[dec:cg3:results-not-unwinding]` bans, and every site
-> that used to call this returns its failure instead; only the `src/bin`
-> wrappers call `process::exit`, on a code their `main_*` returned. This rule is
-> therefore deliberately uncovered on the target side.
+They are obsolesced, not unmet. `[dec:cg3:results-not-unwinding]` bans
+terminating the process from inside library code, and the port's counterpart was
+deleted along with every call to it: each of those sites returns its failure
+instead, and only the `src/bin` wrappers call `process::exit`, on a code their
+`main_*` returned. There is no Rust function left for these rules to describe, so
+holding them open would be a permanent false negative in the uncovered list
+rather than outstanding work.
 
 > [spec:cg3:def:inlines.cg3.clear-fn]
 > inline void clear(C& c)

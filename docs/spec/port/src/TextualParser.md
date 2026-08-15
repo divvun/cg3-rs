@@ -137,18 +137,24 @@
 > that the parser is populating. Provides the `get_grammar` hook of the
 > `State` interface consumed by the free `parseTag`/`parseSet` helpers.
 
-> [spec:cg3:def:textual-parser.cg3.textual-parser.inc-error-count-fn]
-> void TextualParser::incErrorCount()
+`[spec:cg3:def:textual-parser.cg3.textual-parser.inc-error-count-fn]` and its
+`sem` stood here. They described `void TextualParser::incErrorCount()`, the
+central error-count/bailout routine, `[[noreturn]]`: it flushed `ux_stderr` and
+incremented `error_counter`; at `error_counter >= 10` it printed "Too many errors
+- giving up..." and called `CG3Quit(1)` (process exit); otherwise
+`throw error_counter;` threw an `int` that unwound to the per-statement
+`try/catch(int)` in `parseFromUChar`, which recovered by skipping to the next
+line. So each `error(...)` aborted the current construct while the parse
+continued, up to 10 accumulated errors.
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.inc-error-count-fn]
-> Central error-count/bailout routine, [[noreturn]]. Flushes
-> `ux_stderr`, increments `error_counter`. If `error_counter >= 10`,
-> prints "Too many errors - giving up..." and calls `CG3Quit(1)`
-> (process exit). Otherwise `throw error_counter;` (throws an `int`) -
-> this unwinds up to the per-statement `try/catch(int)` in
-> `parseFromUChar`, which recovers by skipping to the next line. So
-> each `error(...)` aborts the current construct but parsing continues,
-> up to 10 accumulated errors.
+They are obsolesced, not unmet. `[dec:cg3:results-not-unwinding]` bans unwinding
+as control flow, and the port's counterpart was deleted with the `throw` that was
+its only reason to exist: `TextualParser::error_near` RETURNS its error, the
+directive loop in `parse_from_u_char` records it and resumes, and every
+recoverable error is reported together per
+`[spec:cg3:req:errors.parse-reports-all]`. Only the counting survives, as
+`MAX_PARSE_ERRORS` — the same threshold, now stopping the loop rather than
+exiting the process. There is no Rust function left for these rules to describe.
 
 > [spec:cg3:def:textual-parser.cg3.textual-parser.maybe-parse-rule-fn]
 > bool TextualParser::maybeParseRule(UChar*& p)

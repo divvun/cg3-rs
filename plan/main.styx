@@ -1874,6 +1874,13 @@ children (
                         kind @note
                         text "Two port rules now describe code that no longer exists, and show up in both the uncovered (10) and unplanned (19) lists: inlines.cg3.cg3-quit-fn (the CG3Quit termination) and textual-parser.cg3.textual-parser.inc-error-count-fn (the error-count/throw bail). errors-idiomatic.teardown deleted both functions. Retire them the way [spec:cg3:req:errors.control-flow-quiet] was retired — prose in place recording that the rule is obsolesced rather than unmet, with a pointer to [dec:cg3:results-not-unwinding] — so a reader of the port spec is not left wondering why a documented C++ function has no Rust counterpart. The other 8 uncovered rules are pre-existing port residue and out of scope here."
                     }
+
+                    {
+                        at 2026-08-15T16:33:51.087333Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

@@ -493,12 +493,13 @@ fn undef_sets_and_list_append() {
     );
 }
 
-// Error recovery: referencing an undefined set makes parseSet call
-// TextualParser::error (near-context form), which routes through
-// incErrorCount (counter += 1, ParseError unwind); parseFromUChar catches it,
-// skips the line, and the parse finishes returning the nonzero error count.
+// Error recovery: referencing an undefined set makes parse_set call
+// TextualParser::error_near, which returns a ParseError; the directive loop in
+// parse_from_u_char records it, skips the line, and the parse finishes reporting
+// every error it found. The C++ `incErrorCount` throw this replaced is retired —
+// see `[dec:cg3:results-not-unwinding]` and the note in
+// `docs/spec/port/src/TextualParser.md`.
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.inc-error-count-fn/test]
 #[test]
 fn parse_error_recovery_counts_errors() {
     let mut p = TextualParser::new(Grammar::default(), false);

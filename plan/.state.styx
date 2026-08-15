@@ -121,6 +121,7 @@ assertions (
     {id errors-idiomatic-followups.process-error-type, kind @doing, author "brendan@necessary.nu", at 2026-08-15T16:20:25.345143Z}
     {id errors-idiomatic-followups.nrules-seam, kind @doing, author "brendan@necessary.nu", at 2026-08-15T16:24:35.453919Z}
     {id errors-idiomatic-followups.detect-format-silent, kind @doing, author "brendan@necessary.nu", at 2026-08-15T16:29:51.790143Z}
+    {id errors-idiomatic-followups.retire-dead-rules, kind @doing, author "brendan@necessary.nu", at 2026-08-15T16:33:51.087333Z}
 )
 
 impl_evidence (
