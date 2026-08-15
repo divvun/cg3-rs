@@ -455,6 +455,12 @@ pub fn main_proc(args: &[String]) -> i32 {
     base.cfg.trace = trace;
     base.cfg.unicode_tags = true;
     base.cfg.unique_tags = false;
+    // [spec:cg3:req:diagnostics.runtime-input-named]
+    // `argv[optind+1]` when one was given; otherwise the run really is reading
+    // stdin, and a diagnostic should say so rather than claim a name.
+    base.cfg.input_name = input_path
+        .cloned()
+        .unwrap_or_else(|| crate::grammar_applicator::STDIN_SOURCE_NAME.to_string());
 
     // -r single rule: match rule name and push its number into valid_rules.
     if !single_rule.is_empty() {

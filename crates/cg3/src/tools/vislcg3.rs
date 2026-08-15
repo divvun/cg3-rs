@@ -482,6 +482,8 @@ pub fn main_run(args: &[String]) -> i32 {
         if let Err(e) = applicator.base_mut().set_options(&options) {
             return fail(&e);
         }
+        // [spec:cg3:req:diagnostics.runtime-input-named]
+        applicator.base_mut().cfg.input_name = input_name(&options);
 
         applicator.base_mut().cfg.fmt_output = StreamFormatKind::Cg;
         if occ(&options, Opt::OutApertium) {
@@ -563,6 +565,20 @@ pub fn main_run(args: &[String]) -> i32 {
 
     // u_cleanup dropped.
     status
+}
+
+// [spec:cg3:req:diagnostics.runtime-input-named]
+/// What a runtime diagnostic should call the input stream: the `--stdin` file
+/// when one was given, else the name for a stream with no file behind it.
+///
+/// A free function rather than an inline branch so `main_run`, which is already
+/// one long option-dispatch, does not grow another.
+fn input_name(options: &crate::options::OptionsTable) -> String {
+    let opt = &options[Opt::Stdin as usize];
+    if opt.does_occur {
+        return opt.value.clone();
+    }
+    crate::grammar_applicator::STDIN_SOURCE_NAME.to_string()
 }
 
 // [spec:cg3:req:diagnostics.sidecar]

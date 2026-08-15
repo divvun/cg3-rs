@@ -2061,22 +2061,32 @@ impl crate::parser_helpers::ParseTagState for Matcher<'_> {
         ""
     }
 
+    // [spec:cg3:req:diagnostics.runtime-input-named]
     /// C++ `GrammarApplicator::error(str, p)` labelled the failure `RT RULE`
     /// with the current rule's line, or `RT INPUT` with the input line count.
     /// That label/line pair is the only position a runtime tag failure has, so
     /// it becomes the error's `file` and `line`. The C++ printed here and
     /// returned; the caller now decides.
     ///
+    /// A failure with no rule in flight belongs to the INPUT, and the line
+    /// counts that stream's lines rather than the grammar's — so it is headed
+    /// with the input's own name
+    /// ([`EngineConfig::input_name`](crate::grammar_applicator::EngineConfig::input_name))
+    /// rather than with `RT INPUT`, which said which counter the number came
+    /// from and nothing about which of several files produced it. `RT RULE`
+    /// stays as the fallback for a rule that cannot be placed in a source;
+    /// `place_in_grammar` replaces it when it can.
+    ///
     /// No span: the offending text came off the input stream, not out of a
-    /// grammar buffer, and the grammar source is gone by the time the stream
-    /// runs. `near` is ignored for the same reason the C++ passed `p = 0` here.
+    /// grammar buffer. `near` is ignored for the same reason the C++ passed
+    /// `p = 0` here.
     fn error_at(&mut self, _near: crate::parser_helpers::Near<'_>) -> crate::error::ParseError {
         let (label, line) = if let Some(rid) = self.scratch.current_rule
             && self.grammar.rule_by_number[rid.0].line != 0
         {
             ("RT RULE", self.grammar.rule_by_number[rid.0].line)
         } else {
-            ("RT INPUT", *self.num_lines)
+            (self.cfg.input_name.as_str(), *self.num_lines)
         };
         crate::error::ParseError {
             file: label.to_string(),

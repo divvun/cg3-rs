@@ -332,7 +332,20 @@ pub struct EngineConfig {
     /// regexes (ICU `URegularExpression*` → `fancy_regex::Regex`, compiled
     /// through `crate::tag_regex`).
     pub text_delimiters: Vec<crate::tag_regex::TagRegex>,
+
+    // [spec:cg3:req:diagnostics.runtime-input-named]
+    /// ADDED — no C++ analog. What to call the input stream in a runtime
+    /// diagnostic. The engine reads its input through a handle and never knew
+    /// what was behind it, so a failure while reading could only report a line
+    /// COUNT; the CLI opened the stream and is the only thing that knows.
+    /// Defaults to [`STDIN_SOURCE_NAME`], which is the truth for a stream with
+    /// no file behind it.
+    pub input_name: String,
 }
+
+/// What a runtime diagnostic calls an input stream with no file behind it.
+/// The counterpart of the parser's `<utf8-memory>`.
+pub const STDIN_SOURCE_NAME: &str = "<stdin>";
 
 impl EngineConfig {
     /// Every field at its C++ default-member-initialiser value (the initialisers
@@ -400,6 +413,7 @@ impl EngineConfig {
             mprefix_value: TagHash(0),
 
             text_delimiters: Default::default(),
+            input_name: STDIN_SOURCE_NAME.to_string(),
         }
     }
 }

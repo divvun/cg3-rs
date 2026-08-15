@@ -71,6 +71,38 @@ fn uncompilable_regex_varstring_tag_is_not_interned() {
     assert!(e.contains("[:script=Greek:]"), "{e}");
 }
 
+/// With no rule in flight the failure belongs to the INPUT, and the line it
+/// carries counts that stream's lines rather than the grammar's. `RT INPUT`
+/// said which counter the number came from and nothing about which of several
+/// input files produced it; the CLI opened the stream and now says.
+// [spec:cg3:req:diagnostics.runtime-input-named/test]
+#[test]
+fn an_input_failure_names_the_input() {
+    let mut app = applicator();
+    app.cfg.input_name = "corpus/nb.txt".to_string();
+    let e = app
+        .add_tag("", T_VARSTRING)
+        .expect_err("empty text builds no tag");
+    let msg = e.to_string();
+    assert!(
+        msg.contains("corpus/nb.txt"),
+        "the failure must name the input it was reading: {msg}"
+    );
+    assert!(
+        !msg.contains("RT INPUT"),
+        "the bare counter label is what this replaces: {msg}"
+    );
+}
+
+/// A stream with no file behind it says so, rather than claiming a name it does
+/// not have — the same honesty the parser's `<utf8-memory>` shows.
+// [spec:cg3:req:diagnostics.runtime-input-named/test]
+#[test]
+fn an_unnamed_input_says_it_is_stdin() {
+    let e = observe("").expect_err("empty text builds no tag");
+    assert!(e.contains("<stdin>"), "{e}");
+}
+
 /// The non-varstring path does NOT go through `parse_tag`, so it is unaffected
 /// by the conversion. Pinned so a regression there is distinguishable.
 #[test]

@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-15T19:05:09.523458Z
+last_sync_at 2026-08-15T19:18:39.630145Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -284,6 +284,16 @@ impl_evidence (
     ), rule_versions_seen (
         {id main.divvun-version-banner, version 2}
     )}
+    {id runtime-diagnostics.rt-rule, covered_rules (
+        diagnostics.runtime-placed
+        diagnostics.source-lazy
+    ), covered_claims (
+        {impl_name target-impl, rule diagnostics.runtime-placed}
+        {impl_name target-impl, rule diagnostics.source-lazy}
+    ), rule_versions_seen (
+        {id diagnostics.runtime-placed, version 0}
+        {id diagnostics.source-lazy, version 0}
+    )}
     {id runtime-diagnostics.rule-provenance, covered_rules (
         diagnostics.rule-provenance
         diagnostics.wire-frozen
@@ -335,11 +345,9 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
-    {id runtime-diagnostics.rt-rule, covered_rules (
-        diagnostics.runtime-placed
-        diagnostics.source-lazy
+    {id runtime-diagnostics.rt-input, covered_rules (
+        diagnostics.runtime-input-named
     ), covered_claims (
-        {impl_name target-impl, rule diagnostics.runtime-placed}
-        {impl_name target-impl, rule diagnostics.source-lazy}
+        {impl_name target-impl, rule diagnostics.runtime-input-named}
     )}
 )
