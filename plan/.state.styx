@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-15T16:23:55.873058Z
+last_sync_at 2026-08-15T16:29:38.869941Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -24,7 +24,7 @@ rule_versions (
     {id tag-regex.engine, version 0}
     {id tag-regex.icu-translation, version 1}
     {id tag-regex.silent-divergence, version 0}
-    {id tag-regex.single-seam, version 0}
+    {id tag-regex.single-seam, version 1}
     {id tag-regex.source-fidelity, version 0}
     {id tools.build-provenance, version 0}
     {id tools.divvun-version-banner, version 2}
@@ -196,7 +196,7 @@ impl_evidence (
         {impl_name target-impl, rule tag-regex.source-fidelity}
     ), rule_versions_seen (
         {id tag-regex.engine, version 0}
-        {id tag-regex.single-seam, version 0}
+        {id tag-regex.single-seam, version 1}
         {id tag-regex.source-fidelity, version 0}
     )}
     {id icu-regex-parity.impl, covered_rules (
@@ -219,7 +219,7 @@ impl_evidence (
         {id tag-regex.engine, version 0}
         {id tag-regex.icu-translation, version 1}
         {id tag-regex.silent-divergence, version 0}
-        {id tag-regex.single-seam, version 0}
+        {id tag-regex.single-seam, version 1}
     )}
     {id issue-2-main-rule-repin, covered_rules (
         main.main-fn
