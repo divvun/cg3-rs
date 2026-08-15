@@ -72,7 +72,7 @@ enum GrammarLoadError {
 }
 
 // like libcg3's, but with a non-void grammar …
-// [spec:cg3:def:cg-relabel.cg3-grammar-load-fn]
+// [spec:cg3:def:cg-relabel.cg3-grammar-load-fn+1]
 // [spec:cg3:sem:cg-relabel.cg3-grammar-load-fn+1]
 /// C++ `Grammar* cg3_grammar_load(const char* filename, std::ostream& ux_stdout,
 /// std::ostream& ux_stderr, bool require_binary = false)`.
@@ -163,7 +163,7 @@ fn report_load(e: &GrammarLoadError) -> i32 {
     EXIT_FAILURE
 }
 
-// [spec:cg3:def:cg-relabel.main-fn]
+// [spec:cg3:def:cg-relabel.main-fn+1]
 // [spec:cg3:sem:cg-relabel.main-fn+1]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_relabel(args: &[String]) -> i32 {

@@ -324,8 +324,8 @@ impl TmplContext {
 // ===========================================================================
 
 impl Drop for super::GrammarApplicator {
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.grammar-applicator-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.grammar-applicator-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.grammar-applicator-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.grammar-applicator-fn+1]
     /// C++ `~GrammarApplicator()`. In the port every clause is subsumed by Rust
     /// ownership: `if (owns_grammar) delete grammar` + `grammar = nullptr` →
     /// `self.grammar` is owned by value and dropped here; `ux_stderr = nullptr`
@@ -393,8 +393,8 @@ impl super::GrammarApplicator {
     // setGrammar
     // =======================================================================
 
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.set-grammar-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-grammar-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.set-grammar-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-grammar-fn+1]
     /// C++ `void setGrammar(Grammar* res)` — attaches the grammar and seeds the
     /// begin/end/subst/mprefix tags, the per-set match caches, and compiles the
     /// grammar's own text-delimiter regexes.
@@ -1689,8 +1689,8 @@ impl super::GrammarApplicator {
 }
 
 impl Engine<'_> {
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn+1]
     /// C++ inline `void printDebugRule(const Rule& rule, bool target, bool cntx)`.
     /// Renders the whole in-flight window set (profiling mode) with `trace`
     /// force-disabled, into a buffer written to stderr (the C++ `ux_stderr`).
@@ -1738,8 +1738,8 @@ impl Engine<'_> {
         let _ = std::io::stderr().write_all(&buf);
     }
 
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn+1]
     /// C++ template `void addProfilingExample(T& item)`. Renders the whole
     /// in-flight window set (previous / current / next, trace force-disabled)
     /// into a buffer, interns it in the profiler string table, and stores the id

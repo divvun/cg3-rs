@@ -257,7 +257,7 @@ impl crate::pool::Poolable for Uint32SortedVector {
     }
 }
 
-// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator]
+// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+4]
 /// The options-derived, setup-written, run-read-only configuration extracted
 /// from the C++ `GrammarApplicator` members. This is a Stage-B re-homing: it has
 /// no C++ analog as a type (the C++ class is a single flat god object); the
@@ -410,7 +410,7 @@ impl Default for EngineConfig {
     }
 }
 
-// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator]
+// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+4]
 /// The run-mutable, document-lifetime state extracted from the C++
 /// `GrammarApplicator` members (the `doc` bucket of the field triage). This is a
 /// Stage-B re-homing: it has no C++ analog as a type; the members map 1:1 onto
@@ -488,7 +488,7 @@ impl Default for Document {
     }
 }
 
-// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator]
+// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+4]
 /// The per-rule / per-window / per-cohort transient state extracted from the C++
 /// `GrammarApplicator` members (the `scratch` bucket of the field triage). This
 /// is a Stage-B re-homing: it has no C++ analog as a type; the members map 1:1
@@ -710,7 +710,7 @@ impl Default for RuleScratch {
     }
 }
 
-// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator]
+// [spec:cg3:def:grammar-applicator.cg3.grammar-applicator+4]
 /// The profiler state extracted from the C++ `GrammarApplicator` members (the
 /// `diag` bucket of the field triage). This is a Stage-B re-homing: it has no
 /// C++ analog as a type.

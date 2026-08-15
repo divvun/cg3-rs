@@ -99,9 +99,9 @@ fn run_fixtures(label: &str, names: &[&str]) {
 // the window begin/end markers (init-empty-single-window-fn), and resetting
 // the per-window match caches between windows (reset-indexes-fn).
 // ===========================================================================
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.grammar-applicator-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.grammar-applicator-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-options-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-grammar-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-grammar-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.index-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reset-indexes-fn/test]
@@ -168,8 +168,8 @@ fn engine_printers_and_subreadings() {
 // ===========================================================================
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-text-delimiter-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.test-string-against-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn+1/test]
 #[test]
 fn engine_text_delimit_and_debug_rules() {
     let mut failed: Vec<String> = Vec::new();

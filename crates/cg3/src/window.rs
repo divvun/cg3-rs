@@ -37,7 +37,7 @@ use crate::types::GlobalNumber;
 /// `SingleWindow*` becomes a [`SwId`] in the arena model.
 pub type SingleWindowCont = Vec<SwId>;
 
-// [spec:cg3:def:window.cg3.window]
+// [spec:cg3:def:window.cg3.window+1]
 /// C++ `class Window` — DISSOLVED (Stage-B) into three cohesive views. The
 /// former single struct owned the ordered stream of single-windows for one
 /// document plus the cohort/dependency/relation bookkeeping maps; those members
@@ -64,7 +64,7 @@ pub struct WindowStream {
     pub next: SingleWindowCont,
 }
 
-// [spec:cg3:def:window.cg3.window]
+// [spec:cg3:def:window.cg3.window+1]
 /// The cohort-registry half of the dissolved C++ `Window` — the global cohort
 /// numbering plus the ordered `cohort_map`.
 #[derive(Default)]
@@ -76,7 +76,7 @@ pub struct CohortRegistry {
     pub cohort_map: BTreeMap<GlobalNumber, CohortId>,
 }
 
-// [spec:cg3:def:window.cg3.window]
+// [spec:cg3:def:window.cg3.window+1]
 /// The dependency / relation half of the dissolved C++ `Window` — the dep/
 /// relation maps plus the doc-bucket dependency latches that moved in from
 /// `GrammarApplicator` (`has_dep`, `has_relations`, `dep_highest_seen`).
@@ -134,8 +134,8 @@ impl WindowStream {
     // C++ `Window::Window(GrammarApplicator* p) : parent(p)` — the back-pointer
     // is not ported, so construction is just `WindowStream::default()`.
 
-    // [spec:cg3:def:window.cg3.window.window-fn]
-    // [spec:cg3:sem:window.cg3.window.window-fn]
+    // [spec:cg3:def:window.cg3.window.window-fn+1]
+    // [spec:cg3:sem:window.cg3.window.window-fn+1]
     /// C++ destructor `Window::~Window()`. Recycles every single-window:
     /// `free_swindow` on each of `previous`, then `current`, then `next`. The
     /// loops iterate by value, so the (now-stale) ids inside `previous`/`next`

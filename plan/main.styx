@@ -1462,27 +1462,6 @@ children (
     }
 
     {
-        id embedder-panic-noise
-        title "Stop control-flow unwinds printing Rust panic noise at library boundaries"
-        kind @fix
-        log (
-            {
-                at 2026-08-14T11:03:00.125363Z
-                author "brendan@necessary.nu"
-                kind @status
-                text "Todo → Doing (nplan start)"
-            }
-
-            {
-                at 2026-08-15T10:55:12.5827Z
-                author "brendan@necessary.nu"
-                kind @decision
-                text "implements cleared before errors-idiomatic.teardown retires [spec:cg3:req:errors.control-flow-quiet]. The rule required this crate's control-flow unwinds to stay off stderr; teardown removes the last of them, so there is nothing left to keep quiet and the rule is vacuous rather than unmet. The panic filter this node installed goes with it. Ordering is forced: the rule cannot be deleted while a node's implements still names it, or the reference dangles and lint fails."
-            }
-        )
-    }
-
-    {
         id errors-idiomatic
         title "Make Result the primary error mechanism and retire panic-as-control-flow"
         kind @refactor
@@ -1806,6 +1785,95 @@ children (
                         author "brendan@necessary.nu"
                         kind @status
                         text "Doing → Done (nplan complete)"
+                    }
+                )
+            }
+        )
+    }
+
+    {
+        id errors-idiomatic-followups
+        title "Close the error-handling gaps the Result conversion left behind"
+        kind @refactor
+        children (
+            {
+                id errors-idiomatic-followups.process-error-type
+                title "Give Process a typed error instead of Result&lt;(), String&gt;"
+                priority 0
+                kind @refactor
+                log (
+                    {
+                        at 2026-08-15T14:48:52.480997Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "crate::process::Process reports Result<(), String> from start/read/write (process.rs:58, 96, 111), built by format_last_error which decorates a message with strerror/GetLastError. That is why RunError::ExternalStart and ExternalWrite carry `detail: String` rather than a typed cause with #[source] — the only thing available to carry is prose. [spec:cg3:req:errors.context] bans a bare &'static str but a formatted String is a weaker version of the same problem: the OS error code is discarded before it reaches the error value. Wants a typed error carrying io::Error plus the operation, with format_last_error's decoration moved to Display."
+                    }
+                )
+            }
+
+            {
+                id errors-idiomatic-followups.nrules-seam
+                title "Route the --nrules filters through the tag-regex ICU seam"
+                priority 0
+                kind @fix
+                log (
+                    {
+                        at 2026-08-15T14:49:07.965495Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "tools/vislcg3.rs:60 compiles the --nrules / --nrules-inv patterns with a bare regex::Regex::new, bypassing crate::tag_regex::compile_tag_regex. [spec:cg3:req:tag-regex.single-seam] says every tag pattern goes through the seam; a rule-name filter is not strictly a tag pattern, which is why this was left alone, but it is user-authored and the C++ compiled it with the same ICU engine as everything else. So an ICU-spelled --nrules pattern silently gets different semantics from the identical pattern in a grammar: no \\Q...\\E, no ICU \\Z or $, and possessive quantifiers mis-parsed rather than rejected. Either route it through the seam or state in the spec why a filter is exempt."
+                    }
+                )
+            }
+
+            {
+                id errors-idiomatic-followups.detect-format-silent
+                title "Stop detect_format swallowing a regex build failure"
+                priority 0
+                kind @fix
+                log (
+                    {
+                        at 2026-08-15T14:49:09.987238Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "format_converter.rs:103 is `if let Ok(rx) = regex::Regex::new(pat) && rx.is_match(&buffer)`, so a pattern that fails to build is indistinguishable from one that does not match, and the stream silently falls through to Plain. The comment argues the C++ behaved the same way and that these literals always compile — both true today, and both reasons the failure has never been seen. It is the last `if let Ok(..)` swallow left in the crate now that math_parser's two consumers report. Cheapest honest fix: compile the sniff patterns once in a LazyLock and let a build failure be the bug it would be."
+                    }
+                )
+            }
+
+            {
+                id errors-idiomatic-followups.retire-dead-rules
+                title "Retire the spec rules describing functions the teardown deleted"
+                priority 0
+                kind @docs
+                log (
+                    {
+                        at 2026-08-15T14:49:26.17256Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Two port rules now describe code that no longer exists, and show up in both the uncovered (10) and unplanned (19) lists: inlines.cg3.cg3-quit-fn (the CG3Quit termination) and textual-parser.cg3.textual-parser.inc-error-count-fn (the error-count/throw bail). errors-idiomatic.teardown deleted both functions. Retire them the way [spec:cg3:req:errors.control-flow-quiet] was retired — prose in place recording that the rule is obsolesced rather than unmet, with a pointer to [dec:cg3:results-not-unwinding] — so a reader of the port spec is not left wondering why a documented C++ function has no Rust counterpart. The other 8 uncovered rules are pre-existing port residue and out of scope here."
+                    }
+                )
+            }
+
+            {
+                id errors-idiomatic-followups.repin-stale-refs
+                title "Re-read and re-pin the annotation sites whose rule version moved under them"
+                priority 0
+                kind @docs
+                log (
+                    {
+                        at 2026-08-15T14:49:28.320832Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "24 stale references — annotation sites reading as v0 against a rule that has moved. Two are from this session: cg-relabel.main-fn and cg-relabel.cg3-grammar-load-fn went to v1 to record the divergence from the C++ null-deref crash, and the `sem` sites were re-pinned while their `def` siblings on the neighbouring line were not (cg_relabel.rs:75/76 and 166/167). The other 22 pre-date this work and come from the engine-decomp re-homing: grammar-applicator.cg3.grammar-applicator is at v4 and window.cg3.window at v1, with every annotation site still bare. Re-pinning is an assertion that the site was re-read against the new body, so do that rather than bumping mechanically — though in both families the rule was bumped precisely BECAUSE the code changed to match, so the sites are expected to be correct."
+                    }
+
+                    {
+                        at 2026-08-15T14:49:41.133905Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
                     }
                 )
             }

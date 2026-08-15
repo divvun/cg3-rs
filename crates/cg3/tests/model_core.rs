@@ -1308,7 +1308,7 @@ fn single_window_alloc_append_clear_destroy() {
 // previous, next.front -> current), rebuildSingleWindowLinks +
 // rebuildCohortLinks (document-order relink), ~Window (destroy: every
 // single-window recycled).
-// [spec:cg3:sem:window.cg3.window.window-fn/test]
+// [spec:cg3:sem:window.cg3.window.window-fn+1/test]
 // [spec:cg3:sem:window.cg3.window.alloc-single-window-fn/test]
 // [spec:cg3:sem:window.cg3.window.alloc-push-single-window-fn/test]
 // [spec:cg3:sem:window.cg3.window.alloc-append-single-window-fn/test]
