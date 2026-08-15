@@ -735,7 +735,11 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     /// trie mentions it), applies RELABEL AS LIST then RELABEL AS SET for every
     /// matching set, then finalizes: clears the grammar's own `sets_by_tag` index,
     /// `reindex()`es, and sets `num_tags = single_tags_list.size()`.
-    pub fn relabel(&mut self) {
+    ///
+    /// The finalizing reindex is the one step here that can fail, and it used to
+    /// re-raise as a process exit from inside the relabeller. It travels back to
+    /// the caller instead — `[dec:cg3:results-not-unwinding]`.
+    pub fn relabel(&mut self) -> Result<(), crate::error::Cg3Error> {
         // (1) tag_by_str: iterate single_tags_list (arena, insertion order),
         // last-wins per tag string.
         let mut tag_by_str: HashMap<UString, TagId> = HashMap::new();
@@ -805,9 +809,8 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         // slots; tags are never freed during relabelling, so `capacity()` (the
         // grammar's own size analog, see its reindex) equals that count.
         self.grammar.sets_by_tag.clear();
-        if let Err(e) = self.grammar.reindex(false, false) {
-            crate::error::cg3_exit(e.exit_code());
-        }
+        self.grammar.reindex(false, false)?;
         self.grammar.num_tags = self.grammar.single_tags_list.capacity() as usize;
+        Ok(())
     }
 }

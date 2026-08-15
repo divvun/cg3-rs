@@ -1694,6 +1694,14 @@ children (
                     target-impl ([spec:cg3:req:errors.exit-codes-at-cli])
                 }
                 deps (errors-idiomatic.parser)
+                log (
+                    {
+                        at 2026-08-15T10:11:03.48741Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

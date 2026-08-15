@@ -322,8 +322,8 @@ fn cg_proc_end_program_usage() {
     );
 }
 
-// [spec:cg3:sem:cg-relabel.main-fn/test]
-// [spec:cg3:sem:cg-relabel.cg3-grammar-load-fn/test]
+// [spec:cg3:sem:cg-relabel.main-fn+1/test]
+// [spec:cg3:sem:cg-relabel.cg3-grammar-load-fn+1/test]
 // The test/T_RelabelList run.pl protocol: cg-comp compiles grammar.cg3,
 // cg-relabel loads the BINARY grammar plus the TEXT relabel grammar (both
 // branches of cg3_grammar_load), relabels, writes a new binary grammar, and

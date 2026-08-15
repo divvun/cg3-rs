@@ -10,18 +10,19 @@ use std::io::{Read, Write};
 
 use crate::binary_grammar::BinaryGrammar;
 use crate::grammar::Grammar;
-use crate::inlines::{cg3_quit, is_cg3b};
+use crate::inlines::is_cg3b;
 use crate::textual_parser::TextualParser;
 
-use super::{basename, print_divvun_version_line};
+use super::{EXIT_FAILURE, basename, fail, print_divvun_version_line};
 
 // [spec:cg3:def:cg-comp.end-program-fn+3]
 // [spec:cg3:sem:cg-comp.end-program-fn+3]
 /// C++ `void endProgram(char* name)`. Prints the version + usage banner (when
-/// `name` is non-null) and exits with `EXIT_FAILURE`. In the port `name` is the
-/// program-name argv[0]; the C++ `if (name)` guard is always true for a real
-/// invocation, but is preserved for parity by taking `Option<&str>`.
-fn end_program(name: Option<&str>) -> ! {
+/// `name` is non-null) and returns `EXIT_FAILURE` for its caller to return. In
+/// the port `name` is the program-name argv[0]; the C++ `if (name)` guard is
+/// always true for a real invocation, but is preserved for parity by taking
+/// `Option<&str>`.
+fn end_program(name: Option<&str>) -> i32 {
     if let Some(name) = name {
         print_divvun_version_line("Compiler");
         println!(
@@ -31,7 +32,7 @@ fn end_program(name: Option<&str>) -> ! {
         println!("USAGE: {} grammar_file output_file", basename(name));
     }
     // exit(EXIT_FAILURE);
-    crate::error::cg3_exit(1)
+    EXIT_FAILURE
 }
 
 // [spec:cg3:def:cg-comp.main-fn]
@@ -43,7 +44,7 @@ pub fn main_comp(args: &[String]) -> i32 {
 
     // if (argc != 3) endProgram(argv[0]);
     if args.len() != 3 {
-        end_program(args.first().map(|s| s.as_str()));
+        return end_program(args.first().map(|s| s.as_str()));
     }
 
     // ICU init / codepage / locale dropped (UTF-8 port).
@@ -56,19 +57,19 @@ pub fn main_comp(args: &[String]) -> i32 {
         Ok(f) => f,
         Err(_) => {
             tracing::error!("Error: Error opening {} for reading!", args[1]);
-            cg3_quit(1, None, 0);
+            return EXIT_FAILURE;
         }
     };
     let mut head = [0u8; 4];
     if input.read_exact(&mut head).is_err() {
         tracing::error!("Error: Error reading first 4 bytes from grammar!");
-        cg3_quit(1, None, 0);
+        return EXIT_FAILURE;
     }
     drop(input);
 
     if is_cg3b(head) {
         tracing::error!("Binary grammar detected. Cannot re-compile binary grammars.");
-        cg3_quit(1, None, 0);
+        return EXIT_FAILURE;
     }
 
     // parser.reset(new TextualParser(grammar, std::cerr));
@@ -84,15 +85,14 @@ pub fn main_comp(args: &[String]) -> i32 {
         Ok(b) => b,
         Err(_) => {
             tracing::error!("Error: Error opening {} for reading!", args[1]);
-            cg3_quit(1, None, 0);
+            return EXIT_FAILURE;
         }
     };
     // A deep parse/grammar fatal already printed its diagnostic; the variants
-    // that carry theirs are surfaced by `report_cli`. Either way exit with the
-    // exact code (byte-identical to the C++ CG3Quit termination).
+    // that carry theirs are surfaced by `fail`. Either way the process ends with
+    // the exact code (byte-identical to the C++ CG3Quit termination).
     if let Err(e) = parser.parse_grammar_utf8(&buffer) {
-        crate::error::report_cli(&e);
-        crate::error::cg3_exit(e.exit_code());
+        return fail(&e);
     }
 
     // Move the built grammar out of the parser (the C++ grammar outlives the
@@ -101,7 +101,7 @@ pub fn main_comp(args: &[String]) -> i32 {
 
     // grammar.reindex();
     if let Err(e) = grammar.reindex(false, false) {
-        crate::error::cg3_exit(e.exit_code());
+        return fail(&e);
     }
 
     // Info banner to stderr (container sizes; see tools/mod.rs on Arena counts).
@@ -126,7 +126,7 @@ pub fn main_comp(args: &[String]) -> i32 {
         Ok(mut gout) => {
             let mut writer = BinaryGrammar::new(grammar);
             if let Err(e) = writer.write_binary_grammar(&mut gout) {
-                crate::error::cg3_exit(e.exit_code());
+                return fail(&e);
             }
             let _ = gout.flush();
         }

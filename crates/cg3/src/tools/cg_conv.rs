@@ -16,7 +16,7 @@ use crate::icu_uoptions::u_parse_args;
 use crate::options_conv::{Opt, options_conv, options_default, options_override};
 use crate::options_parser::parse_opts_env;
 
-use super::{U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, to_uargv};
+use super::{U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, fail, to_uargv};
 
 // [spec:cg3:def:cg-conv.main-fn]
 // [spec:cg3:sem:cg-conv.main-fn]
@@ -135,7 +135,10 @@ pub fn main_conv(args: &[String]) -> i32 {
     // FormatConverter applicator(std::cerr);
     let base =
         crate::grammar_applicator::GrammarApplicator::new(crate::grammar::Grammar::default());
-    let mut applicator = super::or_exit(crate::format_converter::FormatConverter::new(base));
+    let mut applicator = match crate::format_converter::FormatConverter::new(base) {
+        Ok(a) => a,
+        Err(e) => return fail(&e),
+    };
 
     // Grammar& grammar = applicator.conv_grammar; if (ORDERED) grammar.ordered = true;
     // NOTE: in C++ `conv_grammar` IS the applicator's active grammar; in this
@@ -269,7 +272,7 @@ pub fn main_conv(args: &[String]) -> i32 {
     // applicator.runGrammarOnText(*instream, std::cout);
     let mut stdout = std::io::stdout();
     if let Err(e) = applicator.run_grammar_on_text(&mut instream, &mut stdout) {
-        crate::error::cg3_exit(e.exit_code());
+        return fail(&e);
     }
 
     // u_cleanup dropped. C++ main returns nothing on this path (implicit 0).

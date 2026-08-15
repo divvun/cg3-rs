@@ -254,7 +254,10 @@ fn legacy_10043_rejected() {
     let err = reader
         .parse_grammar_buffer(&blob)
         .expect_err("legacy 10043 grammar must be rejected by the stub");
-    assert_eq!(err.exit_code(), 1, "rejection keeps the C++ exit code");
+    assert!(
+        err.to_string().contains("legacy .cg3b rev <10373"),
+        "the rejection must say which revision it refused, got {err}"
+    );
     // Nothing was parsed: the grammar stays empty and is never marked binary.
     assert!(!reader.grammar.is_binary);
     assert_eq!(reader.grammar.num_tags, 0);

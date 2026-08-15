@@ -3,7 +3,7 @@
 > [spec:cg3:def:cg-relabel.cg3-grammar-load-fn]
 > Grammar* cg3_grammar_load(const char* filename, std::ostream& ux_stdout, std::ostream& ux_stderr, bool require_binary = false)
 
-> [spec:cg3:sem:cg-relabel.cg3-grammar-load-fn]
+> [spec:cg3:sem:cg-relabel.cg3-grammar-load-fn+1]
 > Loads a grammar file (binary or textual) into a freshly-allocated `Grammar`
 > and returns a raw owning pointer, or `0` (null) on error. Like libcg3's
 > loader but returns a non-void `Grammar*`. `require_binary` defaults to false.
@@ -26,6 +26,12 @@
 >   the `new Grammar` is leaked — parser is a unique_ptr but the raw grammar is
 >   not freed).
 > - `grammar->reindex()`; return `grammar`.
+> DIVERGENCE: the port reports every one of those failures as one error value
+> instead, and terminates for none of them. The C++ mixes two incompatible
+> failure channels in one function — null for open/read/parse, `CG3Quit` for the
+> `require_binary` refusal and for a failing `reindex()` — and neither channel
+> says what went wrong, which is the shape `[spec:cg3:req:errors.context]` bans.
+> The parity diagnostics above are retained verbatim as the error's message.
 
 > [spec:cg3:def:cg-relabel.end-program-fn]
 > void endProgram(char* name)
@@ -42,7 +48,7 @@
 > [spec:cg3:def:cg-relabel.main-fn]
 > int main(int argc, char* argv[])
 
-> [spec:cg3:sem:cg-relabel.main-fn]
+> [spec:cg3:sem:cg-relabel.main-fn+1]
 > Entry point for `cg-relabel`: loads a binary grammar, applies a relabelling
 > grammar to it, and writes the result as a new binary grammar. Positional-only
 > (no flags): `cg-relabel input_grammar_file relabel_rule_file
@@ -64,6 +70,10 @@
 >   `writer.writeBinaryGrammar(gout)`; else print `"Could not write grammar to
 >   <argv[3]>"`.
 > - `u_cleanup()`; `return status` (0 on success).
-> - EDGE (faithfulness): there is NO null check on the loader results — if
+> - EDGE: there is NO null check on the loader results in the C++ — if
 >   `cg3_grammar_load` returns `0`, the `unique_ptr` wraps null and `*grammar` /
->   `*relabel_grammar` dereferences null, crashing.
+>   `*relabel_grammar` dereferences null, crashing. DIVERGENCE: the port does not
+>   reproduce that crash. The loader returns its failure as a value, so `main`
+>   reports it and returns `EXIT_FAILURE` — a bad path on the command line is a
+>   user error, not a bug in this crate, and a panic is reserved for the latter
+>   per `[spec:cg3:req:errors.result-primary]`.

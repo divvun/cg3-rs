@@ -26,7 +26,7 @@ use crate::binary_applicator::BinaryApplicator;
 use crate::binary_grammar::BinaryGrammar;
 use crate::grammar::Grammar;
 use crate::grammar_applicator::GrammarApplicator;
-use crate::inlines::{cg3_quit, is_cg3b};
+use crate::inlines::is_cg3b;
 use crate::matxin_applicator::MatxinApplicator;
 use crate::options::{
     Opt, grammar_options_default, grammar_options_override, options, options_default,
@@ -35,14 +35,14 @@ use crate::options::{
 use crate::options_parser::{parse_opts, parse_opts_env};
 use crate::textual_parser::TextualParser;
 
-use super::{basename, print_divvun_version, print_divvun_version_line};
+use super::{EXIT_FAILURE, basename, fail, print_divvun_version, print_divvun_version_line};
 
 // [spec:cg3:def:cg-proc.end-program-fn+3]
 // [spec:cg3:sem:cg-proc.end-program-fn+3]
 /// C++ `void endProgram(char* name)`. Prints the version + full usage banner and
-/// exits `EXIT_FAILURE`. The `HAVE_GETOPT_LONG` variant of the banner is used
-/// (the ported getopt below is the long variant).
-fn end_program(name: &str) -> ! {
+/// yields `EXIT_FAILURE` for its caller to return. The `HAVE_GETOPT_LONG`
+/// variant of the banner is used (the ported getopt below is the long variant).
+fn end_program(name: &str) -> i32 {
     print_divvun_version_line("Disambiguator");
     println!(
         "{}: process a stream with a constraint grammar",
@@ -69,7 +69,7 @@ fn end_program(name: &str) -> ! {
     println!("\t-z, --null-flush:\tflush output on the null character");
     println!("\t-v, --version:\t \t version");
     println!("\t-h, --help:\t\t show this help");
-    crate::error::cg3_exit(1)
+    EXIT_FAILURE
 }
 
 /// Minimal faithful `getopt_long` for the exact optstring `"ds:f:tr:n1wvhz"`
@@ -270,7 +270,7 @@ pub fn main_proc(args: &[String]) -> i32 {
 
     let getopt = getopt_long_cgproc(args);
     if getopt.error {
-        end_program(prog);
+        return end_program(prog);
     }
     for (c, optarg) in &getopt.events {
         match c {
@@ -278,7 +278,7 @@ pub fn main_proc(args: &[String]) -> i32 {
                 if cmd == '\0' {
                     cmd = 'd';
                 } else {
-                    end_program(prog);
+                    return end_program(prog);
                 }
             }
             'f' => {
@@ -304,12 +304,12 @@ pub fn main_proc(args: &[String]) -> i32 {
             'w' => wordform_case = true,
             'v' => {
                 print_divvun_version("Disambiguator");
-                // C++ exit(EXIT_SUCCESS) — unwound through the CLI boundary so
-                // no process::exit lives outside src/bin.
-                crate::error::cg3_exit(0);
+                // C++ exit(EXIT_SUCCESS) — returned to the wrapper in src/bin,
+                // which owns the only process::exit.
+                return 0;
             }
             'z' => { /* Null-flush is default */ }
-            _ => end_program(prog), // 'h' and default
+            _ => return end_program(prog), // 'h' and default
         }
     }
 
@@ -338,18 +338,18 @@ pub fn main_proc(args: &[String]) -> i32 {
 
     // if (optind <= argc-1) { fopen argv[optind]; read 4 bytes } else endProgram.
     if optind >= args.len() {
-        end_program(prog);
+        return end_program(prog);
     }
     let grammar_path = &args[optind];
     let mut head = [0u8; 4];
     {
         let mut in_ = match std::fs::File::open(grammar_path) {
             Ok(f) => f,
-            Err(_) => end_program(prog),
+            Err(_) => return end_program(prog),
         };
         if in_.read_exact(&mut head).is_err() {
             tracing::error!("Error: Error reading first 4 bytes from grammar!");
-            cg3_quit(1, None, 0);
+            return EXIT_FAILURE;
         }
     }
 
@@ -365,8 +365,7 @@ pub fn main_proc(args: &[String]) -> i32 {
     let mut grammar: Grammar = if is_cg3b(head) {
         let mut parser = BinaryGrammar::new(Grammar::default());
         if let Err(e) = parser.parse_grammar_filename(grammar_path) {
-            crate::error::report_cli(&e);
-            crate::error::cg3_exit(e.exit_code());
+            return fail(&e);
         }
         parser.grammar
     } else {
@@ -378,19 +377,18 @@ pub fn main_proc(args: &[String]) -> i32 {
             Ok(b) => b,
             Err(_) => {
                 tracing::error!("Error: Error opening {} for reading!", grammar_path);
-                cg3_quit(1, None, 0);
+                return EXIT_FAILURE;
             }
         };
         if let Err(e) = parser.parse_grammar_utf8(&buffer) {
-            crate::error::report_cli(&e);
-            crate::error::cg3_exit(e.exit_code());
+            return fail(&e);
         }
         parser.grammar
     };
 
     // grammar.reindex();
     if let Err(e) = grammar.reindex(false, false) {
-        crate::error::cg3_exit(e.exit_code());
+        return fail(&e);
     }
 
     // Grammar cmdargs → parse_opts into grammar_options_{default,override}.
@@ -452,11 +450,11 @@ pub fn main_proc(args: &[String]) -> i32 {
         Applicator::Binary(b) => b,
     };
     if let Err(e) = base.set_grammar() {
-        crate::error::cg3_exit(e.exit_code());
+        return fail(&e);
     }
     // setOptions() (C++ default conv=nullptr) reads the `options` table.
     if let Err(e) = base.set_options(&options) {
-        crate::error::cg3_exit(e.exit_code());
+        return fail(&e);
     }
     for i in 1..=sections {
         base.cfg.sections.push(i as u32);
@@ -511,7 +509,7 @@ pub fn main_proc(args: &[String]) -> i32 {
         }
     };
     if let Err(e) = run_result {
-        crate::error::cg3_exit(e.exit_code());
+        return fail(&e);
     }
 
     // u_cleanup dropped. C++ main falls off the end (implicit 0).

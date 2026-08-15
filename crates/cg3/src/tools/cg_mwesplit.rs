@@ -8,7 +8,7 @@
 use crate::icu_uoptions::u_parse_args;
 use crate::options::{UOPT_NO_ARG, UOption};
 
-use super::to_uargv;
+use super::{fail, to_uargv};
 
 // [spec:cg3:def:cg-mwesplit.options-mwe.options]
 /// C++ `OptionsMWE::OPTIONS` — the tiny option enum for cg-mwesplit (help only).
@@ -113,7 +113,10 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
     // Grammar); the ctor builds+installs the minimal dummy grammar.
     let base =
         crate::grammar_applicator::GrammarApplicator::new(crate::grammar::Grammar::default());
-    let mut applicator = super::or_exit(crate::mwesplit_applicator::MweSplitApplicator::new(base));
+    let mut applicator = match crate::mwesplit_applicator::MweSplitApplicator::new(base) {
+        Ok(a) => a,
+        Err(e) => return fail(&e),
+    };
 
     // applicator.verbosity_level = 0;
     applicator.base.cfg.verbosity_level = 0;
@@ -128,7 +131,7 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
     let mut cursor = std::io::Cursor::new(input_bytes);
     let mut stdout = std::io::stdout();
     if let Err(e) = applicator.run_grammar_on_text(&mut cursor, &mut stdout) {
-        crate::error::cg3_exit(e.exit_code());
+        return fail(&e);
     }
 
     // u_cleanup dropped. C++ main falls off the end → returns 0 (status unused

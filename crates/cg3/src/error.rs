@@ -183,18 +183,6 @@ impl Cg3Error {
         Cg3Error::Fatal { code, msg }
     }
 
-    /// The `process::exit` code this error maps to.
-    ///
-    /// TRANSITIONAL: `[spec:cg3:req:errors.exit-codes-at-cli]` moves this
-    /// mapping to the CLI boundary, where it belongs — the code a failure maps
-    /// to is a property of the command-line contract, not of the failure.
-    pub fn exit_code(&self) -> i32 {
-        match self {
-            Cg3Error::Fatal { code, .. } => *code,
-            Cg3Error::Grammar(_) | Cg3Error::Run(_) => 1,
-        }
-    }
-
     /// The tag-regex diagnostics, if this error carries any.
     pub fn tag_regex_errors(&self) -> &[TagRegexError] {
         match self {

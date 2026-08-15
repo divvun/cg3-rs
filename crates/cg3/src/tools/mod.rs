@@ -71,24 +71,6 @@ static LEVEL_HANDLE: std::sync::OnceLock<
 /// text. The level starts at INFO and is reloadable (see [`enable_debug_logging`]).
 /// Idempotent: a second call (e.g. from tests driving two tool mains in one
 /// process) is a no-op.
-/// Unwrap a library boundary's `Result` inside a CLI main, or report it and
-/// terminate with its exit code.
-///
-/// TRANSITIONAL. A process exit IS the right terminal action at a CLI boundary,
-/// but routing it through the `Cg3Exit` unwind is not — that is what
-/// `errors-idiomatic.cli` replaces, once the tool mains carry a `Result` of
-/// their own. Until then this keeps the downgrade in ONE place instead of at
-/// every call site.
-pub(crate) fn or_exit<T>(r: Result<T, crate::error::Cg3Error>) -> T {
-    match r {
-        Ok(v) => v,
-        Err(e) => {
-            crate::error::report_cli(&e);
-            crate::error::cg3_exit(e.exit_code())
-        }
-    }
-}
-
 pub fn init_diagnostics() {
     use tracing_subscriber::filter::LevelFilter;
     use tracing_subscriber::layer::SubscriberExt as _;
@@ -120,6 +102,32 @@ pub fn enable_debug_logging(enabled: bool) {
     use tracing_subscriber::filter::LevelFilter;
     if enabled && let Some(handle) = LEVEL_HANDLE.get() {
         let _ = handle.modify(|filter| *filter = LevelFilter::DEBUG);
+    }
+}
+
+// --- CLI failure mapping ---------------------------------------------------------
+
+/// The C `EXIT_FAILURE` every `endProgram` / `CG3Quit(1)` in the C++ tools
+/// terminates with.
+pub(crate) const EXIT_FAILURE: i32 = 1;
+
+// [spec:cg3:req:errors.exit-codes-at-cli]
+/// Report a library failure on the way out of a CLI main, and derive the process
+/// exit code it maps to.
+///
+/// The mapping lives here rather than on the error because the code a failure
+/// maps to is a property of THIS command-line contract, not of the failure: an
+/// embedder handling the same value cares about the variant and wants nothing to
+/// do with an exit status.
+pub(crate) fn fail(e: &crate::error::Cg3Error) -> i32 {
+    crate::error::report_cli(e);
+    match e {
+        // TRANSITIONAL: an unconverted library `CG3Quit(code)` still carries the
+        // code it would have terminated with, so honour it while such sites
+        // exist. `errors-idiomatic.teardown` deletes the variant and this arm
+        // with it, leaving EXIT_FAILURE for everything.
+        crate::error::Cg3Error::Fatal { code, .. } => *code,
+        crate::error::Cg3Error::Grammar(_) | crate::error::Cg3Error::Run(_) => EXIT_FAILURE,
     }
 }
 

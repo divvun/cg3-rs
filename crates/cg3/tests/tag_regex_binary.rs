@@ -125,7 +125,10 @@ fn unsupported_construct_names_tag_and_construct() {
     let blob = cg3b_with_pattern("abc", r"[:script=Greek:]");
     let err = load(&blob).expect_err("in-set property must be rejected");
 
-    assert_eq!(err.exit_code(), 1, "C++ CG3Quit(1) parity");
+    assert!(
+        matches!(err, Cg3Error::Grammar(_)),
+        "a grammar that will not load is a load failure, got {err:?}"
+    );
     let reported = err.tag_regex_errors();
     assert_eq!(reported.len(), 1, "one bad tag");
     assert_eq!(reported[0].tag.as_deref(), Some("\"abc\""), "tag text");

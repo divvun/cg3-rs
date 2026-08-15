@@ -255,4 +255,9 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule errors.context}
     )}
+    {id errors-idiomatic.cli, covered_rules (
+        errors.exit-codes-at-cli
+    ), covered_claims (
+        {impl_name target-impl, rule errors.exit-codes-at-cli}
+    )}
 )

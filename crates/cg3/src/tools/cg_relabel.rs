@@ -10,16 +10,16 @@ use std::io::{Read, Write};
 
 use crate::binary_grammar::BinaryGrammar;
 use crate::grammar::Grammar;
-use crate::inlines::{cg3_quit, is_cg3b};
+use crate::inlines::is_cg3b;
 use crate::relabeller::Relabeller;
 use crate::textual_parser::TextualParser;
 
-use super::{basename, print_divvun_version_line};
+use super::{EXIT_FAILURE, basename, fail, print_divvun_version_line};
 
 // [spec:cg3:def:cg-relabel.end-program-fn+3]
 // [spec:cg3:sem:cg-relabel.end-program-fn+3]
 /// C++ `void endProgram(char* name)`.
-fn end_program(name: Option<&str>) -> ! {
+fn end_program(name: Option<&str>) -> i32 {
     if let Some(name) = name {
         print_divvun_version_line("Relabeller");
         println!(
@@ -31,86 +31,140 @@ fn end_program(name: Option<&str>) -> ! {
             basename(name)
         );
     }
-    crate::error::cg3_exit(1)
+    EXIT_FAILURE
+}
+
+/// Why [`cg3_grammar_load`] could not produce a grammar.
+///
+/// The C++ answers "which step failed?" with a null `Grammar*` for three of
+/// these and by terminating the process for the other two, so no caller can
+/// tell them apart or choose what to do — the shape
+/// `[spec:cg3:req:errors.context]` bans. Local to this tool because this
+/// boundary is the only place that can produce them.
+#[derive(Debug, thiserror::Error)]
+enum GrammarLoadError {
+    #[error("Error: Error opening {path} for reading!")]
+    Open {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Error: Error reading first 4 bytes from grammar!")]
+    Header {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("Error: Text grammar detected -- to compile this grammar, use `cg-comp'")]
+    RequiresBinary { path: String },
+    #[error("Error: Grammar could not be parsed!")]
+    Parse {
+        path: String,
+        #[source]
+        source: crate::error::Cg3Error,
+    },
+    #[error("Error: Grammar {path} could not be reindexed!")]
+    Reindex {
+        path: String,
+        #[source]
+        source: crate::error::Cg3Error,
+    },
 }
 
 // like libcg3's, but with a non-void grammar …
 // [spec:cg3:def:cg-relabel.cg3-grammar-load-fn]
-// [spec:cg3:sem:cg-relabel.cg3-grammar-load-fn]
+// [spec:cg3:sem:cg-relabel.cg3-grammar-load-fn+1]
 /// C++ `Grammar* cg3_grammar_load(const char* filename, std::ostream& ux_stdout,
 /// std::ostream& ux_stderr, bool require_binary = false)`.
 ///
-/// Returns `None` on error (the C++ `return 0;` — a null `Grammar*`). BUG
-/// (reproduced): the C++ caller (`main`) never null-checks the returned pointer;
-/// it dereferences it unconditionally — see [`main_relabel`]. BUG (leak,
-/// DIVERGENCE): the C++ `new Grammar` is never `delete`d on the error-return
-/// paths (a memory leak); the Rust port owns the `Grammar` by value, so those
-/// paths simply drop it — memory-safe, so the leak cannot be reproduced (noted).
-fn cg3_grammar_load(filename: &str, require_binary: bool) -> Option<Grammar> {
+/// DIVERGENCE: the C++ returns a null `Grammar*` for an open/read/parse failure
+/// and `CG3Quit`s from inside for the other two, so the same function reports
+/// failure two incompatible ways and neither carries what went wrong. Every
+/// failure is now one [`GrammarLoadError`], and the caller decides — the
+/// process ends at the CLI boundary, per
+/// `[spec:cg3:req:errors.exit-codes-at-cli]`. BUG (leak, DIVERGENCE): the C++
+/// `new Grammar` is never `delete`d on the error-return paths (a memory leak);
+/// the Rust port owns the `Grammar` by value, so those paths simply drop it —
+/// memory-safe, so the leak cannot be reproduced (noted).
+fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<Grammar, GrammarLoadError> {
     // std::ifstream input(filename, std::ios::binary); if (!input) return 0;
-    let mut input = match File::open(filename) {
-        Ok(f) => f,
-        Err(_) => {
-            tracing::error!("Error: Error opening {} for reading!", filename);
-            return None;
-        }
-    };
+    let mut input = File::open(filename).map_err(|source| GrammarLoadError::Open {
+        path: filename.to_string(),
+        source,
+    })?;
     // if (!input.read(&cbuffers[0][0], 4)) { ...; return 0; }
     let mut head = [0u8; 4];
-    if input.read_exact(&mut head).is_err() {
-        tracing::error!("Error: Error reading first 4 bytes from grammar!");
-        return None;
-    }
+    input
+        .read_exact(&mut head)
+        .map_err(|source| GrammarLoadError::Header {
+            path: filename.to_string(),
+            source,
+        })?;
     drop(input); // input.close();
 
     // Grammar* grammar = new Grammar; (owned by value here.)
     let grammar = Grammar::default();
     // grammar->ux_stderr / ux_stdout = ...; (Option<()> placeholders, elided.)
 
-    if is_cg3b(head) {
+    let mut parsed = if is_cg3b(head) {
         // parser.reset(new BinaryGrammar(*grammar, ux_stderr));
         let mut parser = BinaryGrammar::new(grammar);
-        if let Err(e) = parser.parse_grammar_filename(filename) {
-            crate::error::report_cli(&e);
-            tracing::error!("Error: Grammar could not be parsed!");
-            return None;
-        }
-        let mut grammar = parser.grammar;
-        if let Err(e) = grammar.reindex(false, false) {
-            crate::error::cg3_exit(e.exit_code());
-        }
-        Some(grammar)
+        parser
+            .parse_grammar_filename(filename)
+            .map_err(|source| GrammarLoadError::Parse {
+                path: filename.to_string(),
+                source,
+            })?;
+        parser.grammar
     } else {
         if require_binary {
-            tracing::error!(
-                "Error: Text grammar detected -- to compile this grammar, use `cg-comp'"
-            );
-            cg3_quit(1, None, 0);
+            return Err(GrammarLoadError::RequiresBinary {
+                path: filename.to_string(),
+            });
         }
         // parser.reset(new TextualParser(*grammar, ux_stderr));
         let mut parser = TextualParser::new(grammar, false);
-        let buffer = match std::fs::read(filename) {
-            Ok(b) => b,
-            Err(_) => {
-                tracing::error!("Error: Error opening {} for reading!", filename);
-                return None;
-            }
-        };
-        if let Err(e) = parser.parse_grammar_utf8(&buffer) {
-            crate::error::report_cli(&e);
-            tracing::error!("Error: Grammar could not be parsed!");
-            return None;
-        }
-        let mut grammar = parser.grammar;
-        if let Err(e) = grammar.reindex(false, false) {
-            crate::error::cg3_exit(e.exit_code());
-        }
-        Some(grammar)
+        let buffer = std::fs::read(filename).map_err(|source| GrammarLoadError::Open {
+            path: filename.to_string(),
+            source,
+        })?;
+        parser
+            .parse_grammar_utf8(&buffer)
+            .map_err(|source| GrammarLoadError::Parse {
+                path: filename.to_string(),
+                source,
+            })?;
+        parser.grammar
+    };
+
+    parsed
+        .reindex(false, false)
+        .map_err(|source| GrammarLoadError::Reindex {
+            path: filename.to_string(),
+            source,
+        })?;
+    Ok(parsed)
+}
+
+/// Report a load failure on the way out of [`main_relabel`], and derive the exit
+/// code it maps to.
+///
+/// The headline is the C++-parity line; the causes underneath are where the
+/// detail lives — an OS error, or the tag-regex diagnostics a `Cg3Error` carries
+/// — so converting the loader does not cost the reader what `report_cli` used
+/// to print.
+fn report_load(e: &GrammarLoadError) -> i32 {
+    tracing::error!("{e}");
+    let mut cause = std::error::Error::source(e);
+    while let Some(c) = cause {
+        tracing::error!("{c}");
+        cause = c.source();
     }
+    EXIT_FAILURE
 }
 
 // [spec:cg3:def:cg-relabel.main-fn]
-// [spec:cg3:sem:cg-relabel.main-fn]
+// [spec:cg3:sem:cg-relabel.main-fn+1]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_relabel(args: &[String]) -> i32 {
     // UErrorCode status = U_ZERO_ERROR;
@@ -118,7 +172,7 @@ pub fn main_relabel(args: &[String]) -> i32 {
 
     // if (argc != 4) endProgram(argv[0]);
     if args.len() != 4 {
-        end_program(args.first().map(|s| s.as_str()));
+        return end_program(args.first().map(|s| s.as_str()));
     }
 
     // ICU init / codepage / locale dropped (UTF-8 port).
@@ -126,20 +180,26 @@ pub fn main_relabel(args: &[String]) -> i32 {
     // std::unique_ptr<Grammar> grammar{ cg3_grammar_load(argv[1], ..., true) };
     // std::unique_ptr<Grammar> relabel_grammar{ cg3_grammar_load(argv[2], ...) };
     //
-    // BUG (null-check-missing, reproduced): C++ does NOT check either result for
-    // null before dereferencing below. The faithful analogue is an unchecked
-    // `.expect(...)` (panics on the None the loader returns on error — the direct
-    // stand-in for the C++ null-pointer dereference / UB).
-    let mut grammar = cg3_grammar_load(&args[1], true)
-        .expect("cg-relabel: null grammar dereference (input grammar failed to load)");
-    let relabel_grammar = cg3_grammar_load(&args[2], false)
-        .expect("cg-relabel: null grammar dereference (relabel grammar failed to load)");
+    // DIVERGENCE (was: BUG, null-check-missing, reproduced): the C++ checks
+    // neither result before dereferencing it, so a grammar that fails to load
+    // crashes the process. The loader hands the failure back as a value now, so
+    // the boundary that owns the exit code reports it and returns.
+    let mut grammar = match cg3_grammar_load(&args[1], true) {
+        Ok(g) => g,
+        Err(e) => return report_load(&e),
+    };
+    let relabel_grammar = match cg3_grammar_load(&args[2], false) {
+        Ok(g) => g,
+        Err(e) => return report_load(&e),
+    };
 
     // Relabeller relabeller(*grammar, *relabel_grammar, std::cerr);
     // relabeller.relabel();
     {
         let mut relabeller = Relabeller::new(&mut grammar, &relabel_grammar, ());
-        relabeller.relabel();
+        if let Err(e) = relabeller.relabel() {
+            return fail(&e);
+        }
     }
 
     // std::ofstream gout(argv[3], ...); if (gout) { BinaryGrammar writer; writer.writeBinaryGrammar(gout); }
@@ -147,7 +207,7 @@ pub fn main_relabel(args: &[String]) -> i32 {
         Ok(mut gout) => {
             let mut writer = BinaryGrammar::new(grammar);
             if let Err(e) = writer.write_binary_grammar(&mut gout) {
-                crate::error::cg3_exit(e.exit_code());
+                return fail(&e);
             }
             let _ = gout.flush();
         }

@@ -18,7 +18,7 @@ use crate::binary_grammar::BinaryGrammar;
 use crate::grammar::Grammar;
 use crate::grammar_writer::GrammarWriter;
 use crate::icu_uoptions::u_parse_args;
-use crate::inlines::{cg3_quit, is_cg3b};
+use crate::inlines::is_cg3b;
 use crate::options::{
     Opt, grammar_options_default, grammar_options_override, options, options_default,
     options_override,
@@ -28,9 +28,42 @@ use crate::profiler::Profiler;
 use crate::textual_parser::TextualParser;
 
 use super::{
-    CG3_COPYRIGHT_STRING, CG3_TOO_OLD, DIVVUN_COPYRIGHT_STRING, DIVVUN_REPOSITORY,
-    U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, print_divvun_version_line, to_uargv,
+    CG3_COPYRIGHT_STRING, CG3_TOO_OLD, DIVVUN_COPYRIGHT_STRING, DIVVUN_REPOSITORY, EXIT_FAILURE,
+    U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, fail, print_divvun_version_line, to_uargv,
 };
+
+/// A `--nrules` / `--nrules-v` pattern that would not compile.
+///
+/// The C++ `uregex_open` wording is kept verbatim for parity, and the cause is
+/// reachable underneath it rather than only as text.
+#[derive(Debug, thiserror::Error)]
+#[error("Error: uregex_open returned {source} trying to parse {flag} {pattern}")]
+struct NrulesError {
+    flag: &'static str,
+    pattern: String,
+    #[source]
+    source: regex::Error,
+}
+
+/// Compile the `--nrules` / `--nrules-v` pattern held in `options`, or `None`
+/// when the flag was not given.
+fn nrules_pattern(
+    options: &crate::options::OptionsTable,
+    opt: Opt,
+    flag: &'static str,
+) -> Result<Option<regex::Regex>, NrulesError> {
+    if !options[opt as usize].does_occur {
+        return Ok(None);
+    }
+    let pattern = &options[opt as usize].value;
+    regex::Regex::new(pattern)
+        .map(Some)
+        .map_err(|source| NrulesError {
+            flag,
+            pattern: pattern.clone(),
+            source,
+        })
+}
 
 // [spec:cg3:def:main.main-fn+3]
 // [spec:cg3:sem:main.main-fn+3]
@@ -176,7 +209,7 @@ pub fn main_run(args: &[String]) -> i32 {
         // returns -1 on failure, so the message prints "error -1".
         if std::fs::metadata(&path).is_err() {
             tracing::error!("Error: Cannot stat {} due to error {}!", path, -1);
-            cg3_quit(1, None, 0);
+            return EXIT_FAILURE;
         }
         // Open failure past stat → dead ifstream (empty input) — see NOTE.
         std::fs::File::open(&path).ok()
@@ -194,12 +227,12 @@ pub fn main_run(args: &[String]) -> i32 {
             Ok(f) => f,
             Err(_) => {
                 tracing::error!("Error: Error opening {} for reading!", grammar_path);
-                cg3_quit(1, None, 0);
+                return EXIT_FAILURE;
             }
         };
         if input.read_exact(&mut head).is_err() {
             tracing::error!("Error: Error reading first 4 bytes from grammar!");
-            cg3_quit(1, None, 0);
+            return EXIT_FAILURE;
         }
     }
 
@@ -210,11 +243,11 @@ pub fn main_run(args: &[String]) -> i32 {
         }
         if occ(&options, Opt::DumpAst) {
             tracing::error!("Error: --dump-ast is for textual grammars only!");
-            cg3_quit(1, None, 0);
+            return EXIT_FAILURE;
         }
         if occ(&options, Opt::Profiling) {
             tracing::error!("Error: --profile is for textual grammars only!");
-            cg3_quit(1, None, 0);
+            return EXIT_FAILURE;
         }
     }
 
@@ -223,7 +256,7 @@ pub fn main_run(args: &[String]) -> i32 {
     #[cfg(not(feature = "profiler"))]
     if occ(&options, Opt::Profiling) {
         tracing::error!("Error: --profile requires building cg3 with the `profiler` feature.");
-        cg3_quit(1, None, 0);
+        return EXIT_FAILURE;
     }
 
     // Profiler for --profile (textual grammars only).
@@ -245,45 +278,36 @@ pub fn main_run(args: &[String]) -> i32 {
         0
     };
 
+    // if (options[NRULES].doesOccur) { parser->nrules = uregex_open(...); }
+    // (ICU converter dance dropped in the UTF-8 port.) C++ main.cpp wires both
+    // onto the IGrammarParser base whichever parser it builds, so they compile
+    // once here and move into the one that gets built.
+    let nrules = match nrules_pattern(&options, Opt::Nrules, "--nrules") {
+        Ok(re) => re,
+        Err(e) => {
+            tracing::error!("{e}");
+            return EXIT_FAILURE;
+        }
+    };
+    let nrules_inv = match nrules_pattern(&options, Opt::NrulesInv, "--nrules-v") {
+        Ok(re) => re,
+        Err(e) => {
+            tracing::error!("{e}");
+            return EXIT_FAILURE;
+        }
+    };
+
     let mut grammar: Grammar = if is_binary {
         let mut parser = BinaryGrammar::new(Grammar::default());
         if verbose {
             parser.set_verbosity(verbosity_level);
         }
         parser.set_compatible(occ(&options, Opt::Vislcgcompat));
-        // C++ main.cpp wires --nrules/--nrules-v on the IGrammarParser base for
-        // both parsers; BinaryGrammar_read.cpp applies them at rule read time.
-        if occ(&options, Opt::Nrules) {
-            let pat = &options[Opt::Nrules as usize].value;
-            match regex::Regex::new(pat) {
-                Ok(re) => parser.nrules = Some(re),
-                Err(e) => {
-                    tracing::error!(
-                        "Error: uregex_open returned {} trying to parse --nrules {}",
-                        e,
-                        pat
-                    );
-                    cg3_quit(1, None, 0);
-                }
-            }
-        }
-        if occ(&options, Opt::NrulesInv) {
-            let pat = &options[Opt::NrulesInv as usize].value;
-            match regex::Regex::new(pat) {
-                Ok(re) => parser.nrules_inv = Some(re),
-                Err(e) => {
-                    tracing::error!(
-                        "Error: uregex_open returned {} trying to parse --nrules-v {}",
-                        e,
-                        pat
-                    );
-                    cg3_quit(1, None, 0);
-                }
-            }
-        }
+        // BinaryGrammar_read.cpp applies the --nrules filters at rule read time.
+        parser.nrules = nrules;
+        parser.nrules_inv = nrules_inv;
         if let Err(e) = parser.parse_grammar_filename(&grammar_path) {
-            crate::error::report_cli(&e);
-            crate::error::cg3_exit(e.exit_code());
+            return fail(&e);
         }
         let mut g = parser.grammar;
         g.verbosity_level = verbosity_level;
@@ -294,38 +318,8 @@ pub fn main_run(args: &[String]) -> i32 {
             parser.set_verbosity(verbosity_level);
         }
         parser.set_compatible(occ(&options, Opt::Vislcgcompat));
-
-        // if (options[NRULES].doesOccur) { parser->nrules = uregex_open(...); }
-        // (ICU converter dance dropped in the UTF-8 port; compile failure exits
-        // like the C++ status check.)
-        if occ(&options, Opt::Nrules) {
-            let pat = &options[Opt::Nrules as usize].value;
-            match regex::Regex::new(pat) {
-                Ok(re) => parser.nrules = Some(re),
-                Err(e) => {
-                    tracing::error!(
-                        "Error: uregex_open returned {} trying to parse --nrules {}",
-                        e,
-                        pat
-                    );
-                    cg3_quit(1, None, 0);
-                }
-            }
-        }
-        if occ(&options, Opt::NrulesInv) {
-            let pat = &options[Opt::NrulesInv as usize].value;
-            match regex::Regex::new(pat) {
-                Ok(re) => parser.nrules_inv = Some(re),
-                Err(e) => {
-                    tracing::error!(
-                        "Error: uregex_open returned {} trying to parse --nrules-v {}",
-                        e,
-                        pat
-                    );
-                    cg3_quit(1, None, 0);
-                }
-            }
-        }
+        parser.nrules = nrules;
+        parser.nrules_inv = nrules_inv;
 
         // C++: `parser->profiler = profiler.get();` — move the profiler into
         // the parser for the duration of the parse (taken back below).
@@ -334,12 +328,11 @@ pub fn main_run(args: &[String]) -> i32 {
             Ok(b) => b,
             Err(_) => {
                 tracing::error!("Error: Error opening {} for reading!", grammar_path);
-                cg3_quit(1, None, 0);
+                return EXIT_FAILURE;
             }
         };
         if let Err(e) = parser.parse_grammar_utf8(&buffer) {
-            crate::error::report_cli(&e);
-            crate::error::cg3_exit(e.exit_code());
+            return fail(&e);
         }
         profiler = parser.profiler.take();
 
@@ -387,7 +380,7 @@ pub fn main_run(args: &[String]) -> i32 {
             tracing::error!(
                 "Error: Mapping prefix must match the one used for compiling the binary grammar!"
             );
-            cg3_quit(1, None, 0);
+            return EXIT_FAILURE;
         }
         grammar.mapping_prefix = mp;
     }
@@ -399,7 +392,7 @@ pub fn main_run(args: &[String]) -> i32 {
         occ(&options, Opt::ShowUnusedSets),
         occ(&options, Opt::ShowTags),
     ) {
-        crate::error::cg3_exit(e.exit_code());
+        return fail(&e);
     }
 
     if verbose {
@@ -424,7 +417,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
     if occ(&options, Opt::Profiling) && occ(&options, Opt::GrammarOnly) {
         tracing::error!("Error: Cannot gather profiling data with no input to run grammar on.");
-        cg3_quit(1, None, 0);
+        return EXIT_FAILURE;
     }
 
     // --- The applicator run (FormatConverter). Base members are reached through
@@ -433,7 +426,10 @@ pub fn main_run(args: &[String]) -> i32 {
     if !occ(&options, Opt::GrammarOnly) {
         use crate::grammar_applicator::{GrammarApplicator, StreamFormatKind};
         let base = GrammarApplicator::new(Grammar::default());
-        let mut applicator = super::or_exit(crate::format_converter::FormatConverter::new(base));
+        let mut applicator = match crate::format_converter::FormatConverter::new(base) {
+            Ok(a) => a,
+            Err(e) => return fail(&e),
+        };
         applicator.base_mut().cfg.fmt_input = StreamFormatKind::Cg;
         if occ(&options, Opt::InCg) {
             applicator.base_mut().cfg.fmt_input = StreamFormatKind::Cg;
@@ -458,11 +454,11 @@ pub fn main_run(args: &[String]) -> i32 {
         // --grammar-out / --grammar-bin writers below.
         applicator.base_mut().grammar = grammar;
         if let Err(e) = applicator.base_mut().set_grammar() {
-            crate::error::cg3_exit(e.exit_code());
+            return fail(&e);
         }
         // applicator.setOptions(conv); (UConverter dropped in the UTF-8 port).
         if let Err(e) = applicator.base_mut().set_options(&options) {
-            crate::error::cg3_exit(e.exit_code());
+            return fail(&e);
         }
 
         applicator.base_mut().cfg.fmt_output = StreamFormatKind::Cg;
@@ -500,7 +496,7 @@ pub fn main_run(args: &[String]) -> i32 {
         }
         let mut cursor = std::io::Cursor::new(input_bytes);
         if let Err(e) = applicator.run_grammar_on_text(&mut cursor, &mut ux_stdout) {
-            crate::error::cg3_exit(e.exit_code());
+            return fail(&e);
         }
 
         // Move the grammar back out (C++ `grammar` lives in main throughout),
@@ -534,7 +530,7 @@ pub fn main_run(args: &[String]) -> i32 {
             Ok(mut gout) => {
                 let mut writer = BinaryGrammar::new(grammar);
                 if let Err(e) = writer.write_binary_grammar(&mut gout) {
-                    crate::error::cg3_exit(e.exit_code());
+                    return fail(&e);
                 }
                 let _ = gout.flush();
                 grammar = writer.grammar;
