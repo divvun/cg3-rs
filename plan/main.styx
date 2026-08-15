@@ -2059,6 +2059,14 @@ children (
                     target-impl ([spec:cg3:req:diagnostics.sidecar] [spec:cg3:req:diagnostics.sidecar-identity])
                 }
                 deps (runtime-diagnostics.rule-provenance)
+                log (
+                    {
+                        at 2026-08-15T17:55:01.949672Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

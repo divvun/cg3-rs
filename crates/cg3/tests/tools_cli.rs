@@ -262,6 +262,78 @@ fn cg_comp_main_compiles_t_select() {
     let _ = std::fs::remove_file(&bin);
 }
 
+/// Compiling writes the grammar's source beside the `.cg3b`, with no flag asked
+/// for, and the companion file describes THIS binary — so a rule number
+/// resolves back to the text the author wrote, across the `INCLUDE` boundary.
+// [spec:cg3:req:diagnostics.sidecar/test]
+// [spec:cg3:req:diagnostics.sidecar-identity/test]
+#[test]
+fn cg_comp_writes_grammar_source_beside_binary() {
+    let dir = repo_root().join("test/T_Include");
+    let bin = temp_path("comp-include.cg3b");
+    let status = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
+        .current_dir(&dir)
+        .arg("grammar.cg3")
+        .arg(&bin)
+        .status()
+        .expect("spawn cg-comp");
+    assert!(status.success(), "cg-comp exited with {status}");
+
+    let sidecar = cg3::grammar_sources::sidecar_path(&bin);
+    assert!(
+        sidecar.exists(),
+        "compiling must write {} unasked",
+        sidecar.display()
+    );
+
+    let sources = cg3::grammar_sources::read_sidecar(&bin).expect("a fresh sidecar is accepted");
+    assert!(
+        sources.sources.len() >= 2,
+        "the top-level grammar and its includes, got {:?}",
+        sources.sources.iter().map(|s| &s.name).collect::<Vec<_>>()
+    );
+    let quoted: Vec<String> = sources
+        .rules
+        .iter()
+        .map(|&(number, _)| {
+            let span = sources.locate(number).expect("every listed rule places");
+            let text: Vec<char> = sources.sources[span.source].text.chars().collect();
+            text[span.range].iter().collect()
+        })
+        .collect();
+    assert!(
+        quoted.iter().any(|q| q.starts_with("SELECT ASet")),
+        "a rule from the top-level grammar must be quotable, got {quoted:?}"
+    );
+    assert!(
+        quoted.iter().any(|q| q.starts_with("SELECT BSet")),
+        "a rule from an INCLUDEd file must be quotable too, got {quoted:?}"
+    );
+
+    // Recompiled from a different grammar, the leftover sidecar no longer
+    // describes the binary in hand and must stop being read.
+    let other = repo_root().join("test/T_Select");
+    let status = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
+        .current_dir(&other)
+        .arg("grammar.cg3")
+        .arg(temp_path("comp-other.cg3b"))
+        .status()
+        .expect("spawn cg-comp");
+    assert!(status.success());
+    std::fs::copy(temp_path("comp-other.cg3b"), &bin).expect("swap the binary under the sidecar");
+    assert!(
+        cg3::grammar_sources::read_sidecar(&bin).is_none(),
+        "a sidecar that describes another grammar must be refused"
+    );
+
+    let _ = std::fs::remove_file(&sidecar);
+    let _ = std::fs::remove_file(&bin);
+    let _ = std::fs::remove_file(temp_path("comp-other.cg3b"));
+    let _ = std::fs::remove_file(cg3::grammar_sources::sidecar_path(&temp_path(
+        "comp-other.cg3b",
+    )));
+}
+
 // [spec:cg3:req:diagnostics.rendered/test]
 // A grammar that will not compile gets a rendered report per error on stderr,
 // with no flag asked for: the file it came from, the line as written, and a

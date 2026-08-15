@@ -305,6 +305,13 @@ pub fn main_run(args: &[String]) -> i32 {
         }
     };
 
+    // [spec:cg3:req:diagnostics.sidecar]
+    // The parse's own buffers, kept only when `--grammar-bin` will need them for
+    // the companion file it writes. Retaining a multi-megabyte grammar text for
+    // the whole run of every other invocation is exactly what
+    // `[spec:cg3:req:diagnostics.source-lazy]` forbids.
+    let mut grammar_sources: Vec<crate::error::ParseSource> = Vec::new();
+
     let mut grammar: Grammar = if is_binary {
         let mut parser = BinaryGrammar::new(Grammar::default());
         if verbose {
@@ -355,6 +362,10 @@ pub fn main_run(args: &[String]) -> i32 {
             parser.print_ast(&mut buf);
             let sz = p.add_string(&String::from_utf8_lossy(&buf));
             p.grammar_ast = sz;
+        }
+
+        if occ(&options, Opt::GrammarBin) {
+            grammar_sources = parser.sources();
         }
 
         let mut g = parser.grammar;
@@ -537,18 +548,9 @@ pub fn main_run(args: &[String]) -> i32 {
     // --grammar-bin: write the grammar in binary form. LIVE.
     if occ(&options, Opt::GrammarBin) {
         let path = options[Opt::GrammarBin as usize].value.clone();
-        match std::fs::File::create(&path) {
-            Ok(mut gout) => {
-                let mut writer = BinaryGrammar::new(grammar);
-                if let Err(e) = writer.write_binary_grammar(&mut gout) {
-                    return fail(&e);
-                }
-                let _ = gout.flush();
-                grammar = writer.grammar;
-            }
-            Err(_) => {
-                tracing::error!("Could not write grammar to {}", path);
-            }
+        match write_grammar_bin(&path, grammar, &grammar_sources) {
+            Ok(g) => grammar = g,
+            Err(e) => return fail(&e),
         }
     }
     let _ = &grammar;
@@ -561,6 +563,43 @@ pub fn main_run(args: &[String]) -> i32 {
 
     // u_cleanup dropped.
     status
+}
+
+// [spec:cg3:req:diagnostics.sidecar]
+/// `--grammar-bin`: write the grammar in binary form, and its sources beside it.
+///
+/// Takes the grammar by value and hands it back, because the binary writer owns
+/// what it serialises (the C++ `grammar` lives in `main` throughout).
+///
+/// Serialised into memory first so the companion file stamps exactly the bytes
+/// that reached the disk. A failure to create the output is logged and survived,
+/// as it always was; a failure part-way through writing it is not, because what
+/// is on disk then is a truncated grammar.
+fn write_grammar_bin(
+    path: &str,
+    grammar: Grammar,
+    sources: &[crate::error::ParseSource],
+) -> Result<Grammar, crate::error::Cg3Error> {
+    let mut blob: Vec<u8> = Vec::new();
+    let mut writer = BinaryGrammar::new(grammar);
+    writer.write_binary_grammar(&mut blob)?;
+    let grammar = writer.grammar;
+
+    let Ok(mut gout) = std::fs::File::create(path) else {
+        tracing::error!("Could not write grammar to {}", path);
+        return Ok(grammar);
+    };
+    gout.write_all(&blob)
+        .and_then(|()| gout.flush())
+        .map_err(crate::error::RunError::Io)?;
+
+    // Only for a grammar that came from text: a binary-to-binary pass has no
+    // sources to describe, and an empty companion file says nothing more than
+    // an absent one.
+    if !sources.is_empty() {
+        crate::grammar_sources::write_beside(std::path::Path::new(path), &blob, &grammar, sources);
+    }
+    Ok(grammar)
 }
 
 /// The `--help` usage banner (C++ inlined in `main`). Emits to stdout.

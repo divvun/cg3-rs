@@ -96,6 +96,11 @@ pub fn main_comp(args: &[String]) -> i32 {
         return fail(&e);
     }
 
+    // The parse's own buffers, taken before the parser goes out of scope —
+    // this is the only moment the grammar text exists in memory, and the
+    // companion file below is what gets it past the compile step.
+    let sources = parser.sources();
+
     // Move the built grammar out of the parser (the C++ grammar outlives the
     // parser, which is `reset()` after parsing).
     let mut grammar = parser.grammar;
@@ -123,13 +128,29 @@ pub fn main_comp(args: &[String]) -> i32 {
     }
 
     // std::ofstream gout(argv[2], ...); if (gout) { BinaryGrammar writer; writer.writeBinaryGrammar(gout); }
+    //
+    // Serialised into memory first, so the companion file below can stamp the
+    // exact bytes that reached the disk without reading them back.
+    let mut blob: Vec<u8> = Vec::new();
+    let mut writer = BinaryGrammar::new(grammar);
+    if let Err(e) = writer.write_binary_grammar(&mut blob) {
+        return fail(&e);
+    }
+    let grammar = writer.grammar;
     match File::create(&args[2]) {
         Ok(mut gout) => {
-            let mut writer = BinaryGrammar::new(grammar);
-            if let Err(e) = writer.write_binary_grammar(&mut gout) {
-                return fail(&e);
+            if gout.write_all(&blob).is_err() {
+                tracing::error!("Could not write grammar to {}", args[2]);
+                return EXIT_FAILURE;
             }
             let _ = gout.flush();
+            // [spec:cg3:req:diagnostics.sidecar]
+            crate::grammar_sources::write_beside(
+                std::path::Path::new(&args[2]),
+                &blob,
+                &grammar,
+                &sources,
+            );
         }
         Err(_) => {
             tracing::error!("Could not write grammar to {}", args[2]);

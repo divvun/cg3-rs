@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-15T17:32:55.675095Z
+last_sync_at 2026-08-15T17:54:51.758355Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -10,10 +10,17 @@ rule_versions (
     {id diagnostics.colour-at-tty, version 0}
     {id diagnostics.errors-carried, version 0}
     {id diagnostics.rendered, version 0}
+    {id diagnostics.rule-provenance, version 0}
+    {id diagnostics.runtime-input-named, version 0}
+    {id diagnostics.runtime-placed, version 0}
+    {id diagnostics.sidecar, version 0}
+    {id diagnostics.sidecar-identity, version 0}
     {id diagnostics.source-identity, version 0}
+    {id diagnostics.source-lazy, version 0}
     {id diagnostics.source-named, version 0}
     {id diagnostics.source-retained, version 0}
     {id diagnostics.span, version 0}
+    {id diagnostics.wire-frozen, version 0}
     {id errors.context, version 0}
     {id errors.exit-codes-at-cli, version 0}
     {id errors.layered, version 0}
@@ -277,6 +284,17 @@ impl_evidence (
     ), rule_versions_seen (
         {id main.divvun-version-banner, version 2}
     )}
+    {id runtime-diagnostics.rule-provenance, covered_rules (
+        diagnostics.rule-provenance
+        diagnostics.wire-frozen
+    ), covered_claims (
+        {impl_name target-impl, rule diagnostics.rule-provenance}
+        {impl_name target-impl, rule diagnostics.wire-frozen}
+    ), rule_versions_seen (
+        {id diagnostics.rule-provenance, version 0}
+        {id diagnostics.source-lazy, version 0}
+        {id diagnostics.wire-frozen, version 0}
+    )}
     {id unsafe-zero, covered_rules (
         grammar-applicator.cg3.unif-key
     ), covered_claims (
@@ -307,11 +325,11 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
-    {id runtime-diagnostics.rule-provenance, covered_rules (
-        diagnostics.rule-provenance
-        diagnostics.wire-frozen
+    {id runtime-diagnostics.sidecar, covered_rules (
+        diagnostics.sidecar
+        diagnostics.sidecar-identity
     ), covered_claims (
-        {impl_name target-impl, rule diagnostics.rule-provenance}
-        {impl_name target-impl, rule diagnostics.wire-frozen}
+        {impl_name target-impl, rule diagnostics.sidecar}
+        {impl_name target-impl, rule diagnostics.sidecar-identity}
     )}
 )

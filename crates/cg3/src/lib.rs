@@ -52,6 +52,7 @@ pub mod uextras;
 
 // --- Wave 2 parser + serialization layer ---
 pub mod binary_grammar;
+pub mod grammar_sources;
 pub mod grammar_writer;
 pub mod parser_helpers;
 pub mod tag_regex;
