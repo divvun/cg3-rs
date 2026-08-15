@@ -1515,6 +1515,7 @@ children (
                 title "Flip the adoption scope from porting to maintenance now the port is finished"
                 priority 0
                 kind @chore
+                sealed true
                 log (
                     {
                         at 2026-08-14T11:44:16.022461Z
@@ -1528,6 +1529,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-15T11:11:14.541326Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
@@ -1624,6 +1632,7 @@ children (
                 priority 0
                 kind @refactor
                 deps (errors-idiomatic.parser)
+                sealed true
                 log (
                     {
                         at 2026-08-14T12:15:41.381389Z
@@ -1637,6 +1646,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-08-15T11:11:16.991052Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
