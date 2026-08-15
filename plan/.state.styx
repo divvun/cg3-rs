@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-08-15T14:53:22.926926Z
+last_sync_at 2026-08-15T16:23:55.873058Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
