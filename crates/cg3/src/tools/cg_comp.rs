@@ -78,9 +78,9 @@ pub fn main_comp(args: &[String]) -> i32 {
 
     // if (parser->parse_grammar(argv[1])) { ... CG3Quit(1); }
     //
-    // The C++ filename overload stat+reads the file; the ported TextualParser has
-    // no filename form, so read the whole file and parse the byte buffer (the
-    // faithful analogue — same bytes, same result).
+    // The C++ filename overload stat+reads the file; this reads it here (the
+    // `.cg3b` magic was already sniffed off the front above) and hands the parse
+    // the bytes AND the path, so a diagnostic can name the file it came from.
     let buffer = match std::fs::read(&args[1]) {
         Ok(b) => b,
         Err(_) => {
@@ -91,7 +91,8 @@ pub fn main_comp(args: &[String]) -> i32 {
     // A deep parse/grammar fatal already printed its diagnostic; the variants
     // that carry theirs are surfaced by `fail`. Either way the process ends with
     // the exact code (byte-identical to the C++ CG3Quit termination).
-    if let Err(e) = parser.parse_grammar_utf8(&buffer) {
+    // [spec:cg3:req:diagnostics.source-named]
+    if let Err(e) = parser.parse_grammar_named(&buffer, &args[1]) {
         return fail(&e);
     }
 

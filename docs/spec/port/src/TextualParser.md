@@ -116,7 +116,7 @@
 > [spec:cg3:def:textual-parser.cg3.textual-parser.error-fn]
 > void TextualParser::error(const char* str, const UChar* p)
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn]
+> [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn+1]
 > The `(const char* str, const UChar* p)` overload of the error
 > reporter (one of nine overloads sharing this behavior). Copies up to
 > 20 UChars of context starting at `p` into the member buffer `nearbuf`
@@ -127,6 +127,20 @@
 > near-context string. Finally calls `incErrorCount()`, which is
 > [[noreturn]] (it throws), so this never returns. Backs the many
 > "Error: ... on line %u near `%S`" messages.
+>
+> PORT REVISION (v1, plan node `grammar-diagnostics.spans`): the port takes the
+> OFFSET of `p` into the buffer being parsed rather than the pointer (a `&[char]`
+> tail in the port's earlier shape). The 20-char `nearbuf` copy is unchanged and
+> still comes off that position; what the offset adds is the position ITSELF,
+> which the returned error carries as a span into the retained source per
+> `[spec:cg3:req:diagnostics.span]`. Every call site already held the offset —
+> `error(p)` was reached from expressions that had just indexed the buffer with
+> it — so the port was computing the position and discarding it. Two sibling
+> forms cover what an offset cannot: `error_near_text` for text that is not in
+> any parsed buffer (a varstring re-parsed from its own tag text), and
+> `error_bare` for the C++ `(str)` overload. Return-instead-of-throw is per
+> `[dec:cg3:results-not-unwinding]`, recorded with `incErrorCount`'s
+> obsolescence below.
 
 > [spec:cg3:def:textual-parser.cg3.textual-parser.get-grammar-fn]
 > Grammar* get_grammar()

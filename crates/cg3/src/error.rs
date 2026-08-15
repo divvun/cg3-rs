@@ -17,6 +17,36 @@
 use crate::process::ProcessError;
 use crate::tag_regex::TagRegexError;
 
+// [spec:cg3:req:diagnostics.source-retained]
+/// One grammar source a parse read, retained so a failure in it can be quoted.
+///
+/// A parse spans several buffers the moment a grammar uses `#include`, and the
+/// text is the parser's own working buffer, which nothing outside the parse
+/// holds: without this the only way to show a user the line that failed would
+/// be to re-read the file and hope it had not changed.
+#[derive(Debug, Clone)]
+pub struct ParseSource {
+    /// The path this text was read from, as the parse was told it.
+    pub name: String,
+    /// The grammar text, free of the parser's leading and trailing NUL padding,
+    /// so offsets into it are offsets into what the author wrote.
+    pub text: String,
+}
+
+// [spec:cg3:req:diagnostics.span]
+/// Where in a parsed grammar source a failure sits.
+///
+/// The source index rather than a file name, because `#include` means one parse
+/// covers several files and two of them may share a base name —
+/// `[spec:cg3:req:diagnostics.source-identity]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseSpan {
+    /// Index into the parse's [`ParseSource`] list.
+    pub source: usize,
+    /// Char offsets into that source's [`text`](ParseSource::text).
+    pub range: std::ops::Range<usize>,
+}
+
 // [spec:cg3:req:errors.layered]
 /// One recoverable grammar parse error, with the position needed to find it.
 ///
@@ -32,6 +62,12 @@ pub struct ParseError {
     /// Up to 20 characters of source at the failure, with control characters
     /// rendered visibly.
     pub near: String,
+    /// Where the failure sits in the retained sources, when it has a place at
+    /// all. `None` for the failures with nothing to point at: an empty input, a
+    /// template reference resolved after the buffer walk has finished, and a tag
+    /// the running stream asked for (which came from the input, not the
+    /// grammar).
+    pub span: Option<ParseSpan>,
     pub kind: ParseErrorKind,
 }
 
@@ -123,13 +159,18 @@ pub enum GrammarError {
     #[error("contextual test on line {line} has no hash - the grammar cannot be written")]
     ContextHashZero { line: u32 },
 
-    /// Recoverable parse errors, all of those found in one pass.
+    // [spec:cg3:req:diagnostics.errors-carried]
+    /// Recoverable parse errors, all of those found in one pass, together with
+    /// the sources their spans index.
     ///
-    /// Carries a count rather than the errors themselves until the parser
-    /// conversion (`errors-idiomatic.parser`) can hand them over — today the
-    /// parser discards everything but the tally.
-    #[error("grammar could not be parsed: {count} error(s)")]
-    Parse { count: u32 },
+    /// The sources travel with the errors because a span is worthless without
+    /// the text it points into, and the parser's buffers do not outlive the
+    /// parse — `[spec:cg3:req:diagnostics.source-retained]`.
+    #[error("grammar could not be parsed: {} error(s)", .errors.len())]
+    Parse {
+        errors: Vec<ParseError>,
+        sources: Vec<ParseSource>,
+    },
 
     #[error("{} tag regex(es) failed to compile{}", .0.len(), indented(.0))]
     TagRegex(Vec<TagRegexError>),

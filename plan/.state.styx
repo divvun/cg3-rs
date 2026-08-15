@@ -267,4 +267,19 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id grammar-diagnostics.spans, covered_rules (
+        diagnostics.errors-carried
+        diagnostics.source-identity
+        diagnostics.source-named
+        diagnostics.source-retained
+        diagnostics.span
+        textual-parser.cg3.textual-parser.error-fn
+    ), covered_claims (
+        {impl_name target-impl, rule diagnostics.errors-carried}
+        {impl_name target-impl, rule diagnostics.source-identity}
+        {impl_name target-impl, rule diagnostics.source-named}
+        {impl_name target-impl, rule diagnostics.source-retained}
+        {impl_name target-impl, rule diagnostics.span}
+        {impl_name target-impl, rule textual-parser.cg3.textual-parser.error-fn}
+    )}
 )

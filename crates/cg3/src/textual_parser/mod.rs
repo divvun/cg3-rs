@@ -54,6 +54,7 @@ use crate::contextual_test::{
 };
 use crate::grammar::Grammar;
 use crate::inlines::{hash_value_ustring, isspace, skiptows_chars, skipws_chars, ui32};
+use crate::parser_helpers::Near;
 use crate::rule::{
     FLAGS_COUNT, RF_AFTER, RF_ALLOWLOOP, RF_BEFORE, RF_DELAYED, RF_ENCL_ANY, RF_ENCL_FINAL,
     RF_ENCL_INNER, RF_ENCL_OUTER, RF_IGNORED, RF_IMMEDIATE, RF_ITERATE, RF_KEEPORDER,
@@ -283,6 +284,24 @@ struct DynBitset {
 /// `incErrorCount` bailed at the same count with `CG3Quit(1)`.
 pub(crate) const MAX_PARSE_ERRORS: usize = 10;
 
+/// How many characters of source an error quotes. C++ `ux_bufcpy(nearbuf, p, 20)`.
+const NEAR_CONTEXT_CHARS: usize = 20;
+
+/// Where the author's text starts in a parse buffer. Each buffer is 4 leading
+/// NULs (the lookbehind pad the C++ `&data[4]` cursor start relies on) + the
+/// text + trailing NUL padding, so a buffer offset is this much larger than the
+/// offset into what the author wrote — `[spec:cg3:req:diagnostics.span]`.
+const BUF_TEXT_START: usize = 4;
+
+/// How many trailing NULs a parse buffer carries so the lookahead scans can run
+/// off the end of the text without a bounds check. C++ `data.resize(length + 40, 0)`.
+const BUF_TRAILING_NULS: usize = 40;
+
+/// The name a parse gives its source when it was handed bytes with no file
+/// behind them. `[spec:cg3:req:diagnostics.source-named]` is why every CLI hands
+/// over a real path instead.
+pub const MEMORY_SOURCE_NAME: &str = "<utf8-memory>";
+
 /// What every parser function returns: a value, or the recoverable error that
 /// stopped it. The C++ signalled these by throwing.
 pub(crate) type ParseResult<T = ()> = Result<T, crate::error::ParseError>;
@@ -469,6 +488,47 @@ fn merge_difference(g: &Grammar, a: &[TagVector], b: &[TagVector]) -> Vec<TagVec
 /// `(line, name)` for late resolution.
 type DeferredTests = HashMap<CtxId, (usize, String)>;
 
+// [spec:cg3:req:diagnostics.source-identity]
+/// One grammar buffer a parse read, with the path it came from.
+///
+/// `#include` pushes a buffer per included file and recurses, so a parse holds
+/// several of these at once and a base name does not tell them apart — an error
+/// names its source by INDEX into this list.
+struct SourceBuf {
+    /// The path the buffer was read from, as the parse was told it.
+    name: String,
+    /// 4 leading NULs + the text + [`BUF_TRAILING_NULS`] trailing NULs. Shared
+    /// and immutable, so a parse in flight can push another buffer without
+    /// invalidating the slice it is walking.
+    buf: crate::ast::SrcBuf,
+}
+
+impl SourceBuf {
+    /// Build the padded parse buffer for `text`, under the name it came from.
+    fn new(name: String, text: &str) -> SourceBuf {
+        let mut data: Vec<char> = vec!['\0'; BUF_TEXT_START];
+        data.extend(text.chars());
+        data.extend(std::iter::repeat_n('\0', BUF_TRAILING_NULS));
+        SourceBuf {
+            name,
+            buf: crate::ast::SrcBuf::from(data.as_slice()),
+        }
+    }
+
+    // [spec:cg3:req:diagnostics.source-retained]
+    /// The author's text, free of the padding, so a char offset into it is a
+    /// char offset into what was written.
+    fn source(&self) -> crate::error::ParseSource {
+        crate::error::ParseSource {
+            name: self.name.clone(),
+            text: self.buf[BUF_TEXT_START..]
+                .iter()
+                .take_while(|&&c| c != '\0')
+                .collect(),
+        }
+    }
+}
+
 // [spec:cg3:def:textual-parser.cg3.textual-parser]
 pub struct TextualParser {
     pub grammar: Grammar,
@@ -507,10 +567,14 @@ pub struct TextualParser {
     /// live role was buffer identity for AST nodes). Saved/restored around
     /// `#include` exactly as the C++ pointer was.
     cur_grammar_buf: crate::ast::SrcBuf,
+    /// Index into [`grammarbufs`](Self::grammarbufs) of the buffer being parsed
+    /// — the source identity an error's span carries. Saved and restored around
+    /// `#include` exactly as `cur_grammar_buf` is.
+    cur_source: usize,
     cur_grammar_n: u32,
     num_grammars: u32,
     deferred_tmpls: DeferredTests,
-    grammarbufs: Vec<crate::ast::SrcBuf>,
+    grammarbufs: Vec<SourceBuf>,
     /// Every recoverable parse error found, in source order —
     /// `[spec:cg3:req:errors.parse-reports-all]`. Replaces the C++
     /// `error_counter`, which was thrown and never read.
@@ -566,6 +630,7 @@ impl TextualParser {
             nested_subrules: Vec::new(),
             filename: String::new(),
             cur_grammar_buf: crate::ast::SrcBuf::from([] as [char; 0]),
+            cur_source: 0,
             cur_grammar_n: 0,
             num_grammars: 0,
             deferred_tmpls: HashMap::new(),
@@ -628,6 +693,18 @@ impl TextualParser {
         std::mem::take(&mut self.errors)
     }
 
+    // [spec:cg3:req:diagnostics.source-retained]
+    /// The grammar sources this parse read, in the order it read them — the text
+    /// a diagnostic quotes, indexed by
+    /// [`ParseSpan::source`](crate::error::ParseSpan::source).
+    ///
+    /// The parser's buffers are dropped with it (every CLI does
+    /// `let g = parser.grammar;`), so a failure that wants to show a user the
+    /// offending line has to take the text with it.
+    pub fn sources(&self) -> Vec<crate::error::ParseSource> {
+        self.grammarbufs.iter().map(SourceBuf::source).collect()
+    }
+
     /// Record a recoverable error and report it, exactly once.
     ///
     /// The C++ printed at the raise site and threw; recording is now the single
@@ -638,7 +715,11 @@ impl TextualParser {
         self.errors.push(e);
     }
 
-    /// Build a parse error at the current position.
+    /// Build a parse error at the current position, with no span.
+    ///
+    /// For the failures that genuinely have nowhere to point: an empty input, a
+    /// template reference resolved after the buffer walk has finished, the
+    /// `SUB:*` guard's bare-error overload.
     pub(crate) fn parse_error_at(
         &self,
         near: String,
@@ -648,22 +729,107 @@ impl TextualParser {
             file: self.filebase.clone(),
             line: self.grammar.lines,
             near,
+            span: None,
             kind,
         }
     }
 
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.error-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn]
+    // [spec:cg3:req:diagnostics.span]
+    /// How far past `at` a span should reach: to the end of the near-context, but
+    /// never past the end of the line, so a one-line syntax error underlines one
+    /// line. At least one char wide, because a zero-width underline points at
+    /// nothing.
+    fn span_len_at(buf: &[char], at: usize) -> usize {
+        buf[at..]
+            .iter()
+            .take(NEAR_CONTEXT_CHARS)
+            .take_while(|&&c| c != '\0' && c != '\n' && c != '\r')
+            .count()
+            .max(1)
+    }
+
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.error-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn+1]
     /// The `(str, const UChar* p)` error overload (the near-context form the
-    /// vast majority of sites use). `near` is the buffer tail at `p`.
+    /// vast majority of sites use). `at` is the offset of `p` into the buffer
+    /// being parsed.
+    ///
+    /// Takes the offset rather than the buffer tail every call site used to
+    /// slice off it: the tail is enough to quote 20 characters and nothing else,
+    /// while the offset also says WHERE those characters are, which is what lets
+    /// a diagnostic point at the grammar
+    /// (`[spec:cg3:req:diagnostics.span]`). Offsets are reported relative to the
+    /// author's text, so the parser's 4-char lookbehind pad comes back off.
     ///
     /// Returns the error rather than diverging: the C++ `throw` is now a
     /// `return Err(..)` at each call site — `[dec:cg3:results-not-unwinding]`.
     // [spec:cg3:req:errors.result-primary]
-    pub fn error_near(&mut self, near: &[char]) -> crate::error::ParseError {
-        ux_bufcpy(&mut self.nearbuf, Some(near), 20);
+    pub fn error_near(&mut self, at: usize) -> crate::error::ParseError {
+        let buf = self.cur_grammar_buf.clone();
+        if at >= buf.len() {
+            // Past the end of the buffer: no text to quote and nothing to point
+            // at. Unreachable for a real parse (the trailing NUL padding stops
+            // every scan first), so it degrades rather than panicking.
+            return self.parse_error_at(String::new(), crate::error::ParseErrorKind::Syntax);
+        }
+        ux_bufcpy(&mut self.nearbuf, Some(&buf[at..]), NEAR_CONTEXT_CHARS);
+        let near: String = self.nearbuf.iter().take_while(|&&c| c != '\0').collect();
+        let start = at - BUF_TEXT_START;
+        crate::error::ParseError {
+            file: self.filebase.clone(),
+            line: self.grammar.lines,
+            near,
+            span: Some(crate::error::ParseSpan {
+                source: self.cur_source,
+                range: start..start + Self::span_len_at(&buf, at),
+            }),
+            kind: crate::error::ParseErrorKind::Syntax,
+        }
+    }
+
+    /// The near-context form for text that is not in any parsed buffer: a
+    /// varstring re-parsed out of its own tag text. Quotes the text, but has no
+    /// span to give, because there is no source position to give one from.
+    pub fn error_near_text(&mut self, near: &[char]) -> crate::error::ParseError {
+        ux_bufcpy(&mut self.nearbuf, Some(near), NEAR_CONTEXT_CHARS);
         let near_text: String = self.nearbuf.iter().take_while(|&&c| c != '\0').collect();
         self.parse_error_at(near_text, crate::error::ParseErrorKind::Syntax)
+    }
+
+    /// Dispatch the shared [`Near`] vocabulary onto the two forms above — the
+    /// parser's half of [`ParseTagState`](crate::parser_helpers::ParseTagState).
+    pub fn error_at(&mut self, near: Near<'_>) -> crate::error::ParseError {
+        match near {
+            Near::At(at) => self.error_near(at),
+            Near::Text(text) => self.error_near_text(text),
+        }
+    }
+
+    // [spec:cg3:req:diagnostics.span]
+    /// Place an error that arrived without a position.
+    ///
+    /// Grammar construction raises its own failures — a redefined set, a tag
+    /// that would not build — and [`Grammar`] has the source line but no cursor,
+    /// so those arrive with no file and nothing to point at. The directive loop
+    /// still holds the cursor where the failure surfaced, and fills them in on
+    /// the way past. An error that already knows where it is keeps what it has.
+    fn locate_unplaced(
+        &mut self,
+        mut e: crate::error::ParseError,
+        at: usize,
+    ) -> crate::error::ParseError {
+        if e.span.is_some() {
+            return e;
+        }
+        let placed = self.error_near(at);
+        if e.file.is_empty() {
+            e.file = placed.file;
+        }
+        if e.near.is_empty() {
+            e.near = placed.near;
+        }
+        e.span = placed.span;
+        e
     }
 
     /// The `(str)` overload (no near-context; used by the SUB:* guard).
@@ -683,7 +849,7 @@ impl TextualParser {
             *n += 1;
             crate::inlines::skipto_nospan_chars(buf, n, '"');
             if buf[*n] != '"' {
-                return Err(self.error_near(&buf[near_pos..]));
+                return Err(self.error_near(near_pos));
             }
         }
         Ok(())
@@ -691,14 +857,14 @@ impl TextualParser {
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-tag-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-fn]
-    pub fn parse_tag(&mut self, to: &str, near: &[char]) -> ParseResult<TagId> {
+    pub fn parse_tag(&mut self, to: &str, near: Near<'_>) -> ParseResult<TagId> {
         let tag = crate::parser_helpers::parse_tag(to, near, self, true)?;
         let (ty, tagstr, plain) = {
             let t = &self.grammar.single_tags_list[tag.0];
             (t.r#type, t.tag.clone(), t.plain_hash)
         };
         if ty.intersects(T_VARSTRING) && !tagstr.contains('{') && !tagstr.contains('$') {
-            return Err(self.error_near(near)); // "Varstring tag had no variables"
+            return Err(self.error_at(near)); // "Varstring tag had no variables"
         }
         if !self.strict_tags.empty() && self.strict_tags.count(plain.get()) == 0 {
             if ty.intersects(
@@ -722,26 +888,26 @@ impl TextualParser {
                 // Always allow >>> and <<<
             } else if ty.intersects(T_REGEXP | T_REGEXP_ANY) {
                 if self.strict_regex {
-                    return Err(self.error_near(near));
+                    return Err(self.error_at(near));
                 }
             } else if ty.intersects(T_CASE_INSENSITIVE) {
                 if self.strict_icase {
-                    return Err(self.error_near(near));
+                    return Err(self.error_at(near));
                 }
             } else if ty.intersects(T_WORDFORM) {
                 if self.strict_wforms {
-                    return Err(self.error_near(near));
+                    return Err(self.error_at(near));
                 }
             } else if ty.intersects(T_BASEFORM) {
                 if self.strict_bforms {
-                    return Err(self.error_near(near));
+                    return Err(self.error_at(near));
                 }
             } else if tagstr.starts_with('<') && tagstr.ends_with('>') {
                 if self.strict_second {
-                    return Err(self.error_near(near));
+                    return Err(self.error_at(near));
                 }
             } else {
-                return Err(self.error_near(near));
+                return Err(self.error_at(near));
             }
         }
         Ok(tag)
@@ -749,7 +915,7 @@ impl TextualParser {
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-set-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-fn]
-    pub fn parse_set(&mut self, name: &str, near: &[char]) -> ParseResult<SetId> {
+    pub fn parse_set(&mut self, name: &str, near: Near<'_>) -> ParseResult<SetId> {
         crate::parser_helpers::parse_set(name, near, self)
     }
 }
@@ -779,13 +945,13 @@ impl TextualParser {
                         self.maybe_quoted(buf, &mut n, *pos)?;
                         self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
                         let token: String = buf[*pos..n].iter().collect();
-                        let t = self.parse_tag(&token, &buf[*pos..])?;
+                        let t = self.parse_tag(&token, Near::At(*pos))?;
                         tags.push(t);
                         *pos = n;
                         self.grammar.lines += skipws_chars(buf, pos, ';', ')', false);
                     }
                     if buf[*pos] != ')' {
-                        return Err(self.error_near(&buf[*pos..]));
+                        return Err(self.error_near(*pos));
                     }
                     *pos += 1;
                 } else {
@@ -793,7 +959,7 @@ impl TextualParser {
                     self.maybe_quoted(buf, &mut n, *pos)?;
                     self.grammar.lines += skiptows_chars(buf, &mut n, '\0', true, false);
                     let token: String = buf[*pos..n].iter().collect();
-                    let t = self.parse_tag(&token, &buf[*pos..])?;
+                    let t = self.parse_tag(&token, Near::At(*pos))?;
                     tags.push(t);
                     *pos = n;
                 }
@@ -870,7 +1036,7 @@ impl TextualParser {
                 if !wantop {
                     if buf[*pos] == '(' {
                         if self.no_isets && buf[*pos + 1] != '*' {
-                            return Err(self.error_near(&buf[*pos..]));
+                            return Err(self.error_near(*pos));
                         }
                         let n_open = *pos;
                         *pos += 1;
@@ -891,18 +1057,18 @@ impl TextualParser {
                             self.maybe_quoted(buf, &mut n, *pos)?;
                             self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
                             let token: String = buf[*pos..n].iter().collect();
-                            let t = self.parse_tag(&token, &buf[*pos..])?;
+                            let t = self.parse_tag(&token, Near::At(*pos))?;
                             tags.push(t);
                             *pos = n;
                             self.grammar.lines += skipws_chars(buf, pos, ';', ')', false);
                         }
                         if buf[*pos] != ')' {
-                            return Err(self.error_near(&buf[*pos..]));
+                            return Err(self.error_near(*pos));
                         }
                         *pos += 1;
 
                         if tags.is_empty() {
-                            return Err(self.error_near(&buf[n_open..]));
+                            return Err(self.error_near(n_open));
                         } else if tags.len() == 1 {
                             self.grammar.add_tag_to_set(tags[0], set_c);
                         } else {
@@ -941,7 +1107,7 @@ impl TextualParser {
                             n -= 1;
                         }
                         let token: String = buf[*pos..n].iter().collect();
-                        let tmp = self.parse_set(&token, &buf[*pos..])?;
+                        let tmp = self.parse_set(&token, Near::At(*pos))?;
                         let sh = self.grammar.sets_list[tmp.0].hash;
                         sets.push(sh);
                         *pos = n;
@@ -1047,12 +1213,12 @@ impl TextualParser {
                     }
                 }
             } else if !wantop {
-                return Err(self.error_near(&buf[*pos..]));
+                return Err(self.error_near(*pos));
             }
         }
 
         if s.is_none() && sets.is_empty() {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
 
         if s.is_none() && sets.len() == 1 {
@@ -1253,7 +1419,7 @@ impl TextualParser {
                 let mut nn = *pos;
                 skiptows_chars(buf, &mut nn, '(', false, false);
                 let token: String = buf[*pos..nn].iter().collect();
-                let tag = self.parse_tag(&token, &buf[*pos..])?;
+                let tag = self.parse_tag(&token, Near::At(*pos))?;
                 self.grammar.contexts_arena[t.0].relation =
                     self.grammar.single_tags_list[tag.0].hash.get();
                 *pos = nn;
@@ -1352,26 +1518,26 @@ impl TextualParser {
         }
 
         if tries >= 100 {
-            return Err(self.error_near(&buf[n..])); // unknown specifier
+            return Err(self.error_near(n)); // unknown specifier
         } else if tries >= 20 {
             tracing::warn!("{}: Warning: Position took many loops.", self.filebase);
         }
         if !isspace(buf[*pos]) {
-            return Err(self.error_near(&buf[n..])); // garbage data
+            return Err(self.error_near(n)); // garbage data
         }
         if *pos - n == 1 && (buf[n] == 'o' || buf[n] == 'O') {
-            return Err(self.error_near(&buf[n..])); // stand-alone o/O
+            return Err(self.error_near(n)); // stand-alone o/O
         }
 
         if had_digits {
             if posb.intersects(POS_DEP_CHILD | POS_DEP_SIBLING | POS_DEP_PARENT) {
-                return Err(self.error_near(&buf[n..]));
+                return Err(self.error_near(n));
             }
             if posb.intersects(POS_LEFT_PAR | POS_RIGHT_PAR) {
-                return Err(self.error_near(&buf[n..]));
+                return Err(self.error_near(n));
             }
             if posb.intersects(POS_RELATION) {
-                return Err(self.error_near(&buf[n..]));
+                return Err(self.error_near(n));
             }
         }
         if (posb.intersects(POS_BAG_OF_TAGS))
@@ -1384,25 +1550,25 @@ impl TextualParser {
                     | POS_SPAN_RIGHT),
             ) || had_digits)
         {
-            return Err(self.error_near(&buf[n..]));
+            return Err(self.error_near(n));
         }
         if (posb.intersects(POS_DEP_PARENT))
             && (!posb.intersects(POS_DEP_GLOB))
             && (posb.intersects(POS_LEFTMOST | POS_RIGHTMOST))
         {
-            return Err(self.error_near(&buf[n..]));
+            return Err(self.error_near(n));
         }
         if (posb.intersects(POS_PASS_ORIGIN)) && (posb.intersects(POS_NO_PASS_ORIGIN)) {
-            return Err(self.error_near(&buf[n..]));
+            return Err(self.error_near(n));
         }
         if (posb.intersects(POS_LEFT_PAR)) && (posb.intersects(POS_RIGHT_PAR)) {
-            return Err(self.error_near(&buf[n..]));
+            return Err(self.error_near(n));
         }
         if (posb.intersects(POS_ALL)) && (posb.intersects(POS_NONE)) {
-            return Err(self.error_near(&buf[n..]));
+            return Err(self.error_near(n));
         }
         if (posb.intersects(POS_UNKNOWN)) && (posb != POS_UNKNOWN || had_digits) {
-            return Err(self.error_near(&buf[n..]));
+            return Err(self.error_near(n));
         }
         if (posb.intersects(POS_SCANALL)) && (posb.intersects(POS_NOT)) {
             tracing::warn!("{}: Warning: mixing NOT and ** ...", self.filebase);
@@ -1494,12 +1660,12 @@ impl TextualParser {
         if ux_is_empty(&token) {
             // (1) Inline template.
             if self.no_itmpls {
-                return Err(self.error_near(&buf[*pos..]));
+                return Err(self.error_near(*pos));
             }
             *pos = n_peek;
             loop {
                 if buf[*pos] != '(' {
-                    return Err(self.error_near(&buf[*pos..]));
+                    return Err(self.error_near(*pos));
                 }
                 *pos += 1;
                 let ored = self.parse_contextual_test_list(buf, pos, rule_flags, true)?;
@@ -1538,7 +1704,7 @@ impl TextualParser {
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             }
             if buf[*pos] != ']' {
-                return Err(self.error_near(&buf[*pos..]));
+                return Err(self.error_near(*pos));
             }
             *pos += 1;
         } else {
@@ -1612,7 +1778,7 @@ impl TextualParser {
         let mut linked = false;
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
         if simplecasecmp(buf, *pos, STR_AND) {
-            return Err(self.error_near(&buf[*pos..])); // AND deprecated
+            return Err(self.error_near(*pos)); // AND deprecated
         }
         if simplecasecmp(buf, *pos, STR_LINK) {
             *pos += slen(STR_LINK);
@@ -1627,7 +1793,7 @@ impl TextualParser {
                 .pos
                 .intersects(POS_NONE)
             {
-                return Err(self.error_near(&buf[*pos..])); // LINK from a NONE test
+                return Err(self.error_near(*pos)); // LINK from a NONE test
             }
         } else if !in_tmpl
             && (self.grammar.contexts_arena[t_cur.0]
@@ -1779,12 +1945,12 @@ impl TextualParser {
         for excl in FLAG_EXCLS_GROUPS {
             let bits = rv.flags & excl;
             if bits.bits().count_ones() > 1 {
-                return Err(self.error_near(&buf[lp..]));
+                return Err(self.error_near(lp));
             }
         }
 
         if rv.flags.intersects(RF_UNMAPLAST) && rv.flags.intersects(RF_SAFE) {
-            return Err(self.error_near(&buf[lp..]));
+            return Err(self.error_near(lp));
         }
 
         if rv.flags.intersects(RF_UNMAPLAST) {
@@ -1911,7 +2077,7 @@ impl TextualParser {
 
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         Ok(())
     }

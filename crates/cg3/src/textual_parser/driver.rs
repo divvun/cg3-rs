@@ -90,13 +90,13 @@ impl TextualParser {
         if buf[*pos] == '+' && buf[*pos + 1] == '=' {
             let aset = self.grammar.get_set(hash_value_ustring(&name, 0));
             if aset.is_none() {
-                return Err(self.error_near(&buf[*pos..]));
+                return Err(self.error_near(*pos));
             }
             *pos += 1;
             append = true;
         }
         if buf[*pos] != '=' {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         *pos += 1;
         self.parse_tag_list(buf, pos, sset, ordered)?;
@@ -107,11 +107,11 @@ impl TextualParser {
             self.grammar.add_set(sset)?
         };
         if self.grammar.sets_list[sset.0].empty() {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         Ok(())
     }
@@ -132,7 +132,7 @@ impl TextualParser {
         *pos = n;
         self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
         if buf[*pos] != '=' {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         *pos += 1;
 
@@ -160,11 +160,11 @@ impl TextualParser {
         }
         let s = self.grammar.add_set(s)?;
         if self.grammar.sets_list[s.0].empty() {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         Ok(())
     }
@@ -173,7 +173,7 @@ impl TextualParser {
         *pos += 7;
         self.grammar.lines += skipws_chars(buf, pos, '+', '\0', false);
         if buf[*pos] != '+' || buf[*pos + 1] != '=' {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         *pos += 2;
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -248,7 +248,7 @@ impl TextualParser {
                 found = true;
             }
             if !found {
-                return Err(self.error_near(&buf[*pos..]));
+                return Err(self.error_near(*pos));
             }
         }
 
@@ -257,7 +257,7 @@ impl TextualParser {
         }
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         Ok(())
     }
@@ -266,7 +266,7 @@ impl TextualParser {
         *pos += 11;
         self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
         if buf[*pos] != '=' {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         *pos += 1;
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -275,7 +275,7 @@ impl TextualParser {
             let mut n = *pos;
             self.grammar.lines += skiptows_chars(buf, &mut n, '(', true, false);
             if buf[n] != '(' {
-                return Err(self.error_near(&buf[*pos..]));
+                return Err(self.error_near(*pos));
             }
             n += 1;
             self.grammar.lines += skipws_chars(buf, &mut n, '\0', '\0', false);
@@ -283,20 +283,20 @@ impl TextualParser {
             self.maybe_quoted(buf, &mut n, *pos)?;
             self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
             let ltok: String = buf[*pos..n].iter().collect();
-            let left = self.parse_tag(&ltok, &buf[*pos..])?;
+            let left = self.parse_tag(&ltok, Near::At(*pos))?;
             self.grammar.lines += skipws_chars(buf, &mut n, '\0', '\0', false);
             *pos = n;
             if buf[*pos] == ')' {
-                return Err(self.error_near(&buf[*pos..]));
+                return Err(self.error_near(*pos));
             }
             self.maybe_quoted(buf, &mut n, *pos)?;
             self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
             let rtok: String = buf[*pos..n].iter().collect();
-            let right = self.parse_tag(&rtok, &buf[*pos..])?;
+            let right = self.parse_tag(&rtok, Near::At(*pos))?;
             self.grammar.lines += skipws_chars(buf, &mut n, '\0', '\0', false);
             *pos = n;
             if buf[*pos] != ')' {
-                return Err(self.error_near(&buf[*pos..]));
+                return Err(self.error_near(*pos));
             }
             *pos += 1;
             self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
@@ -307,11 +307,11 @@ impl TextualParser {
             self.grammar.parentheses_reverse.insert(rh.get(), lh.get());
         }
         if self.grammar.parentheses.is_empty() {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
         Ok(())
     }
@@ -338,7 +338,7 @@ impl TextualParser {
         *pos = n;
         self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
         if buf[*pos] != ';' {
-            return Err(self.error_near(&buf[*pos..]));
+            return Err(self.error_near(*pos));
         }
 
         let mut abspath = incname.clone();
@@ -371,35 +371,39 @@ impl TextualParser {
             bytes.drain(0..3);
         }
         let text = String::from_utf8_lossy(&bytes);
-        let mut data: Vec<char> = vec!['\0'; 4];
-        data.extend(text.chars());
-        data.extend(std::iter::repeat_n('\0', 40));
         self.grammarbufs
-            .push(crate::ast::SrcBuf::from(data.as_slice()));
+            .push(SourceBuf::new(abspath, text.as_ref()));
         let gi2 = self.grammarbufs.len() - 1;
 
         let saved_lines = self.grammar.lines;
         let saved_filebase = std::mem::take(&mut self.filebase);
         let saved_cur_grammar = self.cur_grammar_buf.clone();
+        let saved_cur_source = self.cur_source;
         let saved_cur_grammar_n = self.cur_grammar_n;
         let saved_only = self.only_sets;
         let saved_end = self.parse_end_break;
         self.only_sets = local_only_sets;
-        self.parse_from_u_char(gi2, abspath)?;
+        // Restore unconditionally, including on failure. The C++ threw straight
+        // past these assignments, which was harmless while the only state they
+        // guarded was cosmetic; `cur_source` is not — leaving it pointing at the
+        // included buffer would give the outer parse's next error a span into
+        // the wrong file.
+        let rv = self.parse_from_u_char(gi2);
         self.parse_end_break = saved_end;
         self.only_sets = saved_only;
         self.cur_grammar_n = saved_cur_grammar_n;
+        self.cur_source = saved_cur_source;
         self.cur_grammar_buf = saved_cur_grammar;
         self.filebase = saved_filebase;
         self.grammar.lines = saved_lines;
-        Ok(())
+        rv
     }
 
     fn make_magic_set(&mut self, name: &str) -> ParseResult<SetId> {
         let set_c = self.grammar.allocate_set();
         self.grammar.sets_list[set_c.0].line = 0;
         self.grammar.sets_list[set_c.0].name = name.to_string();
-        let t = self.parse_tag(name, &[])?;
+        let t = self.parse_tag(name, Near::Text(&[]))?;
         self.grammar.add_tag_to_set(t, set_c);
         self.grammar.add_set(set_c)
     }
@@ -420,7 +424,7 @@ impl TextualParser {
                     self.grammar.single_tags_list[tid.0].allocate_vs_names();
                     p += 1;
                     let theset: String = tbuf[p..n].iter().collect();
-                    let tmp = self.parse_set(&theset, &tbuf[p..])?;
+                    let tmp = self.parse_set(&theset, Near::Text(&tbuf[p..]))?;
                     let setname = self.grammar.sets_list[tmp.0].name.clone();
                     self.grammar.single_tags_list[tid.0]
                         .vs_sets
@@ -542,13 +546,14 @@ impl TextualParser {
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
-    fn parse_from_u_char(&mut self, gi: usize, fname: String) -> ParseResult {
+    fn parse_from_u_char(&mut self, gi: usize) -> ParseResult {
         // Clone the shared handle (a refcount bump) so `buf` is owned and does
         // NOT borrow `self`; the char data is immutable, so `#include` may push
         // new `grammarbufs` entries while this parse is in flight without
         // invalidating the slice. Replaces the C++ raw pointers into the stable
         // buffer.
-        let buf_handle: crate::ast::SrcBuf = self.grammarbufs[gi].clone();
+        let fname = self.grammarbufs[gi].name.clone();
+        let buf_handle: crate::ast::SrcBuf = self.grammarbufs[gi].buf.clone();
         let buf: &[char] = &buf_handle;
         let len = buf.len();
 
@@ -557,6 +562,7 @@ impl TextualParser {
                 file: basename(Some(&fname)).to_string(),
                 line: self.grammar.lines,
                 near: String::new(),
+                span: None,
                 kind: crate::error::ParseErrorKind::EmptyInput,
             });
         }
@@ -584,8 +590,10 @@ impl TextualParser {
         }
         // C++ `cur_grammar = &buf[4]`: record the buffer handle whose spans the
         // AST nodes opened during this parse belong to (the profiler offsets are
-        // computed from `pos` directly, not from this handle).
+        // computed from `pos` directly, not from this handle), and the index
+        // that names it to a diagnostic.
         self.cur_grammar_buf = buf_handle.clone();
+        self.cur_source = gi;
         self.cur_grammar_n = id;
         let mut pos = 4usize;
         self.grammar.lines = 1;
@@ -611,6 +619,10 @@ impl TextualParser {
                 // The C++ unwound here, which ran every in-scope ~ASTHelper();
                 // restore the AST cursor to the pre-directive depth by hand.
                 self.ast.truncate_cursor(ast_depth);
+                // Nothing rewinds the cursor on the way out, so it still points
+                // into the directive that failed: that is the position for a
+                // failure that arrived without one.
+                let e = self.locate_unplaced(e, pos);
                 // Not every parse error is resumable — see
                 // `ParseErrorKind::is_fatal`. The C++ terminated at those; this
                 // loop reports them and stops reading.
@@ -641,7 +653,7 @@ impl TextualParser {
         self.grammar
             .add_anchor(KEYWORDS_STR[Keywords::KStart as usize], 0, true)?;
         // 2. Magic * tag.
-        let tany = self.parse_tag(STR_ASTERIK, &[])?;
+        let tany = self.parse_tag(STR_ASTERIK, Near::Text(&[]))?;
         self.grammar.tag_any = self.grammar.single_tags_list[tany.0].hash.get();
         // 3. Dummy set.
         self.grammar.allocate_dummy_set();
@@ -669,8 +681,7 @@ impl TextualParser {
         }
 
         // 5. Parse the grammar text.
-        let fname = self.filename.clone();
-        self.parse_from_u_char(gi, fname)?;
+        self.parse_from_u_char(gi)?;
 
         // 6. END anchor at the last rule number.
         let end_at = ui32(self.grammar.rule_by_number.capacity().wrapping_sub(1));
@@ -767,19 +778,41 @@ impl TextualParser {
     }
 
     /// C++ `int parse_grammar(const char* buffer, size_t length)` (UTF-8 memory
-    /// buffer). Builds the `data` buffer (4 leading NULs + text + NUL padding),
-    /// then runs the private `parse_grammar(data)` driver.
+    /// buffer), for a caller that has bytes and no file behind them.
+    ///
+    /// Reports head `<utf8-memory>`, because that is the truth about a buffer
+    /// with no path. A caller that DOES have one wants
+    /// [`parse_grammar_named`](Self::parse_grammar_named).
     // [spec:cg3:req:errors.parse-result]
     pub fn parse_grammar_utf8(&mut self, buffer: &[u8]) -> Result<(), crate::error::Cg3Error> {
-        self.filename = "<utf8-memory>".to_string();
-        self.filebase = "<utf8-memory>".to_string();
+        self.parse_grammar_named(buffer, MEMORY_SOURCE_NAME)
+    }
+
+    // [spec:cg3:req:diagnostics.source-named]
+    /// C++ `int parse_grammar(const char* filename)`, minus the reading: the
+    /// bytes plus the path they came from.
+    ///
+    /// The C++ has a filename entry point and the port did not, so every CLI
+    /// read its own file and handed over bytes — leaving the parse to call the
+    /// grammar `<utf8-memory>` and head every diagnostic with it. The bytes stay
+    /// the caller's to read (the CLIs sniff the `.cg3b` magic off the front
+    /// first, and own the message when the read fails); only the name is new.
+    ///
+    /// A relative `#include` resolves against the directory of the file that
+    /// includes it, so naming the top-level source also gives the top-level
+    /// file's includes the base directory they always should have had. See
+    /// `[dec:cg3:parse-sources-carry-their-name]`.
+    pub fn parse_grammar_named(
+        &mut self,
+        buffer: &[u8],
+        filename: &str,
+    ) -> Result<(), crate::error::Cg3Error> {
+        self.filename = filename.to_string();
+        self.filebase = basename(Some(filename)).to_string();
         self.grammar.grammar_size = buffer.len();
         let text = String::from_utf8_lossy(buffer);
-        let mut data: Vec<char> = vec!['\0'; 4];
-        data.extend(text.chars());
-        data.extend(std::iter::repeat_n('\0', 40));
         self.grammarbufs
-            .push(crate::ast::SrcBuf::from(data.as_slice()));
+            .push(SourceBuf::new(self.filename.clone(), text.as_ref()));
         let gi = self.grammarbufs.len() - 1;
         // A recoverable error stops only its own directive: the loop inside
         // `parse_from_u_char` records it and continues, so `Ok` here still means
@@ -792,8 +825,11 @@ impl TextualParser {
         if errors.is_empty() {
             Ok(())
         } else {
+            // The sources travel with the errors: the spans index them, and the
+            // parser's buffers do not outlive the parse.
             Err(crate::error::GrammarError::Parse {
-                count: errors.len() as u32,
+                errors,
+                sources: self.sources(),
             }
             .into())
         }

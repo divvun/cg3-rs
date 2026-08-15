@@ -339,7 +339,8 @@ pub fn main_run(args: &[String]) -> i32 {
                 return EXIT_FAILURE;
             }
         };
-        if let Err(e) = parser.parse_grammar_utf8(&buffer) {
+        // [spec:cg3:req:diagnostics.source-named]
+        if let Err(e) = parser.parse_grammar_named(&buffer, &grammar_path) {
             return fail(&e);
         }
         profiler = parser.profiler.take();

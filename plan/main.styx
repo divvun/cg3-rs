@@ -1947,4 +1947,78 @@ children (
             }
         )
     }
+
+    {
+        id grammar-diagnostics
+        title "Render grammar syntax errors as ariadne diagnostics: parse errors carry a source-anchored span, the parse retains its buffers, and the CLI quotes the offending grammar text"
+        kind @feat
+        children (
+            {
+                id grammar-diagnostics.spans
+                title "Give ParseError a source-anchored span and retain the parsed buffers: error_near takes the buffer offset it is already handed, each buffer gets a stable identity across #include, and GrammarError::Parse carries the errors plus their sources instead of a count"
+                priority 0
+                kind @refactor
+                implements {
+                    target-impl (
+                        [spec:cg3:req:diagnostics.span]
+                        [spec:cg3:req:diagnostics.source-identity]
+                        [spec:cg3:req:diagnostics.source-retained]
+                        [spec:cg3:req:diagnostics.errors-carried]
+                        [spec:cg3:req:diagnostics.source-named]
+                        [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn]
+                    )
+                }
+                log (
+                    {
+                        at 2026-08-15T16:59:27.339986Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Scope: the plumbing only, no rendering. (1) ParseError gains an optional span carrying BOTH a source index and a char range, so a renderer can locate the failure; `near` is derived from the offset rather than passed as a slice. (2) TextualParser::error_near takes the buffer offset that ~120 call sites already have in hand (`return Err(self.error_near(*pos))`), which is the piece being thrown away today. Offsets are reported relative to the real text: the parse buffer is 4 leading NULs + text + 40 trailing NULs and `pos` starts at 4, so every reported offset is `pos - 4`. (3) Each parsed buffer gets a stable identity, because #include means one parse spans several buffers and a basename string cannot distinguish them. (4) The parse retains its sources so a renderer can quote them, and GrammarError::Parse carries Vec<ParseError> + the sources instead of a bare count. (5) A filename-carrying entry point, so reports are not headed `<utf8-memory>`. Out of scope: ariadne, INCLUDE path resolution beyond what the filename entry point incidentally fixes, runtime (RT RULE / RT INPUT) errors."
+                    }
+
+                    {
+                        at 2026-08-15T16:59:40.708241Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
+            }
+
+            {
+                id grammar-diagnostics.render
+                title "Render a failed grammar parse as ariadne reports on every CLI grammar-load path, quoting the offending source line with the ParseErrorKind as the label"
+                priority 0
+                kind @feat
+                implements {
+                    target-impl ([spec:cg3:req:diagnostics.rendered] [spec:cg3:req:diagnostics.colour-at-tty])
+                }
+                deps (grammar-diagnostics.spans)
+                log (
+                    {
+                        at 2026-08-15T16:59:35.484472Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Scope: the renderer. Adds ariadne 0.6 and turns a failed grammar parse into one report per recoverable error, quoting the grammar line and labelling it with the ParseErrorKind Display (already specific: `unknown template 'x'`, `cannot compile tag regex: <cause>`). This is the DEFAULT output for a failed parse on every CLI grammar-load path, not behind a flag — a cg-comp / vislcg3 user is the whole point. IndexType is set explicitly on Config because the parser is char-indexed (UChar = char, buffers are Vec<char>), so no byte-mapping table is needed. Colour is decided by tty detection at the CLI rather than pulled in through ariadne's concolor feature. ariadne writes to the stream directly, so this path bypasses the tracing subscriber that tools::init_diagnostics deliberately configures with .with_ansi(false); that is intended. A spanless error (empty input, a deferred template resolved after the buffer walk, a runtime tag) has nothing to quote and falls back to a plain message."
+                    }
+                )
+            }
+
+            {
+                id grammar-diagnostics.include-resolution
+                title "Decide what INCLUDE path resolution should be now the top-level grammar has a real name: whether the working-directory fallback survives as a second-chance lookup, and whether golden.rs still needs its chdir"
+                priority 3
+                kind @fix
+                deps (grammar-diagnostics.spans)
+                log (
+                    {
+                        at 2026-08-15T17:15:47.003588Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Split out of grammar-diagnostics.spans, NOT done there. Naming the top-level source (diagnostics.source-named) incidentally changed relative INCLUDE resolution: `parse_include` resolves against `ux_dirname(fname)`, and the top-level fname was the `<utf8-memory>` placeholder, whose dirname is `./` — so a top-level relative INCLUDE resolved against the process CWD while every NESTED include already resolved against its including file's directory. Giving the parse the real path makes the top level behave like the rest. That much is a strict widening (the directory-relative path is tried first, `parse_include`'s existing CWD-relative fallback catches everything that worked before) and is verified: `cg-comp test/T_Include/grammar.cg3` from the repo root failed before and works now. What is left, and is a real behaviour change rather than a widening: (a) whether the CWD fallback should exist at all now that it is a second chance rather than the only chance; (b) whether tests/golden.rs still needs to `current_dir` into each fixture directory — it no longer needs to for includes, but the fixtures use relative paths for other things too. Neither is urgent and neither should ride along with a diagnostics change."
+                    }
+                )
+            }
+        )
+    }
 )

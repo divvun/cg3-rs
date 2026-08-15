@@ -557,11 +557,16 @@ impl Grammar {
     /// A grammar-construction failure at the current source line. These are
     /// failures in what the grammar SAYS, so they are parse errors even though
     /// they surface here rather than in the parser.
+    ///
+    /// The grammar has a line but no cursor, so it cannot place the failure in
+    /// the source; the parser's directive loop fills the file and span in on the
+    /// way past — `[spec:cg3:req:diagnostics.span]`.
     pub(crate) fn error(&self, kind: crate::error::ParseErrorKind) -> crate::error::ParseError {
         crate::error::ParseError {
             file: String::new(),
             line: self.lines,
             near: String::new(),
+            span: None,
             kind,
         }
     }

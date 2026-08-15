@@ -1931,11 +1931,16 @@ impl Matcher<'_> {
             // A malformed runtime varstring tag stops construction rather than
             // continuing with the input that failed validation (which used to
             // reach `is_textual` and panic on empty text).
-            crate::parser_helpers::parse_tag(txt, &[], self, !r#type.intersects(T_PRESERVE_ESC))
-                .map_err(|source| crate::error::RunError::TagConstruction {
-                    text: txt.to_string(),
-                    source: Box::new(source),
-                })?
+            crate::parser_helpers::parse_tag(
+                txt,
+                crate::parser_helpers::Near::Text(&[]),
+                self,
+                !r#type.intersects(T_PRESERVE_ESC),
+            )
+            .map_err(|source| crate::error::RunError::TagConstruction {
+                text: txt.to_string(),
+                source: Box::new(source),
+            })?
         } else {
             let mut t = Tag::default();
             crate::tag::parse_tag_raw(&mut t, txt, self.grammar);
@@ -2039,7 +2044,11 @@ impl crate::parser_helpers::ParseTagState for Matcher<'_> {
     /// That label/line pair is the only position a runtime tag failure has, so
     /// it becomes the error's `file` and `line`. The C++ printed here and
     /// returned; the caller now decides.
-    fn error_near(&mut self, _near: &[char]) -> crate::error::ParseError {
+    ///
+    /// No span: the offending text came off the input stream, not out of a
+    /// grammar buffer, and the grammar source is gone by the time the stream
+    /// runs. `near` is ignored for the same reason the C++ passed `p = 0` here.
+    fn error_at(&mut self, _near: crate::parser_helpers::Near<'_>) -> crate::error::ParseError {
         let (label, line) = if let Some(rid) = self.scratch.current_rule
             && self.grammar.rule_by_number[rid.0].line != 0
         {
@@ -2051,6 +2060,7 @@ impl crate::parser_helpers::ParseTagState for Matcher<'_> {
             file: label.to_string(),
             line,
             near: String::new(),
+            span: None,
             kind: crate::error::ParseErrorKind::Syntax,
         }
     }

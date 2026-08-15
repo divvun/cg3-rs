@@ -128,8 +128,9 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<Grammar, Gra
             path: filename.to_string(),
             source,
         })?;
+        // [spec:cg3:req:diagnostics.source-named]
         parser
-            .parse_grammar_utf8(&buffer)
+            .parse_grammar_named(&buffer, filename)
             .map_err(|source| GrammarLoadError::Parse {
                 path: filename.to_string(),
                 source,

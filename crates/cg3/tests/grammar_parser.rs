@@ -499,7 +499,7 @@ fn undef_sets_and_list_append() {
 // every error it found. The C++ `incErrorCount` throw this replaced is retired —
 // see `[dec:cg3:results-not-unwinding]` and the note in
 // `docs/spec/port/src/TextualParser.md`.
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn+1/test]
 #[test]
 fn parse_error_recovery_counts_errors() {
     let mut p = TextualParser::new(Grammar::default(), false);
@@ -509,11 +509,12 @@ fn parse_error_recovery_counts_errors() {
             b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nSELECT NOSUCHSET ;\nSELECT AA ;\n",
         )
         .expect_err("a recoverable parse error must surface as Err");
-    assert!(
-        matches!(
-            err,
-            cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { count: 1 })
-        ),
+    let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { errors, .. }) = &err else {
+        panic!("expected a parse failure, got {err}");
+    };
+    assert_eq!(
+        errors.len(),
+        1,
         "exactly one recoverable parse error expected, got {err}"
     );
     // The parser recovered: the valid rule after the bad line still parsed.

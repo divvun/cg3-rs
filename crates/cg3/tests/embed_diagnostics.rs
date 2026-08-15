@@ -63,8 +63,10 @@ fn tag_regex_failures_name_the_tag() {
 
 /// A bad grammar reports EVERY recoverable error in one pass, not just the
 /// first — the property the old caught unwind provided as a side effect and the
-/// accumulating loop now provides on purpose.
+/// accumulating loop now provides on purpose. Each one arrives whole, not as a
+/// tally: the failure the caller has to explain is the error, not the count.
 // [spec:cg3:req:errors.parse-reports-all/test]
+// [spec:cg3:req:diagnostics.errors-carried/test]
 #[test]
 fn every_recoverable_error_is_reported() {
     // Three independent failures on three separate lines.
@@ -78,11 +80,104 @@ fn every_recoverable_error_is_reported() {
         .parse_grammar_utf8(src.as_bytes())
         .expect_err("must not parse");
 
-    let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { count }) = &err else {
+    let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { errors, sources }) = &err
+    else {
         panic!("expected a parse failure, got {err:?}");
     };
     assert!(
-        *count >= 3,
-        "all three failures must be reported, got {count}"
+        errors.len() >= 3,
+        "all three failures must be reported, got {}",
+        errors.len()
     );
+    assert_eq!(sources.len(), 1, "one buffer, one source");
+    assert_eq!(
+        sources[0].text, src,
+        "the retained source must be the text as written, padding stripped"
+    );
+}
+
+/// The span an error carries must select the offending grammar text out of the
+/// retained source — the whole point of keeping both.
+// [spec:cg3:req:diagnostics.span/test]
+// [spec:cg3:req:diagnostics.source-retained/test]
+#[test]
+fn spans_select_the_offending_text() {
+    let src = "DELIMITERS = \"<.>\" ;\nLIST a = \"[:script=Greek:]\"r ;\nSELECT a ;\n";
+    let mut parser =
+        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+    let err = parser
+        .parse_grammar_utf8(src.as_bytes())
+        .expect_err("must not parse");
+
+    let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { errors, sources }) = &err
+    else {
+        panic!("expected a parse failure, got {err:?}");
+    };
+    let span = errors[0].span.as_ref().expect("a syntax error has a place");
+    let text: Vec<char> = sources[span.source].text.chars().collect();
+    let quoted: String = text[span.range.clone()].iter().collect();
+    assert!(
+        quoted.starts_with("\"[:script=Greek:]\""),
+        "the span must cover the tag that failed, got {quoted:?}"
+    );
+    assert!(
+        !quoted.contains('\n'),
+        "a span stays on one line so a renderer underlines one line, got {quoted:?}"
+    );
+}
+
+/// `INCLUDE` makes one parse cover several files, so a span has to name WHICH
+/// one — and two failures in two files must land on two different sources.
+// [spec:cg3:req:diagnostics.source-identity/test]
+#[test]
+fn included_files_are_separate_sources() {
+    let dir = std::env::temp_dir().join(format!("cg3-diag-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let included = dir.join("lists.cg3");
+    std::fs::write(&included, "LIST a = \"[:script=Greek:]\"r ;\n").expect("write include");
+    let top = format!(
+        "DELIMITERS = \"<.>\" ;\nINCLUDE {} ;\nSELECT nosuch ;\n",
+        included.display()
+    );
+
+    let mut parser =
+        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+    let err = parser
+        .parse_grammar_named(top.as_bytes(), "top.cg3")
+        .expect_err("must not parse");
+
+    let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { errors, sources }) = &err
+    else {
+        panic!("expected a parse failure, got {err:?}");
+    };
+    assert_eq!(sources.len(), 2, "the top-level grammar and its include");
+    let places: Vec<usize> = errors
+        .iter()
+        .filter_map(|e| e.span.as_ref().map(|s| s.source))
+        .collect();
+    assert!(
+        places.contains(&0) && places.contains(&1),
+        "one failure per file, each naming its own source, got {places:?}"
+    );
+    let _ = std::fs::remove_file(&included);
+}
+
+/// A parse told its file name heads its reports with it, instead of the
+/// `<utf8-memory>` placeholder a caller that only had bytes gets.
+// [spec:cg3:req:diagnostics.source-named/test]
+#[test]
+fn a_named_parse_reports_its_file_name() {
+    let src = "DELIMITERS = \"<.>\" ;\nLIST a = \"[:script=Greek:]\"r ;\n";
+    let mut parser =
+        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+    let err = parser
+        .parse_grammar_named(src.as_bytes(), "grammars/nb.cg3")
+        .expect_err("must not parse");
+
+    let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { errors, sources }) = &err
+    else {
+        panic!("expected a parse failure, got {err:?}");
+    };
+    assert_eq!(sources[0].name, "grammars/nb.cg3");
+    assert_eq!(errors[0].file, "nb.cg3");
 }
