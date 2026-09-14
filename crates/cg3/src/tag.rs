@@ -894,8 +894,8 @@ fn allocate_tag(grammar: &mut Grammar, txt: &[char]) -> TagId {
     // txt[0] == 0 / '(' are CG3Quit diagnostics in C++ (parser I/O); omitted.
     let thash = hash_value_ustring(&txt_str, 0);
     let found: Option<TagId> = {
-        let it = grammar.single_tags.find(thash);
-        if it != grammar.single_tags.end() {
+        let it = grammar.single_tags().find(thash);
+        if it != grammar.single_tags().end() {
             Some(it.get().1)
         } else {
             None
@@ -922,8 +922,8 @@ fn add_tag(grammar: &mut Grammar, mut tag: Tag) -> TagId {
     while seed < 10000 {
         let ih = hash.wrapping_add(seed);
         let found: Option<TagId> = {
-            let it = grammar.single_tags.find(ih.get());
-            if it != grammar.single_tags.end() {
+            let it = grammar.single_tags().find(ih.get());
+            if it != grammar.single_tags().end() {
                 Some(it.get().1)
             } else {
                 None
@@ -958,7 +958,7 @@ fn add_tag(grammar: &mut Grammar, mut tag: Tag) -> TagId {
     // tag->number = single_tags_list.size() - 1 (== idx when appending, as the
     // parse phase never frees arena slots).
     let id = grammar.intern_tag_slot(tag);
-    grammar.single_tags.insert((_hash.get(), id));
+    grammar.insert_tag_hash(_hash.get(), id);
     id
 }
 

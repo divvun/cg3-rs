@@ -262,8 +262,8 @@ impl Read for ProcRead<'_> {
 /// miss returns `TagId(0)` (the first tag), which cannot crash — a benign
 /// divergence for the always-present hashes these call sites pass.
 pub(super) fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
-    let it = grammar.single_tags.find(hash.get());
-    if it != grammar.single_tags.end() {
+    let it = grammar.single_tags().find(hash.get());
+    if it != grammar.single_tags().end() {
         it.get().1
     } else {
         TagId(0)
@@ -403,6 +403,12 @@ impl super::GrammarApplicator {
     /// here the grammar is owned at construction (`new(grammar)`), so this
     /// operates on `self.grammar` and takes no argument.
     pub fn set_grammar(&mut self) -> Result<(), crate::error::Cg3Error> {
+        // The grammar stops being built here and starts being applied, so this
+        // is where its core freezes: every tag interned from now on — starting
+        // with the four magic ones below, which the C++ likewise adds to the
+        // live grammar and does not serialise — belongs to the RUN.
+        self.grammar.freeze();
+
         let tb = self.add_tag(STR_BEGINTAG, crate::tag::TagType::empty())?;
         let te = self.add_tag(STR_ENDTAG, crate::tag::TagType::empty())?;
         let ts = self.add_tag(STR_DUMMY, crate::tag::TagType::empty())?;
@@ -1844,8 +1850,8 @@ impl Matcher<'_> {
         while seed < 10000 {
             let ih = hash.wrapping_add(seed);
             let found: Option<TagId> = {
-                let it = self.grammar.single_tags.find(ih.get());
-                if it != self.grammar.single_tags.end() {
+                let it = self.grammar.single_tags().find(ih.get());
+                if it != self.grammar.single_tags().end() {
                     Some(it.get().1)
                 } else {
                     None
@@ -1877,7 +1883,7 @@ impl Matcher<'_> {
         tag.seed = seed;
         let new_hash = tag.rehash();
         let id = self.grammar.intern_tag_slot(tag);
-        self.grammar.single_tags.insert((new_hash.get(), id));
+        self.grammar.insert_tag_hash(new_hash.get(), id);
         id
     }
 
@@ -1904,8 +1910,8 @@ impl Matcher<'_> {
         // Fast path: an existing un-seeded slot whose text matches exactly.
         let thash = hash_value_ustring(txt, 0);
         {
-            let it = self.grammar.single_tags.find(thash);
-            if it != self.grammar.single_tags.end() {
+            let it = self.grammar.single_tags().find(thash);
+            if it != self.grammar.single_tags().end() {
                 let tid = it.get().1;
                 let t = &self.grammar.single_tags_list[tid.0];
                 if !t.tag.is_empty() && &*t.tag == txt {

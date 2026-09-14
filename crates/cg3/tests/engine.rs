@@ -410,7 +410,8 @@ fn runtime_tag_flags_do_not_reach_the_grammar() {
     for i in 0..grammar.single_tags_list.capacity() {
         if let Some(t) = grammar.single_tags_list.try_get(i) {
             assert_eq!(
-                grammar.tag_flags[i as usize], t.r#type,
+                grammar.tag_type(cg3::arena::TagId(i)),
+                t.r#type,
                 "tag {i} materialised with flags the loader never set"
             );
         }
@@ -438,7 +439,7 @@ fn runtime_tag_flags_do_not_reach_the_grammar() {
     }
 
     let dyn_id = grammar
-        .single_tags
+        .single_tags()
         .find(cg3::inlines::hash_value_ustring("@dyn", 0))
         .get()
         .1;
@@ -456,6 +457,129 @@ fn runtime_tag_flags_do_not_reach_the_grammar() {
             .intersects(cg3::tag::T_MAPPING),
         "T_MAPPING belongs to the run, not to the interned Tag"
     );
+}
+
+/// Interning at runtime still dedups against the tags the grammar was compiled
+/// with, including the ones the parser had to park at a seeded hash.
+///
+/// `single_tags` is two maps now — the core's load-time entries and the run's
+/// own — and `addTag` dedups by walking `hash + seed` upwards until a key
+/// nothing answers for. A probe that consulted only the run's half would find
+/// `hash + 0` free on the first step and mint a SECOND id for text the core
+/// already has, and two ids for one text silently changes what matches what.
+///
+/// `"aac0c"` and `"aaepa"` hash to the same `hash_value_ustring`, so the
+/// grammar parks the second at `hash + 1`: re-interning THAT one only comes
+/// back with the core's id if step 0 saw the core's `"aac0c"` sitting in the
+/// way and kept walking.
+#[test]
+fn runtime_interning_dedups_against_the_frozen_core() {
+    use cg3::grammar::Grammar;
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::tag::TagType;
+    use cg3::textual_parser::TextualParser;
+
+    let src = b"DELIMITERS = \"<$.>\" ;\nLIST N = n aac0c aaepa ;\nSECTION\nSELECT N ;\n";
+    let mut parser = TextualParser::new(Grammar::default(), false);
+    parser
+        .parse_grammar_named(src, "collide.cg3")
+        .expect("grammar parses");
+    let mut grammar = parser.grammar;
+    let _ = grammar.reindex(false, false).expect("reindex");
+
+    let collide_hash = cg3::inlines::hash_value_ustring("aac0c", 0);
+    assert_eq!(
+        collide_hash,
+        cg3::inlines::hash_value_ustring("aaepa", 0),
+        "the fixture's two texts must genuinely collide"
+    );
+    let seed0 = grammar.single_tags().find(collide_hash).get().1;
+    let seed1 = grammar
+        .single_tags()
+        .find(collide_hash.wrapping_add(1))
+        .get()
+        .1;
+    assert_eq!(&*grammar.single_tags_list[seed0.0].tag, "aac0c");
+    assert_eq!(
+        &*grammar.single_tags_list[seed1.0].tag, "aaepa",
+        "the colliding tag must be parked one seed along"
+    );
+
+    let core_len = grammar.core().single_tags_list.capacity();
+    let num_tags = grammar.num_tags;
+
+    let mut app = GrammarApplicator::new(grammar);
+    app.set_grammar().expect("applicator setup");
+    // setGrammar's own begin/end/subst/mprefix tags are already the run's.
+    let after_setup = app.grammar.single_tags_list.capacity();
+
+    // Both come back as the CORE's tags — the un-seeded one at step 0, the
+    // seeded one only because step 0 saw the core's entry and walked on.
+    assert_eq!(
+        app.add_tag("aac0c", TagType::empty()).expect("interned"),
+        seed0
+    );
+    assert_eq!(
+        app.add_tag("aaepa", TagType::empty()).expect("interned"),
+        seed1
+    );
+
+    // A text the grammar does not have is the run's, and lands above the core.
+    let fresh = app
+        .add_tag("aaqqz", TagType::empty())
+        .expect("a fresh tag interns");
+    assert!(
+        fresh.0 >= core_len,
+        "a tag the grammar never had belongs to the run, not to the core"
+    );
+    assert_eq!(
+        app.add_tag("aaqqz", TagType::empty()).expect("interned"),
+        fresh,
+        "the run dedups against its own tags too"
+    );
+    assert_eq!(
+        app.grammar
+            .single_tags()
+            .find(cg3::inlines::hash_value_ustring("aaqqz", 0))
+            .get()
+            .1,
+        fresh,
+        "the hash index spans the run's half"
+    );
+
+    // And the grammar itself did not grow: a `.cg3b` written after this run
+    // serialises `num_tags` core tags, the same ones it would have before.
+    assert_eq!(app.grammar.core().single_tags_list.capacity(), core_len);
+    assert_eq!(app.grammar.num_tags, num_tags);
+    assert_eq!(app.grammar.single_tags_list.capacity(), after_setup + 1);
+}
+
+/// The payoff, end to end: one loaded grammar's core read from several threads
+/// at once, which is what a process running N pipelines off one grammar does.
+#[test]
+fn a_frozen_core_is_shareable() {
+    use cg3::grammar::Grammar;
+    use cg3::textual_parser::TextualParser;
+
+    let src = b"DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nSECTION\nSELECT N ;\n";
+    let mut parser = TextualParser::new(Grammar::default(), false);
+    parser
+        .parse_grammar_named(src, "shared.cg3")
+        .expect("grammar parses");
+    let mut grammar = parser.grammar;
+    let _ = grammar.reindex(false, false).expect("reindex");
+
+    let core = grammar.shared_core();
+    let tags = core.single_tags_list.capacity();
+    let readers: Vec<_> = (0..4)
+        .map(|_| {
+            let core = std::sync::Arc::clone(&core);
+            std::thread::spawn(move || core.single_tags_list.capacity())
+        })
+        .collect();
+    for r in readers {
+        assert_eq!(r.join().expect("reader thread"), tags);
+    }
 }
 
 // ===========================================================================

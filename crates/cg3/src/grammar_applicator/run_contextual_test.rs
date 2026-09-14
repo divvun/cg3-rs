@@ -1532,7 +1532,7 @@ impl Matcher<'_> {
         let test_relation = self.grammar.contexts_arena[test.id.0].relation;
         // rtag = grammar->single_tags[test->relation]; while T_VARSTRING, expand.
         let mut rtag_id = {
-            let it = self.grammar.single_tags.find(test_relation);
+            let it = self.grammar.single_tags().find(test_relation);
             it.get().1
         };
         loop {

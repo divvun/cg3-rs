@@ -799,9 +799,15 @@ fn set_name_hash_reindex_markused_drop() {
 
     // setName: explicit id and the rand() fallback for 0.
     g.sets_list.get_mut(s.0).line = 7;
-    g.sets_list.get_mut(s.0).set_name(42, &mut g.rand_state);
+    let core = g.core_mut();
+    core.sets_list
+        .get_mut(s.0)
+        .set_name(42, &mut core.rand_state);
     assert_eq!(g.sets_list[s.0].name, "_G_7_42_");
-    g.sets_list.get_mut(s.0).set_name(0, &mut g.rand_state);
+    let core = g.core_mut();
+    core.sets_list
+        .get_mut(s.0)
+        .set_name(0, &mut core.rand_state);
     let name = g.sets_list[s.0].name.clone();
     assert!(name.starts_with("_G_7_") && name.ends_with('_') && name != "_G_7_0_");
 
@@ -820,7 +826,7 @@ fn set_name_hash_reindex_markused_drop() {
     let tnum = g.allocate_tag("<n=5>").unwrap();
     assert!(g.single_tags_list[tnum.0].r#type.intersects(T_SPECIAL));
     g.add_tag_to_set(tnum, s);
-    g.single_tags_list.get_mut(tx.0).r#type |= T_MAPPING;
+    g.single_tags_list.building_mut(tx.0).r#type |= T_MAPPING;
     cg3::set::Set::reindex(&mut g, s);
     let sty = g.sets_list[s.0].r#type;
     assert!(sty.intersects(ST_SPECIAL));
@@ -1122,7 +1128,7 @@ fn tag_comparators_and_fill_tagvector() {
     // fill_tagvector: numeric filtered (did), special flagged, rest pushed.
     let tnum = g.allocate_tag("<n=5>").unwrap();
     let tspec = g.allocate_tag("spec").unwrap();
-    g.single_tags_list.get_mut(tspec.0).r#type |= T_SPECIAL;
+    g.single_tags_list.building_mut(tspec.0).r#type |= T_SPECIAL;
     let input = [tnum, ta, tspec];
     let mut out = TagVector::new();
     let mut did = false;

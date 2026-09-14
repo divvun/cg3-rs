@@ -23,7 +23,7 @@ impl crate::grammar_applicator::Engine<'_> {
     /// (`grammar->single_tags.find(h)->second`).
     #[inline]
     pub(crate) fn tag_by_hash(&self, h: TagHash) -> TagId {
-        self.grammar.single_tags.find(h.get()).get().1
+        self.grammar.single_tags().find(h.get()).get().1
     }
 
     /// By-id wrapper for the sibling `generate_varstring_tag(&mut self, &Tag)`:

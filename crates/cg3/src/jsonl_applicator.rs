@@ -44,8 +44,8 @@ use crate::types::TagHash;
 /// always-present hashes the call sites use. Reproduces
 /// `grammar_applicator::core::tag_by_hash` (which is `pub(super)`).
 fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
-    let it = grammar.single_tags.find(hash.get());
-    if it != grammar.single_tags.end() {
+    let it = grammar.single_tags().find(hash.get());
+    if it != grammar.single_tags().end() {
         it.get().1
     } else {
         TagId(0)
@@ -961,8 +961,8 @@ impl JsonlFormat {
             .unwrap_or(TagHash(0));
         let mut baseform_utf8 = String::new();
         if baseform != TagHash(0) {
-            let it = e.grammar.single_tags.find(baseform.get());
-            if it != e.grammar.single_tags.end() {
+            let it = e.grammar.single_tags().find(baseform.get());
+            if it != e.grammar.single_tags().end() {
                 let tid = it.get().1;
                 let tag = &e.grammar.single_tags_list.get(tid.0).tag;
                 // tag.size() >= 2 && tag.front()=='"' && tag.back()=='"'
@@ -1113,8 +1113,8 @@ impl JsonlFormat {
                         }
                         unique_sts.insert(tag_hash);
                     }
-                    let it = e.grammar.single_tags.find(tag_hash);
-                    if it != e.grammar.single_tags.end() {
+                    let it = e.grammar.single_tags().find(tag_hash);
+                    if it != e.grammar.single_tags().end() {
                         let tid = it.get().1;
                         let ttag = e.grammar.single_tags_list.get(tid.0).tag.clone();
                         // DIVERGENCE(NUL).

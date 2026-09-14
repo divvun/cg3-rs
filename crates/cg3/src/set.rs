@@ -323,7 +323,7 @@ impl Set {
 
         let ff_tags: Vec<TagId> = grammar.sets_list[id.0].ff_tags.iter().copied().collect();
         for tag in ff_tags {
-            grammar.single_tags_list[tag.0].mark_used();
+            grammar.single_tags_list.building_mut(tag.0).mark_used();
         }
 
         let sets = grammar.sets_list[id.0].sets.clone();

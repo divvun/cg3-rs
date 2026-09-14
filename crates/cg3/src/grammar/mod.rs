@@ -30,6 +30,27 @@
 //! `crate::tag::Tag`, `crate::set::Set`, `crate::rule::Rule`,
 //! `crate::contextual_test::ContextualTest`. Until those land + are wired into
 //! `lib.rs`, this module will not resolve those paths.
+//!
+//! ## Core / overlay split
+//! A loaded grammar is two things stacked: [`GrammarCore`], everything the load
+//! produced and no run may change, and a thin per-run OVERLAY of the tag state
+//! a run does change. [`Grammar`] is the pair, and derefs to the core, so every
+//! `grammar.sets_list[..]` / `grammar.rules_by_tag` / `grammar.has_dep` reads
+//! exactly as before.
+//!
+//! The overlay exists because of tag interning: applying a grammar can mint new
+//! tags (varstrings, runtime regexes), and those are the stream's, not the
+//! grammar's. [`TagStore`] is the arena AS THE RUN SEES IT — core tags below
+//! `core.single_tags_list.capacity()`, the run's own above — so a `TagId` still
+//! indexes one flat space and the ~300 `single_tags_list[id]` reads are
+//! unchanged. [`Grammar::single_tags`] does the same for the hash index.
+//!
+//! Which half a newly interned tag lands in is decided by
+//! [`Grammar::freeze`]: before it, the grammar is still being built and
+//! everything goes to the core; after it, the core is immutable and shareable
+//! and everything goes to the overlay. Loaders never freeze (a relabelled
+//! grammar's new tags are the GRAMMAR's, and must serialise);
+//! `GrammarApplicator::set_grammar` does, because that is where a run begins.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -60,7 +81,7 @@ use crate::set::{
 use crate::strings::Keywords;
 use crate::tag::{
     T_ANY, T_CASE_INSENSITIVE, T_FAILFAST, T_MAPPING, T_SPECIAL, T_TEXTUAL, T_VARSTRING, TagList,
-    TagType, TagVector, TagVectorSet, fill_tagvector,
+    TagVector, TagVectorSet, fill_tagvector,
 };
 use crate::tag_trie::{
     TagTrie, trie_delete, trie_get_tag_list, trie_get_tag_list_append, trie_get_tags,
@@ -161,7 +182,13 @@ pub enum Reindexed {
 // [spec:cg3:def:grammar.cg3.grammar]
 /// The parsed/loaded grammar: owner of all static tags, sets, rules and
 /// contextual tests, plus every runtime lookup index built by `reindex`.
-pub struct Grammar {
+///
+/// Frozen once loaded, and shared from there on — a process applying the same
+/// grammar down N pipelines holds ONE of these behind an `Arc` instead of N
+/// copies, which for a real grammar is hundreds of megabytes of sets, rules and
+/// contexts per pipeline. Everything a run needs to change lives beside it in
+/// [`Grammar`]'s overlay instead.
+pub struct GrammarCore {
     /// Wave-4 grammar-owned PRNG state for `Set::set_name`'s `to == 0`
     /// fallback (the C++ used the process-global libc `rand()`). Non-zero
     /// xorshift32 state, stepped by [`crate::set::rand_step`].
@@ -217,34 +244,17 @@ pub struct Grammar {
 
     // --- tags ---
     /// Owned tag arena (was `std::vector<Tag*> single_tags_list`); `TagId` indexes it.
+    ///
+    /// The LOAD-TIME tags only. A run reaches its tags through
+    /// [`Grammar::single_tags_list`], which spans this arena and the run's own
+    /// additions; this field is the lower half of that span.
     pub single_tags_list: Arena<Tag>,
     /// C++ `Taguint32HashMap` (`flat_unordered_map<uint32_t, Tag*>`): hash → tag.
-    pub single_tags: FlatUnorderedMap<u32, TagId>,
-    /// ADDED — no C++ member. The tag type flags AS THE RUN SEES THEM, dense and
-    /// parallel to [`single_tags_list`](Self::single_tags_list) (same index, same
-    /// length).
     ///
-    /// The C++ keeps one `uint32_t type` inside each `Tag` and writes it while
-    /// applying: `T_TEXTUAL` when a runtime-interned regex/icase tag makes
-    /// existing tags textual, `T_MAPPING` when a mapped tag turns out to have
-    /// been deduped onto a pre-existing one, and a `T_MAPPING` CLEAR per binary
-    /// window. Those are properties of the STREAM being applied, not of the
-    /// grammar, and a `Tag` is otherwise an immutable record shared by every
-    /// pipeline in the process.
-    ///
-    /// So the run gets its own copy. Every runtime read goes through
-    /// [`tag_type`](Self::tag_type) and every runtime write through
-    /// [`tag_type_insert`](Self::tag_type_insert) /
-    /// [`tag_type_remove`](Self::tag_type_remove); `Tag::r#type` keeps the
-    /// LOAD-TIME value, which is what `rehash` folds into the tag's identity and
-    /// what the binary writer serialises. Load-time code (the parsers,
-    /// [`reindex`](Self::reindex), the relabeller, the writer, `Tag`'s own
-    /// methods) reads `Tag::r#type` directly — it runs before this exists.
-    ///
-    /// Dense, not a delta map: it is read on the hottest path in the engine, and
-    /// 4 bytes per tag is ~56 KB for a 14k-tag grammar against a grammar of
-    /// hundreds of megabytes.
-    pub tag_flags: Vec<TagType>,
+    /// The LOAD-TIME entries only, and deliberately NOT named `single_tags`:
+    /// [`Grammar::single_tags`] is the spanning index a run must use, and a
+    /// field of that name here would let a lookup reach this half alone.
+    pub tags_by_hash: FlatUnorderedMap<u32, TagId>,
 
     // --- sets ---
     /// Owned set arena (was `std::vector<Set*> sets_list`); `SetId` indexes it.
@@ -276,7 +286,12 @@ pub struct Grammar {
 
     pub static_sets: StaticSets,
 
+    /// The LOAD-TIME regex tags, built by `reindex`. A run interns regex tags of
+    /// its own, so it works from its own copy
+    /// ([`Grammar::regex_tags`](Grammar#structfield.regex_tags), seeded from
+    /// this one), the same way it works from its own tag type flags.
     pub regex_tags: RegexTags,
+    /// The LOAD-TIME case-insensitive tags; see [`regex_tags`](Self::regex_tags).
     pub icase_tags: IcaseTags,
 
     // --- contextual tests ---
@@ -355,12 +370,12 @@ pub struct Grammar {
     pub wf_rules: Vec<RuleId>,
 }
 
-impl Default for Grammar {
+impl Default for GrammarCore {
     /// Faithful analog of the C++ `Grammar() = default;`: every member takes its
     /// zero/empty value except `mapping_prefix`, whose C++ member initializer is
     /// `'@'`.
     fn default() -> Self {
-        Grammar {
+        GrammarCore {
             rand_state: 1,
             has_dep: false,
             has_bag_of_tags: false,
@@ -382,8 +397,7 @@ impl Default for Grammar {
             source_names: Vec::new(),
             binary_path: None,
             single_tags_list: Arena::new(),
-            single_tags: FlatUnorderedMap::default(),
-            tag_flags: Vec::new(),
+            tags_by_hash: FlatUnorderedMap::default(),
             sets_list: Arena::new(),
             sets_list_order: Vec::new(),
             sets_all: SortedVector::new(),
@@ -423,6 +437,10 @@ impl Default for Grammar {
     }
 }
 
+mod overlay;
+
+pub use overlay::{Grammar, TagHashRef, TagIndex, TagStore};
+
 // ===========================================================================
 // Method bodies (Wave 2 translate pass). Ported literally, bug-for-bug, from
 // `src/Grammar.cpp` / `src/Grammar.hpp`; each fn carries its `[spec:cg3:def]` +
@@ -459,7 +477,7 @@ impl Default for Grammar {
 /// templates retained during reindex, not also owned via `contexts`) does NOT
 /// occur here — every `ContextualTest` is owned once by `contexts_arena`, so no
 /// double-free and no leak.
-impl Drop for Grammar {
+impl Drop for GrammarCore {
     fn drop(&mut self) {}
 }
 
@@ -530,7 +548,8 @@ impl Grammar {
             tset = self.get_set(nhash);
             if let Some(t) = tset {
                 let to = ui32(self.sets_by_contents.len());
-                self.sets_list[t.0].set_name(to, &mut self.rand_state);
+                let core = self.core_mut();
+                core.sets_list[t.0].set_name(to, &mut core.rand_state);
             }
             if let Some(&seed) = self.set_name_seeds.get(&name) {
                 nhash = nhash.wrapping_add(seed);
@@ -666,8 +685,8 @@ impl Grammar {
         let thash = hash_value_ustring(txt, 0);
         // Fast path: only the un-seeded slot is checked.
         let fast = {
-            let it = self.single_tags.find(thash);
-            if it != self.single_tags.end() {
+            let it = self.single_tags().find(thash);
+            if it != self.single_tags().end() {
                 Some(it.get().1)
             } else {
                 None
@@ -699,8 +718,8 @@ impl Grammar {
         while seed < 10000 {
             let ih = hash.wrapping_add(seed);
             let found: Option<TagId> = {
-                let it = self.single_tags.find(ih.get());
-                if it != self.single_tags.end() {
+                let it = self.single_tags().find(ih.get());
+                if it != self.single_tags().end() {
                     Some(it.get().1)
                 } else {
                     None
@@ -734,7 +753,7 @@ impl Grammar {
         tag.seed = seed;
         let new_hash = tag.rehash(); // rehash folds seed → base+seed == ih.
         let id = self.intern_tag_slot(tag);
-        self.single_tags.insert((new_hash.get(), id));
+        self.insert_tag_hash(new_hash.get(), id);
         id
     }
 
@@ -744,68 +763,12 @@ impl Grammar {
     /// The one place a `Tag` enters the arena through an interner — there are
     /// three of them (here, `tag.rs`'s `R:` relation interner, and the
     /// applicator's own), and the flags array has to stay parallel for all of
-    /// them, including the two that run mid-stream.
+    /// them, including the two that run mid-stream. Which half of the arena the
+    /// slot comes from is [`TagStore::intern`]'s call, not this one's.
     pub(crate) fn intern_tag_slot(&mut self, tag: Tag) -> TagId {
-        let idx = self.single_tags_list.alloc(tag);
-        self.single_tags_list[idx].number = idx; // UI32(size-1)
-        self.record_tag_flags(TagId(idx));
-        TagId(idx)
-    }
-
-    /// The type flags THIS RUN sees for `tag` — read
-    /// [`tag_flags`](Self::tag_flags), never `Tag::r#type`, from any code that
-    /// runs while a stream is being applied.
-    ///
-    /// The only thing in the engine that knows where the run's flags live. When
-    /// they move to a per-run overlay, this moves with them and its callers do
-    /// not.
-    #[inline]
-    pub fn tag_type(&self, tag: TagId) -> TagType {
-        self.tag_flags[tag.0 as usize]
-    }
-
-    /// `tag->type |= bits` for the RUN (C++ writes the grammar's own `Tag`).
-    #[inline]
-    pub fn tag_type_insert(&mut self, tag: TagId, bits: TagType) {
-        self.tag_flags[tag.0 as usize] |= bits;
-    }
-
-    /// `tag->type &= ~bits` for the RUN (C++ writes the grammar's own `Tag`).
-    #[inline]
-    pub fn tag_type_remove(&mut self, tag: TagId, bits: TagType) {
-        self.tag_flags[tag.0 as usize] &= !bits;
-    }
-
-    /// Seed `tag_flags[tag]` from the tag's load-time flags, growing the array
-    /// to cover the slot. Called for every tag the interner allocates, so the
-    /// array stays parallel to the arena — including for tags interned during a
-    /// run, whose flags start out exactly as `parse_tag_raw` left them.
-    fn record_tag_flags(&mut self, tag: TagId) {
-        let ty = self.single_tags_list[tag.0].r#type;
-        let i = tag.0 as usize;
-        if i >= self.tag_flags.len() {
-            self.tag_flags.resize(i + 1, TagType::empty());
-        }
-        self.tag_flags[i] = ty;
-    }
-
-    /// Copy every tag's load-time flags into [`tag_flags`](Self::tag_flags).
-    ///
-    /// Run at the end of [`reindex`](Self::reindex), which is the last thing to
-    /// touch `Tag::r#type` before a grammar is applied: the parsers build tags
-    /// through `add_tag` (which seeds each slot as it goes), the binary reader
-    /// writes arena slots directly, and `reindex` itself rewrites `T_TEXTUAL`,
-    /// `T_USED` and `T_MAPPING` over the whole arena. Re-seeding wholesale here
-    /// absorbs all three, so no loader has to remember to.
-    pub fn materialise_tag_flags(&mut self) {
-        let cap = self.single_tags_list.capacity();
-        self.tag_flags.clear();
-        self.tag_flags.resize(cap as usize, TagType::empty());
-        for i in 0..cap {
-            if let Some(t) = self.single_tags_list.try_get(i) {
-                self.tag_flags[i as usize] = t.r#type;
-            }
-        }
+        let id = self.single_tags_list.intern(tag);
+        self.record_tag_flags(id);
+        id
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.add-tag-to-set-fn]
@@ -1246,7 +1209,8 @@ impl Grammar {
                 self.sets_list[ns.0].line = to_line;
 
                 let newname = ui32(self.sets_by_contents.len() + 1);
-                self.sets_list[to.0].set_name(newname, &mut self.rand_state);
+                let core = self.core_mut();
+                core.sets_list[to.0].set_name(newname, &mut core.rand_state);
                 to = self.add_set(to)?;
 
                 let tset_hash = self.sets_list[tset.0].hash;
@@ -1363,7 +1327,7 @@ impl Grammar {
             the_tags.clear();
             // single_tags.find(tag_any)->second — null-deref crash if absent.
             let tid = {
-                let it = self.single_tags.find(self.tag_any);
+                let it = self.single_tags().find(self.tag_any);
                 it.get().1
             };
             the_tags.push(tid);
@@ -1453,7 +1417,7 @@ impl Grammar {
             if did {
                 if ntags.is_empty() {
                     let tid = {
-                        let it = self.single_tags.find(self.tag_any);
+                        let it = self.single_tags().find(self.tag_any);
                         it.get().1
                     };
                     ntags.insert(vec![tid], true);
@@ -1779,12 +1743,16 @@ impl Grammar {
                     t.vs_sets.clone(),
                 )
             };
+            // The CORE's sets, not the run's: these are what the grammar was
+            // compiled with, and step (21) hands the run a copy of them. (The
+            // run's own are what `Grammar::regex_tags` names, so both have to
+            // be said explicitly here.)
             if has_regexp && !is_txt {
                 // regex_tags keyed by owning TagId (skeleton note).
-                self.regex_tags.insert(*tid);
+                self.core_mut().regex_tags.insert(*tid);
             }
             if is_icase && !is_txt {
-                self.icase_tags.insert(*tid);
+                self.core_mut().icase_tags.insert(*tid);
             }
             if self.is_binary {
                 continue;
@@ -1797,8 +1765,8 @@ impl Grammar {
         }
 
         // (5) Propagate T_TEXTUAL (regex find + icase compare).
-        let regex_tag_ids: Vec<TagId> = self.regex_tags.iter().copied().collect();
-        let icase_tag_ids: Vec<TagId> = self.icase_tags.iter().copied().collect();
+        let regex_tag_ids: Vec<TagId> = self.core().regex_tags.iter().copied().collect();
+        let icase_tag_ids: Vec<TagId> = self.core().icase_tags.iter().copied().collect();
         for tid in &all_tag_ids {
             if self.single_tags_list[tid.0].r#type.intersects(T_TEXTUAL) {
                 continue;
@@ -1820,7 +1788,7 @@ impl Grammar {
                 }
             }
             if textual {
-                self.single_tags_list.get_mut(tid.0).r#type |= T_TEXTUAL;
+                self.single_tags_list.building_mut(tid.0).r#type |= T_TEXTUAL;
             }
         }
 
@@ -1828,23 +1796,23 @@ impl Grammar {
         let parens: Vec<(u32, u32)> = self.parentheses.iter().map(|(&a, &b)| (a, b)).collect();
         for (a, b) in parens {
             let ta = {
-                let it = self.single_tags.find(a);
+                let it = self.single_tags().find(a);
                 it.get().1
             };
-            self.single_tags_list.get_mut(ta.0).mark_used();
+            self.single_tags_list.building_mut(ta.0).mark_used();
             let tb = {
-                let it = self.single_tags.find(b);
+                let it = self.single_tags().find(b);
                 it.get().1
             };
-            self.single_tags_list.get_mut(tb.0).mark_used();
+            self.single_tags_list.building_mut(tb.0).mark_used();
         }
         let pref: Vec<u32> = self.preferred_targets.clone();
         for it in pref {
             let t = {
-                let iter = self.single_tags.find(it);
+                let iter = self.single_tags().find(it);
                 iter.get().1
             };
-            self.single_tags_list.get_mut(t.0).mark_used();
+            self.single_tags_list.building_mut(t.0).mark_used();
         }
 
         // (7) Rule pre-pass.
@@ -1972,7 +1940,7 @@ impl Grammar {
                 .chars()
                 .next()
                 .unwrap_or('\0');
-            let t = self.single_tags_list.get_mut(tid.0);
+            let t = self.single_tags_list.building_mut(tid.0);
             if first == mp {
                 t.r#type |= T_MAPPING;
             } else {
@@ -2306,7 +2274,7 @@ impl Grammar {
         // flags, now that nothing will touch `Tag::r#type` again: steps (5),
         // (6) and (11) above are the last writes, and everything downstream of
         // here interns through `add_tag`, which seeds its own slot.
-        self.materialise_tag_flags();
+        self.materialise_run_tag_state();
 
         // (22) used_tags dump → the C++ exit(0)s here. The caller stops, and
         // stops successfully.

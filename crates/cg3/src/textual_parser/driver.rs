@@ -432,19 +432,29 @@ impl TextualParser {
                 let mut n = p;
                 skipto_chars(&tbuf, &mut n, '}');
                 if tbuf[n] != '\0' {
-                    self.grammar.single_tags_list[tid.0].allocate_vs_sets();
-                    self.grammar.single_tags_list[tid.0].allocate_vs_names();
+                    self.grammar
+                        .single_tags_list
+                        .building_mut(tid.0)
+                        .allocate_vs_sets();
+                    self.grammar
+                        .single_tags_list
+                        .building_mut(tid.0)
+                        .allocate_vs_names();
                     p += 1;
                     let theset: String = tbuf[p..n].iter().collect();
                     let tmp = self.parse_set(&theset, Near::Text(&tbuf[p..]))?;
                     let setname = self.grammar.sets_list[tmp.0].name.clone();
-                    self.grammar.single_tags_list[tid.0]
+                    self.grammar
+                        .single_tags_list
+                        .building_mut(tid.0)
                         .vs_sets
                         .as_mut()
                         .unwrap()
                         .push(tmp);
                     let old = format!("{{{setname}}}");
-                    self.grammar.single_tags_list[tid.0]
+                    self.grammar
+                        .single_tags_list
+                        .building_mut(tid.0)
                         .vs_names
                         .as_mut()
                         .unwrap()

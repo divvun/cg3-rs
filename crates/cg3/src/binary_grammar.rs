@@ -337,7 +337,7 @@ impl BinaryGrammar {
         // single_tags_list.resize(num): pre-allocate `num` slots so a tag can be
         // placed at its `number` (== arena slot).
         for _ in 0..num_single_tags {
-            self.grammar.single_tags_list.alloc(Tag::default());
+            self.grammar.single_tags_list.alloc_building(Tag::default());
         }
         for _ in 0..num_single_tags {
             let t = Self::read_tag_record(input, &mut tag_varsets, &mut bad_regexes);
@@ -345,12 +345,12 @@ impl BinaryGrammar {
             let number = t.number;
             let is_star = &*t.tag == "*";
             // single_tags[t->hash] = t (id == arena slot `number`).
-            self.grammar.single_tags.insert((hash.get(), TagId(number)));
+            self.grammar.insert_tag_hash(hash.get(), TagId(number));
             if is_star {
                 self.grammar.tag_any = hash.get();
             }
             // single_tags_list[t->number] = t.
-            self.grammar.single_tags_list[number] = t;
+            self.grammar.single_tags_list.put_building(number, t);
         }
 
         if !bad_regexes.is_empty() {
@@ -470,7 +470,9 @@ impl BinaryGrammar {
         // Resolve deferred varstring-tag sets now that sets are loaded.
         for (tagnum, setnums) in tag_varsets {
             for num in setnums {
-                self.grammar.single_tags_list[tagnum]
+                self.grammar
+                    .single_tags_list
+                    .building_mut(tagnum)
                     .vs_sets
                     .as_mut()
                     .unwrap()

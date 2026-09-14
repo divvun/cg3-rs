@@ -78,8 +78,8 @@ pub struct MatxinApplicator {
 /// Resolve a tag hash to its `TagId` via `grammar->single_tags[hash]`. Mirrors
 /// the engine's private `tag_by_hash` (not visible from this sibling module).
 fn tag_by_hash(grammar: &crate::grammar::Grammar, hash: TagHash) -> TagId {
-    let it = grammar.single_tags.find(hash.get());
-    if it != grammar.single_tags.end() {
+    let it = grammar.single_tags().find(hash.get());
+    if it != grammar.single_tags().end() {
         it.get().1
     } else {
         TagId(0)

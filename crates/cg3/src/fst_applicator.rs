@@ -45,8 +45,8 @@ use crate::uextras::{get_line_clean_chars, strip_bom, write_char};
 /// `TagId(0)`. Reproduces `grammar_applicator::core::tag_by_hash` (which is
 /// `pub(super)`, not reachable here); the module cannot be edited.
 fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
-    let it = grammar.single_tags.find(hash.get());
-    if it != grammar.single_tags.end() {
+    let it = grammar.single_tags().find(hash.get());
+    if it != grammar.single_tags().end() {
         it.get().1
     } else {
         TagId(0)

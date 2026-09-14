@@ -210,8 +210,8 @@ pub fn parse_tag<S: ParseTagState>(
     let thash = hash_value_ustring(&to_owned, 0);
     {
         let g = state.grammar();
-        let it = g.single_tags.find(thash);
-        if it != g.single_tags.end() {
+        let it = g.single_tags().find(thash);
+        if it != g.single_tags().end() {
             let tid = it.get().1;
             let existing = &g.single_tags_list[tid.0];
             if !existing.tag.is_empty() && *existing.tag == *to_owned {

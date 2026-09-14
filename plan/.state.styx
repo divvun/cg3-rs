@@ -155,6 +155,7 @@ assertions (
     {id math-parser-dedupe, kind @doing, author "brendan@necessary.nu", at 2026-09-14T18:51:26.411913Z}
     {id grammar-split.transient-writes, kind @complete, author "brendan@necessary.nu", at 2026-09-14T21:33:08.687776Z}
     {id grammar-split.flags-to-overlay, kind @complete, author "brendan@necessary.nu", at 2026-09-14T22:17:44.055672Z}
+    {id grammar-split.core-split, kind @doing, author "brendan@necessary.nu", at 2026-09-14T22:21:15.383154Z}
 )
 
 impl_evidence (

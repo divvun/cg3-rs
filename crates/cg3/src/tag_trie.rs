@@ -224,7 +224,7 @@ pub fn trie_rehash(trie: &TagTrie, grammar: &Grammar) -> u32 {
 /// split — restructure or clone as needed.)
 pub fn trie_markused(trie: &TagTrie, grammar: &mut Grammar) {
     for (k, node) in trie.iter() {
-        grammar.single_tags_list[k.0].r#type |= T_USED;
+        grammar.single_tags_list.building_mut(k.0).r#type |= T_USED;
         if let Some(sub) = &node.trie {
             trie_markused(sub, grammar);
         }
@@ -451,7 +451,7 @@ mod tests {
             r#type: type_,
             ..Default::default()
         };
-        TagId(g.single_tags_list.alloc(t))
+        TagId(g.single_tags_list.alloc_building(t))
     }
 
     // trie_insert builds length-N paths (creating child levels), trie_singular

@@ -56,8 +56,8 @@ const STR_CMD_FLUSH: &str = "<STREAMCMD:FLUSH>";
 /// C++ `grammar->single_tags[hash]` (operator[]) — hash → `TagId`, `TagId(0)` on
 /// a miss (benign; see `niceline_applicator`).
 fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
-    let it = grammar.single_tags.find(hash.get());
-    if it != grammar.single_tags.end() {
+    let it = grammar.single_tags().find(hash.get());
+    if it != grammar.single_tags().end() {
         it.get().1
     } else {
         TagId(0)

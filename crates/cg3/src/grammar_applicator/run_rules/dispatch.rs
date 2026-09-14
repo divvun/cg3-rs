@@ -303,7 +303,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 // u_strToUTF8(cbuffers[0], ...) — the UTF-8 port uses the tag
                 // text directly (the C++ CG3_BUFFER_SIZE-1 truncation elided).
                 let ext_tid = {
-                    let it = self.grammar.single_tags.find(varname);
+                    let it = self.grammar.single_tags().find(varname);
                     it.get().1
                 };
                 let cmd = self.grammar.single_tags_list.get(ext_tid.0).tag.clone();

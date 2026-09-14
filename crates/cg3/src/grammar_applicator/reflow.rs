@@ -695,7 +695,7 @@ impl Engine<'_> {
             std::mem::take(&mut self.doc.store.readings.get_mut(reading.0).tags_list);
         for tter in tlist {
             // addTagToReading(reading, tter, false) — the uint32_t/rehash form.
-            let tid = self.grammar.single_tags.find(tter).get().1;
+            let tid = self.grammar.single_tags().find(tter).get().1;
             self.add_tag_to_reading_rehash(reading, tid, false)?;
         }
 
@@ -1117,7 +1117,7 @@ impl Engine<'_> {
             i -= 1;
             let mp = self.add_tag_to_reading(nr, ttag)?;
             if mp != ttag_hash {
-                let mtid = self.grammar.single_tags.find(mp.get()).get().1;
+                let mtid = self.grammar.single_tags().find(mp.get()).get().1;
                 self.doc.store.readings.get_mut(nr.0).mapping = Some(mtid);
             } else {
                 self.doc.store.readings.get_mut(nr.0).mapping = Some(ttag);
@@ -1131,7 +1131,7 @@ impl Engine<'_> {
         let tag_hash = self.grammar.single_tags_list[tag.0].hash;
         let mp = self.add_tag_to_reading(reading, tag)?;
         if mp != tag_hash {
-            let mtid = self.grammar.single_tags.find(mp.get()).get().1;
+            let mtid = self.grammar.single_tags().find(mp.get()).get().1;
             self.doc.store.readings.get_mut(reading.0).mapping = Some(mtid);
         } else {
             self.doc.store.readings.get_mut(reading.0).mapping = Some(tag);
@@ -1433,7 +1433,7 @@ impl Engine<'_> {
         );
         let begintag_tid = self
             .grammar
-            .single_tags
+            .single_tags()
             .find(self.cfg.begintag.get())
             .get()
             .1;
@@ -1517,7 +1517,12 @@ impl Engine<'_> {
             .cohorts
             .last()
             .unwrap();
-        let endtag_tid = self.grammar.single_tags.find(self.cfg.endtag.get()).get().1;
+        let endtag_tid = self
+            .grammar
+            .single_tags()
+            .find(self.cfg.endtag.get())
+            .get()
+            .1;
         let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for reading in rs {
             self.add_tag_to_reading(reading, endtag_tid)?;
@@ -1741,7 +1746,7 @@ impl Matcher<'_> {
         }
         let tags: Vec<u32> = self.readings.get(r.0).tags.as_slice().to_vec();
         for it in tags {
-            let tid = self.grammar.single_tags.find(it).get().1;
+            let tid = self.grammar.single_tags().find(it).get().1;
             if self.grammar.tag_type(tid).intersects(T_TEXTUAL) {
                 let rr = self.readings.get_mut(r.0);
                 rr.tags_textual.insert(it);

@@ -391,7 +391,7 @@ impl GrammarWriter {
         if !grammar.preferred_targets.is_empty() {
             w!(output, "PREFERRED-TARGETS = ");
             for &iter in &grammar.preferred_targets {
-                let tid = grammar.single_tags.find(iter).get().1;
+                let tid = grammar.single_tags().find(iter).get().1;
                 self.print_tag(output, &grammar.single_tags_list[tid.0]);
                 w!(output, " ");
             }
@@ -402,10 +402,10 @@ impl GrammarWriter {
             w!(output, "PARENTHESES = ");
             for (&first, &second) in &grammar.parentheses {
                 w!(output, "(");
-                let ftid = grammar.single_tags.find(first).get().1;
+                let ftid = grammar.single_tags().find(first).get().1;
                 self.print_tag(output, &grammar.single_tags_list[ftid.0]);
                 w!(output, " ");
-                let stid = grammar.single_tags.find(second).get().1;
+                let stid = grammar.single_tags().find(second).get().1;
                 self.print_tag(output, &grammar.single_tags_list[stid.0]);
                 w!(output, ") ");
             }
@@ -530,7 +530,7 @@ impl GrammarWriter {
         // anchors.equal_range(rule.number)
         let anchor_hashes: Vec<u32> = self.anchors.get(&rule.number).cloned().unwrap_or_default();
         for h in anchor_hashes {
-            let tid = grammar.single_tags.find(h).get().1;
+            let tid = grammar.single_tags().find(h).get().1;
             let tag = &grammar.single_tags_list[tid.0].tag;
             if &**tag == KEYWORDS_NAMES[Keywords::KStart as usize]
                 || &**tag == KEYWORDS_NAMES[Keywords::KEnd as usize]
@@ -851,7 +851,7 @@ impl GrammarWriter {
             }
             if test.pos.intersects(POS_RELATION) {
                 w!(to, "r:");
-                let tid = grammar.single_tags.find(test.relation).get().1;
+                let tid = grammar.single_tags().find(test.relation).get().1;
                 self.print_tag(to, &grammar.single_tags_list[tid.0]);
             }
             if test.offset_sub != 0 {

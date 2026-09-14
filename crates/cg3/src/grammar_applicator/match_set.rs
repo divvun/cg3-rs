@@ -461,7 +461,7 @@ impl Matcher<'_> {
                     .to_vec();
                 for mter in textual {
                     let (itype, ihash) = {
-                        let it = self.grammar.single_tags.find(mter);
+                        let it = self.grammar.single_tags().find(mter);
                         let tid = it.get().1;
                         (
                             self.grammar.tag_type(tid),
@@ -522,8 +522,8 @@ impl Matcher<'_> {
             };
 
             let key_info = {
-                let it = self.grammar.single_tags.find(tag.comparison_hash);
-                if it != self.grammar.single_tags.end() {
+                let it = self.grammar.single_tags().find(tag.comparison_hash);
+                if it != self.grammar.single_tags().end() {
                     let tid = it.get().1;
                     Some((tid, self.grammar.tag_type(tid)))
                 } else {
@@ -562,7 +562,7 @@ impl Matcher<'_> {
                         m = tag.hash.get();
                     } else {
                         let comp_tid = {
-                            let it = self.grammar.single_tags.find(tag.variable_hash());
+                            let it = self.grammar.single_tags().find(tag.variable_hash());
                             it.get().1
                         };
                         let comp_tag = self.grammar.single_tags_list[comp_tid.0].clone();
@@ -1538,7 +1538,7 @@ impl Matcher<'_> {
         } else {
             // itag = *(grammar->single_tags.find(test)->second)
             let (itag_hash, itag_text) = {
-                let it = self.grammar.single_tags.find(test);
+                let it = self.grammar.single_tags().find(test);
                 let tid = it.get().1;
                 let t = &self.grammar.single_tags_list[tid.0];
                 (t.hash.get(), t.tag.clone())
@@ -1597,7 +1597,7 @@ impl Matcher<'_> {
             m = test;
         } else {
             let (itag_hash, itag_text) = {
-                let it = self.grammar.single_tags.find(test);
+                let it = self.grammar.single_tags().find(test);
                 let tid = it.get().1;
                 let t = &self.grammar.single_tags_list[tid.0];
                 (t.hash.get(), t.tag.clone())
@@ -1729,7 +1729,7 @@ impl Matcher<'_> {
             for &tt in &tags_list {
                 let mut m: u32 = 0;
                 let itag_id = {
-                    let it = self.grammar.single_tags.find(tt);
+                    let it = self.grammar.single_tags().find(tt);
                     it.get().1
                 };
                 let itype = self.grammar.tag_type(itag_id);

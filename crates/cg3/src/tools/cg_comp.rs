@@ -116,7 +116,7 @@ pub fn main_comp(args: &[String]) -> i32 {
         grammar.sections.len(),
         grammar.rule_by_number.capacity(),
         grammar.sets_list.capacity(),
-        grammar.single_tags.size()
+        grammar.single_tags().size()
     );
 
     if let Some(rules_any) = grammar.rules_any.as_ref() {
