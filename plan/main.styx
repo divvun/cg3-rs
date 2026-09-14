@@ -2456,4 +2456,19 @@ children (
             }
         )
     }
+
+    {
+        id math-parser-dedupe
+        title "Point math_parser at the shared character predicates: it carries four local reimplementations of inlines.hpp helpers, justified by a claim that those modules are not wired into lib.rs, which stopped being true"
+        priority 0
+        kind @refactor
+        log (
+            {
+                at 2026-09-14T18:51:26.411913Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+        )
+    }
 )

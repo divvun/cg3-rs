@@ -14,15 +14,16 @@
 //!   the read-past-end inside `ux_simplecasecmp` are Undefined Behaviour in
 //!   C++. Safe Rust cannot reproduce UB; the closest safe behaviour is used and
 //!   annotated inline.
-//! * `ISSPACE`, `ISDELIM`, `ISALPHA_C`, `ISDIGIT_C` (inlines.hpp) are
-//!   reimplemented here as private local helpers, deliberately left without
-//!   `[spec:...]` annotations because their spec ids belong to `crate::inlines`.
-//!   They are the last of the local stand-ins this file was written with; the
-//!   `ux_simplecasecmp` keyword matcher now comes from `crate::uextras`, whose
-//!   copy carries the annotations.
+//! * `ISSPACE`, `ISDELIM`, `ISALPHA_C`, `ISDIGIT_C` (inlines.hpp) come from
+//!   `crate::inlines`, and the keyword matcher from `crate::uextras`. This file
+//!   once carried private copies of all of them, on the grounds that those
+//!   modules were not wired into `lib.rs`; they have been for a long time, and
+//!   the copies were drift waiting to happen — the annotated originals are the
+//!   only definitions now.
 
 use std::f64::consts::PI;
 
+use crate::inlines::{isalpha_c, isdelim, isdigit_c, isspace};
 use crate::uextras::matches_keyword;
 
 /// Why an expression would not evaluate, and where.
@@ -358,23 +359,23 @@ impl<'a> MathParser<'a> {
         if self.exp_ptr.is_empty() {
             return Ok(());
         }
-        while is_space(first_char(self.exp_ptr)) {
+        while isspace(first_char(self.exp_ptr)) {
             self.remove_prefix_one();
         }
 
         let c0 = first_char(self.exp_ptr);
-        if is_delim(c0) {
+        if isdelim(c0) {
             self.tok_type = TypeT::Delimiter as u8;
             let s = self.exp_ptr;
             let cl = c0.len_utf8();
             self.token = &s[..cl];
             self.exp_ptr = &s[cl..];
-        } else if is_alpha_c(c0) {
+        } else if isalpha_c(c0) {
             let s = self.exp_ptr;
             let idx = find_first_of(s, STOP_SET);
             self.token = &s[..idx];
             self.exp_ptr = &s[idx..];
-            while is_space(first_char(self.exp_ptr)) {
+            while isspace(first_char(self.exp_ptr)) {
                 self.remove_prefix_one();
             }
             self.tok_type = if first_char(self.exp_ptr) == '(' {
@@ -382,7 +383,7 @@ impl<'a> MathParser<'a> {
             } else {
                 TypeT::Variable as u8
             };
-        } else if is_digit_c(c0) || c0 == '.' {
+        } else if isdigit_c(c0) || c0 == '.' {
             let s = self.exp_ptr;
             let idx = find_first_of(s, STOP_SET);
             self.token = &s[..idx];
@@ -412,50 +413,17 @@ impl<'a> MathParser<'a> {
     }
 }
 
-// --- Private local reimplementations of inlines.hpp / uextras.hpp helpers. ---
-// These live in other modules (not yet wired into lib.rs); duplicated here so
-// this file compiles standalone. Intentionally un-annotated (their spec ids
-// belong to those modules).
+// --- Local helpers. ---
+// The `inlines.hpp` character predicates that used to be copied here come from
+// `crate::inlines` now; they were duplicated back when these modules were not
+// wired into lib.rs, which stopped being true. What remains below is this
+// module's own, with no counterpart to share.
 
 /// Peek the first `char` of `s`, or `'\0'` when empty. Models the C++ reads of
 /// `view[0]` on a possibly-empty view, which land on the string's null
 /// terminator (`0`) rather than reading past the buffer.
 fn first_char(s: &str) -> char {
     s.chars().next().unwrap_or('\0')
-}
-
-/// `inlines.hpp` `ISDELIM`.
-fn is_delim(c: char) -> bool {
-    c == '('
-        || c == ')'
-        || c == '+'
-        || c == '-'
-        || c == '*'
-        || c == '/'
-        || c == '^'
-        || c == '%'
-        || c == '='
-}
-
-/// `inlines.hpp` `ISSPACE`. The `u_isWhitespace` ICU tail (only reachable for
-/// code points > 0xFF) is approximated with `char::is_whitespace`.
-fn is_space(c: char) -> bool {
-    let u = c as u32;
-    if u <= 0xFF && u != 0x09 && u != 0x0A && u != 0x0D && u != 0x20 && u != 0xA0 {
-        return false;
-    }
-    u == 0x20 || u == 0x09 || u == 0x0A || u == 0x0D || u == 0xA0 || c.is_whitespace()
-}
-
-/// `inlines.hpp` `ISALPHA_C`: `(p < 255) && isalpha(p)`. In the C locale
-/// `isalpha` matches ASCII A-Z/a-z, approximated with `is_ascii_alphabetic`.
-fn is_alpha_c(c: char) -> bool {
-    (c as u32) < 255 && c.is_ascii_alphabetic()
-}
-
-/// `inlines.hpp` `ISDIGIT_C`: `(p < 255) && isdigit(p)`.
-fn is_digit_c(c: char) -> bool {
-    (c as u32) < 255 && c.is_ascii_digit()
 }
 
 /// `std::u16string_view::find_first_of(set)` returning a byte index into `s`,
