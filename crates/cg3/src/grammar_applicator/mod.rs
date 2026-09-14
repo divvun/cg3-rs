@@ -829,6 +829,27 @@ impl GrammarApplicator {
         }
     }
 
+    /// A pipeline ready to apply a grammar someone else already loaded.
+    ///
+    /// The point of the whole split: a host loads a grammar once, takes its
+    /// [`shared_core`](crate::grammar::Grammar::shared_core), and builds one of
+    /// these per worker from clones of that one `Arc`. The sets, rules, contexts
+    /// and load-time tags are shared; each pipeline gets its own overlay, so no
+    /// two can see each other's interned tags or tag-flag changes.
+    ///
+    /// Returns a SET-UP applicator — there is nothing for a caller to do to a
+    /// grammar that is already loaded and frozen, so
+    /// [`set_grammar`](Self::set_grammar) runs here and the half-initialised
+    /// state is not worth exposing. [`new`](Self::new) keeps the staged form,
+    /// for the tools that wrap the base before the grammar is in place.
+    pub fn from_core(
+        core: std::sync::Arc<crate::grammar::GrammarCore>,
+    ) -> Result<Self, crate::error::Cg3Error> {
+        let mut app = GrammarApplicator::new(crate::grammar::Grammar::from_core(core));
+        app.set_grammar()?;
+        Ok(app)
+    }
+
     /// Splits `&mut self` into an [`Engine`] view over the five subsystems.
     ///
     /// One `engine()` call at a driver's top hands the peeled method tree the

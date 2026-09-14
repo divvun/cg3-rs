@@ -39,11 +39,15 @@ enum CoreHandle {
     /// Still loading. This grammar is the core's sole owner and edits it in
     /// place — no atomics, no checks, no sharing.
     Building(Box<GrammarCore>),
-    /// Loaded. The core is immutable in intent and shareable in fact. Editing
-    /// one that is still unshared remains possible (the grammar writers rename
-    /// sets after a run, and `main` still owns the only handle); editing a
-    /// SHARED one is the bug this whole split exists to make impossible, and
-    /// panics instead of corrupting another pipeline's grammar.
+    /// Loaded. The core is immutable, full stop, and shareable because of it:
+    /// there is no way to reach `&mut GrammarCore` through this arm, so no run
+    /// can edit a grammar another pipeline is reading.
+    ///
+    /// The paths that still EDIT a loaded grammar — the two writers, which
+    /// rename sets and reverse each rule's tests in place — take it back to
+    /// [`Building`](Self::Building) first ([`Grammar::unshare`]), which is
+    /// exactly where sharing is decided: `Arc::try_unwrap` hands over a `Box`
+    /// only when no other handle exists.
     Frozen(Arc<GrammarCore>),
 }
 
@@ -93,14 +97,23 @@ impl TagStore {
         }
     }
 
-    /// The core, mutably. Panics once the core is SHARED — see `CoreHandle`.
+    /// The core, mutably. Every `&mut GrammarCore` in the crate comes from here
+    /// — [`Grammar::core_mut`] and `DerefMut` both forward to it — so this is
+    /// the one place that decides whether a grammar may be edited at all.
+    ///
+    /// Answers only for a core that is still being built, which a `Box` makes
+    /// sole-owned by type. A frozen one panics: it may be shared right now, and
+    /// a check that passes while unshared would be a check that passes in every
+    /// test and fails in the host this split exists for. Whatever a run needs to
+    /// change lives in the overlay beside the core instead.
     #[inline]
     pub fn core_mut(&mut self) -> &mut GrammarCore {
         match &mut self.core {
             CoreHandle::Building(c) => c,
-            CoreHandle::Frozen(c) => Arc::get_mut(c).expect(
-                "a frozen grammar core is shared between runs and cannot be edited; \
-                 the run's own tag state lives in the overlay beside it",
+            CoreHandle::Frozen(_) => panic!(
+                "a frozen grammar core cannot be edited; the run's own tag state \
+                 lives in the overlay beside it, and the writers take the core \
+                 back with Grammar::unshare first"
             ),
         }
     }
@@ -218,6 +231,43 @@ impl TagStore {
             self.core = CoreHandle::Frozen(Arc::from(core));
         }
     }
+
+    /// A store over a core someone else loaded: frozen from the start, with no
+    /// tags of its own yet.
+    fn from_shared(core: Arc<GrammarCore>) -> TagStore {
+        TagStore {
+            core: CoreHandle::Frozen(core),
+            run: Vec::new(),
+        }
+    }
+
+    /// Take the core back for editing, if this handle is the only one left.
+    ///
+    /// `Arc::try_unwrap` is where sharing is decided — it yields the core by
+    /// value exactly when no other pipeline holds it, and the `Box` it becomes
+    /// carries that sole ownership in the type from then on. Already-building
+    /// stores succeed trivially.
+    fn unshare(&mut self) -> bool {
+        // An empty core stands in while the real one is unwrapped; whichever
+        // handle the unwrap produces replaces it before anything can read it.
+        let handle = std::mem::replace(&mut self.core, CoreHandle::Building(Box::default()));
+        match handle {
+            building @ CoreHandle::Building(_) => {
+                self.core = building;
+                true
+            }
+            CoreHandle::Frozen(arc) => match Arc::try_unwrap(arc) {
+                Ok(core) => {
+                    self.core = CoreHandle::Building(Box::new(core));
+                    true
+                }
+                Err(arc) => {
+                    self.core = CoreHandle::Frozen(arc);
+                    false
+                }
+            },
+        }
+    }
 }
 
 impl Index<u32> for TagStore {
@@ -304,6 +354,16 @@ impl Deref for Grammar {
     }
 }
 
+/// Writing a core field through a `Grammar` — `grammar.has_dep = true` and the
+/// hundreds like it across the parsers and `reindex` — is editing the grammar
+/// itself, so it answers only while the grammar is still being LOADED and
+/// panics on a frozen core (see [`TagStore::core_mut`]).
+///
+/// It would be better as a compile error. It is not one because `Grammar` is
+/// one type for both jobs: dropping this impl to force the explicit
+/// [`core_mut`](Grammar::core_mut) at every editing site costs 477 call-site
+/// edits across the loaders — none of them in the engine, which mutates the
+/// core nowhere.
 impl DerefMut for Grammar {
     #[inline]
     fn deref_mut(&mut self) -> &mut GrammarCore {
@@ -425,13 +485,59 @@ impl Grammar {
     /// Freeze and hand out the core, for a second run to apply the same grammar
     /// without rebuilding it.
     ///
-    /// The handle this whole split exists to produce. Note that it makes the
-    /// core SHARED: editing it through this `Grammar` panics from here on.
+    /// The handle this whole split exists to produce. Note that it freezes the
+    /// core: editing it through this `Grammar` panics from here on, and only
+    /// [`unshare`](Self::unshare) takes it back.
     pub fn shared_core(&mut self) -> Arc<GrammarCore> {
         self.freeze();
         match &self.single_tags_list.core {
             CoreHandle::Frozen(c) => Arc::clone(c),
             CoreHandle::Building(_) => unreachable!("just frozen"),
+        }
+    }
+
+    /// A grammar over a core someone else already loaded — the constructor the
+    /// whole split exists for. A host loads ONE grammar, takes its
+    /// [`shared_core`](Self::shared_core), and builds a pipeline per worker from
+    /// clones of it; N workers then cost one grammar plus N overlays instead of
+    /// N grammars.
+    ///
+    /// The overlay starts empty and is seeded exactly as a freshly loaded
+    /// grammar's is ([`materialise_run_tag_state`](Self::materialise_run_tag_state),
+    /// `reindex`'s last step): the core's load-time tag flags, and copies of its
+    /// regex / case-insensitive tag sets. Nothing is shared with any other
+    /// grammar over the same core, so neither can see the other's interned tags
+    /// or flag changes.
+    pub fn from_core(core: Arc<GrammarCore>) -> Grammar {
+        let mut grammar = Grammar {
+            single_tags_list: TagStore::from_shared(core),
+            single_tags_run: FlatUnorderedMap::default(),
+            tag_flags: Vec::new(),
+            regex_tags: RegexTags::default(),
+            icase_tags: SortedVector::new(),
+        };
+        grammar.materialise_run_tag_state();
+        grammar
+    }
+
+    /// Take the core back for editing — the writers' entry gate.
+    ///
+    /// [`write_grammar`](crate::grammar_writer::GrammarWriter::write_grammar)
+    /// renames sets and
+    /// [`write_binary_grammar`](crate::binary_grammar::BinaryGrammar::write_binary_grammar)
+    /// reverses each rule's tests, both in place, so both need the core to
+    /// themselves. This is the only route from a frozen core back to a mutable
+    /// one, and it fails when another pipeline still holds one — a grammar
+    /// being applied elsewhere cannot be rewritten under it.
+    ///
+    /// The run's own tag state is untouched and stays where it is; no writer
+    /// serialises it (`num_tags` is the parse-time count, and a tag interned
+    /// during a run appears in no trie).
+    pub fn unshare(&mut self) -> Result<(), crate::error::GrammarError> {
+        if self.single_tags_list.unshare() {
+            Ok(())
+        } else {
+            Err(crate::error::GrammarError::CoreShared)
         }
     }
 

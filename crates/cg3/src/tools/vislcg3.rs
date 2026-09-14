@@ -474,12 +474,16 @@ pub fn main_run(args: &[String]) -> i32 {
             applicator.base_mut().cfg.fmt_input = StreamFormatKind::Binary;
         }
 
-        // applicator.setGrammar(&grammar); — the ported base OWNS its grammar,
-        // so "point the applicator at the externally-held grammar" becomes:
-        // move the parsed grammar in (replacing the ctor's dummy conv grammar),
-        // seed begin/end/subst tags, and move it back out after the run for the
-        // --grammar-out / --grammar-bin writers below.
-        applicator.base_mut().grammar = grammar;
+        // applicator.setGrammar(&grammar); — the C++ points the applicator at
+        // the grammar main holds, and main goes on holding it. The port does the
+        // same thing with a shared core: freeze the grammar main loaded, hand
+        // the applicator a pipeline over it (replacing the ctor's dummy conv
+        // grammar), and keep main's own handle for the --grammar-out /
+        // --grammar-bin writers below.
+        //
+        // One grammar, two holders, and this is the seam a host repeats N times:
+        // every extra pipeline costs an overlay, not a grammar.
+        applicator.base_mut().grammar = Grammar::from_core(grammar.shared_core());
         if let Err(e) = applicator.base_mut().set_grammar() {
             return fail(&e);
         }
@@ -528,10 +532,12 @@ pub fn main_run(args: &[String]) -> i32 {
             return fail(&e);
         }
 
-        // Move the grammar back out (C++ `grammar` lives in main throughout),
-        // and the profiler (for the final `Profiler::write`).
+        // Carry out what the run learned that main's copy cannot see, and take
+        // back the profiler (for the final `Profiler::write`). The grammar does
+        // not travel: main never gave it away. Dropping the applicator at the
+        // end of this block releases its handle on the core, which is what lets
+        // the writers below take it back.
         stream_relations = applicator.base().cfg.stream_relations;
-        grammar = std::mem::take(&mut applicator.base_mut().grammar);
         #[cfg(feature = "profiler")]
         if profiler.is_none() {
             profiler = applicator.base_mut().diag.profiler.take();
@@ -603,10 +609,13 @@ fn write_grammar_bin(
     sources: &[crate::error::ParseSource],
     stream_relations: bool,
 ) -> Result<Grammar, crate::error::Cg3Error> {
+    // Take the core back from the run that just finished: everything below
+    // EDITS the grammar, starting with the flag on the next line.
+    let mut grammar = grammar;
+    grammar.unshare()?;
     // The run's binary-stream `has_relations` (C++ stamps it straight onto the
     // grammar mid-run, and this writer sees it) — folded in here so the emitted
     // BINF_RELATIONS bit is what it always was.
-    let mut grammar = grammar;
     grammar.has_relations |= stream_relations;
     let mut blob: Vec<u8> = Vec::new();
     let mut writer = BinaryGrammar::new(grammar);

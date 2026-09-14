@@ -353,8 +353,20 @@ impl GrammarWriter {
     /// are non-null references — so they are elided (deferred-I/O precedent).
     /// Preamble → set-naming pass (the one grammar mutation) → set / template /
     /// rule-section emission.
+    ///
+    /// DIVERGENCE: the C++ returns 0 unconditionally. A grammar whose core
+    /// another pipeline is still holding cannot be renamed under it, so that one
+    /// case returns non-zero having written nothing.
     pub fn write_grammar<W: Write>(&mut self, grammar: &mut Grammar, output: &mut W) -> i32 {
         // (!output) / (!grammar): non-null references in the port; checks elided.
+
+        // The naming pass below EDITS the grammar, so this writer needs the core
+        // to itself — checked before the first byte rather than at the pass, so
+        // a refusal leaves no half-written file.
+        if let Err(e) = grammar.unshare() {
+            tracing::error!("{e}");
+            return 1;
+        }
 
         w!(
             output,

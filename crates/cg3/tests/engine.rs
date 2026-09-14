@@ -582,6 +582,172 @@ fn a_frozen_core_is_shareable() {
     }
 }
 
+/// Two pipelines over ONE grammar — the thing the whole split was for.
+///
+/// Both applicators are built from the same `Arc<GrammarCore>`: no second
+/// parse, no second copy of the sets, rules, contexts or load-time tags. Each
+/// then applies a stream that interns a tag the other never sees, and has to
+/// emit exactly what it would have emitted owning the grammar outright.
+///
+/// The two run tags land at the SAME id — each overlay numbers its own tags
+/// from the core's capacity up — which is the sharpest form the isolation takes:
+/// one shared arena would have had to give them different ids, and one shared
+/// overlay would have shown each run the other's tag at that id.
+#[test]
+fn two_pipelines_share_one_grammar_core() {
+    use cg3::arena::TagId;
+    use cg3::grammar::Grammar;
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::inlines::hash_value_ustring;
+    use cg3::tag::T_MAPPING;
+    use cg3::textual_parser::TextualParser;
+    use std::sync::Arc;
+
+    const SRC: &[u8] =
+        b"DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nLIST V = v ;\nSECTION\nSELECT N ;\n";
+    const STREAM_A: &[u8] = b"\"<wa>\"\n\t\"wa\" n @a-only\n\t\"wa\" v\n\n";
+    const STREAM_B: &[u8] = b"\"<wb>\"\n\t\"wb\" n @b-only\n\t\"wb\" v\n\n";
+
+    fn load() -> Grammar {
+        let mut parser = TextualParser::new(Grammar::default(), false);
+        parser
+            .parse_grammar_named(SRC, "shared-core.cg3")
+            .expect("grammar parses");
+        let mut grammar = parser.grammar;
+        let _ = grammar.reindex(false, false).expect("reindex");
+        grammar
+    }
+
+    fn owned() -> GrammarApplicator {
+        let mut app = GrammarApplicator::new(load());
+        app.set_grammar().expect("applicator setup");
+        app
+    }
+
+    fn apply(app: &mut GrammarApplicator, stream: &[u8]) -> String {
+        app.cfg.apply_mappings = true;
+        let mut out: Vec<u8> = Vec::new();
+        app.run_grammar_on_text(&mut std::io::Cursor::new(stream.to_vec()), &mut out)
+            .expect("the run completes");
+        String::from_utf8(out).expect("utf-8 output")
+    }
+
+    // What each stream produces down the load-then-run path — the behaviour the
+    // golden corpus already pins, and the definition of "correct" here.
+    let want_a = apply(&mut owned(), STREAM_A);
+    let want_b = apply(&mut owned(), STREAM_B);
+    assert_ne!(want_a, want_b, "the two streams must be distinguishable");
+
+    // One grammar, loaded once. The loader's own handle goes away, so what is
+    // left is what a host would hold: the core and nothing else.
+    let mut loaded = load();
+    let core = loaded.shared_core();
+    drop(loaded);
+    assert_eq!(Arc::strong_count(&core), 1, "the loader's handle is gone");
+    let core_tags = core.single_tags_list.capacity();
+    let core_hashes = core.tags_by_hash.size();
+
+    let mut a = GrammarApplicator::from_core(Arc::clone(&core)).expect("pipeline a");
+    let mut b = GrammarApplicator::from_core(Arc::clone(&core)).expect("pipeline b");
+    assert_eq!(
+        Arc::strong_count(&core),
+        3,
+        "two pipelines plus this handle — three handles on ONE core"
+    );
+    assert!(
+        std::ptr::eq(a.grammar.core(), &*core) && std::ptr::eq(b.grammar.core(), &*core),
+        "both pipelines must read the same grammar, not a copy of it"
+    );
+
+    assert_eq!(apply(&mut a, STREAM_A), want_a, "shared core, same output");
+    assert_eq!(apply(&mut b, STREAM_B), want_b, "shared core, same output");
+
+    // Neither run can see the other's tags.
+    let (ha, hb) = (
+        hash_value_ustring("@a-only", 0),
+        hash_value_ustring("@b-only", 0),
+    );
+    let ia = a.grammar.single_tags().find(ha);
+    let ib = b.grammar.single_tags().find(hb);
+    assert_ne!(ia, a.grammar.single_tags().end(), "a interned its own tag");
+    assert_ne!(ib, b.grammar.single_tags().end(), "b interned its own tag");
+    assert_eq!(
+        a.grammar.single_tags().find(hb),
+        a.grammar.single_tags().end(),
+        "a must not see b's tag"
+    );
+    assert_eq!(
+        b.grammar.single_tags().find(ha),
+        b.grammar.single_tags().end(),
+        "b must not see a's tag"
+    );
+
+    let (ia, ib) = (ia.get().1, ib.get().1);
+    assert_eq!(ia, ib, "each overlay numbers its own tags from the core up");
+    assert_eq!(&*a.grammar.single_tags_list[ia.0].tag, "@a-only");
+    assert_eq!(&*b.grammar.single_tags_list[ib.0].tag, "@b-only");
+    assert!(a.grammar.tag_type(ia).intersects(T_MAPPING));
+    assert!(b.grammar.tag_type(ib).intersects(T_MAPPING));
+
+    // And nothing either run did reached the grammar they share: same tags,
+    // same hash entries, and every core tag's flags still the loader's in both.
+    assert_eq!(core.single_tags_list.capacity(), core_tags);
+    assert_eq!(core.tags_by_hash.size(), core_hashes);
+    for i in 0..core_tags {
+        if let Some(t) = core.single_tags_list.try_get(i) {
+            assert_eq!(a.grammar.tag_type(TagId(i)), t.r#type, "a rewrote tag {i}");
+            assert_eq!(b.grammar.tag_type(TagId(i)), t.r#type, "b rewrote tag {i}");
+        }
+    }
+    assert_eq!(
+        Arc::strong_count(&core),
+        3,
+        "still one core after both runs"
+    );
+}
+
+/// A grammar someone is applying cannot be written out from under them.
+///
+/// Both writers EDIT what they serialise — the binary one reverses each rule's
+/// test lists, the textual one renames every unnamed set — so both take the core
+/// back before writing a byte, and a core another pipeline holds is refused
+/// rather than rewritten. The same call succeeds once that pipeline is gone.
+#[test]
+fn a_shared_core_cannot_reach_the_writers() {
+    use cg3::binary_grammar::BinaryGrammar;
+    use cg3::error::{Cg3Error, GrammarError};
+    use cg3::grammar::Grammar;
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::textual_parser::TextualParser;
+
+    let src = b"DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nSECTION\nSELECT N ;\n";
+    let mut parser = TextualParser::new(Grammar::default(), false);
+    parser
+        .parse_grammar_named(src, "writers.cg3")
+        .expect("grammar parses");
+    let mut grammar = parser.grammar;
+    let _ = grammar.reindex(false, false).expect("reindex");
+
+    let pipeline = GrammarApplicator::from_core(grammar.shared_core()).expect("pipeline");
+
+    let mut writer = BinaryGrammar::new(grammar);
+    let mut blob: Vec<u8> = Vec::new();
+    assert!(
+        matches!(
+            writer.write_binary_grammar(&mut blob),
+            Err(Cg3Error::Grammar(GrammarError::CoreShared))
+        ),
+        "a grammar a pipeline is holding must not be serialised"
+    );
+    assert!(blob.is_empty(), "a refused write leaves no bytes behind");
+
+    drop(pipeline);
+    writer
+        .write_binary_grammar(&mut blob)
+        .expect("the last handle may write");
+    assert!(!blob.is_empty());
+}
+
 // ===========================================================================
 // 6. Contextual-test topology. Every IF clause goes runContextualTest ->
 // runSingleTest with getCohortInWindow resolving each positional hop:

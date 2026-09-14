@@ -896,6 +896,12 @@ impl BinaryGrammar {
         // C++ guards: null output / null grammar. Both are owned here (moot); kept
         // as documentation.
 
+        // This writer EDITS what it serialises (`reverse_contextual_tests` below
+        // reverses each rule's test lists in place), so it needs the core to
+        // itself. A grammar another pipeline is applying is refused rather than
+        // rewritten under it.
+        self.grammar.unshare()?;
+
         // The dense used-set list (C++ `grammar->sets_list`); computed up front so
         // the BINF_SETS bit + the set section agree.
         let used_sets = self.used_set_ids();

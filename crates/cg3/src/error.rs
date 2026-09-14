@@ -177,6 +177,12 @@ pub enum GrammarError {
     #[error("grammar does not begin with the CG3B magic bytes - cannot load as binary")]
     NotBinary,
 
+    /// A writer was handed a grammar whose core another pipeline is still
+    /// holding. Both writers EDIT what they serialise, so there is nothing to
+    /// do but refuse: see [`crate::grammar::Grammar::unshare`].
+    #[error("the grammar core is shared with a running pipeline and cannot be written")]
+    CoreShared,
+
     /// A contextual test reached the binary writer with no hash. The C++ wrote
     /// the diagnostic and quit from inside the serialiser.
     #[error("contextual test on line {line} has no hash - the grammar cannot be written")]
