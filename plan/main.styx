@@ -2198,6 +2198,20 @@ children (
                 kind @blocker
                 text "Two independent save/restore families over grammar.contexts_arena, both with the restore placed after a fallible call. (1) Matcher::run_contextual_test_tmpl, run_contextual_test.rs:474-521: saves pos/offset/cbarrier/barrier of contexts_arena[tmpl], overrides them, then line 503 is `let mut cohort = self.run_contextual_test(...)?;` with the restore block at 505 AFTER it — the ? skips the restore entirely. (2) Engine::rr_dep_relation, dispatch.rs:1398-1497: saves contexts_arena[dep_target].offset, clamps it per onward-scan iteration, restores at 1497, with three ? sites between (1426, 1452-1453, 1472). Reachable: run_contextual_test's relation branch calls generate_varstring_tag (run_contextual_test.rs:1517) which returns RunError, and add_tag returns RunError::TagConstruction (core.rs:1957) — so a malformed runtime varstring tag triggers it. Severity is higher than it first looks because templates are SHARED: the textual parser assigns the same CtxId to every test naming a template (driver.rs:778), so one skipped restore corrupts that template for every rule referencing it, for the remainder of the run. Fix shape: a guard type with a Drop impl, or restructure so the restore is unconditional; not another early-return. Found while assessing the proposed Arc<GrammarCore>/TagOverlay split — it is a pre-existing bug, not a consequence of that work, and it also happens to be one of the things blocking any future grammar sharing."
             }
+
+            {
+                at 2026-09-14T13:16:06.230874Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+
+            {
+                at 2026-09-14T13:21:52.326839Z
+                author "brendan@necessary.nu"
+                kind @note
+                text "Fixed by restructuring both sites so the restore runs before the failure propagates: run_contextual_test_tmpl holds the result instead of `?`-ing it, restores, then `?`s (the pos_output_helper post-processing stays on the success path, since it reads the match that succeeded); rr_dep_relation wraps its scan loop in a labelled block whose three former `?` sites now `break 'scan Err(e)`, with the offset restore after the block.\n\nNOT covered by a test, and I want that recorded rather than glossed. To reach it you need a RunError raised inside run_contextual_test while a template override is applied, and the only error source there is the varstring expansion of a relation tag (run_contextual_test.rs:1527). I built three grammars aiming at it — a T: template reference with a position prefix, whose template body is a relation test whose relation name is VSTR:$1 expanding to a `(`-leading string (the construct proven to fail in applicator_tag_fallthrough) — and none raised. In each the rule applied normally, which suggests the template test never evaluated the relation branch at all. If that is right, the error path in run_contextual_test_tmpl may be unreachable today and the fix is purely defensive; that would be worth establishing on its own, because it also bounds how much the pre-existing bug ever mattered. Note the severity ceiling either way: RunError propagates uncaught to the CLI, which reports and exits (vislcg3.rs:522), so a corrupted template is only observable to an embedder that catches the error and reuses the applicator.\n\nLeft deliberately unfixed in the same function: on the error path run_contextual_test_tmpl also skips `scratch.tmpl_cntx.linked.pop()` and the min/max/in_template restore. Same defect class, but moving those above the `?` would reorder them relative to pos_output_helper on the SUCCESS path, and I was not willing to perturb matching behaviour to tidy scratch state that the run's termination discards anyway."
+            }
         )
     }
 

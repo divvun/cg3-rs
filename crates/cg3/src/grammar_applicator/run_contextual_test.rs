@@ -500,7 +500,11 @@ impl Matcher<'_> {
         }
 
         // cohort = runContextualTest(sWindow, position, tmpl, &cdeep, origin)
-        let mut cohort = self.run_contextual_test(sw, position, tmpl, Some(&mut *cdeep), origin)?;
+        // Held rather than `?`-ed: the override has to come off whichever way
+        // this returns. A template is shared by every test that names it (the
+        // parser hands them all one CtxId), so propagating the error with the
+        // override still applied would leave it corrupted for every one of them.
+        let result = self.run_contextual_test(sw, position, tmpl, Some(&mut *cdeep), origin);
 
         if override_applied {
             let t = &mut self.grammar.contexts_arena[tmpl.0];
@@ -508,15 +512,21 @@ impl Matcher<'_> {
             t.offset = orgoffset;
             t.cbarrier = orgcbar;
             t.barrier = orgbar;
-            if let (Some(c), Some(cd)) = (cohort, *cdeep)
-                && test_offset != 0
-            {
-                let sw_id = sw.expect(
-                    "runContextualTest_tmpl: posOutputHelper needs a window but sWindow is null",
-                );
-                if !self.pos_output_helper(sw_id, position, test, c, cd) {
-                    cohort = None;
-                }
+        }
+
+        let mut cohort = result?;
+
+        // Distinct from the restore above: this reads the match that succeeded,
+        // so it stays on the success path.
+        if override_applied
+            && let (Some(c), Some(cd)) = (cohort, *cdeep)
+            && test_offset != 0
+        {
+            let sw_id = sw.expect(
+                "runContextualTest_tmpl: posOutputHelper needs a window but sWindow is null",
+            );
+            if !self.pos_output_helper(sw_id, position, test, c, cd) {
+                cohort = None;
             }
         }
 
