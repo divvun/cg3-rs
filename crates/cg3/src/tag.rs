@@ -955,14 +955,11 @@ fn add_tag(grammar: &mut Grammar, mut tag: Tag) -> TagId {
     let seed = chosen_seed.expect("addTag: seed space exhausted");
     tag.seed = seed;
     let _hash = tag.rehash();
-    let idx = grammar.single_tags_list.alloc(tag);
     // tag->number = single_tags_list.size() - 1 (== idx when appending, as the
     // parse phase never frees arena slots).
-    grammar.single_tags_list[idx].number = idx;
-    grammar
-        .single_tags
-        .insert((_hash.get(), crate::arena::TagId(idx)));
-    TagId(idx)
+    let id = grammar.intern_tag_slot(tag);
+    grammar.single_tags.insert((_hash.get(), id));
+    id
 }
 
 // ---------------------------------------------------------------------------

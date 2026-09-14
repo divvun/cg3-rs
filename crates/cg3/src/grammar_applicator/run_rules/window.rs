@@ -37,7 +37,7 @@ impl crate::grammar_applicator::Engine<'_> {
         tag: TagId,
     ) -> Result<TagId, crate::error::RunError> {
         let t = self.grammar.single_tags_list.get(tag.0).clone();
-        self.generate_varstring_tag(&t)
+        self.generate_varstring_tag(tag, &t)
     }
 
     /// C++ `TRACE` macro: push `rule->number` onto the apply-to subreading's
@@ -395,14 +395,15 @@ impl crate::grammar_applicator::Matcher<'_> {
             // `rword` (a Tag in the grammar arena) is cloned out so the
             // `&mut self` matcher calls do not alias the grammar borrow.
             let rword_tag = self.grammar.single_tags_list.get(rw.0).clone();
+            let rword_type = self.grammar.tag_type(rw);
             let chash = cword
                 .map(|c| self.grammar.single_tags_list.get(c.0).hash)
                 .map_or(0, |h| h.get());
-            if rword_tag.r#type.intersects(crate::tag::T_REGEXP) {
+            if rword_type.intersects(crate::tag::T_REGEXP) {
                 if self.does_tag_match_regexp(chash, &rword_tag, false) == 0 {
                     return false;
                 }
-            } else if rword_tag.r#type.intersects(crate::tag::T_CASE_INSENSITIVE) {
+            } else if rword_type.intersects(crate::tag::T_CASE_INSENSITIVE) {
                 if self.does_tag_match_icase(chash, &rword_tag, false) == 0 {
                     return false;
                 }

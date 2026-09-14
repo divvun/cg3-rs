@@ -446,7 +446,10 @@ impl super::GrammarApplicator {
                 .iter()
                 .map(|t| {
                     let tag = &self.grammar.single_tags_list[t.0];
-                    (tag.tag.clone(), tag.r#type.intersects(T_CASE_INSENSITIVE))
+                    (
+                        tag.tag.clone(),
+                        self.grammar.tag_type(*t).intersects(T_CASE_INSENSITIVE),
+                    )
                 })
                 .collect();
             let mut bad_regexes = Vec::new();
@@ -739,7 +742,7 @@ impl Engine<'_> {
                 unique.insert(tter.get());
             }
             let tid = tag_by_hash(self.grammar, tter);
-            let ttype = self.grammar.single_tags_list[tid.0].r#type;
+            let ttype = self.grammar.tag_type(tid);
             if ttype.intersects(T_DEPENDENCY) && self.doc.deps.has_dep && !self.cfg.dep_original {
                 continue;
             }
@@ -1140,11 +1143,7 @@ impl Engine<'_> {
                 continue;
             }
             let tid = tag_by_hash(self.grammar, tter);
-            if self.grammar.single_tags_list[tid.0]
-                .r#type
-                .intersects(T_DEPENDENCY)
-                && self.doc.deps.has_dep
-            {
+            if self.grammar.tag_type(tid).intersects(T_DEPENDENCY) && self.doc.deps.has_dep {
                 continue;
             }
             cs += 1;
@@ -1156,11 +1155,7 @@ impl Engine<'_> {
                 continue;
             }
             let tid = tag_by_hash(self.grammar, tter);
-            if self.grammar.single_tags_list[tid.0]
-                .r#type
-                .intersects(T_DEPENDENCY)
-                && self.doc.deps.has_dep
-            {
+            if self.grammar.tag_type(tid).intersects(T_DEPENDENCY) && self.doc.deps.has_dep {
                 continue;
             }
             write_utf8_raw(&mut ss, &self.grammar.single_tags_list[tid.0].tag);
@@ -1881,12 +1876,9 @@ impl Matcher<'_> {
         let seed = chosen_seed.expect("addTag: hash seed space exhausted");
         tag.seed = seed;
         let new_hash = tag.rehash();
-        let idx = self.grammar.single_tags_list.alloc(tag);
-        self.grammar.single_tags_list[idx].number = idx;
-        self.grammar
-            .single_tags
-            .insert((new_hash.get(), TagId(idx)));
-        TagId(idx)
+        let id = self.grammar.intern_tag_slot(tag);
+        self.grammar.single_tags.insert((new_hash.get(), id));
+        id
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
@@ -1969,10 +1961,8 @@ impl Matcher<'_> {
         };
 
         let mut reflow = false;
-        let (ttype, is_txt) = {
-            let t = &self.grammar.single_tags_list[tag.0];
-            (t.r#type, is_textual(&*t.tag))
-        };
+        let ttype = self.grammar.tag_type(tag);
+        let is_txt = is_textual(&*self.grammar.single_tags_list[tag.0].tag);
 
         if (ttype.intersects(T_REGEXP)) && !is_txt {
             // grammar->regex_tags.insert(tag->regexp).second — the set is keyed
@@ -1987,10 +1977,7 @@ impl Matcher<'_> {
                     .collect();
                 let regex_ids: Vec<TagId> = self.grammar.regex_tags.iter().copied().collect();
                 for titer in all_tags {
-                    if self.grammar.single_tags_list[titer.0]
-                        .r#type
-                        .intersects(T_TEXTUAL)
-                    {
+                    if self.grammar.tag_type(titer).intersects(T_TEXTUAL) {
                         continue;
                     }
                     let text = self.grammar.single_tags_list[titer.0].tag.clone();
@@ -2001,7 +1988,7 @@ impl Matcher<'_> {
                             .map(|re| re.is_match(&text))
                             .unwrap_or(false);
                         if matched {
-                            self.grammar.single_tags_list[titer.0].r#type |= T_TEXTUAL;
+                            self.grammar.tag_type_insert(titer, T_TEXTUAL);
                             reflow = true;
                         }
                     }
@@ -2017,17 +2004,14 @@ impl Matcher<'_> {
                     .collect();
                 let icase_ids: Vec<TagId> = self.grammar.icase_tags.iter().copied().collect();
                 for titer in all_tags {
-                    if self.grammar.single_tags_list[titer.0]
-                        .r#type
-                        .intersects(T_TEXTUAL)
-                    {
+                    if self.grammar.tag_type(titer).intersects(T_TEXTUAL) {
                         continue;
                     }
                     let text = self.grammar.single_tags_list[titer.0].tag.clone();
                     for &iid in &icase_ids {
                         let itext = &self.grammar.single_tags_list[iid.0].tag;
                         if eq_ignore_case(&text, itext) {
-                            self.grammar.single_tags_list[titer.0].r#type |= T_TEXTUAL;
+                            self.grammar.tag_type_insert(titer, T_TEXTUAL);
                             reflow = true;
                         }
                     }

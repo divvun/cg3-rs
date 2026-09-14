@@ -385,19 +385,12 @@ impl crate::grammar_applicator::Engine<'_> {
         let mapping_prefix = self.grammar.mapping_prefix;
         for &tag0 in taglist {
             let mut tag = tag0;
-            if self
-                .grammar
-                .single_tags_list
-                .get(tag.0)
-                .r#type
-                .intersects(T_VARSTRING)
-            {
+            if self.grammar.tag_type(tag).intersects(T_VARSTRING) {
                 tag = self.generate_varstring_tag_id(tag)?;
             }
-            let (thash, ttype, first_char) = {
-                let t = self.grammar.single_tags_list.get(tag.0);
-                (t.hash, t.r#type, t.tag.chars().next())
-            };
+            let thash = self.grammar.single_tags_list.get(tag.0).hash;
+            let ttype = self.grammar.tag_type(tag);
+            let first_char = self.grammar.single_tags_list.get(tag.0).tag.chars().next();
             if thash.get() == self.grammar.tag_any {
                 break;
             }

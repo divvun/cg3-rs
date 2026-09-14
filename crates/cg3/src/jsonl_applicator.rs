@@ -178,10 +178,8 @@ impl<'a> JsonlApplicator<'a> {
                 let tag_str = json_to_ustring(tag_val);
                 if !tag_str.is_empty() {
                     let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty())?;
-                    let (ttype, first_char) = {
-                        let t = self.base.grammar.single_tags_list.get(tag.0);
-                        (t.r#type, tag_str.chars().next().unwrap_or('\0'))
-                    };
+                    let ttype = self.base.grammar.tag_type(tag);
+                    let first_char = tag_str.chars().next().unwrap_or('\0');
                     if ttype.intersects(T_MAPPING)
                         || (!tag_str.is_empty() && first_char == mapping_prefix)
                     {
@@ -925,10 +923,8 @@ impl JsonlFormat {
             }
 
             let tag = tag_by_hash(e.grammar, tter);
-            let (ttype, ttag) = {
-                let t = e.grammar.single_tags_list.get(tag.0);
-                (t.r#type, t.tag.clone())
-            };
+            let ttype = e.grammar.tag_type(tag);
+            let ttag = e.grammar.single_tags_list.get(tag.0).tag.clone();
 
             if ttype.intersects(T_DEPENDENCY) && e.doc.deps.has_dep && !e.cfg.dep_original {
                 continue;

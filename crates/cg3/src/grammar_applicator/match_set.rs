@@ -200,12 +200,14 @@ pub fn tag_set_subset_of_t_set(
 /// are threaded in (`Reading&` → `ReadingId`). Compares the query numeric tag
 /// against a reading's numeric tag, returning `itag.hash` on a match else 0.
 /// `compval` derives from the query `tag`; the threshold `V` and operator `B`
-/// from the reading's `itag`.
+/// from the reading's `itag`. `tag_id` names `tag` in the arena, so its type
+/// flags come from the run (`Grammar::tag_type`).
 pub fn test_tag_numerical(
     cohorts: &GenArena<crate::cohort::Cohort>,
     readings: &GenArena<crate::reading::Reading>,
     grammar: &Grammar,
     reading: ReadingId,
+    tag_id: TagId,
     tag: &Tag,
     itag: &Tag,
 ) -> TagHash {
@@ -218,7 +220,7 @@ pub fn test_tag_numerical(
     let mut compval = tag.comparison_val;
     // `tag.comparison_offset` aliases the `dep_parent` union member (tag.rs).
     let comparison_offset = tag.comparison_offset() as usize;
-    if tag.r#type.intersects(T_NUMERIC_MATH) && comparison_offset != 0 {
+    if grammar.tag_type(tag_id).intersects(T_NUMERIC_MATH) && comparison_offset != 0 {
         let mn = cohort::get_min(cohorts, readings, grammar, parent, tag.comparison_hash);
         let mx = cohort::get_max(cohorts, readings, grammar, parent, tag.comparison_hash);
         let mut mp = MathParser::new(mn, mx);
@@ -320,22 +322,29 @@ impl Matcher<'_> {
     /// The central single-tag dispatcher. Mutually-exclusive branches on
     /// `tag.type` (first match wins). `reading` is an id (arena model); `tag` is an
     /// owned/borrowed pattern tag NOT aliasing `self.grammar` (callers clone it out
-    /// of the arena before calling).
+    /// of the arena before calling), and `tag_id` names that same tag in the arena.
+    ///
+    /// The type flags are the RUN's, read once up front. The C++ re-reads
+    /// `tag->type` at every arm, but the arms are a single `else if` chain whose
+    /// conditions are pure — only a taken arm can reach code that interns a tag
+    /// (and so change flags), and by then the chain is over.
     pub fn does_tag_match_reading(
         &mut self,
         reading: ReadingId,
+        tag_id: TagId,
         tag: &Tag,
         unif_mode: bool,
         bypass_index: bool,
     ) -> Result<u32, crate::error::RunError> {
         let mut retval: u32 = 0;
         let mut m: u32 = 0;
+        let ttype = self.grammar.tag_type(tag_id);
 
-        if !tag.r#type.intersects(T_SPECIAL) || tag.r#type.intersects(T_FAILFAST) {
+        if !ttype.intersects(T_SPECIAL) || ttype.intersects(T_FAILFAST) {
             // (1) plain / fail-fast tag
             let r = self.readings.get(reading.0);
             let mut raw_in = r.tags_plain_bloom.matches(tag.hash.get());
-            if tag.r#type.intersects(T_FAILFAST) {
+            if ttype.intersects(T_FAILFAST) {
                 raw_in = r.tags_plain.find(tag.plain_hash.get()) != r.tags_plain.end();
             } else if raw_in {
                 raw_in = r.tags_plain.find(tag.hash.get()) != r.tags_plain.end();
@@ -343,7 +352,7 @@ impl Matcher<'_> {
             if raw_in {
                 m = tag.hash.get();
             }
-        } else if tag.r#type.intersects(T_SET) {
+        } else if ttype.intersects(T_SET) {
             // (2) inline set reference
             let sh0 = hash_value_ustring(&tag.tag, 0);
             let sh = {
@@ -351,12 +360,12 @@ impl Matcher<'_> {
                 it.get().1
             };
             m = self.does_set_match_reading(reading, sh, bypass_index, unif_mode)? as u32;
-        } else if tag.r#type.intersects(T_VARSTRING) {
+        } else if ttype.intersects(T_VARSTRING) {
             // (3) varstring: generate the concrete tag, recurse
-            let nt = self.generate_varstring_tag(tag)?;
+            let nt = self.generate_varstring_tag(tag_id, tag)?;
             let nt_tag = self.grammar.single_tags_list[nt.0].clone();
-            m = self.does_tag_match_reading(reading, &nt_tag, unif_mode, bypass_index)?;
-        } else if tag.r#type.intersects(T_META) {
+            m = self.does_tag_match_reading(reading, nt, &nt_tag, unif_mode, bypass_index)?;
+        } else if ttype.intersects(T_META) {
             // (4) META regex against the cohort's parenthetical text
             if let Some(re) = tag.regexp.as_ref() {
                 let text = {
@@ -398,8 +407,8 @@ impl Matcher<'_> {
             }
         } else if tag.regexp.is_some() {
             // (5) regular regexp tag
-            m = self.does_regexp_match_reading(reading, tag, bypass_index);
-        } else if tag.r#type.intersects(T_CASE_INSENSITIVE) {
+            m = self.does_regexp_match_reading(reading, tag_id, tag, bypass_index);
+        } else if ttype.intersects(T_CASE_INSENSITIVE) {
             // (6) case-insensitive
             let textual: Vec<u32> = self
                 .readings
@@ -413,9 +422,9 @@ impl Matcher<'_> {
                     break;
                 }
             }
-        } else if tag.r#type.intersects(T_REGEXP_ANY) {
+        } else if ttype.intersects(T_REGEXP_ANY) {
             // (7) <.*>/".*" any-forms
-            if tag.r#type.intersects(T_BASEFORM) {
+            if ttype.intersects(T_BASEFORM) {
                 let bf = self.readings.get(reading.0).baseform.unwrap_or(TagHash(0));
                 m = bf.get();
                 if unif_mode {
@@ -427,7 +436,7 @@ impl Matcher<'_> {
                         self.scratch.unif_last_baseform = bf;
                     }
                 }
-            } else if tag.r#type.intersects(T_WORDFORM) {
+            } else if ttype.intersects(T_WORDFORM) {
                 let wf_hash = {
                     let cid = self.readings.get(reading.0).parent.unwrap();
                     let wf = self.cohorts.get(cid.0).wordform.unwrap();
@@ -454,8 +463,10 @@ impl Matcher<'_> {
                     let (itype, ihash) = {
                         let it = self.grammar.single_tags.find(mter);
                         let tid = it.get().1;
-                        let t = &self.grammar.single_tags_list[tid.0];
-                        (t.r#type, t.hash)
+                        (
+                            self.grammar.tag_type(tid),
+                            self.grammar.single_tags_list[tid.0].hash,
+                        )
                     };
                     if !itype.intersects(T_BASEFORM | T_WORDFORM) {
                         m = ihash.get();
@@ -474,7 +485,7 @@ impl Matcher<'_> {
                     }
                 }
             }
-        } else if tag.r#type.intersects(T_NUMERICAL) {
+        } else if ttype.intersects(T_NUMERICAL) {
             // (8) numerical — LAST matching numerical tag wins (no break)
             let nums: Vec<TagId> = self
                 .readings
@@ -490,6 +501,7 @@ impl Matcher<'_> {
                     self.readings,
                     self.grammar,
                     reading,
+                    tag_id,
                     tag,
                     &itag,
                 );
@@ -497,13 +509,12 @@ impl Matcher<'_> {
                     m = rv.get();
                 }
             }
-        } else if tag.r#type.intersects(T_VARIABLE | T_LOCAL_VARIABLE) {
+        } else if ttype.intersects(T_VARIABLE | T_LOCAL_VARIABLE) {
             // (9) variable existence / value comparison
             m = 0;
             let cid = self.readings.get(reading.0).parent.unwrap();
             let sw_opt = self.cohorts.get(cid.0).parent;
-            let use_global =
-                sw_opt == self.stream.current || (!tag.r#type.intersects(T_LOCAL_VARIABLE));
+            let use_global = sw_opt == self.stream.current || (!ttype.intersects(T_LOCAL_VARIABLE));
             let var_entries: Vec<(u32, u32)> = if use_global {
                 collect_fum(self.variables)
             } else {
@@ -514,7 +525,7 @@ impl Matcher<'_> {
                 let it = self.grammar.single_tags.find(tag.comparison_hash);
                 if it != self.grammar.single_tags.end() {
                     let tid = it.get().1;
-                    Some((tid, self.grammar.single_tags_list[tid.0].r#type))
+                    Some((tid, self.grammar.tag_type(tid)))
                 } else {
                     None
                 }
@@ -555,11 +566,12 @@ impl Matcher<'_> {
                             it.get().1
                         };
                         let comp_tag = self.grammar.single_tags_list[comp_tid.0].clone();
-                        if comp_tag.r#type.intersects(T_REGEXP) {
+                        let comp_type = self.grammar.tag_type(comp_tid);
+                        if comp_type.intersects(T_REGEXP) {
                             if self.does_tag_match_regexp(itval, &comp_tag, bypass_index) != 0 {
                                 m = tag.hash.get();
                             }
-                        } else if comp_tag.r#type.intersects(T_CASE_INSENSITIVE) {
+                        } else if comp_type.intersects(T_CASE_INSENSITIVE) {
                             if self.does_tag_match_icase(itval, &comp_tag, bypass_index) != 0 {
                                 m = tag.hash.get();
                             }
@@ -569,7 +581,7 @@ impl Matcher<'_> {
                     }
                 }
             }
-        } else if tag.r#type.intersects(T_PAR_LEFT) {
+        } else if ttype.intersects(T_PAR_LEFT) {
             // (10)
             if self.scratch.par_left_tag != TagHash(0) {
                 let (ln, has) = {
@@ -582,7 +594,7 @@ impl Matcher<'_> {
                     m = self.grammar.tag_any;
                 }
             }
-        } else if tag.r#type.intersects(T_PAR_RIGHT) {
+        } else if ttype.intersects(T_PAR_RIGHT) {
             // (11)
             if self.scratch.par_right_tag != TagHash(0) {
                 let (ln, has) = {
@@ -595,7 +607,7 @@ impl Matcher<'_> {
                     m = self.grammar.tag_any;
                 }
             }
-        } else if tag.r#type.intersects(T_ENCL) {
+        } else if ttype.intersects(T_ENCL) {
             // (12) enclosure: the cohort right after reading.parent is enclosed
             let cid = self.readings.get(reading.0).parent.unwrap();
             let (sw_id, local_number) = {
@@ -612,31 +624,31 @@ impl Matcher<'_> {
             if cpos < all.len() && self.cohorts.get(all[cpos].0).enclosed != 0 {
                 m = 1;
             }
-        } else if tag.r#type.intersects(T_TARGET) {
+        } else if ttype.intersects(T_TARGET) {
             // (13)
             let pc = self.readings.get(reading.0).parent;
             if self.scratch.rule_target.is_some() && pc == self.scratch.rule_target {
                 m = self.grammar.tag_any;
             }
-        } else if tag.r#type.intersects(T_MARK) {
+        } else if ttype.intersects(T_MARK) {
             // (14)
             let pc = self.readings.get(reading.0).parent;
             if pc == self.get_mark() {
                 m = self.grammar.tag_any;
             }
-        } else if tag.r#type.intersects(T_ATTACHTO) {
+        } else if ttype.intersects(T_ATTACHTO) {
             // (15)
             let pc = self.readings.get(reading.0).parent;
             if pc == self.get_attach_to().cohort {
                 m = self.grammar.tag_any;
             }
-        } else if tag.r#type.intersects(T_SAME_BASIC) {
+        } else if ttype.intersects(T_SAME_BASIC) {
             // (16)
             let hp = self.readings.get(reading.0).hash_plain;
             if hp == self.scratch.same_basic {
                 m = self.grammar.tag_any;
             }
-        } else if tag.r#type.intersects(T_CONTEXT) {
+        } else if ttype.intersects(T_CONTEXT) {
             // (17) previous context frame's position list
             if self.scratch.context_stack.len() > 1 {
                 let idx = self.scratch.context_stack.len() - 2;
@@ -691,9 +703,9 @@ impl Matcher<'_> {
         entries.sort_by_key(|e| e.1);
         for (tid, _h) in entries {
             let tagv = self.grammar.single_tags_list[tid.0].clone();
-            let matched = self.does_tag_match_reading(reading, &tagv, unif_mode, false)? != 0;
+            let matched = self.does_tag_match_reading(reading, tid, &tagv, unif_mode, false)? != 0;
             if matched {
-                if tagv.r#type.intersects(T_FAILFAST) {
+                if self.grammar.tag_type(tid).intersects(T_FAILFAST) {
                     continue;
                 }
                 path.push(tid);
@@ -787,7 +799,7 @@ impl Matcher<'_> {
         };
         for tid in ff {
             let tagv = self.grammar.single_tags_list[tid.0].clone();
-            if self.does_tag_match_reading(reading, &tagv, unif_mode, false)? != 0 {
+            if self.does_tag_match_reading(reading, tid, &tagv, unif_mode, false)? != 0 {
                 return Ok(false);
             }
         }
@@ -1670,14 +1682,16 @@ impl Matcher<'_> {
     // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-reading-fn]
     /// Tests whether any textual tag of a reading matches regexp `tag`. `T_REGEXP_LINE`
     /// delegates to `does_regexp_match_line`; otherwise the first matching
-    /// `tags_textual` entry wins.
+    /// `tags_textual` entry wins. `tag_id` names `tag` in the arena, so the
+    /// `T_REGEXP_LINE` test reads the run's flags.
     pub fn does_regexp_match_reading(
         &mut self,
         reading: ReadingId,
+        tag_id: TagId,
         tag: &Tag,
         bypass_index: bool,
     ) -> u32 {
-        if tag.r#type.intersects(T_REGEXP_LINE) {
+        if self.grammar.tag_type(tag_id).intersects(T_REGEXP_LINE) {
             return self.does_regexp_match_line(reading, tag, bypass_index);
         }
         let textual: Vec<u32> = self
@@ -1711,26 +1725,28 @@ impl Matcher<'_> {
         let tags_list: Vec<u32> = self.readings.get(reading.0).tags_list.clone();
         for &tid in the_tags {
             let tag = self.grammar.single_tags_list[tid.0].clone();
+            let ttype = self.grammar.tag_type(tid);
             for &tt in &tags_list {
                 let mut m: u32 = 0;
                 let itag_id = {
                     let it = self.grammar.single_tags.find(tt);
                     it.get().1
                 };
-                let (itype, ihash, itag0) = {
+                let itype = self.grammar.tag_type(itag_id);
+                let (ihash, itag0) = {
                     let t = &self.grammar.single_tags_list[itag_id.0];
-                    (t.r#type, t.hash, t.tag.chars().next().unwrap_or('\0'))
+                    (t.hash, t.tag.chars().next().unwrap_or('\0'))
                 };
                 if tag.regexp.is_some() {
                     m = self.does_tag_match_regexp(tt, &tag, false);
-                } else if tag.r#type.intersects(T_CASE_INSENSITIVE) {
+                } else if ttype.intersects(T_CASE_INSENSITIVE) {
                     m = self.does_tag_match_icase(tt, &tag, false);
-                } else if (tag.r#type.intersects(T_REGEXP_ANY)) && (itype.intersects(T_TEXTUAL)) {
-                    if tag.r#type.intersects(T_BASEFORM) {
+                } else if (ttype.intersects(T_REGEXP_ANY)) && (itype.intersects(T_TEXTUAL)) {
+                    if ttype.intersects(T_BASEFORM) {
                         if itype.intersects(T_BASEFORM) {
                             m = self.readings.get(reading.0).baseform.map_or(0, |h| h.get());
                         }
-                    } else if tag.r#type.intersects(T_WORDFORM) {
+                    } else if ttype.intersects(T_WORDFORM) {
                         if itype.intersects(T_WORDFORM) {
                             let cid = self.readings.get(reading.0).parent.unwrap();
                             let wf = self.cohorts.get(cid.0).wordform.unwrap();
@@ -1742,13 +1758,14 @@ impl Matcher<'_> {
                             m = ihash.get();
                         }
                     }
-                } else if (tag.r#type.intersects(T_NUMERICAL)) && (itype.intersects(T_NUMERICAL)) {
+                } else if (ttype.intersects(T_NUMERICAL)) && (itype.intersects(T_NUMERICAL)) {
                     let itag = self.grammar.single_tags_list[itag_id.0].clone();
                     m = test_tag_numerical(
                         self.cohorts,
                         self.readings,
                         self.grammar,
                         reading,
+                        tid,
                         &tag,
                         &itag,
                     )

@@ -430,14 +430,7 @@ where
             while ri > 0 {
                 ri -= 1;
                 let riter = taglist[ri];
-                if self
-                    .base
-                    .grammar
-                    .single_tags_list
-                    .get(riter.0)
-                    .r#type
-                    .intersects(T_BASEFORM)
-                {
+                if self.base.grammar.tag_type(riter).intersects(T_BASEFORM) {
                     // sub-reading if the current reading already has a baseform.
                     if self
                         .base
@@ -460,8 +453,8 @@ where
                     // faithful port: the C++ walks [ri, taglist.size()), not 0..len
                     for &iter in taglist.iter().skip(ri) {
                         let t = self.base.grammar.single_tags_list.get(iter.0);
-                        let is_mapping =
-                            t.r#type.intersects(T_MAPPING) || t.tag.starts_with(mprefix);
+                        let is_mapping = self.base.grammar.tag_type(iter).intersects(T_MAPPING)
+                            || t.tag.starts_with(mprefix);
                         if is_mapping {
                             mappings.push(iter);
                         } else {
@@ -476,14 +469,7 @@ where
                     }
                     // Pop trailing non-baseform tags, then the baseform.
                     while let Some(&last) = taglist.last() {
-                        if self
-                            .base
-                            .grammar
-                            .single_tags_list
-                            .get(last.0)
-                            .r#type
-                            .intersects(T_BASEFORM)
-                        {
+                        if self.base.grammar.tag_type(last).intersects(T_BASEFORM) {
                             break;
                         }
                         taglist.pop();
@@ -1417,15 +1403,14 @@ impl ApertiumFormat {
         let mut multitags_list: Vec<u32> = Vec::new();
         let mut multi = false;
         for &tter in r.tags_list.iter() {
-            let tag = grammar
-                .single_tags_list
-                .get(tag_by_hash(grammar, TagHash(tter)).0);
-            if tag.tag.starts_with('+') {
+            let tid = tag_by_hash(grammar, TagHash(tter));
+            let ttype = grammar.tag_type(tid);
+            if grammar.single_tags_list.get(tid.0).tag.starts_with('+') {
                 multi = true;
-            } else if tag.r#type.intersects(T_MAPPING) {
+            } else if ttype.intersects(T_MAPPING) {
                 multi = false;
             }
-            if tag.r#type.intersects(T_DEPENDENCY) && e.doc.deps.has_dep && !e.cfg.dep_original {
+            if ttype.intersects(T_DEPENDENCY) && e.doc.deps.has_dep && !e.cfg.dep_original {
                 continue;
             }
             if multi {
@@ -1448,10 +1433,10 @@ impl ApertiumFormat {
             if tter == e.cfg.endtag.get() || tter == e.cfg.begintag.get() {
                 continue;
             }
-            let tag = grammar
-                .single_tags_list
-                .get(tag_by_hash(grammar, TagHash(tter)).0);
-            if !tag.r#type.intersects(T_BASEFORM) && !tag.r#type.intersects(T_WORDFORM) {
+            let tid = tag_by_hash(grammar, TagHash(tter));
+            let ttype = grammar.tag_type(tid);
+            let tag = grammar.single_tags_list.get(tid.0);
+            if !ttype.intersects(T_BASEFORM) && !ttype.intersects(T_WORDFORM) {
                 let first = tag.tag.chars().next();
                 if first == Some('+') {
                     let _ = write!(output, "{}", tag.tag);

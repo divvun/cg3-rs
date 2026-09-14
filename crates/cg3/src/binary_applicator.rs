@@ -277,11 +277,13 @@ impl<'a> BinaryApplicator<'a> {
             let first = tg.chars().next().unwrap_or('\0');
             let tid = self.base.add_tag(&tg, crate::tag::TagType::empty())?;
             // tg[0] == grammar->mapping_prefix ? |= T_MAPPING : &= ~T_MAPPING.
-            let t = self.base.grammar.single_tags_list.get_mut(tid.0);
+            // The only place the engine CLEARS a type bit, and it does so per
+            // window: a tag mapped in one window and not the next changes
+            // meaning mid-stream, which is exactly why the flags are the run's.
             if first == self.base.grammar.mapping_prefix {
-                t.r#type |= T_MAPPING;
+                self.base.grammar.tag_type_insert(tid, T_MAPPING);
             } else {
-                t.r#type &= !T_MAPPING;
+                self.base.grammar.tag_type_remove(tid, T_MAPPING);
             }
             window_tags.push(tid);
         }
@@ -451,10 +453,7 @@ impl<'a> BinaryApplicator<'a> {
                 for _ in 0..rtag_count {
                     let ti = read_u16!() as usize;
                     let tid = window_tags[ti];
-                    if self.base.grammar.single_tags_list[tid.0]
-                        .r#type
-                        .intersects(T_MAPPING)
-                    {
+                    if self.base.grammar.tag_type(tid).intersects(T_MAPPING) {
                         mappings.push(tid);
                     } else {
                         self.base.engine().add_tag_to_reading(c_reading, tid)?;
@@ -893,7 +892,7 @@ impl BinaryFormat {
                             continue;
                         }
                         let tid = tag_by_hash(e.grammar, tter);
-                        let tt = e.grammar.single_tags_list[tid.0].r#type;
+                        let tt = e.grammar.tag_type(tid);
                         if tt.intersects(T_DEPENDENCY | T_RELATION) {
                             continue;
                         }

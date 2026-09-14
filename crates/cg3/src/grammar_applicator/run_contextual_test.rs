@@ -1536,17 +1536,15 @@ impl Matcher<'_> {
             it.get().1
         };
         loop {
-            let ttype = self.grammar.single_tags_list[rtag_id.0].r#type;
+            let ttype = self.grammar.tag_type(rtag_id);
             if !ttype.intersects(T_VARSTRING) {
                 break;
             }
             let tclone = self.grammar.single_tags_list[rtag_id.0].clone();
-            rtag_id = self.generate_varstring_tag(&tclone)?;
+            rtag_id = self.generate_varstring_tag(rtag_id, &tclone)?;
         }
-        let (rtag_hash, rtag_type) = {
-            let t = &self.grammar.single_tags_list[rtag_id.0];
-            (t.hash, t.r#type)
-        };
+        let rtag_hash = self.grammar.single_tags_list[rtag_id.0].hash;
+        let rtag_type = self.grammar.tag_type(rtag_id);
 
         let test_pos = test.pos(&self.grammar.contexts_arena);
 

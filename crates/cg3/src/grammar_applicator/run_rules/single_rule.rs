@@ -129,9 +129,8 @@ impl crate::grammar_applicator::Engine<'_> {
         let mut ctx_cohorts: Vec<CohortId> = Vec::new();
         let trie_special = self.grammar.set_by_number(rtarget).trie_special.clone();
         for &tid in trie_special.keys() {
-            let t = self.grammar.single_tags_list.get(tid.0);
-            let crp = t.context_ref_pos();
-            if t.r#type.intersects(crate::tag::T_CONTEXT)
+            let crp = self.grammar.single_tags_list.get(tid.0).context_ref_pos();
+            if self.grammar.tag_type(tid).intersects(crate::tag::T_CONTEXT)
                 && (crp as usize) <= ctx_len
                 && let Some(Some(c)) = self
                     .scratch
@@ -1154,7 +1153,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let Some(first) = list.first().copied() else {
             return Ok(None);
         };
-        let ttype = self.grammar.single_tags_list.get(first.0).r#type;
+        let ttype = self.grammar.tag_type(first);
         if ttype.intersects(T_VARSTRING) {
             Ok(Some(self.generate_varstring_tag_id(first)?))
         } else {

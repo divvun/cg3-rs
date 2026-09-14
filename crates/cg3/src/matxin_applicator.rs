@@ -346,14 +346,7 @@ impl MatxinApplicator {
             while ri > 0 {
                 ri -= 1;
                 let riter = taglist[ri];
-                if self
-                    .base
-                    .grammar
-                    .single_tags_list
-                    .get(riter.0)
-                    .r#type
-                    .intersects(T_BASEFORM)
-                {
+                if self.base.grammar.tag_type(riter).intersects(T_BASEFORM) {
                     if self
                         .base
                         .doc
@@ -374,8 +367,8 @@ impl MatxinApplicator {
                     // faithful port: the C++ walks [ri, taglist.size()), not 0..len
                     for &iter in taglist.iter().skip(ri) {
                         let t = self.base.grammar.single_tags_list.get(iter.0);
-                        let is_mapping =
-                            t.r#type.intersects(T_MAPPING) || t.tag.starts_with(mprefix);
+                        let is_mapping = self.base.grammar.tag_type(iter).intersects(T_MAPPING)
+                            || t.tag.starts_with(mprefix);
                         if is_mapping {
                             mappings.push(iter);
                         } else {
@@ -389,14 +382,7 @@ impl MatxinApplicator {
                             .split_mappings(&mut mappings, parent, reading, true)?;
                     }
                     while let Some(&last) = taglist.last() {
-                        if self
-                            .base
-                            .grammar
-                            .single_tags_list
-                            .get(last.0)
-                            .r#type
-                            .intersects(T_BASEFORM)
-                        {
+                        if self.base.grammar.tag_type(last).intersects(T_BASEFORM) {
                             break;
                         }
                         taglist.pop();
@@ -465,7 +451,12 @@ impl MatxinApplicator {
                 .get(tag_by_hash(&self.base.grammar, TagHash(tter)).0);
             if tag.tag.starts_with('+') {
                 multi = true;
-            } else if tag.r#type.intersects(T_MAPPING) {
+            } else if self
+                .base
+                .grammar
+                .tag_type(tag_by_hash(&self.base.grammar, TagHash(tter)))
+                .intersects(T_MAPPING)
+            {
                 multi = false;
             }
             if multi {
@@ -490,12 +481,10 @@ impl MatxinApplicator {
             if tter == self.base.cfg.endtag.get() || tter == self.base.cfg.begintag.get() {
                 continue;
             }
-            let tag = self
-                .base
-                .grammar
-                .single_tags_list
-                .get(tag_by_hash(&self.base.grammar, TagHash(tter)).0);
-            if !tag.r#type.intersects(T_BASEFORM) && !tag.r#type.intersects(T_WORDFORM) {
+            let tid = tag_by_hash(&self.base.grammar, TagHash(tter));
+            let ttype = self.base.grammar.tag_type(tid);
+            let tag = self.base.grammar.single_tags_list.get(tid.0);
+            if !ttype.intersects(T_BASEFORM) && !ttype.intersects(T_WORDFORM) {
                 let firstc = tag.tag.chars().next();
                 if firstc == Some('+') {
                     let _ = write!(output, "{}", tag.tag);

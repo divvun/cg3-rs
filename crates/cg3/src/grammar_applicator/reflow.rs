@@ -736,24 +736,21 @@ impl Engine<'_> {
         mut tag: TagId,
         rehash: bool,
     ) -> Result<TagHash, crate::error::RunError> {
-        if self.grammar.single_tags_list[tag.0]
-            .r#type
-            .intersects(T_VARSTRING)
-        {
+        if self.grammar.tag_type(tag).intersects(T_VARSTRING) {
             let tval = self.grammar.single_tags_list[tag.0].clone();
-            tag = self.generate_varstring_tag(&tval)?;
+            tag = self.generate_varstring_tag(tag, &tval)?;
         }
 
         // Snapshot the tag's scalar fields (it lives in the grammar arena).
-        let (thash, ttype, tplain, first_char, tds, tdp, tch) = {
+        let ttype = self.grammar.tag_type(tag);
+        let (thash, tplain, first_char, tds, tdp, tch) = {
             let t = &self.grammar.single_tags_list[tag.0];
             (
                 t.hash,
-                t.r#type,
                 t.plain_hash,
                 t.tag.chars().next().unwrap_or('\0'),
                 t.dep_self,
-                if t.r#type.intersects(T_DEPENDENCY | T_RELATION) {
+                if ttype.intersects(T_DEPENDENCY | T_RELATION) {
                     t.dep_parent()
                 } else {
                     0
@@ -808,7 +805,7 @@ impl Engine<'_> {
         }
 
         if ttype.intersects(T_MAPPING) || first_char == self.grammar.mapping_prefix {
-            self.grammar.single_tags_list[tag.0].r#type |= T_MAPPING;
+            self.grammar.tag_type_insert(tag, T_MAPPING);
             let existing = self.doc.store.readings.get(reading.0).mapping;
             if let Some(m) = existing
                 && m != tag
@@ -1054,18 +1051,17 @@ impl Engine<'_> {
         let mut idx = 0usize;
         while idx < mappings.len() {
             let mut t = mappings[idx];
-            while self.grammar.single_tags_list[t.0]
-                .r#type
-                .intersects(T_VARSTRING)
-            {
+            while self.grammar.tag_type(t).intersects(T_VARSTRING) {
                 let tval = self.grammar.single_tags_list[t.0].clone();
-                t = self.generate_varstring_tag(&tval)?;
+                t = self.generate_varstring_tag(t, &tval)?;
                 mappings[idx] = t;
             }
-            let (ttype, first_char) = {
-                let tg = &self.grammar.single_tags_list[t.0];
-                (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
-            };
+            let ttype = self.grammar.tag_type(t);
+            let first_char = self.grammar.single_tags_list[t.0]
+                .tag
+                .chars()
+                .next()
+                .unwrap_or('\0');
             if !(ttype.intersects(T_MAPPING) || first_char == mapping_prefix) {
                 self.add_tag_to_reading(reading, t)?;
                 mappings.remove(idx);
@@ -1552,12 +1548,19 @@ impl Matcher<'_> {
     /// template: unified-set substitution, `$1..$9` capture-group substitution,
     /// and `%u/%U/%l/%L` case markers, then interns the result. `tag` is a
     /// borrowed pattern tag NOT aliasing `self.grammar` (matchSet clones it out
-    /// before calling), so the signature is `&Tag` per the matchSet header.
+    /// before calling), so the signature is `&Tag` per the matchSet header;
+    /// `tag_id` names the same tag in the arena, because the type flags the
+    /// generated tag inherits are the RUN's (`Grammar::tag_type`), not the
+    /// clone's load-time copy.
     ///
     /// ICU `UnicodeString` ops map to `Vec<char>` splicing (`findAndReplace`,
     /// `lastIndexOf`) and `char::to_uppercase`/`to_lowercase` (the ICU full
     /// case mapping analog; parity risk for locale-specific mappings, noted).
-    pub fn generate_varstring_tag(&mut self, tag: &Tag) -> Result<TagId, crate::error::RunError> {
+    pub fn generate_varstring_tag(
+        &mut self,
+        tag_id: TagId,
+        tag: &Tag,
+    ) -> Result<TagId, crate::error::RunError> {
         let mut tmp: Vec<char> = tag.tag.chars().collect();
         let mut did_something = false;
 
@@ -1705,10 +1708,11 @@ impl Matcher<'_> {
         }
 
         // (5) Re-append type suffixes so the regenerated string re-parses.
-        if tag.r#type.intersects(T_CASE_INSENSITIVE) {
+        let ttype = self.grammar.tag_type(tag_id);
+        if ttype.intersects(T_CASE_INSENSITIVE) {
             tmp.push('i');
         }
-        if tag.r#type.intersects(T_REGEXP) {
+        if ttype.intersects(T_REGEXP) {
             tmp.push('r');
         }
 
@@ -1717,7 +1721,7 @@ impl Matcher<'_> {
             // "Warning: Unable to generate from tag ..." — I/O deferred.
         }
         // addTag(nt, tag->type)
-        self.add_tag(&nt, tag.r#type)
+        self.add_tag(&nt, ttype)
     }
 
     // =======================================================================
@@ -1738,10 +1742,7 @@ impl Matcher<'_> {
         let tags: Vec<u32> = self.readings.get(r.0).tags.as_slice().to_vec();
         for it in tags {
             let tid = self.grammar.single_tags.find(it).get().1;
-            if self.grammar.single_tags_list[tid.0]
-                .r#type
-                .intersects(T_TEXTUAL)
-            {
+            if self.grammar.tag_type(tid).intersects(T_TEXTUAL) {
                 let rr = self.readings.get_mut(r.0);
                 rr.tags_textual.insert(it);
                 rr.tags_textual_bloom.insert(it);

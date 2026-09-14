@@ -989,12 +989,13 @@ impl Engine<'_> {
     pub fn does_tag_match_reading(
         &mut self,
         reading: ReadingId,
+        tag_id: TagId,
         tag: &crate::tag::Tag,
         unif_mode: bool,
         bypass_index: bool,
     ) -> Result<u32, crate::error::RunError> {
         self.matcher()
-            .does_tag_match_reading(reading, tag, unif_mode, bypass_index)
+            .does_tag_match_reading(reading, tag_id, tag, unif_mode, bypass_index)
     }
 
     pub fn does_tag_match_regexp(
@@ -1047,9 +1048,10 @@ impl Engine<'_> {
 
     pub fn generate_varstring_tag(
         &mut self,
+        tag_id: TagId,
         tag: &crate::tag::Tag,
     ) -> Result<TagId, crate::error::RunError> {
-        self.matcher().generate_varstring_tag(tag)
+        self.matcher().generate_varstring_tag(tag_id, tag)
     }
 
     pub fn add_tag(

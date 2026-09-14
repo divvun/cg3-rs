@@ -380,6 +380,84 @@ fn current_rule_does_not_outlive_the_run() {
     );
 }
 
+/// The stream's tag type flags are the RUN's, not the grammar's.
+///
+/// A mapped tag read off the stream gets `T_MAPPING` stamped on it, and a
+/// runtime regex/icase tag stamps `T_TEXTUAL` across the whole arena. The C++
+/// writes both into the loaded `Tag`, which is why a grammar cannot be shared:
+/// two pipelines applying different streams would overwrite each other's flags,
+/// and a `.cg3b` written after a run would carry them. Here the writes land in
+/// `Grammar::tag_flags` and `Tag::r#type` keeps the value the loader gave it.
+///
+/// `@dyn` deliberately appears nowhere in the grammar, so the tag is interned
+/// by the stream reader and its load-time flags genuinely lack `T_MAPPING` —
+/// a tag the grammar already listed would be indistinguishable either way.
+#[test]
+fn runtime_tag_flags_do_not_reach_the_grammar() {
+    use cg3::grammar::Grammar;
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::textual_parser::TextualParser;
+
+    let src = b"DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nSECTION\nSELECT N ;\n";
+    let mut parser = TextualParser::new(Grammar::default(), false);
+    parser
+        .parse_grammar_named(src, "tag-flags.cg3")
+        .expect("grammar parses");
+    let mut grammar = parser.grammar;
+    let _ = grammar.reindex(false, false).expect("reindex");
+
+    // Materialised flags are exactly the load-time ones, for every live tag.
+    for i in 0..grammar.single_tags_list.capacity() {
+        if let Some(t) = grammar.single_tags_list.try_get(i) {
+            assert_eq!(
+                grammar.tag_flags[i as usize], t.r#type,
+                "tag {i} materialised with flags the loader never set"
+            );
+        }
+    }
+    let before: Vec<Option<cg3::tag::TagType>> = (0..grammar.single_tags_list.capacity())
+        .map(|i| grammar.single_tags_list.try_get(i).map(|t| t.r#type))
+        .collect();
+
+    let mut app = GrammarApplicator::new(grammar);
+    app.set_grammar().expect("applicator setup");
+    app.cfg.apply_mappings = true;
+    let mut cursor = std::io::Cursor::new(b"\"<a>\"\n\t\"a\" n @dyn\n\n".to_vec());
+    let mut out: Vec<u8> = Vec::new();
+    app.run_grammar_on_text(&mut cursor, &mut out)
+        .expect("the run completes");
+
+    let grammar = &app.grammar;
+    for (i, was) in before.iter().enumerate() {
+        if let Some(was) = was {
+            assert_eq!(
+                grammar.single_tags_list[i as u32].r#type, *was,
+                "the run rewrote tag {i}'s load-time flags"
+            );
+        }
+    }
+
+    let dyn_id = grammar
+        .single_tags
+        .find(cg3::inlines::hash_value_ustring("@dyn", 0))
+        .get()
+        .1;
+    assert_eq!(
+        &*grammar.single_tags_list[dyn_id.0].tag, "@dyn",
+        "the stream's mapped tag was interned"
+    );
+    assert!(
+        grammar.tag_type(dyn_id).intersects(cg3::tag::T_MAPPING),
+        "the run must see the stream tag as mapped"
+    );
+    assert!(
+        !grammar.single_tags_list[dyn_id.0]
+            .r#type
+            .intersects(cg3::tag::T_MAPPING),
+        "T_MAPPING belongs to the run, not to the interned Tag"
+    );
+}
+
 // ===========================================================================
 // 6. Contextual-test topology. Every IF clause goes runContextualTest ->
 // runSingleTest with getCohortInWindow resolving each positional hop:

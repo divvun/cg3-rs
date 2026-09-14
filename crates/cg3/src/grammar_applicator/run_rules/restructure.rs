@@ -314,7 +314,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let mut wf: Option<TagId> = None;
         let mut readings: Vec<TagList> = Vec::new();
         for tter in the_tags {
-            let ttype = self.grammar.single_tags_list.get(tter.0).r#type;
+            let ttype = self.grammar.tag_type(tter);
             if ttype.intersects(T_WORDFORM) {
                 self.doc.store.cohorts.get_mut(ccohort.0).wordform = Some(tter);
                 // C++: spacesInAddedWf = count of ' ' in tter->tag.
@@ -356,13 +356,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     let mut kk = 1usize;
                     for &nt_hash in &nt_list[3..] {
                         let tid = self.tag_by_hash(TagHash(nt_hash));
-                        if self
-                            .grammar
-                            .single_tags_list
-                            .get(tid.0)
-                            .r#type
-                            .intersects(T_DEPENDENCY)
-                        {
+                        if self.grammar.tag_type(tid).intersects(T_DEPENDENCY) {
                             continue;
                         }
                         tags.insert(k + kk, tid);
@@ -393,19 +387,11 @@ impl crate::grammar_applicator::Engine<'_> {
             for t0 in rit {
                 let mut tter = t0;
                 let mut hash = self.grammar.single_tags_list.get(tter.0).hash;
-                while self
-                    .grammar
-                    .single_tags_list
-                    .get(tter.0)
-                    .r#type
-                    .intersects(T_VARSTRING)
-                {
+                while self.grammar.tag_type(tter).intersects(T_VARSTRING) {
                     tter = self.generate_varstring_tag_id(tter)?;
                 }
-                let (ttype, first) = {
-                    let t = self.grammar.single_tags_list.get(tter.0);
-                    (t.r#type, t.tag.chars().next())
-                };
+                let ttype = self.grammar.tag_type(tter);
+                let first = self.grammar.single_tags_list.get(tter.0).tag.chars().next();
                 if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                     mappings.push(tter);
                 } else {
@@ -962,10 +948,8 @@ impl crate::grammar_applicator::Engine<'_> {
                 for hash0 in src_tags {
                     let mut hash = TagHash(hash0);
                     let tter = self.tag_by_hash(hash);
-                    let (ttype, first) = {
-                        let t = self.grammar.single_tags_list.get(tter.0);
-                        (t.r#type, t.tag.chars().next())
-                    };
+                    let ttype = self.grammar.tag_type(tter);
+                    let first = self.grammar.single_tags_list.get(tter.0).tag.chars().next();
                     if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                         mappings.push(tter);
                     } else {
@@ -985,10 +969,8 @@ impl crate::grammar_applicator::Engine<'_> {
                     if hash.get() == tag_any {
                         continue;
                     }
-                    let (ttype, first) = {
-                        let t = self.grammar.single_tags_list.get(tter.0);
-                        (t.r#type, t.tag.chars().next())
-                    };
+                    let ttype = self.grammar.tag_type(tter);
+                    let first = self.grammar.single_tags_list.get(tter.0).tag.chars().next();
                     if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                         mappings.push(tter);
                     } else {
@@ -1118,7 +1100,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let mut cohort_ids: Vec<CohortId> = Vec::new();
         let mut wf: Option<TagId> = None;
         for &tter in &the_tags {
-            let ttype = self.grammar.single_tags_list.get(tter.0).r#type;
+            let ttype = self.grammar.tag_type(tter);
             if ttype.intersects(T_WORDFORM) {
                 let cid = crate::cohort::alloc_cohort(&mut self.doc.store, Some(current));
                 let gn = self.doc.cohorts.next_cohort_number();
@@ -1154,7 +1136,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let mut i: usize = 0;
         let mut bf: Option<TagId> = None;
         for &tter in &the_tags {
-            let ttype = self.grammar.single_tags_list.get(tter.0).r#type;
+            let ttype = self.grammar.tag_type(tter);
             if ttype.intersects(T_WORDFORM) {
                 i += 1;
                 bf = None;
@@ -1254,13 +1236,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         let mut kk = 1usize;
                         for &nt_hash in &nt_list[3..] {
                             let tid = self.tag_by_hash(TagHash(nt_hash));
-                            if self
-                                .grammar
-                                .single_tags_list
-                                .get(tid.0)
-                                .r#type
-                                .intersects(T_DEPENDENCY)
-                            {
+                            if self.grammar.tag_type(tid).intersects(T_DEPENDENCY) {
                                 continue;
                             }
                             tags.insert(k + kk, tid);
@@ -1272,10 +1248,8 @@ impl crate::grammar_applicator::Engine<'_> {
 
                 for &tter in &tags {
                     let mut hash = self.grammar.single_tags_list.get(tter.0).hash;
-                    let (ttype, first) = {
-                        let t = self.grammar.single_tags_list.get(tter.0);
-                        (t.r#type, t.tag.chars().next())
-                    };
+                    let ttype = self.grammar.tag_type(tter);
+                    let first = self.grammar.single_tags_list.get(tter.0).tag.chars().next();
                     if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
                         mappings.push(tter);
                     } else {

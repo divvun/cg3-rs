@@ -406,7 +406,10 @@ impl<'a> NicelineApplicator<'a> {
                                 let tag = self.base.add_tag(&tok, crate::tag::TagType::empty())?;
                                 let (ttype, first) = {
                                     let t = &self.base.grammar.single_tags_list[tag.0];
-                                    (t.r#type, t.tag.chars().next().unwrap_or('\0'))
+                                    (
+                                        self.base.grammar.tag_type(tag),
+                                        t.tag.chars().next().unwrap_or('\0'),
+                                    )
                                 };
                                 if ttype.intersects(T_MAPPING)
                                     || first == self.base.grammar.mapping_prefix
@@ -437,7 +440,10 @@ impl<'a> NicelineApplicator<'a> {
                             let tag = self.base.add_tag(&tok, crate::tag::TagType::empty())?;
                             let (ttype, first) = {
                                 let t = &self.base.grammar.single_tags_list[tag.0];
-                                (t.r#type, t.tag.chars().next().unwrap_or('\0'))
+                                (
+                                    self.base.grammar.tag_type(tag),
+                                    t.tag.chars().next().unwrap_or('\0'),
+                                )
                             };
                             if ttype.intersects(T_MAPPING)
                                 || first == self.base.grammar.mapping_prefix
@@ -647,7 +653,7 @@ impl NicelineFormat {
                 unique.insert(tter.get());
             }
             let tid = tag_by_hash(e.grammar, tter);
-            let ttype = e.grammar.single_tags_list[tid.0].r#type;
+            let ttype = e.grammar.tag_type(tid);
             if ttype.intersects(T_DEPENDENCY) && e.doc.deps.has_dep && !e.cfg.dep_original {
                 continue;
             }

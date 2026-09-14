@@ -347,15 +347,17 @@ impl super::Engine<'_> {
                         let base_text: String =
                             cleaned[base..].iter().take_while(|&&c| c != '\0').collect();
                         let tag = self.add_tag(&base_text, crate::tag::TagType::empty())?;
-                        let (ttype, first_char) = {
-                            let t = &self.grammar.single_tags_list[tag.0];
-                            (t.r#type, t.tag.chars().next().unwrap_or('\0'))
-                        };
+                        let ttype = self.grammar.tag_type(tag);
+                        let first_char = self.grammar.single_tags_list[tag.0]
+                            .tag
+                            .chars()
+                            .next()
+                            .unwrap_or('\0');
                         if ttype.intersects(crate::tag::T_MAPPING)
                             || first_char == self.grammar.mapping_prefix
                         {
                             // tag->type |= T_MAPPING;
-                            self.grammar.single_tags_list[tag.0].r#type |= crate::tag::T_MAPPING;
+                            self.grammar.tag_type_insert(tag, crate::tag::T_MAPPING);
                             all_mappings.entry(c_reading).or_default().push(tag);
                         } else {
                             self.add_tag_to_reading(c_reading, tag)?;
@@ -372,13 +374,15 @@ impl super::Engine<'_> {
         if base < cleaned.len() && cleaned[base] != '\0' {
             let base_text: String = cleaned[base..].iter().take_while(|&&c| c != '\0').collect();
             let tag = self.add_tag(&base_text, crate::tag::TagType::empty())?;
-            let (ttype, first_char) = {
-                let t = &self.grammar.single_tags_list[tag.0];
-                (t.r#type, t.tag.chars().next().unwrap_or('\0'))
-            };
+            let ttype = self.grammar.tag_type(tag);
+            let first_char = self.grammar.single_tags_list[tag.0]
+                .tag
+                .chars()
+                .next()
+                .unwrap_or('\0');
             if ttype.intersects(crate::tag::T_MAPPING) || first_char == self.grammar.mapping_prefix
             {
-                self.grammar.single_tags_list[tag.0].r#type |= crate::tag::T_MAPPING;
+                self.grammar.tag_type_insert(tag, crate::tag::T_MAPPING);
                 all_mappings.entry(c_reading).or_default().push(tag);
             } else {
                 self.add_tag_to_reading(c_reading, tag)?;

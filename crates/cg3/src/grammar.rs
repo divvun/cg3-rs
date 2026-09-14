@@ -60,7 +60,7 @@ use crate::set::{
 use crate::strings::Keywords;
 use crate::tag::{
     T_ANY, T_CASE_INSENSITIVE, T_FAILFAST, T_MAPPING, T_SPECIAL, T_TEXTUAL, T_VARSTRING, TagList,
-    TagVector, TagVectorSet, fill_tagvector,
+    TagType, TagVector, TagVectorSet, fill_tagvector,
 };
 use crate::tag_trie::{
     TagTrie, trie_delete, trie_get_tag_list, trie_get_tag_list_append, trie_get_tags,
@@ -220,6 +220,31 @@ pub struct Grammar {
     pub single_tags_list: Arena<Tag>,
     /// C++ `Taguint32HashMap` (`flat_unordered_map<uint32_t, Tag*>`): hash → tag.
     pub single_tags: FlatUnorderedMap<u32, TagId>,
+    /// ADDED — no C++ member. The tag type flags AS THE RUN SEES THEM, dense and
+    /// parallel to [`single_tags_list`](Self::single_tags_list) (same index, same
+    /// length).
+    ///
+    /// The C++ keeps one `uint32_t type` inside each `Tag` and writes it while
+    /// applying: `T_TEXTUAL` when a runtime-interned regex/icase tag makes
+    /// existing tags textual, `T_MAPPING` when a mapped tag turns out to have
+    /// been deduped onto a pre-existing one, and a `T_MAPPING` CLEAR per binary
+    /// window. Those are properties of the STREAM being applied, not of the
+    /// grammar, and a `Tag` is otherwise an immutable record shared by every
+    /// pipeline in the process.
+    ///
+    /// So the run gets its own copy. Every runtime read goes through
+    /// [`tag_type`](Self::tag_type) and every runtime write through
+    /// [`tag_type_insert`](Self::tag_type_insert) /
+    /// [`tag_type_remove`](Self::tag_type_remove); `Tag::r#type` keeps the
+    /// LOAD-TIME value, which is what `rehash` folds into the tag's identity and
+    /// what the binary writer serialises. Load-time code (the parsers,
+    /// [`reindex`](Self::reindex), the relabeller, the writer, `Tag`'s own
+    /// methods) reads `Tag::r#type` directly — it runs before this exists.
+    ///
+    /// Dense, not a delta map: it is read on the hottest path in the engine, and
+    /// 4 bytes per tag is ~56 KB for a 14k-tag grammar against a grammar of
+    /// hundreds of megabytes.
+    pub tag_flags: Vec<TagType>,
 
     // --- sets ---
     /// Owned set arena (was `std::vector<Set*> sets_list`); `SetId` indexes it.
@@ -358,6 +383,7 @@ impl Default for Grammar {
             binary_path: None,
             single_tags_list: Arena::new(),
             single_tags: FlatUnorderedMap::default(),
+            tag_flags: Vec::new(),
             sets_list: Arena::new(),
             sets_list_order: Vec::new(),
             sets_all: SortedVector::new(),
@@ -707,10 +733,79 @@ impl Grammar {
         // verbosity_level>0 && seed hash-seed warning: deferred I/O.
         tag.seed = seed;
         let new_hash = tag.rehash(); // rehash folds seed → base+seed == ih.
+        let id = self.intern_tag_slot(tag);
+        self.single_tags.insert((new_hash.get(), id));
+        id
+    }
+
+    /// Give `tag` an arena slot, stamp its `number`, and seed the slot's entry in
+    /// [`tag_flags`](Self::tag_flags).
+    ///
+    /// The one place a `Tag` enters the arena through an interner — there are
+    /// three of them (here, `tag.rs`'s `R:` relation interner, and the
+    /// applicator's own), and the flags array has to stay parallel for all of
+    /// them, including the two that run mid-stream.
+    pub(crate) fn intern_tag_slot(&mut self, tag: Tag) -> TagId {
         let idx = self.single_tags_list.alloc(tag);
         self.single_tags_list[idx].number = idx; // UI32(size-1)
-        self.single_tags.insert((new_hash.get(), TagId(idx)));
+        self.record_tag_flags(TagId(idx));
         TagId(idx)
+    }
+
+    /// The type flags THIS RUN sees for `tag` — read
+    /// [`tag_flags`](Self::tag_flags), never `Tag::r#type`, from any code that
+    /// runs while a stream is being applied.
+    ///
+    /// The only thing in the engine that knows where the run's flags live. When
+    /// they move to a per-run overlay, this moves with them and its callers do
+    /// not.
+    #[inline]
+    pub fn tag_type(&self, tag: TagId) -> TagType {
+        self.tag_flags[tag.0 as usize]
+    }
+
+    /// `tag->type |= bits` for the RUN (C++ writes the grammar's own `Tag`).
+    #[inline]
+    pub fn tag_type_insert(&mut self, tag: TagId, bits: TagType) {
+        self.tag_flags[tag.0 as usize] |= bits;
+    }
+
+    /// `tag->type &= ~bits` for the RUN (C++ writes the grammar's own `Tag`).
+    #[inline]
+    pub fn tag_type_remove(&mut self, tag: TagId, bits: TagType) {
+        self.tag_flags[tag.0 as usize] &= !bits;
+    }
+
+    /// Seed `tag_flags[tag]` from the tag's load-time flags, growing the array
+    /// to cover the slot. Called for every tag the interner allocates, so the
+    /// array stays parallel to the arena — including for tags interned during a
+    /// run, whose flags start out exactly as `parse_tag_raw` left them.
+    fn record_tag_flags(&mut self, tag: TagId) {
+        let ty = self.single_tags_list[tag.0].r#type;
+        let i = tag.0 as usize;
+        if i >= self.tag_flags.len() {
+            self.tag_flags.resize(i + 1, TagType::empty());
+        }
+        self.tag_flags[i] = ty;
+    }
+
+    /// Copy every tag's load-time flags into [`tag_flags`](Self::tag_flags).
+    ///
+    /// Run at the end of [`reindex`](Self::reindex), which is the last thing to
+    /// touch `Tag::r#type` before a grammar is applied: the parsers build tags
+    /// through `add_tag` (which seeds each slot as it goes), the binary reader
+    /// writes arena slots directly, and `reindex` itself rewrites `T_TEXTUAL`,
+    /// `T_USED` and `T_MAPPING` over the whole arena. Re-seeding wholesale here
+    /// absorbs all three, so no loader has to remember to.
+    pub fn materialise_tag_flags(&mut self) {
+        let cap = self.single_tags_list.capacity();
+        self.tag_flags.clear();
+        self.tag_flags.resize(cap as usize, TagType::empty());
+        for i in 0..cap {
+            if let Some(t) = self.single_tags_list.try_get(i) {
+                self.tag_flags[i as usize] = t.r#type;
+            }
+        }
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.add-tag-to-set-fn]
@@ -2207,7 +2302,13 @@ impl Grammar {
             }
         }
 
-        // (21) used_tags dump → the C++ exit(0)s here. The caller stops, and
+        // (21) ADDED — no C++ step. Hand the run its own copy of the tag type
+        // flags, now that nothing will touch `Tag::r#type` again: steps (5),
+        // (6) and (11) above are the last writes, and everything downstream of
+        // here interns through `add_tag`, which seeds its own slot.
+        self.materialise_tag_flags();
+
+        // (22) used_tags dump → the C++ exit(0)s here. The caller stops, and
         // stops successfully.
         if used_tags {
             // for tag in single_tags with T_USED: print toUString(true) to

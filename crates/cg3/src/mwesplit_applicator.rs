@@ -208,10 +208,7 @@ impl Engine<'_> {
                 continue;
             }
             let tid = tag_by_hash(self.grammar, tter);
-            if self.grammar.single_tags_list[tid.0]
-                .r#type
-                .intersects(T_WORDFORM)
-            {
+            if self.grammar.tag_type(tid).intersects(T_WORDFORM) {
                 return Some(tid);
             }
         }

@@ -498,7 +498,10 @@ where
                                     .add_tag(&base_text, crate::tag::TagType::empty())?;
                                 let (ttype, tfirst) = {
                                     let tg = self.base.grammar.single_tags_list.get(t.0);
-                                    (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
+                                    (
+                                        self.base.grammar.tag_type(t),
+                                        tg.tag.chars().next().unwrap_or('\0'),
+                                    )
                                 };
                                 if ttype.intersects(T_MAPPING)
                                     || tfirst == self.base.grammar.mapping_prefix
@@ -566,7 +569,10 @@ where
                                 .add_tag(&base_text, crate::tag::TagType::empty())?;
                             let (ttype, tfirst) = {
                                 let tg = self.base.grammar.single_tags_list.get(t.0);
-                                (tg.r#type, tg.tag.chars().next().unwrap_or('\0'))
+                                (
+                                    self.base.grammar.tag_type(t),
+                                    tg.tag.chars().next().unwrap_or('\0'),
+                                )
                             };
                             if ttype.intersects(T_MAPPING)
                                 || tfirst == self.base.grammar.mapping_prefix
@@ -1062,11 +1068,12 @@ impl FstFormat {
                 unique.insert(tter.get());
             }
             let tid = tag_by_hash(e.grammar, tter);
+            let ttype = e.grammar.tag_type(tid);
             let tag = &e.grammar.single_tags_list[tid.0];
-            if tag.r#type.intersects(T_DEPENDENCY) && e.doc.deps.has_dep && !e.cfg.dep_original {
+            if ttype.intersects(T_DEPENDENCY) && e.doc.deps.has_dep && !e.cfg.dep_original {
                 continue;
             }
-            if tag.r#type.intersects(T_RELATION) && e.doc.deps.has_relations {
+            if ttype.intersects(T_RELATION) && e.doc.deps.has_relations {
                 continue;
             }
             let _ = write!(output, "+{}", tag.tag);
