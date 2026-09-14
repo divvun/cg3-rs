@@ -202,28 +202,48 @@ pub fn compile_tag_regex(
 /// while matching uses the compiled form.
 // [spec:cg3:req:tag-regex.single-seam+1]
 // [spec:cg3:req:tag-regex.source-fidelity]
+/// Boxed so a [`TagRegex`] is one pointer.
+///
+/// The source string and the compiled program come to 104 bytes together, and a
+/// `Tag` holds an `Option<TagRegex>` whether or not it is a regex — which nearly
+/// none are. Inline, that made every tag in the arena carry the cost, at 248
+/// bytes a tag and roughly four cache lines each; the flag scans that walk the
+/// whole arena paid it per tag to read four bytes. Boxed, the cost follows the
+/// tags that actually have a pattern, and the indirection is charged on a path
+/// about to run a regex match, which dwarfs a pointer chase.
+///
+/// The box lives HERE rather than at `Tag::regexp`, because the size is this
+/// type's business: a holder should not have to know how fat its field is, and
+/// `text_delimiters` and the `--nrules` filters get the same benefit for free.
 #[derive(Debug, Clone)]
-pub struct TagRegex {
+struct TagRegexInner {
     source: String,
     compiled: Regex,
 }
 
+#[derive(Debug, Clone)]
+pub struct TagRegex {
+    inner: Box<TagRegexInner>,
+}
+
 impl TagRegex {
     fn new(source: String, compiled: Regex) -> TagRegex {
-        TagRegex { source, compiled }
+        TagRegex {
+            inner: Box::new(TagRegexInner { source, compiled }),
+        }
     }
 
     /// The pattern AS AUTHORED, in ICU spelling. This is what round-trips
     /// through a `.cg3b`; it is deliberately not the compiled pattern.
     // [spec:cg3:req:tag-regex.source-fidelity]
     pub fn as_str(&self) -> &str {
-        &self.source
+        &self.inner.source
     }
 
     /// Capture-group count INCLUDING the whole-match group 0, matching the
     /// `uregex_groupCount() + 1` convention the capture loops assume.
     pub fn captures_len(&self) -> usize {
-        self.compiled.captures_len()
+        self.inner.compiled.captures_len()
     }
 
     /// Match `haystack`, treating a runtime failure as "no match".
@@ -237,12 +257,12 @@ impl TagRegex {
     /// mysterious.
     // [spec:cg3:req:tag-regex.engine]
     pub fn is_match(&self, haystack: &str) -> bool {
-        match self.compiled.is_match(haystack) {
+        match self.inner.compiled.is_match(haystack) {
             Ok(matched) => matched,
             Err(e) => {
                 tracing::warn!(
                     "Warning: regex match failed for pattern `{}` - treating as no match: {}",
-                    self.source,
+                    self.inner.source,
                     e
                 );
                 false
@@ -252,7 +272,7 @@ impl TagRegex {
 
     /// Capture groups, with a runtime failure folded into "no match".
     pub fn captures<'t>(&self, haystack: &'t str) -> Option<fancy_regex::Captures<'t, str>> {
-        self.compiled.captures(haystack).ok().flatten()
+        self.inner.compiled.captures(haystack).ok().flatten()
     }
 }
 

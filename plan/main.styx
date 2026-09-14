@@ -2308,4 +2308,19 @@ children (
             }
         )
     }
+
+    {
+        id tag-regex-boxed
+        title "Stop every tag paying for the compiled regex almost none of them have: TagRegex stores its source and compiled program inline, so it is 104 bytes and Tag carries all of them whether or not the tag is a regex"
+        priority 0
+        kind @perf
+        log (
+            {
+                at 2026-09-14T13:50:55.197803Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+        )
+    }
 )

@@ -199,6 +199,25 @@ pub struct Tag {
     pub regexp: Option<crate::tag_regex::TagRegex>,
 }
 
+/// A `Tag` is the arena element the hot paths walk, so its size is a property
+/// worth defending rather than rediscovering.
+///
+/// It was 248 bytes until [`crate::tag_regex::TagRegex`] was boxed — 104 of them
+/// a compiled regex that nearly no tag has. At that size one tag spans roughly
+/// four cache lines, and the flag scans that walk `0..capacity` paid all four
+/// per tag to read the four-byte `type`. This fails the build rather than a
+/// test, because the way it regresses is someone adding an innocuous field and
+/// never looking at the number.
+///
+/// Raise it only deliberately. The next reductions available, if it is ever
+/// worth it, are `vs_sets` and `vs_names` — 24 bytes each, `None` on everything
+/// but a varstring — though unlike the regex those are public fields, so boxing
+/// them changes call sites rather than being invisible.
+const _: () = assert!(
+    size_of::<Tag>() <= 152,
+    "Tag has grown; see the note above before raising this"
+);
+
 // [spec:cg3:def:tag.cg3.compare-tag]
 /// C++ `struct compare_Tag` — strict-weak ordering functor over `Tag*` by
 /// `hash`. The `operator()` body is a later (method) pass.
