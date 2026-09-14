@@ -2481,6 +2481,7 @@ children (
                 id grammar-split.transient-writes
                 title "Rehome the three writes that were never grammar state: the template and dep-target overrides belong to the test being evaluated, the failing-test reorder belongs to the run that observed it, and has_relations is a stream property the converter discovers"
                 priority 0
+                sealed true
                 log (
                     {
                         at 2026-09-14T21:04:50.841431Z
@@ -2494,6 +2495,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @decision
                         text "All four writes rehomed; behaviour preserved byte-for-byte. Mechanism notes and the two judgement calls:\n\n(1)+(2) One mechanism for both position overrides: `contextual_test::TestRef` — a `CtxId` plus an optional `TestOverride` carrying the effective pos/offset/barrier/cbarrier. Every `test: CtxId` parameter in the matcher tree became `test: TestRef`, so arity is unchanged and the type system forces every call site to say which it means; the four overridable fields are only reachable through accessors, every other field (`linked`, `tmpl`, `ors`, `target`, `relation`, `hash`, `jump_pos`) is read off `test.id` as before. The iterators carry it too (`CohortIterator::m_test: Option<TestRef>`), because they re-read `test->pos` on every advance and in C++ that read saw the mutated arena. Nesting is preserved by construction: `run_contextual_test_tmpl` builds the inner template's override from `test.pos(c)`/`test.offset(c)` — the OUTER test's EFFECTIVE fields — which is exactly what the C++ reads back out of the arena at that point, and `pos_output_helper` likewise validates against the outer test's effective fields. The `'scan:` labelled block in `rr_dep_relation` is gone: with nothing to restore, `?` propagates directly.\n\nJUDGEMENT (a): `add_contextual_test` deduplicates structurally identical tests into one `CtxId`, so a rule's `dep_test` can BE its `dep_target` (`SETPARENT (V) TO (-2 (N)) (-2 (N))`). C++ clamps the shared object, so such a dep test observes the clamp from iteration 2 onward. Reproduced explicitly (`if it == dep_target { dep_ref }`). A purpose-built stress grammar hits this path, so it is reachable, not theoretical. The mirror case for templates cannot arise: interning is bottom-up, so the reference graph is acyclic and nothing reachable from an overridden test can BE that test.\n\n(3) The failing-test reorder moved to `RuleScratch::test_order` (BTreeMap<rule index, ContextList>), cloned on first reorder. `RuleScratch` is built once in `GrammarApplicator::new` and never replaced, so the order persists for the whole run exactly as the C++ write persists on the grammar it owns — which matters, because test order is observable (the loop breaks at the first failure, and the tests have side effects that feed `POS_JUMP`).\n\nJUDGEMENT (b): `FormatConverter::run_grammar_on_text`'s `has_relations` moved to `EngineConfig::stream_relations`, and BOTH readers were repointed. The runtime one is `reflow.rs` (`grammar.has_relations || cfg.stream_relations`). The second is `binary_grammar`'s `BINF_RELATIONS` bit: because main holds the same grammar the run mutated, `vislcg3 --out-binary --grammar-bin` currently stamps BINF_RELATIONS on a grammar with no relation rules. Measured and confirmed observable (T_Select's emitted .cg3b differs between `--grammar-only --grammar-bin` and a binary-stream run + `--grammar-bin`). Arguably a C++ bug, but preserved rather than fixed: `write_grammar_bin` takes the run's flag and folds it in at the CLI, on the by-value grammar main owns.\n\nVerification: 224/224 (+profiler 228/228), clippy clean both configs, 53 doc warnings (unchanged), cg-comp byte-identity 68 identical / 0 differing / 0 skipped, plus 204 old-vs-new vislcg3 runs (68 grammars x plain/--trace/--dep-delimit) and a nested-template stress grammar (3569 nested overrides, the dep-test-aliases-clamped-target case) all identical."
+                    }
+
+                    {
+                        at 2026-09-14T21:33:08.687776Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
