@@ -2185,4 +2185,34 @@ children (
             }
         )
     }
+
+    {
+        id ctx-override-restore-on-error
+        title "Restore the contextual-test overrides on the error path: both save/restore families return through a ? between the save and the restore, leaving a template or dep target permanently overridden for the rest of the run"
+        priority 0
+        kind @fix
+        log (
+            {
+                at 2026-09-14T13:11:41.036713Z
+                author "brendan@necessary.nu"
+                kind @blocker
+                text "Two independent save/restore families over grammar.contexts_arena, both with the restore placed after a fallible call. (1) Matcher::run_contextual_test_tmpl, run_contextual_test.rs:474-521: saves pos/offset/cbarrier/barrier of contexts_arena[tmpl], overrides them, then line 503 is `let mut cohort = self.run_contextual_test(...)?;` with the restore block at 505 AFTER it — the ? skips the restore entirely. (2) Engine::rr_dep_relation, dispatch.rs:1398-1497: saves contexts_arena[dep_target].offset, clamps it per onward-scan iteration, restores at 1497, with three ? sites between (1426, 1452-1453, 1472). Reachable: run_contextual_test's relation branch calls generate_varstring_tag (run_contextual_test.rs:1517) which returns RunError, and add_tag returns RunError::TagConstruction (core.rs:1957) — so a malformed runtime varstring tag triggers it. Severity is higher than it first looks because templates are SHARED: the textual parser assigns the same CtxId to every test naming a template (driver.rs:778), so one skipped restore corrupts that template for every rule referencing it, for the remainder of the run. Fix shape: a guard type with a Drop impl, or restructure so the restore is unconditional; not another early-return. Found while assessing the proposed Arc<GrammarCore>/TagOverlay split — it is a pre-existing bug, not a consequence of that work, and it also happens to be one of the things blocking any future grammar sharing."
+            }
+        )
+    }
+
+    {
+        id runtime-tag-index-divergence
+        title "Establish whether the reverse indexes going stale for runtime-interned tags matters: rules_by_tag and sets_by_tag are read during a run but never updated for tags interned after load, and num_tags stops tracking the arena"
+        priority 3
+        kind @chore
+        log (
+            {
+                at 2026-09-14T13:11:52.613735Z
+                author "brendan@necessary.nu"
+                kind @note
+                text "Filed as a question, NOT as a confirmed bug — I called it a bug when handing over and then talked myself back out of it, so the node should start from the doubt. Facts: rules_by_tag and sets_by_tag are built in reindex and read during a run (window.rs:328, reflow.rs:772), keyed by tag hash, and are never updated when add_tag_ptr interns a new tag (core.rs:1847-1892). num_tags is set once at parse (driver.rs:783) and diverges from single_tags_list.capacity() during a run. Reason it is probably harmless: add_tag DEDUPS on text, so an id that is genuinely newly allocated is text no grammar rule or set mentions by name — hence it correctly has no reverse-index entry. Tags whose text DOES appear in the grammar resolve to the existing id, which already carries its entries. Regex/icase matching against runtime tags is handled by the separate T_TEXTUAL rescan (core.rs:1993-2037), not by these indexes. What would falsify that: any path that allocates a new id for text already present (seed-probe collision behaviour is worth reading closely), or any consumer of num_tags on a grammar that has been run. If both check out, resolve this by documenting the invariant on the index fields — the divergence is real even if benign, and it will be re-discovered by the next person reading add_tag_ptr."
+            }
+        )
+    }
 )
