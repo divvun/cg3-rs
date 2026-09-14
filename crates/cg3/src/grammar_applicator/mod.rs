@@ -77,7 +77,7 @@ pub enum StreamFormatKind {
 
 // [spec:cg3:def:grammar-applicator.cg3.regexgrps-t]
 /// C++ `typedef std::vector<UnicodeString> regexgrps_t` — the captured regex
-/// groups for one context frame (`UnicodeString` → UTF-8 [`UString`]).
+/// groups for one context frame (`UnicodeString` → UTF-8 `String`).
 pub type RegexGroups = Vec<String>;
 
 // [spec:cg3:def:grammar-applicator.cg3.unif-key]

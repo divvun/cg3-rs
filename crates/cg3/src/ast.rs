@@ -29,7 +29,7 @@
 //!   static [`ASTTYPE_STR`] table populated for *every* type. Output is
 //!   identical for any node that was opened (which is every printed node), and
 //!   it avoids the C++ UB of `%s`-printing a null name for an unopened type.
-//! * **`xml_encode` return value.** Returns an owned [`UString`] instead of a
+//! * **`xml_encode` return value.** Returns an owned `String` instead of a
 //!   `const UChar*` aliasing a shared `thread_local` scratch buffer — see the
 //!   note on [`xml_encode`].
 //! * **The `AST_OPEN` / `AST_CLOSE` / `AST_CLOSE_ID` macros + the `cur_ast_help`
@@ -354,7 +354,7 @@ impl Ast {
 /// shared `static thread_local UString buf` that is valid only until the next
 /// `xml_encode` call on the thread (callers must consume it — via a single
 /// `u_fprintf` — before calling again). That footgun does not translate to safe
-/// Rust, so this returns an **owned** [`UString`]; the returned text is
+/// Rust, so this returns an **owned** `String`; the returned text is
 /// identical and callers no longer have the consume-before-reuse constraint.
 pub fn xml_encode(src: &[char]) -> String {
     let mut buf = String::new();
