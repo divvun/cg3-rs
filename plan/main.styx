@@ -2144,6 +2144,21 @@ children (
                 id runtime-diagnostics.rt-input-reachable
                 title "Establish whether a runtime input failure is reachable at all: every stream applicator calls add_tag with an empty TagType, which cannot fail, so decide if the RT INPUT label is dead in the port and in the C++ both, and either reach it from a CLI test or retire it"
                 priority 2
+                log (
+                    {
+                        at 2026-09-14T13:31:23.170346Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-09-14T13:32:26.385878Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "REACHABLE — tested from a CLI, not retired. The earlier guess that it was dead was wrong, and wrong for an instructive reason: it reasoned from the applicator's add_tag callers, all of which pass TagType::empty(), and concluded nothing could take the varstring branch. What it missed is that the branch is reached from MATCHING, not from tag construction — the stream reader tests the delimiter set against each cohort as it reads (run_grammar.rs:667/693/736), a varstring tag can legally sit in DELIMITERS, and the first windows are buffered before any rule runs, so the failure lands with current_rule unset.\n\nFixture: `LIST X = \"[\" ; DELIMITERS = VSTR:/{X}/r ;` — {X} expands to \"[\", giving the regex \"[\", an unterminated character class. Verified output names the input:\n  ERROR input.txt: cannot construct tag `/\"[\"/r` (cannot compile regex ...), on line 3\n\nNote the premise also needed correcting: the live path no longer emits the string \"RT INPUT\" at all — error_at now yields cfg.input_name (core.rs:2091). The literal label survives only in the error/error_s/error_ss family (core.rs:1474-1482), which is the faithful port of the C++ error() whose emission is deferred and which has zero production callers; tests/engine.rs:304-306 pins it deliberately as an unreached function. That family is not this node's business and is left alone.\n\nFiled separately as stale-current-rule-label: current_rule is never cleared once set, so the input branch is only reachable BEFORE the first window runs, and every stream-reading failure after that is mislabelled against a finished rule. The fix widens this branch rather than retiring it, which is the opposite of what this node was opened to consider."
+                    }
+                )
             }
         )
     }
@@ -2247,6 +2262,21 @@ children (
                 author "brendan@necessary.nu"
                 kind @note
                 text "Filed as a question, NOT as a confirmed bug — I called it a bug when handing over and then talked myself back out of it, so the node should start from the doubt. Facts: rules_by_tag and sets_by_tag are built in reindex and read during a run (window.rs:328, reflow.rs:772), keyed by tag hash, and are never updated when add_tag_ptr interns a new tag (core.rs:1847-1892). num_tags is set once at parse (driver.rs:783) and diverges from single_tags_list.capacity() during a run. Reason it is probably harmless: add_tag DEDUPS on text, so an id that is genuinely newly allocated is text no grammar rule or set mentions by name — hence it correctly has no reverse-index entry. Tags whose text DOES appear in the grammar resolve to the existing id, which already carries its entries. Regex/icase matching against runtime tags is handled by the separate T_TEXTUAL rescan (core.rs:1993-2037), not by these indexes. What would falsify that: any path that allocates a new id for text already present (seed-probe collision behaviour is worth reading closely), or any consumer of num_tags on a grammar that has been run. If both check out, resolve this by documenting the invariant on the index fields — the divergence is real even if benign, and it will be re-discovered by the next person reading add_tag_ptr."
+            }
+        )
+    }
+
+    {
+        id stale-current-rule-label
+        title "Stop the runtime error label naming a rule that finished: current_rule is set when a rule runs and never cleared, so every stream-reading failure after the first window is attributed to whichever rule happened to run last"
+        priority 2
+        kind @fix
+        log (
+            {
+                at 2026-09-14T13:32:12.567075Z
+                author "brendan@necessary.nu"
+                kind @note
+                text "scratch.current_rule is initialised None (grammar_applicator/mod.rs:653), set at run_rules/schedule.rs:77, saved/restored around sub-rules at dispatch.rs:621/638 — and never set back to None when rules finish. Verified: no assignment of None exists outside the initialiser. So `None` means \"no rule has run yet in this process\", not \"no rule is running\".\n\nThe consequence is a lying label. Stream reading and rule running interleave — the reader buffers windows, runs them, reads more — and the delimiter set is tested against each cohort as it is read (run_grammar.rs:667/693/736, plus the same shape in every other stream applicator). A varstring delimiter that fails during a read AFTER the first window has run is reported as RT RULE against whichever rule finished last, which has nothing to do with it. That directly undercuts [spec:cg3:req:diagnostics.runtime-input-named]: the input branch is reachable (pinned by runtime_input_failure_names_the_input) but only in the window before any rule has run, and the rule branch is wrong everywhere after.\n\nDo NOT just assign None at the end of run_rules without reading match_set.rs:1178-1183 first. current_rule is not only a diagnostic there — it is read to pull RF_CAPTURE_UNIF off the current rule, feeding `cap_unif` and hence whether unification tags/sets are loaded into the match. That read is gated on `context.is_some()`, and delimiter checks pass None, so clearing it looks safe for the diagnostic case — but \"looks safe\" is exactly the claim that needs a test rather than an argument, and this is matching behaviour, not labelling.\n\nAlso worth settling as part of this: the fix WIDENS the input branch rather than narrowing it, so the existing CLI test only covers the easy case. A second fixture where the failure lands after a rule has run would be the real regression test, and constructing one probably needs a varstring delimiter that resolves through a variable a rule sets."
             }
         )
     }

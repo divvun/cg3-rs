@@ -741,6 +741,55 @@ fn cg_relabel_main_relabels_t_relabel_list() {
     let _ = std::fs::remove_file(cg3::grammar_sources::sidecar_path(&bin_out));
 }
 
+// [spec:cg3:req:diagnostics.runtime-input-named/test]
+// A runtime tag failure with no rule in flight names the INPUT, not a rule.
+// Reaching that branch takes a varstring in DELIMITERS: the stream reader tests
+// the delimiter set against each cohort as it reads, and the first windows are
+// buffered before any rule runs, so the failure lands with current_rule unset.
+// `{X}` expands to `"["`, giving the regex `"["` — an unterminated character
+// class, so the tag cannot be built.
+//
+// This was previously verified only at library level; the label it replaced was
+// the bare string `RT INPUT`, so the assertion is that neither RT label
+// survives and the input's own name is what a user sees.
+#[test]
+fn runtime_input_failure_names_the_input() {
+    let dir = temp_path("rt-input");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("nb.cg3"),
+        "LIST X = \"[\" ;\nDELIMITERS = VSTR:/{X}/r ;\nSECTION\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("input.txt"),
+        "\"<a>\"\n\t\"a\" n\n\n\"<b>\"\n\t\"b\" n\n\n",
+    )
+    .unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_vislcg3"))
+        .current_dir(&dir)
+        .args(["-g", "nb.cg3", "-I", "input.txt"])
+        .output()
+        .expect("spawn vislcg3");
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        err.contains("input.txt"),
+        "the failure must name the input it was reading: {err}"
+    );
+    assert!(
+        !err.contains("RT INPUT") && !err.contains("RT RULE"),
+        "neither RT label should survive: {err}"
+    );
+    assert!(
+        !err.contains("panicked"),
+        "a bad delimiter varstring must not panic: {err}"
+    );
+}
+
 // [spec:cg3:sem:cg-relabel.end-program-fn+3/test]
 // cg-relabel's endProgram: wrong argc prints the version + usage banner to
 // stdout and exits EXIT_FAILURE.
