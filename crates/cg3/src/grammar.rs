@@ -179,6 +179,13 @@ pub struct Grammar {
 
     // --- sizes / counters ---
     pub grammar_size: usize,
+    /// The PARSE-TIME tag count, not the live one. Runtime interning grows
+    /// `single_tags_list` without touching this, so the two diverge during a
+    /// run — and that is required, not tolerated: `write_binary_grammar` writes
+    /// this number and then emits `0..num_tags`, so it must stay the count of
+    /// tags that existed when the grammar was compiled. Runtime tags appear in
+    /// no trie and must not be serialised. Reachable after a run via
+    /// `vislcg3 --grammar-bin` without `--grammar-only`.
     pub num_tags: usize,
     pub mapping_prefix: UChar,
     pub lines: u32,
@@ -253,13 +260,39 @@ pub struct Grammar {
     pub contexts: Contexts,
 
     // --- runtime indexes ---
+    //
+    // Built by `reindex` and NOT updated when a tag is interned at runtime.
+    // That is correct, on two legs:
+    //
+    // 1. `single_tags` is append-only for the life of a grammar — `destroy_tag`
+    //    deliberately does not unregister, and has no production caller — so the
+    //    `hash + seed` probe chain is prefix-stable. The runtime interner replays
+    //    exactly the chain the parser walked, and dedups on identical text. A
+    //    `TagId` that is genuinely NEW is therefore text no rule or set names,
+    //    and having no entry here is the same answer a fresh `reindex` would give.
+    //
+    // 2. The one way a runtime hash can diverge from a grammar tag of the same
+    //    text is the type bits `Tag::rehash` folds in — and all eight of them are
+    //    members of `MASK_TAG_SPECIAL`, so such a tag is `T_SPECIAL`, its set is
+    //    `ST_SPECIAL`, and `index_sets` files it under `tag_any` without
+    //    descending. It is reached through `sets_any`, never through a per-tag
+    //    key here. `tag_interning_closure` pins that coupling.
+    //
+    // Break either leg — give `destroy_tag` a caller, or add a hash-contributing
+    // bit outside `MASK_TAG_SPECIAL` — and this becomes a silent false negative.
     pub rules_by_set: RulesBySet,
     pub rules_by_tag: RulesByTag,
     pub sets_by_tag: SetsByTag,
 
     /// C++ `uint32IntervalVector* rules_any` — cached `rules_by_tag[tag_any]`.
+    /// Snapshot of a `tag_any` entry, which only `reindex` writes, so runtime
+    /// interning cannot stale it. Read by nothing in the matcher — the stats
+    /// lines in `cg-comp` / `vislcg3` are its only consumers, as in the C++.
     pub rules_any: Option<Uint32IntervalVector>,
     /// C++ `boost::dynamic_bitset<>* sets_any` — cached `sets_by_tag[tag_any]`.
+    /// Same snapshot argument as `rules_any`; additionally every read goes
+    /// through `insert_if_exists`, which only ever GROWS the destination, so a
+    /// snapshot taken at reindex cannot under-set bits.
     pub sets_any: Option<DynBitset>,
 
     // --- delimiter sets (nullable `Set*`) ---

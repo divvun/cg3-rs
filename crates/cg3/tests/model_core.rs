@@ -45,9 +45,10 @@ use cg3::single_window::{
 use cg3::store::RuntimeStore;
 use cg3::strings::Keywords;
 use cg3::tag::{
-    COps, T_BASEFORM, T_CASE_INSENSITIVE, T_DEPENDENCY, T_MAPPING, T_NUMERICAL, T_REGEXP,
-    T_RELATION, T_SPECIAL, T_TEXTUAL, T_USED, T_WORDFORM, Tag, TagVector, compare_tag,
-    compare_tag_vector, equal_tag, fill_tagvector, parse_tag_raw,
+    COps, T_BASEFORM, T_CASE_INSENSITIVE, T_DEPENDENCY, T_FAILFAST, T_LOCAL_VARIABLE, T_MAPPING,
+    T_META, T_NUMERICAL, T_REGEXP, T_RELATION, T_SET, T_SPECIAL, T_TEXTUAL, T_USED, T_VARIABLE,
+    T_VARSTRING, T_WORDFORM, Tag, TagVector, compare_tag, compare_tag_vector, equal_tag,
+    fill_tagvector, parse_tag_raw,
 };
 use cg3::types::{GlobalNumber, SetNumber};
 use cg3::window::{CohortRegistry, DepBookkeeping, WindowStream};
@@ -941,6 +942,50 @@ fn tag_parse_raw_and_numeric() {
 // [spec:cg3:sem:tag.cg3.tag.tag-fn/test]
 // [spec:cg3:sem:tag.cg3.tag.rehash-fn/test]
 // [spec:cg3:sem:tag.cg3.tag.mark-used-fn/test]
+/// Every type bit `rehash` folds into the hash must also be in
+/// `MASK_TAG_SPECIAL`, so that any tag whose hash can diverge from its plain
+/// text hash is `T_SPECIAL`.
+///
+/// That closure is what makes the grammar's reverse indexes safe to leave stale
+/// for runtime-interned tags: a tag reachable only by a diverging hash is
+/// `T_SPECIAL`, so its set is `ST_SPECIAL`, so it is indexed under `tag_any` and
+/// reached through `sets_any` rather than a per-tag `sets_by_tag` key. Add a
+/// hash-contributing bit outside the mask and `possible_sets` gating gets a
+/// silent false negative — nothing else in the suite would notice, which is why
+/// this asserts the property directly rather than a consequence of it.
+#[test]
+fn tag_interning_closure() {
+    for (name, bit) in [
+        ("T_FAILFAST", T_FAILFAST),
+        ("T_META", T_META),
+        ("T_VARIABLE", T_VARIABLE),
+        ("T_LOCAL_VARIABLE", T_LOCAL_VARIABLE),
+        ("T_SET", T_SET),
+        ("T_CASE_INSENSITIVE", T_CASE_INSENSITIVE),
+        ("T_REGEXP", T_REGEXP),
+        ("T_VARSTRING", T_VARSTRING),
+    ] {
+        let mut plain = Tag {
+            tag: "x".to_string(),
+            ..Default::default()
+        };
+        let plain_hash = plain.rehash();
+
+        let mut t = Tag {
+            tag: "x".to_string(),
+            r#type: bit,
+            ..Default::default()
+        };
+        let hash = t.rehash();
+        assert_ne!(hash, plain_hash, "{name} must change the hash");
+        assert!(
+            t.r#type.intersects(T_SPECIAL),
+            "{name} diverges the hash but is outside MASK_TAG_SPECIAL — \
+             a tag carrying it would be missed by both sets_by_tag and sets_any"
+        );
+    }
+}
+
 // [spec:cg3:sem:tag.cg3.tag.allocate-vs-sets-fn/test]
 // [spec:cg3:sem:tag.cg3.tag.allocate-vs-names-fn/test]
 // [spec:cg3:sem:tag.cg3.tag.to-u-string-fn/test]
