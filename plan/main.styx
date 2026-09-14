@@ -2360,4 +2360,24 @@ children (
             }
         )
     }
+
+    {
+        id deicu
+        title "Stop the Rust wearing ICU's clothes: the port has no ICU dependency left, but its types, its stdio shims and a vendored options module are still named after the C API they replaced"
+        kind @refactor
+        children (
+            {
+                id deicu.type-aliases
+                title "Delete the UTF-16 type vocabulary: UString, UStringView, UStringVector and UChar are aliases for String, &str, Vec String and char, carrying no information and pointing at a representation this port does not have"
+                priority 0
+            }
+
+            {
+                id deicu.stdio-shims
+                title "Rename the ICU C stdio and options surface: u_fputc, u_fprintf, u_fgets, u_sscanf, u_strchr, u_isdigit, u_cleanup and the icu_uoptions module name plain Rust I/O and argument parsing after the C API they no longer call"
+                priority 1
+                deps (deicu.type-aliases)
+            }
+        )
+    }
 )
