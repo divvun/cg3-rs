@@ -863,7 +863,9 @@ impl Engine<'_> {
             }
             self.doc.deps.has_dep = true;
         }
-        if self.grammar.has_relations && (ttype.intersects(T_RELATION)) {
+        if (self.grammar.has_relations || self.cfg.stream_relations)
+            && (ttype.intersects(T_RELATION))
+        {
             if tdp != 0 && tch != 0 {
                 self.doc
                     .store

@@ -293,6 +293,16 @@ pub struct EngineConfig {
     pub fmt_input: StreamFormatKind,
     pub fmt_output: StreamFormatKind,
 
+    /// ADDED — no C++ member. Whether this RUN must treat relation tags as live
+    /// because one of its stream formats is binary.
+    ///
+    /// C++ `FormatConverter::runGrammarOnText` expresses this by writing
+    /// `grammar->has_relations = true` on the live grammar — a property of the
+    /// streams stamped onto the loaded grammar, mid-run. The port keeps it with
+    /// the rest of the run's state; every runtime reader takes
+    /// `grammar.has_relations || cfg.stream_relations`.
+    pub stream_relations: bool,
+
     pub dep_delimit: u32,
     pub dep_absolute: bool,
     pub dep_original: bool,
@@ -377,6 +387,8 @@ impl EngineConfig {
 
             fmt_input: StreamFormatKind::Cg,
             fmt_output: StreamFormatKind::Cg,
+
+            stream_relations: false,
 
             dep_delimit: 0,
             dep_absolute: false,
@@ -617,6 +629,21 @@ pub struct RuleScratch {
     /// used by `get_sub_reading(GSR_ANY)`. RECONCILIATION: the amalgam lives in
     /// the readings arena; only the id is tracked here.
     pub subs_any: Vec<crate::arena::ReadingId>,
+
+    /// ADDED — no C++ member. The order in which a rule's context tests are
+    /// tried, for the rules this run has reordered.
+    ///
+    /// C++ `runSingleRule` moves a failing context test to the front of the
+    /// rule's OWN `ContextList` (`rule->tests`) so the next application tries the
+    /// likely-failing test first. That permanently rewrites the loaded grammar
+    /// from input data, which makes a grammar unshareable between runs; the port
+    /// keeps the reordered list here instead, keyed by [`RuleId`] index.
+    ///
+    /// Cloned on the first reorder of a given rule and absent otherwise — most
+    /// rules never reorder, so the map stays small. Lives as long as the
+    /// applicator (never cleared between windows or sections), matching the
+    /// lifetime the C++ write has on the grammar it owns.
+    pub test_order: BTreeMap<u32, crate::contextual_test::ContextList>,
 }
 
 impl RuleScratch {
@@ -687,6 +714,8 @@ impl RuleScratch {
             used_regex: 0,
 
             subs_any: Vec::new(),
+
+            test_order: Default::default(),
         }
     }
 
@@ -891,8 +920,10 @@ pub struct Matcher<'a> {
     /// Declared match state: captures, unification, memo indexes, the
     /// matched-flag sets, iterator pools, the context stack.
     pub scratch: &'a mut RuleScratch,
-    /// Tag interning (append-only), per the [`Engine::grammar`] convention;
-    /// also the `POS_TMPL_OVERRIDE` save/restore on `contexts_arena`.
+    /// Tag interning (append-only), per the [`Engine::grammar`] convention.
+    /// `contexts_arena` is READ-only here: the `POS_TMPL_OVERRIDE` position
+    /// override travels in a [`TestRef`](crate::contextual_test::TestRef)
+    /// instead of being written into the shared test.
     pub grammar: &'a mut crate::grammar::Grammar,
 }
 
@@ -998,7 +1029,7 @@ impl Engine<'_> {
         &mut self,
         sw: Option<SwId>,
         position: u32,
-        test: CtxId,
+        test: crate::contextual_test::TestRef,
         deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
     ) -> Result<Option<CohortId>, crate::error::RunError> {

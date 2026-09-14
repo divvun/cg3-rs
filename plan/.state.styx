@@ -153,6 +153,7 @@ assertions (
     {id deicu.stdio-shims, kind @complete, author "brendan@necessary.nu", at 2026-09-14T18:01:41.646731Z}
     {id deicu.ux-helpers, kind @complete, author "brendan@necessary.nu", at 2026-09-14T18:12:20.630693Z}
     {id math-parser-dedupe, kind @doing, author "brendan@necessary.nu", at 2026-09-14T18:51:26.411913Z}
+    {id grammar-split.transient-writes, kind @doing, author "brendan@necessary.nu", at 2026-09-14T21:04:50.841431Z}
 )
 
 impl_evidence (

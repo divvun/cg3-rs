@@ -4,6 +4,7 @@
 
 use crate::arena::{CohortId, CtxId, ReadingId, RuleId, SwId, TagId};
 use crate::cohort::{CT_RELATED, CT_REMOVED, CohortSet, DEP_NO_PARENT};
+use crate::contextual_test::TestRef;
 use crate::inlines::{hash_value, insert_if_exists, ui32};
 use crate::rule::{RF_BEFORE, RF_DETACH, RF_REVERSE};
 use crate::strings::Keywords::{self};
@@ -49,8 +50,13 @@ impl crate::grammar_applicator::Engine<'_> {
         self.scratch.context_stack.last_mut().unwrap().attach_to =
             crate::grammar_applicator::ReadingSpec::default();
         let mut attach_out: Option<CohortId> = None;
-        let res =
-            self.run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None)?;
+        let res = self.run_contextual_test(
+            Some(current),
+            c,
+            TestRef::new(dep_target),
+            Some(&mut attach_out),
+            None,
+        )?;
         let attach0 = attach_out;
         let same_parent = attach0
             .map(|a| {
@@ -84,7 +90,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 (cc.parent, cc.local_number)
             };
             let tg = self
-                .run_contextual_test(aparent, alocal, it, None, None)?
+                .run_contextual_test(aparent, alocal, TestRef::new(it), None, None)?
                 .is_some();
             self.profile_rule_context(tg, rule, it);
             if !tg {
@@ -735,7 +741,7 @@ impl crate::grammar_applicator::Engine<'_> {
             };
             let mut attach: Option<CohortId> = None;
             let tg = self
-                .run_contextual_test(tparent, tlocal, it, Some(&mut attach), None)?
+                .run_contextual_test(tparent, tlocal, TestRef::new(it), Some(&mut attach), None)?
                 .is_some()
                 && attach.is_some();
             self.profile_rule_context(tg, rule, it);
@@ -853,8 +859,13 @@ impl crate::grammar_applicator::Engine<'_> {
             None => return Ok(()),
         };
         let mut attach_out: Option<CohortId> = None;
-        let res =
-            self.run_contextual_test(Some(current), c, dep_target, Some(&mut attach_out), None)?;
+        let res = self.run_contextual_test(
+            Some(current),
+            c,
+            TestRef::new(dep_target),
+            Some(&mut attach_out),
+            None,
+        )?;
         if !(res.is_some() && attach_out.is_some()) {
             return Ok(());
         }
@@ -881,7 +892,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 (cc.parent, cc.local_number)
             };
             let tg = self
-                .run_contextual_test(aparent, alocal, it, None, None)?
+                .run_contextual_test(aparent, alocal, TestRef::new(it), None, None)?
                 .is_some();
             self.profile_rule_context(tg, rule, it);
             if !tg {

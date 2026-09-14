@@ -2,9 +2,11 @@
 //!
 //! LITERAL bug-for-bug port of the rule-application engine. The flagged CG-3
 //! quirks are reproduced deliberately:
-//!   * `run_single_rule` self-reorders `rule.tests` on a failing context test
+//!   * `run_single_rule` self-reorders a rule's context tests on a failing test
 //!     (moves the failing test to the front) — a mutation of the "const" rule
-//!     via C++ `mutable`; here it writes back into the grammar arena.
+//!     via C++ `mutable`. The reordering is KEPT; it lives in
+//!     [`RuleScratch::test_order`](crate::grammar_applicator::RuleScratch::test_order)
+//!     rather than in `rule.tests`, so input data never rewrites the grammar.
 //!   * `update_rule_to_cohorts` performs a live-iterator-safe insert into a
 //!     `CohortSet` that is currently being iterated by an active `run_single_rule`
 //!     frame (the `cohortsets`/`rocits` raw-pointer bookkeeping).

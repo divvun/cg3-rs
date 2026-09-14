@@ -4,7 +4,7 @@
 
 use crate::arena::{CohortId, CtxId, RuleId, SetId, SwId, TagId};
 use crate::cohort::{CT_ENCLOSED, CT_IGNORED, CT_REMOVED, CohortSet};
-use crate::contextual_test::{POS_NO_PASS_ORIGIN, POS_PASS_ORIGIN};
+use crate::contextual_test::{POS_NO_PASS_ORIGIN, POS_PASS_ORIGIN, TestRef};
 use crate::inlines::ui32;
 use crate::rule::{
     RF_DELAYED, RF_ENCL_INNER, RF_ENCL_OUTER, RF_IGNORED, RF_KEEPORDER, RF_NOMAPPED, RF_NOPARENT,
@@ -20,6 +20,38 @@ use crate::types::{GlobalNumber, TagHash};
 use super::*;
 
 impl crate::grammar_applicator::Engine<'_> {
+    /// A rule's context tests in the order THIS run tries them: the reordered
+    /// copy in [`RuleScratch::test_order`] if the self-reorder has ever fired for
+    /// this rule, else the grammar's own `rule.tests`.
+    fn rule_test_order(&self, rule: RuleId) -> Vec<CtxId> {
+        match self.scratch.test_order.get(&rule.0) {
+            Some(order) => order.iter().copied().collect(),
+            None => self
+                .grammar
+                .rule_by_number
+                .get(rule.0)
+                .tests
+                .iter()
+                .copied()
+                .collect(),
+        }
+    }
+
+    /// Move the context test at `ti` to the front of this run's order for `rule`
+    /// — C++ `rule->tests.splice(rule->tests.begin(), rule->tests, it)`.
+    ///
+    /// C++ writes that straight back into the loaded `rule->tests`; the port
+    /// keeps the run's order in [`RuleScratch::test_order`], cloning the rule's
+    /// list on its first reorder, so input data never rewrites the grammar.
+    fn hoist_failing_test(&mut self, rule: RuleId, ti: usize, test: CtxId) {
+        let order = self.scratch.test_order.entry(rule.0).or_insert_with(|| {
+            // Cheap because most rules never reorder and so never get an entry.
+            self.grammar.rule_by_number.get(rule.0).tests.clone()
+        });
+        order.remove(ti);
+        order.push_front(test);
+    }
+
     // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
     // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
@@ -31,12 +63,14 @@ impl crate::grammar_applicator::Engine<'_> {
     /// `rule_to_cohorts[rule.number]` `CohortSet`), find valid target readings
     /// (target set + contextual tests), then hand each matched reading to
     /// `reading_cb` and finally the cohort to `cohort_cb`. `rule` is a `RuleId`
-    /// (the C++ `const Rule&`, which it nonetheless mutates via `mutable` —
-    /// reproduced by writing back into `self.grammar.rule_by_number`).
+    /// (the C++ `const Rule&`, which it nonetheless mutates via `mutable`).
     ///
     /// FLAGGED QUIRK (reproduced): on a FAILING context test that is not the first
-    /// test, the failing test is moved to the front of `rule.tests` (a self-reorder
-    /// of the "const" rule, unless `RF_KEEPORDER`).
+    /// test, the failing test is moved to the front of the rule's test order
+    /// (unless `RF_KEEPORDER`). DIVERGENCE (same behaviour, different mechanism):
+    /// C++ writes that order back into `rule->tests`; the port keeps it in
+    /// [`RuleScratch::test_order`](crate::grammar_applicator::RuleScratch::test_order),
+    /// which the test loop reads in preference to `rule.tests`.
     ///
     /// RECONCILIATION: `current.rule_to_cohorts` / `current.nested_rule_to_cohorts`
     /// must be `Vec<CohortSet>` / `Option<Box<CohortSet>>` (NOTED mod.rs/
@@ -581,14 +615,7 @@ impl crate::grammar_applicator::Engine<'_> {
                             .unwrap()
                             .context
                             .clear();
-                        let tests: Vec<CtxId> = self
-                            .grammar
-                            .rule_by_number
-                            .get(rule.0)
-                            .tests
-                            .iter()
-                            .copied()
-                            .collect();
+                        let tests: Vec<CtxId> = self.rule_test_order(rule);
                         let mut ti = 0usize;
                         while ti < tests.len() {
                             let test = tests[ti];
@@ -617,7 +644,7 @@ impl crate::grammar_applicator::Engine<'_> {
                                 self.run_contextual_test(
                                     Some(current),
                                     c,
-                                    test,
+                                    TestRef::new(test),
                                     deep_ref.take(),
                                     Some(cohort),
                                 )?
@@ -625,7 +652,7 @@ impl crate::grammar_applicator::Engine<'_> {
                                 self.run_contextual_test(
                                     Some(current),
                                     c,
-                                    test,
+                                    TestRef::new(test),
                                     deep_ref.take(),
                                     None,
                                 )?
@@ -647,9 +674,7 @@ impl crate::grammar_applicator::Engine<'_> {
                                 good = false;
                                 // Self-reorder quirk: move failing test to front.
                                 if ti != 0 && !rflags.intersects(RF_KEEPORDER) {
-                                    let r = self.grammar.rule_by_number.get_mut(rule.0);
-                                    r.tests.remove(ti);
-                                    r.tests.push_front(test);
+                                    self.hoist_failing_test(rule, ti, test);
                                 }
                                 break;
                             }

@@ -365,6 +365,117 @@ impl ContextualTest {
     }
 }
 
+/// ADDED — no C++ analog. The `pos`/`offset`/`barrier`/`cbarrier` a single
+/// evaluation of a contextual test runs under, when they differ from the ones
+/// stored in the grammar's arena.
+///
+/// C++ has two places where the effective position of a test differs from its
+/// stored position for one evaluation, and both express it by writing the four
+/// fields into the `ContextualTest` and restoring them afterwards:
+///
+/// * `runContextualTest_tmpl`'s `POS_TMPL_OVERRIDE` block, imposing the outer
+///   test's position onto the template it invokes;
+/// * `runRules`' dependency/relation onward scan, clamping `dep_target->offset`
+///   to ±1 per iteration.
+///
+/// Both targets are SHARED: the parser hands one `ContextualTest` to every test
+/// that names the template, and `dep_target` hangs off the rule. Writing to them
+/// mutates state common to every rule that reaches them, so the port carries the
+/// four values beside the id instead ([`TestRef`]) and leaves the arena alone.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct TestOverride {
+    pub pos: PosFlags,
+    pub offset: i32,
+    pub barrier: SetNumber,
+    pub cbarrier: SetNumber,
+}
+
+/// ADDED — no C++ analog. A contextual test as ONE evaluation sees it: the arena
+/// id, plus the [`TestOverride`] in force for it (if any).
+///
+/// This is the port's `const ContextualTest*`. The four overridable fields are
+/// reached through the accessors below so that every read observes the override;
+/// every other field ([`ContextualTest::linked`], `tmpl`, `ors`, `target`,
+/// `relation`, `hash`, `jump_pos`, …) is read straight off [`TestRef::id`],
+/// because C++ never overrides those.
+///
+/// Nesting matches the C++ arena writes exactly: an override lives for the
+/// dynamic extent of the `run_contextual_test` call it was built for, and a
+/// nested `run_contextual_test_tmpl` builds the inner template's override from
+/// the OUTER test's *effective* (already-overridden) fields — which is what the
+/// C++ reads back out of the arena at that point.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct TestRef {
+    /// The test's arena id — its identity, unaffected by any override.
+    pub id: CtxId,
+    ov: Option<TestOverride>,
+}
+
+impl TestRef {
+    /// The test with no override: its stored fields are the effective ones.
+    #[inline]
+    pub fn new(id: CtxId) -> Self {
+        TestRef { id, ov: None }
+    }
+
+    /// The test with `ov` imposed for this one evaluation.
+    #[inline]
+    pub fn overridden(id: CtxId, ov: TestOverride) -> Self {
+        TestRef { id, ov: Some(ov) }
+    }
+
+    /// Effective `pos` — C++ `test->pos`.
+    #[inline]
+    pub fn pos(self, contexts: &Arena<ContextualTest>) -> PosFlags {
+        match self.ov {
+            Some(ov) => ov.pos,
+            None => contexts[self.id.0].pos,
+        }
+    }
+
+    /// Effective `offset` — C++ `test->offset`.
+    #[inline]
+    pub fn offset(self, contexts: &Arena<ContextualTest>) -> i32 {
+        match self.ov {
+            Some(ov) => ov.offset,
+            None => contexts[self.id.0].offset,
+        }
+    }
+
+    /// Effective `barrier` — C++ `test->barrier`.
+    #[inline]
+    pub fn barrier(self, contexts: &Arena<ContextualTest>) -> SetNumber {
+        match self.ov {
+            Some(ov) => ov.barrier,
+            None => contexts[self.id.0].barrier,
+        }
+    }
+
+    /// Effective `cbarrier` — C++ `test->cbarrier`.
+    #[inline]
+    pub fn cbarrier(self, contexts: &Arena<ContextualTest>) -> SetNumber {
+        match self.ov {
+            Some(ov) => ov.cbarrier,
+            None => contexts[self.id.0].cbarrier,
+        }
+    }
+
+    /// The same test with a different effective `offset`, the other three fields
+    /// carried over unchanged — C++ `test->offset = ±1` on its own.
+    #[inline]
+    pub fn with_offset(self, contexts: &Arena<ContextualTest>, offset: i32) -> Self {
+        TestRef::overridden(
+            self.id,
+            TestOverride {
+                pos: self.pos(contexts),
+                offset,
+                barrier: self.barrier(contexts),
+                cbarrier: self.cbarrier(contexts),
+            },
+        )
+    }
+}
+
 // [spec:cg3:def:contextual-test.cg3.copy-cntx-fn]
 // [spec:cg3:sem:contextual-test.cg3.copy-cntx-fn]
 //

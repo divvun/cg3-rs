@@ -3,7 +3,8 @@
 //! C++ single-inheritance is modelled by composition: each derived iterator
 //! embeds its base as a `base` field (`CohortIterator` for the topology/dep/set
 //! iterators, `MultiCohortIterator` for `ChildrenIterator`). Arena model:
-//! `Cohort*` → [`CohortId`], `const ContextualTest*` → [`CtxId`]. A
+//! `Cohort*` → [`CohortId`], `const ContextualTest*` → [`TestRef`] (the arena
+//! id plus any position override in force for the evaluation). A
 //! `CohortSet` (`sorted_vector<Cohort*, compare_Cohort>`) → `Vec<CohortId>`, and
 //! a `CohortSet::const_iterator` cursor → a `usize` index into that vector.
 //!
@@ -28,10 +29,11 @@
 //! iterators dereference all four views, so their `new`/`advance`/`reset` take
 //! them bundled as one [`IterArenas`].
 
-use crate::arena::{CohortId, CtxId, GenArena, SwId};
+use crate::arena::{CohortId, GenArena, SwId};
 use crate::cohort::{CT_ENCLOSED, CT_REMOVED, Cohort};
 use crate::contextual_test::{
     POS_LEFT, POS_RIGHT, POS_RIGHTMOST, POS_SELF, POS_SPAN_BOTH, POS_SPAN_LEFT, POS_SPAN_RIGHT,
+    TestRef,
 };
 use crate::grammar::Grammar;
 use crate::single_window::SingleWindow;
@@ -58,8 +60,9 @@ pub struct CohortIterator {
     pub m_span: bool,
     /// C++ `Cohort* m_cohort` — the cohort currently pointed at.
     pub m_cohort: Option<CohortId>,
-    /// C++ `const ContextualTest* m_test`.
-    pub m_test: Option<CtxId>,
+    /// C++ `const ContextualTest* m_test` — the id plus any position override
+    /// in force for the evaluation that seated this iterator (see [`TestRef`]).
+    pub m_test: Option<TestRef>,
 }
 
 // [spec:cg3:def:cohort-iterator.cg3.topology-left-iter]
@@ -135,8 +138,9 @@ pub struct MultiCohortIterator {
     pub m_span: bool,
     /// C++ `Cohort* m_cohort`.
     pub m_cohort: Option<CohortId>,
-    /// C++ `const ContextualTest* m_test`.
-    pub m_test: Option<CtxId>,
+    /// C++ `const ContextualTest* m_test` — the id plus any position override
+    /// in force for the evaluation that seated this iterator (see [`TestRef`]).
+    pub m_test: Option<TestRef>,
     /// C++ `CohortSet m_seen`.
     pub m_seen: Vec<CohortId>,
     /// C++ `std::unique_ptr<CohortSetIter> m_cohortiter` — the inner iterator.
@@ -269,7 +273,7 @@ impl CohortIterator {
     // [spec:cg3:sem:cohort-iterator.cg3.cohort-iterator.cohort-iterator-fn]
     /// Base ctor: stores `m_span`/`m_cohort`/`m_test`. `new(None, None, false)`
     /// is the end/sentinel iterator (`m_cohort == None`).
-    pub fn new(cohort: Option<CohortId>, test: Option<CtxId>, span: bool) -> Self {
+    pub fn new(cohort: Option<CohortId>, test: Option<TestRef>, span: bool) -> Self {
         CohortIterator {
             m_span: span,
             m_cohort: cohort,
@@ -301,7 +305,7 @@ impl CohortIterator {
     // [spec:cg3:def:cohort-iterator.cg3.cohort-iterator.reset-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.cohort-iterator.reset-fn]
     /// Base reset: re-seats the iterator without allocating.
-    pub fn reset(&mut self, cohort: Option<CohortId>, test: Option<CtxId>, span: bool) {
+    pub fn reset(&mut self, cohort: Option<CohortId>, test: Option<TestRef>, span: bool) {
         self.m_span = span;
         self.m_cohort = cohort;
         self.m_test = test;
@@ -311,7 +315,7 @@ impl CohortIterator {
 impl TopologyLeftIter {
     // [spec:cg3:def:cohort-iterator.cg3.topology-left-iter.topology-left-iter-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.topology-left-iter.topology-left-iter-fn]
-    pub fn new(cohort: Option<CohortId>, test: Option<CtxId>, span: bool) -> Self {
+    pub fn new(cohort: Option<CohortId>, test: Option<TestRef>, span: bool) -> Self {
         TopologyLeftIter {
             base: CohortIterator::new(cohort, test, span),
         }
@@ -328,7 +332,7 @@ impl TopologyLeftIter {
         let cur_id = self.base.m_cohort.unwrap();
         let test_id = self.base.m_test.unwrap();
         let cur_parent = cohorts[cur_id.0].parent;
-        let pos = grammar.contexts_arena[test_id.0].pos;
+        let pos = test_id.pos(&grammar.contexts_arena);
         let boundary = match cohorts[cur_id.0].prev {
             Some(prev) => {
                 cohorts[prev.0].parent != cur_parent
@@ -355,7 +359,7 @@ impl TopologyLeftIter {
 impl TopologyRightIter {
     // [spec:cg3:def:cohort-iterator.cg3.topology-right-iter.topology-right-iter-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.topology-right-iter.topology-right-iter-fn]
-    pub fn new(cohort: Option<CohortId>, test: Option<CtxId>, span: bool) -> Self {
+    pub fn new(cohort: Option<CohortId>, test: Option<TestRef>, span: bool) -> Self {
         TopologyRightIter {
             base: CohortIterator::new(cohort, test, span),
         }
@@ -372,7 +376,7 @@ impl TopologyRightIter {
         let cur_id = self.base.m_cohort.unwrap();
         let test_id = self.base.m_test.unwrap();
         let cur_parent = cohorts[cur_id.0].parent;
-        let pos = grammar.contexts_arena[test_id.0].pos;
+        let pos = test_id.pos(&grammar.contexts_arena);
         let boundary = match cohorts[cur_id.0].next {
             Some(next) => {
                 cohorts[next.0].parent != cur_parent
@@ -403,7 +407,7 @@ impl DepParentIter {
     /// dependency parent (mirroring the C++ `++(*this)` in the ctor body).
     pub fn new(
         cohort: Option<CohortId>,
-        test: Option<CtxId>,
+        test: Option<TestRef>,
         span: bool,
         arenas: IterArenas<'_>,
     ) -> Self {
@@ -431,7 +435,7 @@ impl DepParentIter {
         }
         let cur_id = self.base.m_cohort.unwrap();
         let test_id = self.base.m_test.unwrap();
-        let pos = grammar.contexts_arena[test_id.0].pos;
+        let pos = test_id.pos(&grammar.contexts_arena);
         let dep_parent = cohorts[cur_id.0].dep_parent;
         if dep_parent.is_some()
             && let Some(&p_id) = registry.cohort_map.get(&dep_parent.unwrap())
@@ -470,7 +474,7 @@ impl DepParentIter {
     pub fn reset(
         &mut self,
         cohort: Option<CohortId>,
-        test: Option<CtxId>,
+        test: Option<TestRef>,
         span: bool,
         arenas: IterArenas<'_>,
     ) {
@@ -485,7 +489,7 @@ impl DepDescendentIter {
     // [spec:cg3:sem:cohort-iterator.cg3.dep-descendent-iter.dep-descendent-iter-fn]
     pub fn new(
         cohort: Option<CohortId>,
-        test: Option<CtxId>,
+        test: Option<TestRef>,
         span: bool,
         arenas: IterArenas<'_>,
     ) -> Self {
@@ -514,7 +518,7 @@ impl DepDescendentIter {
     pub fn reset(
         &mut self,
         cohort: Option<CohortId>,
-        test: Option<CtxId>,
+        test: Option<TestRef>,
         span: bool,
         arenas: IterArenas<'_>,
     ) {
@@ -529,7 +533,7 @@ impl DepDescendentIter {
         self.base.m_cohort = None;
 
         if let (Some(cohort_id), Some(test_id)) = (cohort, test) {
-            let pos = grammar.contexts_arena[test_id.0].pos;
+            let pos = test_id.pos(&grammar.contexts_arena);
             let cohort_parent = cohorts[cohort_id.0].parent;
             let cohort_win = windows[cohort_parent.unwrap().0].number;
 
@@ -610,7 +614,7 @@ impl DepAncestorIter {
     // [spec:cg3:sem:cohort-iterator.cg3.dep-ancestor-iter.dep-ancestor-iter-fn]
     pub fn new(
         cohort: Option<CohortId>,
-        test: Option<CtxId>,
+        test: Option<TestRef>,
         span: bool,
         arenas: IterArenas<'_>,
     ) -> Self {
@@ -643,7 +647,7 @@ impl DepAncestorIter {
     pub fn reset(
         &mut self,
         cohort: Option<CohortId>,
-        test: Option<CtxId>,
+        test: Option<TestRef>,
         span: bool,
         arenas: IterArenas<'_>,
     ) {
@@ -658,7 +662,7 @@ impl DepAncestorIter {
         self.base.m_cohort = None;
 
         if let (Some(cohort_id), Some(test_id)) = (cohort, test) {
-            let pos = grammar.contexts_arena[test_id.0].pos;
+            let pos = test_id.pos(&grammar.contexts_arena);
             let cohort_parent = cohorts[cohort_id.0].parent;
             let cohort_win = windows[cohort_parent.unwrap().0].number;
 
@@ -705,7 +709,7 @@ impl DepAncestorIter {
 impl CohortSetIter {
     // [spec:cg3:def:cohort-iterator.cg3.cohort-set-iter.cohort-set-iter-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.cohort-set-iter.cohort-set-iter-fn]
-    pub fn new(cohort: Option<CohortId>, test: Option<CtxId>, span: bool) -> Self {
+    pub fn new(cohort: Option<CohortId>, test: Option<TestRef>, span: bool) -> Self {
         CohortSetIter {
             base: CohortIterator::new(cohort, test, span),
             m_origcohort: cohort,
@@ -745,7 +749,7 @@ impl CohortSetIter {
             let c = self.m_cohortset[self.m_cohortsetiter];
             let c_parent = cohorts[c.0].parent;
             let orig_parent = cohorts[self.m_origcohort.unwrap().0].parent;
-            let pos = grammar.contexts_arena[self.base.m_test.unwrap().0].pos;
+            let pos = self.base.m_test.unwrap().pos(&grammar.contexts_arena);
             if c_parent == orig_parent || pos.intersects(POS_SPAN_BOTH) || self.base.m_span {
                 self.base.m_cohort = Some(c);
                 break;
@@ -767,7 +771,7 @@ impl CohortSetIter {
 impl MultiCohortIterator {
     // [spec:cg3:def:cohort-iterator.cg3.multi-cohort-iterator.multi-cohort-iterator-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.multi-cohort-iterator.multi-cohort-iterator-fn]
-    pub fn new(cohort: Option<CohortId>, test: Option<CtxId>, span: bool) -> Self {
+    pub fn new(cohort: Option<CohortId>, test: Option<TestRef>, span: bool) -> Self {
         MultiCohortIterator {
             m_span: span,
             m_cohort: cohort,
@@ -802,7 +806,7 @@ impl MultiCohortIterator {
 impl ChildrenIterator {
     // [spec:cg3:def:cohort-iterator.cg3.children-iterator.children-iterator-fn]
     // [spec:cg3:sem:cohort-iterator.cg3.children-iterator.children-iterator-fn]
-    pub fn new(cohort: Option<CohortId>, test: Option<CtxId>, span: bool) -> Self {
+    pub fn new(cohort: Option<CohortId>, test: Option<TestRef>, span: bool) -> Self {
         ChildrenIterator {
             base: MultiCohortIterator::new(cohort, test, span),
             m_depth: 0,

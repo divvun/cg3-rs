@@ -259,7 +259,8 @@ impl FormatConverter {
     /// C++ `void FormatConverter::runGrammarOnText(std::istream& input,
     /// std::ostream& output)`. Dispatches input PARSING to the applicator matching
     /// `fmt_input`; the overridden `print*` methods emit `fmt_output`, so the two
-    /// together convert. Sets `has_relations` when either side is binary.
+    /// together convert. Sets [`crate::grammar_applicator::EngineConfig::stream_relations`] (C++
+    /// `grammar->has_relations`) when either side is binary.
     /// `CG3SF_MATXIN`/invalid values → `CG3Quit()`.
     pub fn run_grammar_on_text<R, W>(
         &mut self,
@@ -275,8 +276,10 @@ impl FormatConverter {
             let b = self.base();
             (b.cfg.fmt_input, b.cfg.fmt_output)
         };
+        // C++ `grammar->has_relations = true` — a property of the STREAMS, so
+        // the port records it on the run rather than on the loaded grammar.
         if fmt_output == StreamFormatKind::Binary || fmt_input == StreamFormatKind::Binary {
-            self.base_mut().grammar.has_relations = true;
+            self.base_mut().cfg.stream_relations = true;
         }
 
         use StreamFormatKind::*;

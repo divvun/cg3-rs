@@ -27,7 +27,9 @@ use cg3::cohort_iterator::{
     ChildrenIterator, CohortIterator, CohortSetIter, DepAncestorIter, DepDescendentIter,
     DepParentIter, IterArenas, MultiCohortIterator, TopologyLeftIter, TopologyRightIter,
 };
-use cg3::contextual_test::{ContextualTest, POS_RIGHTMOST, POS_SELF, POS_SPAN_BOTH, copy_cntx};
+use cg3::contextual_test::{
+    ContextualTest, POS_RIGHTMOST, POS_SELF, POS_SPAN_BOTH, TestRef, copy_cntx,
+};
 use cg3::grammar::Grammar;
 use cg3::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_ustring};
 use cg3::reading::{
@@ -360,10 +362,10 @@ fn cohort_iterator_base() {
     it.advance(); // base operator++ nulls m_cohort
     assert_eq!(it.current(), None);
     assert!(it.equals(&end), "operator== compares only m_cohort");
-    it.reset(Some(c), Some(CtxId(0)), false);
+    it.reset(Some(c), Some(TestRef::new(CtxId(0))), false);
     assert_eq!(it.current(), Some(c));
     assert!(!it.m_span);
-    assert_eq!(it.m_test, Some(CtxId(0)));
+    assert_eq!(it.m_test, Some(TestRef::new(CtxId(0))));
 }
 
 // TopologyLeftIter / TopologyRightIter: sibling-chain walk skipping
@@ -395,18 +397,18 @@ fn topology_iterators() {
     g.contexts_arena[ctx_span.0].pos = POS_SPAN_BOTH;
 
     // Left from c3: skips enclosed c2, lands on c1; then walks off the front.
-    let mut li = TopologyLeftIter::new(Some(c3), Some(ctx0), false);
+    let mut li = TopologyLeftIter::new(Some(c3), Some(TestRef::new(ctx0)), false);
     li.advance(&store.cohorts, &g);
     assert_eq!(li.base.current(), Some(c1), "enclosed cohort skipped");
     li.advance(&store.cohorts, &g);
     assert_eq!(li.base.current(), None);
 
     // Right from c3 without span: c4 is in the next window -> boundary -> end.
-    let mut ri = TopologyRightIter::new(Some(c3), Some(ctx0), false);
+    let mut ri = TopologyRightIter::new(Some(c3), Some(TestRef::new(ctx0)), false);
     ri.advance(&store.cohorts, &g);
     assert_eq!(ri.base.current(), None, "window boundary without span");
     // With POS_SPAN_BOTH the boundary may be crossed.
-    let mut ri = TopologyRightIter::new(Some(c3), Some(ctx_span), false);
+    let mut ri = TopologyRightIter::new(Some(c3), Some(TestRef::new(ctx_span)), false);
     ri.advance(&store.cohorts, &g);
     assert_eq!(ri.base.current(), Some(c4), "spanning test crosses windows");
 }
@@ -425,7 +427,12 @@ fn dep_parent_iterator() {
     let mut g = Grammar::default();
     let ctx = g.allocate_contextual_test();
 
-    let mut it = DepParentIter::new(Some(c3), Some(ctx), false, iter_arenas(&store, &g, &w));
+    let mut it = DepParentIter::new(
+        Some(c3),
+        Some(TestRef::new(ctx)),
+        false,
+        iter_arenas(&store, &g, &w),
+    );
     assert_eq!(
         it.base.current(),
         Some(c2),
@@ -436,7 +443,12 @@ fn dep_parent_iterator() {
     it.advance(iter_arenas(&store, &g, &w)); // c1 has DEP_NO_PARENT
     assert_eq!(it.base.current(), None);
 
-    it.reset(Some(c3), Some(ctx), false, iter_arenas(&store, &g, &w));
+    it.reset(
+        Some(c3),
+        Some(TestRef::new(ctx)),
+        false,
+        iter_arenas(&store, &g, &w),
+    );
     assert_eq!(
         it.base.current(),
         Some(c2),
@@ -445,7 +457,12 @@ fn dep_parent_iterator() {
 
     // Cycle guard: c1 -> c3 closes a loop; the duplicate m_seen hit ends it.
     store.cohorts.get_mut(c1.0).dep_parent = Some(GlobalNumber(3));
-    it.reset(Some(c3), Some(ctx), false, iter_arenas(&store, &g, &w));
+    it.reset(
+        Some(c3),
+        Some(TestRef::new(ctx)),
+        false,
+        iter_arenas(&store, &g, &w),
+    );
     assert_eq!(it.base.current(), Some(c2));
     it.advance(iter_arenas(&store, &g, &w));
     assert_eq!(it.base.current(), Some(c1));
@@ -454,7 +471,12 @@ fn dep_parent_iterator() {
 
     // CT_REMOVED parent kills the walk outright.
     store.cohorts.get_mut(c2.0).r#type |= CT_REMOVED;
-    let it = DepParentIter::new(Some(c3), Some(ctx), false, iter_arenas(&store, &g, &w));
+    let it = DepParentIter::new(
+        Some(c3),
+        Some(TestRef::new(ctx)),
+        false,
+        iter_arenas(&store, &g, &w),
+    );
     assert_eq!(it.base.current(), None);
 }
 
@@ -484,7 +506,12 @@ fn dep_descendent_and_ancestor_iterators() {
     let ctx_rr = g.allocate_contextual_test();
     g.contexts_arena[ctx_rr.0].pos = POS_RIGHTMOST;
 
-    let mut di = DepDescendentIter::new(Some(c1), Some(ctx), false, iter_arenas(&store, &g, &w));
+    let mut di = DepDescendentIter::new(
+        Some(c1),
+        Some(TestRef::new(ctx)),
+        false,
+        iter_arenas(&store, &g, &w),
+    );
     assert_eq!(di.base.current(), Some(c2), "direct + transitive, sorted");
     di.advance();
     assert_eq!(di.base.current(), Some(c3));
@@ -493,10 +520,20 @@ fn dep_descendent_and_ancestor_iterators() {
     di.advance();
     assert_eq!(di.base.current(), None);
     // reset with POS_SELF: the origin joins the set (c1 sorts first).
-    di.reset(Some(c1), Some(ctx_self), false, iter_arenas(&store, &g, &w));
+    di.reset(
+        Some(c1),
+        Some(TestRef::new(ctx_self)),
+        false,
+        iter_arenas(&store, &g, &w),
+    );
     assert_eq!(di.base.current(), Some(c1));
 
-    let mut ai = DepAncestorIter::new(Some(c4), Some(ctx), false, iter_arenas(&store, &g, &w));
+    let mut ai = DepAncestorIter::new(
+        Some(c4),
+        Some(TestRef::new(ctx)),
+        false,
+        iter_arenas(&store, &g, &w),
+    );
     assert_eq!(
         ai.base.current(),
         Some(c1),
@@ -507,7 +544,12 @@ fn dep_descendent_and_ancestor_iterators() {
     ai.advance();
     assert_eq!(ai.base.current(), None);
     // reset with POS_RIGHTMOST reverses the chain.
-    ai.reset(Some(c4), Some(ctx_rr), false, iter_arenas(&store, &g, &w));
+    ai.reset(
+        Some(c4),
+        Some(TestRef::new(ctx_rr)),
+        false,
+        iter_arenas(&store, &g, &w),
+    );
     assert_eq!(ai.base.current(), Some(c2));
 }
 
@@ -527,7 +569,7 @@ fn cohort_set_multi_and_children_iterators() {
     let mut g = Grammar::default();
     let ctx = g.allocate_contextual_test();
 
-    let mut csi = CohortSetIter::new(Some(c1), Some(ctx), false);
+    let mut csi = CohortSetIter::new(Some(c1), Some(TestRef::new(ctx)), false);
     assert_eq!(csi.m_origcohort, Some(c1));
     csi.add_cohort(&store.cohorts, &store.single_windows, c2);
     csi.add_cohort(&store.cohorts, &store.single_windows, c1); // sorted before c2, cursor rewound to begin()
@@ -542,7 +584,7 @@ fn cohort_set_multi_and_children_iterators() {
         "faithful re-yield bug: cursor not advanced on a match"
     );
 
-    let mut mi = MultiCohortIterator::new(Some(c1), Some(ctx), false);
+    let mut mi = MultiCohortIterator::new(Some(c1), Some(TestRef::new(ctx)), false);
     assert!(mi.current().is_none(), "no inner iterator yet");
     let mend = MultiCohortIterator::new(None, None, false);
     assert!(!mi.equals(&mend));
@@ -550,7 +592,7 @@ fn cohort_set_multi_and_children_iterators() {
     assert!(mi.equals(&mend), "operator== compares only m_cohort");
 
     store.cohorts.get_mut(c1.0).dep_children.insert(2);
-    let mut ch = ChildrenIterator::new(Some(c1), Some(ctx), false);
+    let mut ch = ChildrenIterator::new(Some(c1), Some(TestRef::new(ctx)), false);
     assert_eq!(ch.m_depth, 0);
     ch.advance(&store.cohorts);
     assert_eq!(ch.m_depth, 1);

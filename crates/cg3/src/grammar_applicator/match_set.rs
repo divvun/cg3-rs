@@ -1096,6 +1096,9 @@ impl Matcher<'_> {
         if let Some(l) = linked {
             if !context.did_test {
                 let lpos = self.grammar.contexts_arena[l.0].pos;
+                // A LINK target is its own test object; the POS_TMPL_OVERRIDE
+                // write never reached it, so it runs with no override.
+                let lref = crate::contextual_test::TestRef::new(l);
                 let (cparent, clocal) = {
                     let c = self.cohorts.get(cohort.0);
                     (c.parent, c.local_number)
@@ -1104,7 +1107,7 @@ impl Matcher<'_> {
                     self.run_contextual_test(
                         cparent,
                         clocal,
-                        l,
+                        lref,
                         context.deep.as_deref_mut(),
                         Some(cohort),
                     )?
@@ -1112,7 +1115,7 @@ impl Matcher<'_> {
                     self.run_contextual_test(
                         cparent,
                         clocal,
-                        l,
+                        lref,
                         context.deep.as_deref_mut(),
                         context.origin,
                     )?

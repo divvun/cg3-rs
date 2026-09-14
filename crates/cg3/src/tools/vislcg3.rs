@@ -445,6 +445,11 @@ pub fn main_run(args: &[String]) -> i32 {
     // --- The applicator run (FormatConverter). Base members are reached through
     // the converter's public shared-base accessors (`base()`/`base_mut()`) — the
     // composition analogue of the C++ public inheritance. ---
+    // C++ `FormatConverter::runGrammarOnText` writes `has_relations` onto the
+    // live grammar, which main still holds when it serialises below; the port
+    // keeps that on the run (`EngineConfig::stream_relations`), so carry it out
+    // of the applicator for `--grammar-bin` to fold back in.
+    let mut stream_relations = false;
     if !occ(&options, Opt::GrammarOnly) {
         use crate::grammar_applicator::{GrammarApplicator, StreamFormatKind};
         let base = GrammarApplicator::new(Grammar::default());
@@ -525,6 +530,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
         // Move the grammar back out (C++ `grammar` lives in main throughout),
         // and the profiler (for the final `Profiler::write`).
+        stream_relations = applicator.base().cfg.stream_relations;
         grammar = std::mem::take(&mut applicator.base_mut().grammar);
         #[cfg(feature = "profiler")]
         if profiler.is_none() {
@@ -550,7 +556,7 @@ pub fn main_run(args: &[String]) -> i32 {
     // --grammar-bin: write the grammar in binary form. LIVE.
     if occ(&options, Opt::GrammarBin) {
         let path = options[Opt::GrammarBin as usize].value.clone();
-        match write_grammar_bin(&path, grammar, &grammar_sources) {
+        match write_grammar_bin(&path, grammar, &grammar_sources, stream_relations) {
             Ok(g) => grammar = g,
             Err(e) => return fail(&e),
         }
@@ -595,7 +601,13 @@ fn write_grammar_bin(
     path: &str,
     grammar: Grammar,
     sources: &[crate::error::ParseSource],
+    stream_relations: bool,
 ) -> Result<Grammar, crate::error::Cg3Error> {
+    // The run's binary-stream `has_relations` (C++ stamps it straight onto the
+    // grammar mid-run, and this writer sees it) — folded in here so the emitted
+    // BINF_RELATIONS bit is what it always was.
+    let mut grammar = grammar;
+    grammar.has_relations |= stream_relations;
     let mut blob: Vec<u8> = Vec::new();
     let mut writer = BinaryGrammar::new(grammar);
     writer.write_binary_grammar(&mut blob)?;

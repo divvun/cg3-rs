@@ -66,7 +66,7 @@ use crate::contextual_test::{
     POS_JUMP, POS_LEFT, POS_LEFT_PAR, POS_LEFTMOST, POS_LOOK_DELAYED, POS_LOOK_DELETED,
     POS_LOOK_IGNORED, POS_MARK_SET, POS_NEGATE, POS_NONE, POS_NOT, POS_PASS_ORIGIN, POS_RELATION,
     POS_RIGHT, POS_RIGHT_PAR, POS_RIGHTMOST, POS_SCANALL, POS_SCANFIRST, POS_SELF, POS_SPAN_BOTH,
-    POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH,
+    POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, TestOverride, TestRef,
 };
 use crate::inlines::{make_64, si32};
 use crate::single_window::{SingleWindow, less_cohort};
@@ -100,7 +100,7 @@ enum ItSel {
 /// intact into the extracted iterator/scan arms ([`Matcher::run_iter`],
 /// [`Matcher::run_scan`]).
 struct TestArgs<'a> {
-    test: CtxId,
+    test: TestRef,
     /// C++ `Cohort** deep`.
     deep: Option<&'a mut Option<CohortId>>,
     /// C++ `Cohort* origin`.
@@ -176,7 +176,7 @@ impl Matcher<'_> {
     pub fn run_single_test(
         &mut self,
         cohort: CohortId,
-        test: CtxId,
+        test: TestRef,
         rvs: &mut u8,
         mut deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
@@ -193,13 +193,13 @@ impl Matcher<'_> {
         };
 
         let (test_pos, test_target, test_offset, test_barrier, test_cbarrier) = {
-            let t = &self.grammar.contexts_arena[test.0];
+            let c = &self.grammar.contexts_arena;
             (
-                t.pos,
-                t.target.get(),
-                t.offset,
-                t.barrier.get(),
-                t.cbarrier.get(),
+                test.pos(c),
+                c[test.id.0].target.get(),
+                test.offset(c),
+                test.barrier(c).get(),
+                test.cbarrier(c).get(),
             )
         };
 
@@ -224,7 +224,7 @@ impl Matcher<'_> {
 
         // dSMC_Context context = { test, deep, origin, test->pos };
         let mut context = CohortMatchContext {
-            test: Some(test),
+            test: Some(test.id),
             deep,
             origin,
             options: test_pos,
@@ -329,7 +329,7 @@ impl Matcher<'_> {
         &mut self,
         sw: SwId,
         i: i32,
-        test: CtxId,
+        test: TestRef,
         rvs: &mut u8,
         deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
@@ -380,7 +380,7 @@ impl Matcher<'_> {
         &self,
         sw: SwId,
         position: u32,
-        test: CtxId,
+        test: TestRef,
         cohort: CohortId,
         cdeep: CohortId,
     ) -> bool {
@@ -408,8 +408,8 @@ impl Matcher<'_> {
         });
 
         let (test_pos, test_offset) = {
-            let t = &self.grammar.contexts_arena[test.0];
-            (t.pos, t.offset)
+            let c = &self.grammar.contexts_arena;
+            (test.pos(c), test.offset(c))
         };
 
         // If the override included * or @, offsets are irrelevant.
@@ -451,11 +451,18 @@ impl Matcher<'_> {
     /// result. C++ `Cohort* runContextualTest_tmpl(SingleWindow*, size_t, const
     /// ContextualTest* test, ContextualTest* tmpl, Cohort*& cdeep, Cohort*
     /// origin)`. `cdeep` (the deepest reached cohort) is an out-param (`&mut`).
+    ///
+    /// DIVERGENCE (same behaviour, different mechanism): C++ imposes the
+    /// override by WRITING `pos`/`offset`/`cbarrier`/`barrier` into the shared
+    /// `tmpl` object and restoring them after the call. The template is handed to
+    /// every test that names it, so that write is to state common to every such
+    /// rule. The port builds a [`TestRef`] carrying those four values instead and
+    /// passes it down; the arena is never touched.
     pub fn run_contextual_test_tmpl(
         &mut self,
         sw: Option<SwId>,
         position: u32,
-        test: CtxId,
+        test: TestRef,
         tmpl: CtxId,
         cdeep: &mut Option<CohortId>,
         origin: Option<CohortId>,
@@ -465,59 +472,62 @@ impl Matcher<'_> {
         let in_template = self.scratch.tmpl_cntx.in_template;
         self.scratch.tmpl_cntx.in_template = true;
 
-        let test_linked = self.grammar.contexts_arena[test.0].linked;
+        let test_linked = self.grammar.contexts_arena[test.id.0].linked;
         if let Some(l) = test_linked {
             self.scratch.tmpl_cntx.linked.push(l);
         }
 
-        // Snapshot the template's own pos/offset/cbarrier/barrier.
-        let orgpos = self.grammar.contexts_arena[tmpl.0].pos;
-        let orgoffset = self.grammar.contexts_arena[tmpl.0].offset;
-        let orgcbar = self.grammar.contexts_arena[tmpl.0].cbarrier;
-        let orgbar = self.grammar.contexts_arena[tmpl.0].barrier;
-
+        // The OUTER test's EFFECTIVE fields — already overridden themselves when
+        // this is a nested template call, which is exactly what the C++ reads
+        // back out of the arena at this point.
         let (test_pos, test_offset, test_cbarrier, test_barrier) = {
-            let t = &self.grammar.contexts_arena[test.0];
-            (t.pos, t.offset, t.cbarrier, t.barrier)
+            let c = &self.grammar.contexts_arena;
+            (
+                test.pos(c),
+                test.offset(c),
+                test.cbarrier(c),
+                test.barrier(c),
+            )
         };
 
         let override_applied = test_pos.intersects(POS_TMPL_OVERRIDE);
-        if override_applied {
-            let t = &mut self.grammar.contexts_arena[tmpl.0];
-            t.pos = test_pos;
-            t.pos &= !(POS_NEGATE | POS_NOT | POS_JUMP);
-            t.offset = test_offset;
+        let tmpl_ref = if override_applied {
+            let c = &self.grammar.contexts_arena;
+            let mut pos = test_pos;
+            pos &= !(POS_NEGATE | POS_NOT | POS_JUMP);
             if test_offset != 0 && !test_pos.intersects(POS_SCANFIRST | POS_SCANALL | POS_ABSOLUTE)
             {
-                t.pos |= POS_SCANALL;
+                pos |= POS_SCANALL;
             }
-            if test_cbarrier.get() != 0 {
-                t.cbarrier = test_cbarrier;
-            }
-            if test_barrier.get() != 0 {
-                t.barrier = test_barrier;
-            }
-        }
+            // The two barriers are only imposed when the outer test HAS one;
+            // otherwise the template keeps its own (C++ `if (test->cbarrier)`).
+            let cbarrier = if test_cbarrier.get() != 0 {
+                test_cbarrier
+            } else {
+                c[tmpl.0].cbarrier
+            };
+            let barrier = if test_barrier.get() != 0 {
+                test_barrier
+            } else {
+                c[tmpl.0].barrier
+            };
+            TestRef::overridden(
+                tmpl,
+                TestOverride {
+                    pos,
+                    offset: test_offset,
+                    barrier,
+                    cbarrier,
+                },
+            )
+        } else {
+            TestRef::new(tmpl)
+        };
 
         // cohort = runContextualTest(sWindow, position, tmpl, &cdeep, origin)
-        // Held rather than `?`-ed: the override has to come off whichever way
-        // this returns. A template is shared by every test that names it (the
-        // parser hands them all one CtxId), so propagating the error with the
-        // override still applied would leave it corrupted for every one of them.
-        let result = self.run_contextual_test(sw, position, tmpl, Some(&mut *cdeep), origin);
+        let mut cohort =
+            self.run_contextual_test(sw, position, tmpl_ref, Some(&mut *cdeep), origin)?;
 
-        if override_applied {
-            let t = &mut self.grammar.contexts_arena[tmpl.0];
-            t.pos = orgpos;
-            t.offset = orgoffset;
-            t.cbarrier = orgcbar;
-            t.barrier = orgbar;
-        }
-
-        let mut cohort = result?;
-
-        // Distinct from the restore above: this reads the match that succeeded,
-        // so it stays on the success path.
         if override_applied
             && let (Some(c), Some(cd)) = (cohort, *cdeep)
             && test_offset != 0
@@ -555,7 +565,7 @@ impl Matcher<'_> {
         &mut self,
         sw: Option<SwId>,
         position: u32,
-        test: CtxId,
+        test: TestRef,
         mut deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
     ) -> Result<Option<CohortId>, crate::error::RunError> {
@@ -563,7 +573,7 @@ impl Matcher<'_> {
         let mut position = position;
         let mut origin = origin;
 
-        let test_pos = self.grammar.contexts_arena[test.0].pos;
+        let test_pos = test.pos(&self.grammar.contexts_arena);
         if test_pos.intersects(POS_UNKNOWN) {
             // u_fprintf(...); CG3Quit(1);
             panic!(
@@ -576,7 +586,7 @@ impl Matcher<'_> {
         let org_swin = sw;
 
         if test_pos.intersects(POS_JUMP) {
-            let jump_pos = self.grammar.contexts_arena[test.0].jump_pos;
+            let jump_pos = self.grammar.contexts_arena[test.id.0].jump_pos;
             let mut j: Option<CohortId> = None;
             if jump_pos == JumpMark as i8 {
                 j = self.get_mark();
@@ -605,7 +615,7 @@ impl Matcher<'_> {
             }
         }
 
-        let test_offset = self.grammar.contexts_arena[test.0].offset;
+        let test_offset = test.offset(&self.grammar.contexts_arena);
         let mut pos = si32(position) + test_offset;
 
         if !retval {
@@ -613,8 +623,8 @@ impl Matcher<'_> {
             return Ok(self.finalize_got_a_cohort(sw, test, cohort, retval));
         }
 
-        let test_tmpl = self.grammar.contexts_arena[test.0].tmpl;
-        let has_ors = !self.grammar.contexts_arena[test.0].ors.is_empty();
+        let test_tmpl = self.grammar.contexts_arena[test.id.0].tmpl;
+        let has_ors = !self.grammar.contexts_arena[test.id.0].ors.is_empty();
 
         if let Some(tmpl) = test_tmpl {
             let mut cdeep: Option<CohortId> = None;
@@ -624,7 +634,7 @@ impl Matcher<'_> {
             }
         } else if has_ors {
             let mut cdeep: Option<CohortId> = None;
-            let ors = self.grammar.contexts_arena[test.0].ors.clone();
+            let ors = self.grammar.contexts_arena[test.id.0].ors.clone();
             for iter in ors {
                 self.scratch.dep_deep_seen.clear();
                 cohort =
@@ -733,7 +743,7 @@ impl Matcher<'_> {
                     retval = !retval;
                 }
             } else if test_pos.intersects(POS_BAG_OF_TAGS) {
-                let test_target = self.grammar.contexts_arena[test.0].target.get();
+                let test_target = self.grammar.contexts_arena[test.id.0].target.get();
                 let mut m = self.match_bag_of_tags(sw_id, test_target)?;
                 if !m && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT | POS_SPAN_RIGHT)) {
                     let mut left = self.single_windows.get(sw_id.0).previous;
@@ -763,10 +773,17 @@ impl Matcher<'_> {
                     m = !m;
                 }
                 if m {
-                    let test_linked = self.grammar.contexts_arena[test.0].linked;
+                    let test_linked = self.grammar.contexts_arena[test.id.0].linked;
                     if let Some(l) = test_linked {
-                        cohort =
-                            self.run_contextual_test(sw, position, l, deep.as_deref_mut(), origin)?;
+                        // A LINK target is its own test object: the C++ arena
+                        // write never reached it, so no override travels here.
+                        cohort = self.run_contextual_test(
+                            sw,
+                            position,
+                            TestRef::new(l),
+                            deep.as_deref_mut(),
+                            origin,
+                        )?;
                     }
                 } else {
                     retval = false;
@@ -816,13 +833,13 @@ impl Matcher<'_> {
     fn finalize_got_a_cohort(
         &self,
         sw: Option<SwId>,
-        test: CtxId,
+        test: TestRef,
         mut cohort: Option<CohortId>,
         mut retval: bool,
     ) -> Option<CohortId> {
         let (test_pos, test_linked) = {
-            let t = &self.grammar.contexts_arena[test.0];
-            (t.pos, t.linked)
+            let c = &self.grammar.contexts_arena;
+            (test.pos(c), c[test.id.0].linked)
         };
         if cohort.is_none() {
             retval = false;
@@ -906,7 +923,7 @@ impl Matcher<'_> {
             mut deep,
             origin,
         } = args;
-        let test_pos = self.grammar.contexts_arena[test.0].pos;
+        let test_pos = test.pos(&self.grammar.contexts_arena);
 
         let mut nc: Option<CohortId> = None;
         let mut rvs: u8 = 0;
@@ -1077,7 +1094,7 @@ impl Matcher<'_> {
             mut deep,
             origin,
         } = args;
-        let test_pos = self.grammar.contexts_arena[test.0].pos;
+        let test_pos = test.pos(&self.grammar.contexts_arena);
 
         let mut right: Option<SwId> = Some(sw);
         let mut left: Option<SwId> = Some(sw);
@@ -1177,13 +1194,13 @@ impl Matcher<'_> {
         &self,
         sw: &mut Option<SwId>,
         position: u32,
-        test: CtxId,
+        test: TestRef,
         pos: &mut i32,
     ) -> Option<CohortId> {
         let mut cohort: Option<CohortId> = None;
         let (test_pos, test_offset) = {
-            let t = &self.grammar.contexts_arena[test.0];
-            (t.pos, t.offset)
+            let c = &self.grammar.contexts_arena;
+            (test.pos(c), test.offset(c))
         };
         *pos = si32(position) + test_offset;
 
@@ -1255,7 +1272,7 @@ impl Matcher<'_> {
         // argument is therefore unused here (kept to mirror the C++ signature).
         _sw: SwId,
         current: CohortId,
-        test: CtxId,
+        test: TestRef,
         mut deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
         self_cohort: Option<CohortId>,
@@ -1273,8 +1290,8 @@ impl Matcher<'_> {
         };
 
         let (test_pos, test_hash) = {
-            let t = &self.grammar.contexts_arena[test.0];
-            (t.pos, t.hash)
+            let c = &self.grammar.contexts_arena;
+            (test.pos(c), c[test.id.0].hash)
         };
 
         if test_pos.intersects(POS_DEP_DEEP) {
@@ -1460,7 +1477,7 @@ impl Matcher<'_> {
         &mut self,
         sw: SwId,
         current: CohortId,
-        test: CtxId,
+        test: TestRef,
         deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
     ) -> Result<Option<CohortId>, crate::error::RunError> {
@@ -1471,7 +1488,7 @@ impl Matcher<'_> {
         let mut rv: Option<CohortId> = None;
 
         let mut rvs: u8 = 0;
-        let test_pos = self.grammar.contexts_arena[test.0].pos;
+        let test_pos = test.pos(&self.grammar.contexts_arena);
         let cohort = if test_pos.intersects(POS_LEFT_PAR) {
             self.single_windows.get(sw.0).cohorts[self.scratch.par_left_pos as usize]
         } else {
@@ -1498,7 +1515,7 @@ impl Matcher<'_> {
         // window parameter is unused here (kept to mirror the C++ signature).
         _sw: SwId,
         current: CohortId,
-        test: CtxId,
+        test: TestRef,
         mut deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
     ) -> Result<Option<CohortId>, crate::error::RunError> {
@@ -1512,7 +1529,7 @@ impl Matcher<'_> {
         let mut rels: Vec<CohortId> = Vec::new();
         let regexgrpz = self.scratch.context_stack.last().unwrap().regexgrp_ct;
 
-        let test_relation = self.grammar.contexts_arena[test.0].relation;
+        let test_relation = self.grammar.contexts_arena[test.id.0].relation;
         // rtag = grammar->single_tags[test->relation]; while T_VARSTRING, expand.
         let mut rtag_id = {
             let it = self.grammar.single_tags.find(test_relation);
@@ -1531,7 +1548,7 @@ impl Matcher<'_> {
             (t.hash, t.r#type)
         };
 
-        let test_pos = self.grammar.contexts_arena[test.0].pos;
+        let test_pos = test.pos(&self.grammar.contexts_arena);
 
         // Snapshot the relation map (u32 name-hash -> sorted target global numbers).
         let relations: Vec<(u32, Vec<u32>)> = self

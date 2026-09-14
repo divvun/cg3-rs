@@ -4,6 +4,7 @@
 
 use crate::arena::{CohortId, CtxId, ReadingId, RuleId, SetId, TagId};
 use crate::cohort::CohortSet;
+use crate::contextual_test::TestRef;
 use crate::inlines::insert_if_exists;
 use crate::reading::ReadingList;
 use crate::rule::{
@@ -1382,6 +1383,12 @@ impl crate::grammar_applicator::Engine<'_> {
     /// The `swapper<Cohort*>` (RF_REVERSE) target/attach swap and the RTAG textual
     /// bookkeeping are reproduced. The onward-scan loop mirrors the C++ `while
     /// (true)` with the `dep_target->offset` temporary +/-1 override.
+    ///
+    /// DIVERGENCE (same behaviour, different mechanism): C++ clamps by WRITING
+    /// `dep_target->offset` and restoring it after the scan. `dep_target` hangs
+    /// off the rule and is shared by every application of it, so the port carries
+    /// the clamped offset in the [`TestRef`] handed to `run_contextual_test`
+    /// instead — which also removes the need for the restore.
     fn rr_dep_relation(
         &mut self,
         st: &mut RRState,
@@ -1395,129 +1402,117 @@ impl crate::grammar_applicator::Engine<'_> {
             None => return Ok(()),
         };
         let rflags = self.grammar.rule_by_number.get(rule.0).flags;
-        let orgoffset = self.grammar.contexts_arena[dep_target.0].offset;
         let mut seen_targets: Vec<u32> = Vec::new();
         let orgtarget = self.scratch.context_stack.last().unwrap().target.clone();
 
-        // The onward scan clamps dep_target's offset in place, so the restore
-        // below has to run whichever way the scan ends. dep_target is shared off
-        // the rule, so an error propagating past it would leave the clamp on for
-        // every later use. The labelled block carries the failure out instead of
-        // `?` returning through the restore.
-        let outcome: Result<(), crate::error::RunError> = 'scan: {
-            loop {
-                let target = self
-                    .scratch
-                    .context_stack
-                    .last()
-                    .unwrap()
-                    .target
-                    .cohort
-                    .unwrap();
-                let target_gn = self.doc.store.cohorts.get(target.0).global_number.get();
-                seen_targets.push(target_gn);
-                self.scratch.dep_deep_seen.clear();
-                self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
-                {
-                    let f = self.scratch.context_stack.last_mut().unwrap();
-                    f.attach_to = crate::grammar_applicator::ReadingSpec::default();
+        // The onward scan re-runs dep_target with its offset clamped to +/-1.
+        let mut dep_ref = TestRef::new(dep_target);
+
+        loop {
+            let target = self
+                .scratch
+                .context_stack
+                .last()
+                .unwrap()
+                .target
+                .cohort
+                .unwrap();
+            let target_gn = self.doc.store.cohorts.get(target.0).global_number.get();
+            seen_targets.push(target_gn);
+            self.scratch.dep_deep_seen.clear();
+            self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
+            {
+                let f = self.scratch.context_stack.last_mut().unwrap();
+                f.attach_to = crate::grammar_applicator::ReadingSpec::default();
+            }
+            self.scratch.seen_barrier = false;
+            let (tparent, tlocal) = {
+                let c = self.doc.store.cohorts.get(target.0);
+                (c.parent, c.local_number)
+            };
+            let mut attach_out: Option<CohortId> = None;
+            let res =
+                self.run_contextual_test(tparent, tlocal, dep_ref, Some(&mut attach_out), None)?;
+            if res.is_some()
+                && let Some(mut attach) = attach_out
+            {
+                self.profile_rule_context(true, rule, dep_target);
+                let break_after = self.scratch.seen_barrier || (rflags.intersects(RF_NEAREST));
+                if let Some(at) = self.get_attach_to().cohort {
+                    attach = at;
                 }
-                self.scratch.seen_barrier = false;
-                let (tparent, tlocal) = {
-                    let c = self.doc.store.cohorts.get(target.0);
-                    (c.parent, c.local_number)
-                };
-                let mut attach_out: Option<CohortId> = None;
-                let res = match self.run_contextual_test(
-                    tparent,
-                    tlocal,
-                    dep_target,
-                    Some(&mut attach_out),
-                    None,
-                ) {
-                    Ok(v) => v,
-                    Err(e) => break 'scan Err(e),
-                };
-                if res.is_some()
-                    && let Some(mut attach) = attach_out
-                {
-                    self.profile_rule_context(true, rule, dep_target);
-                    let break_after = self.scratch.seen_barrier || (rflags.intersects(RF_NEAREST));
-                    if let Some(at) = self.get_attach_to().cohort {
-                        attach = at;
-                    }
-                    let mut good = true;
-                    let dep_tests: Vec<CtxId> = self
-                        .grammar
-                        .rule_by_number
-                        .get(rule.0)
-                        .dep_tests
-                        .iter()
-                        .copied()
-                        .collect();
-                    for it in dep_tests {
-                        self.set_mark_frame(attach);
-                        self.scratch.dep_deep_seen.clear();
-                        self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
-                        let (aparent, alocal) = {
-                            let c = self.doc.store.cohorts.get(attach.0);
-                            (c.parent, c.local_number)
-                        };
-                        let tg = match self.run_contextual_test(aparent, alocal, it, None, None) {
-                            Ok(v) => v.is_some(),
-                            Err(e) => break 'scan Err(e),
-                        };
-                        self.profile_rule_context(tg, rule, it);
-                        if !tg {
-                            good = false;
-                            break;
-                        }
-                    }
-                    if self.get_attach_to().cohort.is_none() {
-                        self.scratch
-                            .context_stack
-                            .last_mut()
-                            .unwrap()
-                            .attach_to
-                            .cohort = Some(attach);
-                    }
-                    if good {
-                        let temp = self.scratch.context_stack.last().unwrap().target.clone();
-                        self.scratch.context_stack.last_mut().unwrap().target = orgtarget.clone();
-                        let attached =
-                            match self.rr_dep_target_cb(st, rule, rtype, rnumber, rsub_reading) {
-                                Ok(v) => v,
-                                Err(e) => break 'scan Err(e),
-                            };
-                        if attached {
-                            break;
-                        } else {
-                            self.scratch.context_stack.last_mut().unwrap().target = temp;
-                        }
-                    }
-                    if break_after {
+                let mut good = true;
+                let dep_tests: Vec<CtxId> = self
+                    .grammar
+                    .rule_by_number
+                    .get(rule.0)
+                    .dep_tests
+                    .iter()
+                    .copied()
+                    .collect();
+                for it in dep_tests {
+                    self.set_mark_frame(attach);
+                    self.scratch.dep_deep_seen.clear();
+                    self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
+                    let (aparent, alocal) = {
+                        let c = self.doc.store.cohorts.get(attach.0);
+                        (c.parent, c.local_number)
+                    };
+                    // `add_contextual_test` deduplicates structurally identical
+                    // tests, so a dep test can BE `dep_target`. C++ clamps the
+                    // shared object, so such a test sees the clamp too.
+                    let itref = if it == dep_target {
+                        dep_ref
+                    } else {
+                        TestRef::new(it)
+                    };
+                    let tg = self
+                        .run_contextual_test(aparent, alocal, itref, None, None)?
+                        .is_some();
+                    self.profile_rule_context(tg, rule, it);
+                    if !tg {
+                        good = false;
                         break;
                     }
-                    let attach_gn = self.doc.store.cohorts.get(attach.0).global_number.get();
-                    if seen_targets.contains(&attach_gn) {
+                }
+                if self.get_attach_to().cohort.is_none() {
+                    self.scratch
+                        .context_stack
+                        .last_mut()
+                        .unwrap()
+                        .attach_to
+                        .cohort = Some(attach);
+                }
+                if good {
+                    let temp = self.scratch.context_stack.last().unwrap().target.clone();
+                    self.scratch.context_stack.last_mut().unwrap().target = orgtarget.clone();
+                    let attached = self.rr_dep_target_cb(st, rule, rtype, rnumber, rsub_reading)?;
+                    if attached {
                         break;
+                    } else {
+                        self.scratch.context_stack.last_mut().unwrap().target = temp;
                     }
-                    seen_targets.push(attach_gn);
-                    let at = self.scratch.context_stack.last().unwrap().attach_to.clone();
-                    self.scratch.context_stack.last_mut().unwrap().target = at;
-                    let off = self.grammar.contexts_arena[dep_target.0].offset;
-                    if off != 0 {
-                        self.grammar.contexts_arena[dep_target.0].offset =
-                            if off < 0 { -1 } else { 1 };
-                    }
-                } else {
+                }
+                if break_after {
                     break;
                 }
+                let attach_gn = self.doc.store.cohorts.get(attach.0).global_number.get();
+                if seen_targets.contains(&attach_gn) {
+                    break;
+                }
+                seen_targets.push(attach_gn);
+                let at = self.scratch.context_stack.last().unwrap().attach_to.clone();
+                self.scratch.context_stack.last_mut().unwrap().target = at;
+                let off = dep_ref.offset(&self.grammar.contexts_arena);
+                if off != 0 {
+                    dep_ref = dep_ref
+                        .with_offset(&self.grammar.contexts_arena, if off < 0 { -1 } else { 1 });
+                }
+            } else {
+                break;
             }
-            Ok(())
-        };
-        self.grammar.contexts_arena[dep_target.0].offset = orgoffset;
-        outcome
+        }
+        Ok(())
     }
 
     /// `set_mark` targeting the current frame with a concrete cohort (the dep loop
