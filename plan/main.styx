@@ -2471,4 +2471,45 @@ children (
             }
         )
     }
+
+    {
+        id grammar-split
+        title "Make a loaded grammar shareable: split it into an immutable Arc core and a per-run overlay, so a process running N pipelines holds one copy of the sets, rules, contexts and tags instead of N"
+        kind @perf
+        children (
+            {
+                id grammar-split.transient-writes
+                title "Rehome the three writes that were never grammar state: the template and dep-target overrides belong to the test being evaluated, the failing-test reorder belongs to the run that observed it, and has_relations is a stream property the converter discovers"
+                priority 0
+            }
+
+            {
+                id grammar-split.flags-to-overlay
+                title "Move tag type flags out of Tag into a parallel array the run owns: four of the runtime write families exist only because a mutable u32 sits inside an otherwise immutable record, and a dense array is both per-run by construction and the fastest layout for the hottest read in the engine"
+                priority 0
+            }
+
+            {
+                id grammar-split.core-split
+                title "Split Grammar into an immutable GrammarCore behind Arc and a per-run TagOverlay, with tag id resolution reading the core below its length and the overlay above it"
+                priority 0
+                deps (grammar-split.transient-writes grammar-split.flags-to-overlay)
+            }
+
+            {
+                id grammar-split.applicator-arc
+                title "Take the shared core at the constructor and thread it through the tools: GrammarApplicator::new accepts an Arc GrammarCore, so a caller loads a grammar once and hands the same one to every pipeline it builds"
+                priority 1
+                deps (grammar-split.core-split)
+            }
+        )
+        log (
+            {
+                at 2026-09-14T21:04:22.014769Z
+                author "brendan@necessary.nu"
+                kind @decision
+                text "Driven by a measured downstream cost, not tidiness: teaksta rebuilds a cg3 grammar per pipeline handle at ~450 MiB and ~133 ms per worker, which is the entire remaining marginal after its hfst/runtime caches landed, and it caps workers at 4 regardless of cores. Note the tag-slimming work (248→104 bytes) did NOT move it, and could not have: the cost is N copies of the whole grammar, so shrinking each copy divides a number that sharing removes outright.\n\nThe incoming proposal catalogued six runtime write sites. There are eleven. Missing were: core.rs:2004/2030, which OR T_TEXTUAL across the ENTIRE tag arena and therefore write to grammar-compiled tags rather than interned ones (the proposal named the rescan triggers at :1983/:2016 but not the write they cause); reflow.rs:811, a third T_MAPPING back-patch; binary_applicator.rs:284, the only site that CLEARS a flag and does so order-dependently across windows; run_contextual_test.rs:486/506, a second contexts_arena override family beside the dep-offset one; tag.rs:929, a second arena-growth site via the R: relation interner; and format_converter.rs:280 setting has_relations mid-run.\n\nKey design call, which turns the hardest cluster into the easiest: tag type flags go in the OVERLAY, not the core. Four of the eleven families (T_TEXTUAL, all three T_MAPPING writes, and the clear) exist only because a mutable u32 lives inside an otherwise immutable record. A dense per-run Vec<TagType> makes them per-run by construction — no copy-on-write, no delta table consulted at ~270 read sites, and no question of tag identity changing (which would break the hash/dedup contract, since rehash folds eight type bits into the hash). Seeding costs one 4-byte-per-tag memcpy per run: ~56 KB for a 13930-tag grammar against 450 MiB. It is also the fastest layout available — 16 flags per cache line against 0.62 whole tags — so the correct answer and the fast answer coincide.\n\nSequencing keeps the tree building at every step: flags move to a parallel array on Grammar FIRST (phase 2), so phase 3 only has to relocate a field rather than rewrite 270 call sites under a new type. The three transient writes (two override families, the rule reorder) go to RuleScratch in phase 1, independent of everything else.\n\nASSUMPTION, stated because it was asked and not answered: teaksta shares one grammar across workers IN ONE PROCESS. Arc buys nothing across process boundaries; if the workers are separate processes the answer is an mmap'd read-only image instead, and phases 3–4 change shape. Phases 1–2 are worth doing either way. Grammar is already Send + Sync (compile-checked), so the Arc story has no type-level blocker."
+            }
+        )
+    }
 )
