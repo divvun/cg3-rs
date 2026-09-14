@@ -172,6 +172,16 @@ impl crate::grammar_applicator::Engine<'_> {
         if st.delimited {
             retval |= RV_DELIMITED;
         }
+
+        // No rule is in flight once this returns. Without this the field only
+        // ever means "some rule has run at some point", and since stream reading
+        // is interleaved with rule running, every delimiter check on a later
+        // window would attribute its failure to whichever rule finished last.
+        // Deliberately NOT cleared on the `?` path above: a failure raised while
+        // a rule is running belongs to that rule, which is the one case the
+        // label gets right.
+        self.scratch.current_rule = None;
+
         Ok(retval)
     }
 

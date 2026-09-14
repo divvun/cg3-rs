@@ -293,6 +293,9 @@ fn engine_inprocess_error_getters_and_dead_helpers() {
     use cg3::sorted_vector::Uint32SortedVector;
     use cg3::tag::TagSortedVector;
 
+    // See also `current_rule_does_not_outlive_the_run` below: the label these
+    // return depends on current_rule being unset when no rule is in flight.
+
     // error(): no current rule -> ("RT INPUT", numLines).
     let mut grammar = Grammar::default();
     let aa = grammar.allocate_tag("enginetag-aa").unwrap();
@@ -335,6 +338,46 @@ fn engine_inprocess_error_getters_and_dead_helpers() {
     let mut b2 = Uint32SortedVector::new();
     b2.insert(bb_hash);
     assert!(!tag_set_subset_of_t_set(app.get_grammar(), &a, &b2));
+}
+
+/// `current_rule` names the rule in flight, and nothing is in flight once a
+/// window's rules have run.
+///
+/// It used to be set on entry to each rule and never cleared, so after the
+/// first window it only meant "some rule ran at some point". Stream reading is
+/// interleaved with rule running — the reader tests DELIMITERS against each
+/// cohort as it reads — so a failure raised while reading a later window was
+/// attributed to whichever rule happened to finish last.
+///
+/// Asserted on the state rather than through a diagnostic because the
+/// mislabelling needs a failure that only fires mid-read, which is a far more
+/// elaborate fixture than the property is worth. The label itself is pinned by
+/// `tools_cli::runtime_input_failure_names_the_input`.
+#[test]
+fn current_rule_does_not_outlive_the_run() {
+    use cg3::grammar::Grammar;
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::textual_parser::TextualParser;
+
+    let src = b"DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nSECTION\nSELECT N ;\n";
+    let mut parser = TextualParser::new(Grammar::default(), false);
+    parser
+        .parse_grammar_named(src, "current-rule.cg3")
+        .expect("grammar parses");
+    let mut grammar = parser.grammar;
+    let _ = grammar.reindex(false, false).expect("reindex");
+
+    let mut app = GrammarApplicator::new(grammar);
+    app.set_grammar().expect("applicator setup");
+    let mut cursor = std::io::Cursor::new(b"\"<a>\"\n\t\"a\" n\n\n\"<b>\"\n\t\"b\" n\n\n".to_vec());
+    let mut out: Vec<u8> = Vec::new();
+    app.run_grammar_on_text(&mut cursor, &mut out)
+        .expect("the run completes");
+
+    assert!(
+        app.scratch.current_rule.is_none(),
+        "a rule that has finished must not still be the current rule"
+    );
 }
 
 // ===========================================================================

@@ -2292,6 +2292,20 @@ children (
                 kind @note
                 text "scratch.current_rule is initialised None (grammar_applicator/mod.rs:653), set at run_rules/schedule.rs:77, saved/restored around sub-rules at dispatch.rs:621/638 — and never set back to None when rules finish. Verified: no assignment of None exists outside the initialiser. So `None` means \"no rule has run yet in this process\", not \"no rule is running\".\n\nThe consequence is a lying label. Stream reading and rule running interleave — the reader buffers windows, runs them, reads more — and the delimiter set is tested against each cohort as it is read (run_grammar.rs:667/693/736, plus the same shape in every other stream applicator). A varstring delimiter that fails during a read AFTER the first window has run is reported as RT RULE against whichever rule finished last, which has nothing to do with it. That directly undercuts [spec:cg3:req:diagnostics.runtime-input-named]: the input branch is reachable (pinned by runtime_input_failure_names_the_input) but only in the window before any rule has run, and the rule branch is wrong everywhere after.\n\nDo NOT just assign None at the end of run_rules without reading match_set.rs:1178-1183 first. current_rule is not only a diagnostic there — it is read to pull RF_CAPTURE_UNIF off the current rule, feeding `cap_unif` and hence whether unification tags/sets are loaded into the match. That read is gated on `context.is_some()`, and delimiter checks pass None, so clearing it looks safe for the diagnostic case — but \"looks safe\" is exactly the claim that needs a test rather than an argument, and this is matching behaviour, not labelling.\n\nAlso worth settling as part of this: the fix WIDENS the input branch rather than narrowing it, so the existing CLI test only covers the easy case. A second fixture where the failure lands after a rule has run would be the real regression test, and constructing one probably needs a varstring delimiter that resolves through a variable a rule sets."
             }
+
+            {
+                at 2026-09-14T13:36:30.522882Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+
+            {
+                at 2026-09-14T13:39:40.325149Z
+                author "brendan@necessary.nu"
+                kind @note
+                text "Cleared at the end of run_rules_on_single_window (schedule.rs), not on the `?` path above it: a failure raised while a rule is running belongs to that rule, which is the one case the RT RULE label already gets right.\n\nThe risk flagged when filing is resolved, by inspection rather than by the suite passing. current_rule is read non-diagnostically at match_set.rs:1178-1183 to pull RF_CAPTURE_UNIF off the current rule, and clearing it would flip cap_unif to false — which, because the guard reads `!cap_unif`, would turn the unification-tag load ON where it had been off. That would be a real matching change. It cannot fire here: the branch is gated on `context.is_some()`, and every Some(context) caller is in run_contextual_test.rs (:242, :245, :285), i.e. contextual-test evaluation, which only runs while a rule is in flight. Every other caller — all eight stream applicators' delimiter checks — passes None. Conformance suites agree (225/229 green either side), but the argument is what settles it.\n\nPinned by current_rule_does_not_outlive_the_run (tests/engine.rs), asserting the state after a completed run rather than through a diagnostic. Reaching the mislabel through an actual error needs a failure that fires only mid-read on a later window, which means a delimiter varstring resolving through a variable a rule sets — a far more elaborate fixture than the property warrants. The label itself is already pinned end-to-end by tools_cli::runtime_input_failure_names_the_input."
+            }
         )
     }
 )
