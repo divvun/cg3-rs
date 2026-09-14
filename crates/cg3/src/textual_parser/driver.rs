@@ -341,27 +341,39 @@ impl TextualParser {
             return Err(self.error_near(*pos));
         }
 
-        let mut abspath = incname.clone();
-        if abspath.contains('~') || abspath.contains('$') || abspath.contains('*') {
-            abspath = shell_expand(&abspath);
+        let mut expanded = incname.clone();
+        if expanded.contains('~') || expanded.contains('$') || expanded.contains('*') {
+            expanded = shell_expand(&expanded);
         }
-        if !abspath.starts_with('/') {
-            let dir = ux_dirname(fname);
-            abspath = format!("{dir}{abspath}");
-        }
+        let dir = ux_dirname(fname);
+        let mut abspath = if expanded.starts_with('/') {
+            expanded.clone()
+        } else {
+            format!("{dir}{expanded}")
+        };
+
+        // PORT WIDENING, not C++ parity: the C++ stats the including file's
+        // directory once and bails. The second chance against the process CWD is
+        // kept because it is the only thing that reaches a relative include
+        // nested under an absolute- or `~`-rooted parent. It retries the
+        // SHELL-EXPANDED name, never the raw token — retrying the token would
+        // re-try a literal `~/…` that cannot exist. `dir == "./"` means the two
+        // spellings name one file, so there is nothing to retry.
+        let cwd_retry = (dir != "./" && !expanded.starts_with('/')).then(|| expanded.clone());
+
         let mut bytes = match std::fs::read(&abspath) {
             Ok(b) => b,
-            Err(_) => match std::fs::read(&incname) {
-                Ok(b) => {
-                    abspath = incname.clone();
+            Err(primary) => match cwd_retry.and_then(|p| std::fs::read(&p).ok().map(|b| (p, b))) {
+                Some((p, b)) => {
+                    abspath = p;
                     b
                 }
-                Err(e) => {
+                None => {
                     return Err(self.parse_error_at(
                         String::new(),
                         crate::error::ParseErrorKind::IncludeUnreadable {
                             path: abspath,
-                            source: e,
+                            source: primary,
                         },
                     ));
                 }

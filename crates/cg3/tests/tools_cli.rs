@@ -262,6 +262,63 @@ fn cg_comp_main_compiles_t_select() {
     let _ = std::fs::remove_file(&bin);
 }
 
+/// `INCLUDE` resolves against the including file's own directory first, and
+/// falls back to the process CWD only when that misses. Both halves are pinned
+/// here: `sub/top.cg3` includes `far.cg3`, which sits in the CWD rather than
+/// beside it, and `sub/near.cg3` includes a `beside.cg3` that exists in BOTH
+/// places with different contents — the neighbour must win.
+///
+/// The fallback is a port widening over the C++, which stats one path and
+/// bails, and after narrowing this is the only shape that still reaches it. If
+/// it stops working nothing else in the suite notices.
+#[test]
+fn include_prefers_including_dir_over_cwd() {
+    let root = temp_path("include-resolution");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    // Only in the CWD — reachable by the fallback alone.
+    std::fs::write(root.join("far.cg3"), "LIST FarOnly = f ;\n").unwrap();
+    // In both places; the one beside the includer must be chosen.
+    std::fs::write(root.join("beside.cg3"), "LIST FromCwd = c ;\n").unwrap();
+    std::fs::write(root.join("sub/beside.cg3"), "LIST FromNeighbour = n ;\n").unwrap();
+    std::fs::write(
+        root.join("sub/top.cg3"),
+        "DELIMITERS = \"<.>\" ;\nINCLUDE far.cg3 ;\nINCLUDE beside.cg3 ;\n",
+    )
+    .unwrap();
+
+    let out = temp_path("include-resolution.cg3b");
+    let status = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
+        .current_dir(&root)
+        .arg("sub/top.cg3")
+        .arg(&out)
+        .status()
+        .expect("spawn cg-comp");
+    assert!(status.success(), "cg-comp exited with {status}");
+
+    let text = std::fs::read_to_string(&out).unwrap_or_default();
+    let sources = cg3::grammar_sources::read_sidecar(&out)
+        .expect("a fresh sidecar is accepted")
+        .sources
+        .iter()
+        .map(|s| s.text.as_str())
+        .collect::<String>();
+    let seen = format!("{text}{sources}");
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(cg3::grammar_sources::sidecar_path(&out));
+    let _ = std::fs::remove_dir_all(&root);
+
+    assert!(seen.contains("FarOnly"), "CWD fallback did not resolve");
+    assert!(
+        seen.contains("FromNeighbour"),
+        "the including file's own directory must win"
+    );
+    assert!(
+        !seen.contains("FromCwd"),
+        "the CWD copy shadowed the neighbour"
+    );
+}
+
 /// Compiling writes the grammar's source beside the `.cg3b`, with no flag asked
 /// for, and the companion file describes THIS binary — so a rule number
 /// resolves back to the text the author wrote, across the `INCLUDE` boundary.

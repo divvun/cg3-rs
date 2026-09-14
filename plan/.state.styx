@@ -141,6 +141,7 @@ assertions (
     {id magic-sniff-bounds, kind @doing, author "brendan@necessary.nu", at 2026-08-15T22:24:33.081345Z}
     {id textual-sniff-bounds, kind @doing, author "brendan@necessary.nu", at 2026-08-15T22:31:05.119277Z}
     {id ctx-override-restore-on-error, kind @doing, author "brendan@necessary.nu", at 2026-09-14T13:16:06.230874Z}
+    {id grammar-diagnostics.include-resolution, kind @doing, author "brendan@necessary.nu", at 2026-09-14T13:22:37.826278Z}
 )
 
 impl_evidence (

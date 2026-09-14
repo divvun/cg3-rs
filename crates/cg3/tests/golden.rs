@@ -4,8 +4,11 @@
 //! Each `test/T_*` directory holds `grammar.cg3` + `input.txt` + `expected.txt`
 //! (+ optional `args.txt` extra flags, `prefix.txt` mapping prefix). For every
 //! such directory this runs the four `runall.pl` sub-tests as separate nextest
-//! tests, all DIR-LOCAL (cwd = the test dir, because grammars use relative
-//! `INCLUDE` paths):
+//! tests, all DIR-LOCAL (cwd = the test dir, because the grammar and input are
+//! passed as bare names — `-g grammar.cg3`, `-I input.txt` — and `expected.txt`
+//! is read from the dir. NOT because of `INCLUDE`: relative includes resolve
+//! against the including file's own directory, so T_Include works from
+//! anywhere):
 //!
 //! 1. [`golden_textual`]          — run the textual grammar, diff `expected.txt`.
 //! 2. [`golden_grammar_roundtrip`]— write the parsed grammar back out
