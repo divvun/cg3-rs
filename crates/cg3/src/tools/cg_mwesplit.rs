@@ -5,7 +5,7 @@
 //! result to stdout. No grammar file: the applicator builds its own minimal
 //! dummy grammar in its constructor.
 
-use crate::icu_uoptions::u_parse_args;
+use crate::arg_parser::parse_args;
 use crate::options::{UOPT_NO_ARG, UOption};
 
 use super::{fail, to_uargv};
@@ -55,7 +55,7 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
 
     let mut options_mwe = options_mwe();
     let mut argv = to_uargv(args);
-    let argc = u_parse_args(
+    let argc = parse_args(
         argv.len() as i32,
         &mut argv,
         Opt::NumOptionsMwe as i32,

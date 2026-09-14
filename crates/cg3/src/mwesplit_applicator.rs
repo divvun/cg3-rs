@@ -46,7 +46,7 @@ use crate::inlines::{isnl, ui32};
 use crate::strings::STR_DUMMY;
 use crate::tag::T_WORDFORM;
 use crate::types::TagHash;
-use crate::uextras::{u_fflush, u_fputc};
+use crate::uextras::write_char;
 
 /// C++ `Strings.hpp` constants (UTF-16 → UTF-8 &str).
 const STR_CMD_SETVAR: &str = "<STREAMCMD:SETVAR:";
@@ -469,7 +469,7 @@ impl Engine<'_> {
         if !text.is_empty() {
             self.print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
+                write_char('\n', output);
             }
         }
 
@@ -489,15 +489,15 @@ impl Engine<'_> {
         if !text_post.is_empty() {
             self.print_plain_text_line(&text_post, output);
             if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
+                write_char('\n', output);
             }
         }
 
-        u_fputc('\n', output);
+        write_char('\n', output);
         if flush_after {
             let _ = writeln!(output, "{STR_CMD_FLUSH}");
         }
-        u_fflush(output);
+        let _ = output.flush();
         Ok(())
     }
 }

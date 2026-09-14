@@ -16,8 +16,8 @@
 //! buffers (matching the already-ported engine `run_grammar.rs` convention).
 //!
 //! OUTPUT SINK. C++ `std::ostream& output` → generic `output: &mut W`
-//! (`W: std::io::Write`); the `uextras::{u_fputc, u_fflush}`
-//! primitives write UTF-8. `u_fprintf_u` (UChar pattern) collapses to
+//! (`W: std::io::Write`); the `uextras::write_char`
+//! primitive writes UTF-8. `u_fprintf_u` (UChar pattern) collapses to
 //! `format_args!` with the literal Unicode chars.
 //!
 //! REPRODUCED BUGS (bug-for-bug):
@@ -38,7 +38,7 @@ use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
 use crate::single_window::{SingleWindow, append_cohort};
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_WORDFORM, TagList};
 use crate::types::{DynBitset, TagHash};
-use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fputc, ux_strip_bom};
+use crate::uextras::{U_EOF, read_char, ux_strip_bom, write_char};
 
 // C++ `constexpr UChar esc_lt = '\1';` — the sentinel the reading scanner
 // substitutes for an escaped `\<` so it becomes literal baseform text rather
@@ -661,7 +661,7 @@ where
 
         // Main character loop: while ((c = u_fgetc(input)) != U_EOF).
         loop {
-            c = u_fgetc(input);
+            c = read_char(input);
             if c == U_EOF {
                 break;
             }
@@ -671,7 +671,7 @@ where
             }
 
             if c == '\\' {
-                let n = u_fgetc(input);
+                let n = read_char(input);
                 if !st.in_cohort {
                     st.blank.push(c);
                     st.blank.push(n);
@@ -1176,9 +1176,9 @@ where
         }
 
         if n && back_swindow.is_none() {
-            u_fputc('\0', output);
+            write_char('\0', output);
         }
-        u_fflush(output);
+        let _ = output.flush();
 
         st.in_blank = false;
         st.in_wblank = false;
@@ -1352,7 +1352,7 @@ impl ApertiumFormat {
 
         if let Some(next) = r.next {
             self.print_reading_e(e, next, output, casing, firstlower);
-            u_fputc('+', output);
+            write_char('+', output);
         }
 
         let baseform = r.baseform.unwrap_or(TagHash(0));
@@ -1503,9 +1503,9 @@ impl ApertiumFormat {
 
         if e.cfg.trace {
             for &iter_hb in r.hit_by.iter() {
-                u_fputc('<', output);
+                write_char('<', output);
                 crate::grammar_applicator::core::print_trace(e.grammar, e.cfg, output, iter_hb);
-                u_fputc('>', output);
+                write_char('>', output);
             }
         }
     }
@@ -1759,17 +1759,17 @@ impl ApertiumFormat {
         let all_cohorts = e.doc.store.single_windows.get(window.0).all_cohorts.clone();
         for cohort in all_cohorts {
             self.print_cohort_e(e, cohort, output, profiling);
-            u_fflush(output);
+            let _ = output.flush();
         }
 
         let text_post = e.doc.store.single_windows.get(window.0).text_post.clone();
         if !text_post.is_empty() {
             let _ = write!(output, "{text_post}");
-            u_fflush(output);
+            let _ = output.flush();
         }
 
         if e.doc.store.single_windows.get(window.0).flush_after {
-            u_fputc('\0', output);
+            write_char('\0', output);
         }
     }
 }

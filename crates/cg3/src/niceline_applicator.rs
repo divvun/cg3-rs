@@ -37,7 +37,7 @@ use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{isnl, skipto_nospan};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION};
 use crate::types::TagHash;
-use crate::uextras::{get_line_clean, u_fflush, u_fputc, ux_strip_bom};
+use crate::uextras::{get_line_clean, ux_strip_bom, write_char};
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — resolve a hash to its
 /// `TagId`. operator[] would default-insert a null `Tag*` on a miss (deref
@@ -565,7 +565,7 @@ impl<'a> NicelineApplicator<'a> {
             self.base.doc.stream.previous.remove(0);
         }
 
-        u_fflush(output);
+        let _ = output.flush();
         Ok(())
     }
 }
@@ -614,7 +614,7 @@ impl NicelineFormat {
         if deleted {
             return;
         }
-        u_fputc('\t', output);
+        write_char('\t', output);
         if baseform != TagHash(0) {
             // "[%.*S]" of tag.data()+1 for tag.size()-2 → strip both quotes, wrap [].
             let tid = tag_by_hash(e.grammar, baseform);
@@ -733,7 +733,7 @@ impl NicelineFormat {
         if e.cfg.trace {
             let hit_by: Vec<u32> = e.doc.store.readings.get(reading.0).hit_by.clone();
             for hb in hit_by {
-                u_fputc(' ', output);
+                write_char(' ', output);
                 e.print_trace(output, hb);
             }
         }
@@ -771,7 +771,7 @@ impl NicelineFormat {
             if !wblank.is_empty() {
                 e.print_plain_text_line(&wblank, output);
                 if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
-                    u_fputc('\n', output);
+                    write_char('\n', output);
                 }
             }
 
@@ -797,7 +797,7 @@ impl NicelineFormat {
 
             let readings: Vec<ReadingId> = e.doc.store.cohorts.get(cohort.0).readings.clone();
             if readings.is_empty() {
-                u_fputc('\t', output);
+                write_char('\t', output);
             }
             for r in readings {
                 self.print_reading_e(e, r, output);
@@ -805,12 +805,12 @@ impl NicelineFormat {
         }
 
         // removed:
-        u_fputc('\n', output);
+        write_char('\n', output);
         let text = e.doc.store.cohorts.get(cohort.0).text.clone();
         if !text.is_empty() && text.chars().any(|c| !is_ws(&e.cfg.ws, c)) {
             e.print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
+                write_char('\n', output);
             }
         }
     }
@@ -834,7 +834,7 @@ impl NicelineFormat {
         if !text.is_empty() {
             e.print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
+                write_char('\n', output);
             }
         }
 
@@ -845,12 +845,12 @@ impl NicelineFormat {
         if !text_post.is_empty() {
             e.print_plain_text_line(&text_post, output);
             if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
+                write_char('\n', output);
             }
         }
 
-        u_fputc('\n', output);
-        u_fflush(output);
+        write_char('\n', output);
+        let _ = output.flush();
     }
 }
 

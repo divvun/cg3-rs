@@ -39,7 +39,7 @@ use crate::reading::alloc_reading;
 use crate::single_window::{append_cohort, free_swindow};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
 use crate::types::TagHash;
-use crate::uextras::{get_line_clean_chars, u_fputc, ux_strip_bom};
+use crate::uextras::{get_line_clean_chars, ux_strip_bom, write_char};
 
 /// C++ `grammar->single_tags[hash]` — resolves a tag hash to its `TagId`, else
 /// `TagId(0)`. Reproduces `grammar_applicator::core::tag_by_hash` (which is
@@ -210,7 +210,7 @@ where
             let mut packoff = get_line_clean_chars(&mut line, &mut cleaned, input, true);
 
             // C++ `while (!input.eof())`: eofbit is set when a read attempt hits
-            // end-of-stream. `u_fgets` distinguishes a blank line (packoff == 0
+            // end-of-stream. `read_line_chars` distinguishes a blank line (packoff == 0
             // but `line[0]` holds the newline) from true EOF (nothing stored, so
             // `line[0]` keeps the '\0' it was reset to) — only the latter ends
             // the loop. Sampled here, acted on at the bottom of the iteration
@@ -1098,7 +1098,7 @@ impl FstFormat {
             if !wblank.is_empty() {
                 let _ = write!(output, "{wblank}");
                 if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
-                    u_fputc('\n', output);
+                    write_char('\n', output);
                 }
             }
 
@@ -1146,10 +1146,10 @@ impl FstFormat {
                 for rter in readings {
                     let _ = write!(output, "{wform_inner}\t");
                     self.print_reading_e(e, rter, output);
-                    u_fputc('\n', output);
+                    write_char('\n', output);
                 }
             }
-            u_fputc('\n', output);
+            write_char('\n', output);
         }
 
         // removed:
@@ -1157,7 +1157,7 @@ impl FstFormat {
         if !text.is_empty() && text.chars().any(|c| !self.is_ws_e(e, c)) {
             let _ = write!(output, "{text}");
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
+                write_char('\n', output);
             }
         }
     }
@@ -1198,7 +1198,7 @@ impl FstFormat {
         if !text.is_empty() {
             let _ = write!(output, "{text}");
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
+                write_char('\n', output);
             }
         }
 
@@ -1209,11 +1209,11 @@ impl FstFormat {
         if !text_post.is_empty() {
             let _ = write!(output, "{text_post}");
             if !isnl(text_post.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
+                write_char('\n', output);
             }
         }
 
-        u_fputc('\n', output);
+        write_char('\n', output);
         let _ = output.flush();
     }
 }

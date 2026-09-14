@@ -14,10 +14,10 @@
 
 use std::io::{Read, Write};
 
+use crate::arg_parser::parse_args;
 use crate::binary_grammar::BinaryGrammar;
 use crate::grammar::{Grammar, Reindexed};
 use crate::grammar_writer::GrammarWriter;
-use crate::icu_uoptions::u_parse_args;
 use crate::inlines::is_cg3b;
 use crate::options::{
     Opt, grammar_options_default, grammar_options_override, options, options_default,
@@ -103,7 +103,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
     // argc = u_parseArgs(argc, argv, options.size(), options.data());
     let mut argv = to_uargv(args);
-    let mut argc = u_parse_args(
+    let mut argc = parse_args(
         argv.len() as i32,
         &mut argv,
         Opt::NumOptions as i32,

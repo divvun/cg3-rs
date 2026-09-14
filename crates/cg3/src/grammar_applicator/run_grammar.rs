@@ -57,7 +57,7 @@ pub fn test_string_against(str: &str, rxs: &[crate::tag_regex::TagRegex]) -> boo
 /// C++ `u_strchr(s, needle)` over a `Vec<char>` scratch buffer: return the index
 /// of the first `needle` at or after `from`, scanning up to (not past) the NUL
 /// terminator, or `None`. Used by the inline SETVAR/REMVAR pointer walks.
-fn u_strchr(buf: &[char], from: usize, needle: char) -> Option<usize> {
+fn find_char_before_nul(buf: &[char], from: usize, needle: char) -> Option<usize> {
     let mut i = from;
     while buf[i] != '\0' {
         if buf[i] == needle {
@@ -337,7 +337,7 @@ impl super::Engine<'_> {
         // while (space && (space = u_strchr(space, ' ')) != 0) { … }
         // Loop over each space-delimited [base .. space) tag region.
         loop {
-            match u_strchr(cleaned, space, ' ') {
+            match find_char_before_nul(cleaned, space, ' ') {
                 None => break,
                 Some(sp) => {
                     space = sp;
@@ -609,7 +609,7 @@ impl super::Engine<'_> {
                 crate::uextras::get_line_clean_chars(&mut line, &mut cleaned, input, false);
 
             // C++ `while (!input.eof())`: eofbit is set when a read attempt hits
-            // end-of-stream. `u_fgets` distinguishes a blank line (packoff == 0
+            // end-of-stream. `read_line_chars` distinguishes a blank line (packoff == 0
             // but `line[0]` holds the newline) from true EOF (nothing stored, so
             // `line[0]` keeps the '\0' it was reset to) — only the latter ends
             // the loop. Sampled here, acted on at the bottom of the iteration.
@@ -975,7 +975,7 @@ impl super::Engine<'_> {
                         }
                         line[0] = '\0';
                         self.doc.variables.clear(0);
-                        crate::uextras::u_fflush(output);
+                        let _ = output.flush();
                     } else if cleaned_str == crate::strings::STR_CMD_IGNORE {
                         // "IGNORE encountered …": deferred.
                         is_cmd = true;
@@ -1002,8 +1002,8 @@ impl super::Engine<'_> {
                         // UChar* s = &cleaned[STR_CMD_SETVAR.size()];
                         let mut s: Option<usize> =
                             Some(crate::strings::STR_CMD_SETVAR.chars().count());
-                        let mut c = u_strchr(&cleaned, s.unwrap(), ',');
-                        let mut d = u_strchr(&cleaned, s.unwrap(), '=');
+                        let mut c = find_char_before_nul(&cleaned, s.unwrap(), ',');
+                        let mut d = find_char_before_nul(&cleaned, s.unwrap(), '=');
                         if c.is_none() && d.is_none() {
                             let s_text: String = cleaned[s.unwrap()..]
                                 .iter()
@@ -1080,8 +1080,8 @@ impl super::Engine<'_> {
                                     variables_output.insert(a);
                                 }
                                 if let Some(si) = s {
-                                    c = u_strchr(&cleaned, si, ',');
-                                    d = u_strchr(&cleaned, si, '=');
+                                    c = find_char_before_nul(&cleaned, si, ',');
+                                    d = find_char_before_nul(&cleaned, si, '=');
                                     if c.is_none() && d.is_none() {
                                         let s_text: String = cleaned[si..]
                                             .iter()
@@ -1106,7 +1106,7 @@ impl super::Engine<'_> {
 
                         // UChar* s = &cleaned[STR_CMD_REMVAR.size()];
                         let mut s: usize = crate::strings::STR_CMD_REMVAR.chars().count();
-                        let mut c = u_strchr(&cleaned, s, ',');
+                        let mut c = find_char_before_nul(&cleaned, s, ',');
                         while let Some(ci) = c {
                             if cleaned[ci] == '\0' {
                                 break;
@@ -1122,7 +1122,7 @@ impl super::Engine<'_> {
                                 variables_output.insert(a);
                             }
                             s = ci + 1;
-                            c = u_strchr(&cleaned, s, ',');
+                            c = find_char_before_nul(&cleaned, s, ',');
                         }
                         if cleaned[s] != '\0' {
                             let s_text: String =
@@ -1282,7 +1282,7 @@ impl super::Engine<'_> {
             self.doc.stream.previous.remove(0);
         }
 
-        crate::uextras::u_fflush(output);
+        let _ = output.flush();
 
         // Emit final SETVAR/REMVAR stream commands for each output variable.
         for &var in variables_output.as_slice() {

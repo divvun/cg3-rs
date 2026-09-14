@@ -186,11 +186,12 @@ pub fn ux_strip_bom<S: Read + Seek>(stream: &mut S) -> bool {
 // empty line as "read nothing"; (3) an exactly-full buffer writes no
 // terminator. The caller must provide `s.len() >= n + 1` (so the `s[i+1]`
 // write stays in bounds), as `get_line_clean` does.
-pub fn u_fgets<R: Read>(s: &mut [char], n: i32, input: &mut R) -> bool {
+/// C++ `u_fgets`.
+pub fn read_line_chars<R: Read>(s: &mut [char], n: i32, input: &mut R) -> bool {
     s[0] = '\0';
     let mut i: i32 = 0;
     while i < n {
-        let c = u_fgetc(input);
+        let c = read_char(input);
         if c == U_EOF {
             break; // EOF: nothing stored at s[i]
         }
@@ -218,7 +219,8 @@ pub fn u_fgets<R: Read>(s: &mut [char], n: i32, input: &mut R) -> bool {
 // is a full scalar (no lone surrogates). Returns `U_EOF` on end-of-stream and
 // `'\0'` when the first byte read is a NUL. The lead-byte masks (0xF0/0xE0/0xC0,
 // widest first) and the short-read `panic!`s mirror the source.
-pub fn u_fgetc<R: Read>(input: &mut R) -> char {
+/// C++ `u_fgetc`.
+pub fn read_char<R: Read>(input: &mut R) -> char {
     let c = match read_byte(input) {
         Some(v) => v,
         None => return U_EOF, // i == 0 && c == EOF
@@ -331,11 +333,13 @@ pub fn read_utf8<R: Read>(input: &mut R, buf_size: usize) -> Vec<u8> {
 // [spec:cg3:def:uextras.u-fflush-fn]
 // [spec:cg3:sem:uextras.u-fflush-fn]
 //
-// `output.flush()`. The C++ `ostream&` and `ostream*` overloads collapse into
-// this one; IO errors are ignored, as in the source.
-pub fn u_fflush<W: Write>(output: &mut W) {
-    let _ = output.flush();
-}
+// DISSOLVED: the C++ `u_fflush(ostream&)` / `u_fflush(ostream*)` overload pair
+// exists so a `std::ostream` can be flushed through the same `u_`-prefixed
+// facade as the rest of the ICU stdio family. Its whole body is `output.flush()`
+// with the result discarded, which in Rust is `let _ = output.flush();` — a
+// method call on the `Write` the caller already holds. Every former call site
+// now writes that directly. `dissolved_printf_shims_are_plain_write` (tests
+// below) pins the observable contract.
 
 // [spec:cg3:def:uextras.u-vsnprintf-fn]
 // [spec:cg3:sem:uextras.u-vsnprintf-fn]
@@ -362,7 +366,8 @@ pub fn u_fflush<W: Write>(output: &mut W) {
 // `UChar32 c` → `char`. BUG/LIMITATION reproduced faithfully: the second branch
 // cuts off at 0x7FFF, so every code point at or above 0x8000 `panic!`s ("can't
 // handle >= 0x7FFF"), even though 0x7FFF itself is handled.
-pub fn u_fputc<W: Write>(c32: char, output: &mut W) -> char {
+/// C++ `u_fputc`.
+pub fn write_char<W: Write>(c32: char, output: &mut W) -> char {
     let v = c32 as u32;
     if v <= 0x7F {
         let _ = output.write_all(&[c32 as u8]);
@@ -480,9 +485,9 @@ pub fn get_line_clean<R: Read>(
     line.clear();
     cleaned.clear();
 
-    // u_fgets: read chars (UTF-8-decoded) until a stored newline or EOF.
+    // C++ u_fgets: read chars (UTF-8-decoded) until a stored newline or EOF.
     loop {
-        let c = u_fgetc(input);
+        let c = read_char(input);
         if c == U_EOF {
             break;
         }
@@ -491,7 +496,7 @@ pub fn get_line_clean<R: Read>(
             break;
         }
     }
-    // The u_fgets lone-newline quirk: a blank line reports "read nothing", so
+    // The C++ u_fgets lone-newline quirk: a blank line reports "read nothing", so
     // nothing is copied to `cleaned` (the C++ broke before the copy loop).
     if line == "\n" || (line.chars().count() == 1 && line.chars().next().map(isnl).unwrap_or(false))
     {
@@ -550,7 +555,7 @@ pub fn get_line_clean_chars<R: Read>(
             break;
         }
         let n = line.len() as i32 - offset as i32 - 1;
-        if !u_fgets(&mut line[offset..], n, input) {
+        if !read_line_chars(&mut line[offset..], n, input) {
             break;
         }
 
@@ -685,7 +690,7 @@ pub fn ux_simplecasecmp(a: &[char], b: &[char], n: usize) -> bool {
     // match. Short-circuit for the most likely suffixes (NUL/space/delim).
     match a.get(n) {
         None => true, // a[n] == 0
-        Some(&an) => an == '\0' || isspace(an) || isdelim(an) || u_get_combining_class(an) == 0,
+        Some(&an) => an == '\0' || isspace(an) || isdelim(an) || combining_class(an) == 0,
     }
 }
 
@@ -702,7 +707,7 @@ pub fn ux_simplecasecmp_sv(a: &str, b: &str) -> bool {
 /// ICU `u_getCombiningClass` is unavailable in std; combining class is 0 for
 /// every ASCII char, which is all that reaches this branch in practice. NOTE:
 /// parity risk for real combining marks (Wave 4 may wire a Unicode-data crate).
-fn u_get_combining_class(_c: char) -> u8 {
+fn combining_class(_c: char) -> u8 {
     0
 }
 
@@ -865,9 +870,9 @@ mod tests {
         assert_eq!(s3, "abc");
     }
 
-    // get_line_clean reads a line via u_fgets/u_fgetc, collapsing runs of spaces
+    // get_line_clean reads a line via read_line_chars/read_char, collapsing runs of spaces
     // to a single space and stopping at a newline; it returns the cleaned length.
-    // Drives get_line_clean -> u_fgets -> u_fgetc together.
+    // Drives get_line_clean -> read_line_chars -> read_char together.
     // [spec:cg3:sem:uextras.cg3.get-line-clean-fn/test]
     // [spec:cg3:sem:uextras.u-fgets-fn/test]
     // [spec:cg3:sem:uextras.u-fgetc-fn/test]
@@ -941,11 +946,11 @@ mod tests {
         assert_eq!(partial.position(), 0);
     }
 
-    // Output helpers. The u_fprintf/u_fprintf_u/_u_vsnprintf shims are DISSOLVED
-    // (wave 4): formatted stream output is plain `write!` at every former call
-    // site. This pins their observable contract — the formatted arguments land
-    // on the stream as UTF-8 bytes, I/O errors ignored. u_fputc writes a single
-    // char; u_fflush flushes the sink.
+    // Output helpers. The u_fprintf/u_fprintf_u/_u_vsnprintf/u_fflush shims are
+    // DISSOLVED: formatted stream output is plain `write!` and flushing is plain
+    // `Write::flush` at every former call site. This pins their observable
+    // contract — the formatted arguments land on the stream as UTF-8 bytes, I/O
+    // errors ignored. write_char writes a single char.
     // [spec:cg3:sem:uextras.u-fprintf-fn/test]
     // [spec:cg3:sem:uextras.u-fprintf-u-fn/test]
     // [spec:cg3:sem:uextras.u-vsnprintf-fn/test]
@@ -963,26 +968,26 @@ mod tests {
         let _ = write!(out2, "\u{1F600}");
         assert_eq!(String::from_utf8(out2).unwrap(), "\u{1F600}");
 
-        // u_fputc: writes one char and echoes it back; 0x7FFF is the last handled.
+        // write_char: writes one char and echoes it back; 0x7FFF is the last handled.
         let mut out3: Vec<u8> = Vec::new();
-        assert_eq!(u_fputc('A', &mut out3), 'A');
+        assert_eq!(write_char('A', &mut out3), 'A');
         assert_eq!(out3, b"A");
         let mut out4: Vec<u8> = Vec::new();
-        assert_eq!(u_fputc('\u{7FFF}', &mut out4), '\u{7FFF}');
+        assert_eq!(write_char('\u{7FFF}', &mut out4), '\u{7FFF}');
         assert_eq!(out4, "\u{7FFF}".as_bytes());
 
-        // u_fflush just flushes (a Vec flush is infallible); no panic.
+        // Flushing is just `Write::flush` (a Vec flush is infallible); no panic.
         let mut sink: Vec<u8> = Vec::new();
-        u_fflush(&mut sink);
+        let _ = sink.flush();
     }
 
-    // u_fputc reproduces the >= 0x8000 panic bug (second branch cuts off at
+    // write_char reproduces the >= 0x8000 panic bug (second branch cuts off at
     // 0x7FFF). The u-fputc-fn/test facet lives on output_helpers_write_and_count.
     #[test]
     #[should_panic(expected = "can't handle >= 0x7FFF")]
-    fn u_fputc_panics_above_limit() {
+    fn write_char_panics_above_limit() {
         let mut out: Vec<u8> = Vec::new();
-        u_fputc('\u{8000}', &mut out);
+        write_char('\u{8000}', &mut out);
     }
 
     // Set-op detection: single tokens (|,+,-,^,\,U+2229,U+2206) and "OR"/case.

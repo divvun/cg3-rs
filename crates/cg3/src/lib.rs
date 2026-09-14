@@ -39,9 +39,9 @@ pub mod tag_trie;
 pub mod window;
 
 // --- Wave 2 support utilities (io / platform / parser-support / options) ---
+pub mod arg_parser;
 pub mod ast;
 pub mod filesystem;
-pub mod icu_uoptions;
 pub mod igrammar_parser;
 pub mod options;
 pub mod options_conv;

@@ -2400,6 +2400,36 @@ children (
                 title "Rename the ICU C stdio and options surface: u_fputc, u_fprintf, u_fgets, u_sscanf, u_strchr, u_isdigit, u_cleanup and the icu_uoptions module name plain Rust I/O and argument parsing after the C API they no longer call"
                 priority 1
                 deps (deicu.type-aliases)
+                sealed true
+                log (
+                    {
+                        at 2026-09-14T17:53:52.260534Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-09-14T18:01:35.332873Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Of the ~180 `u_*` sites, only 13 were Rust identifiers; the rest name C++/ICU symbols inside comments (`u_sscanf` format strings, `u_cleanup dropped.`, `u_strspn`/`u_strcspn`/`u_strlen`/`u_strncmp`/`u_sprintf`/`u_init`/`u_fprintf` quotes of the original) and stay, per the type-aliases precedent that comments describing the C++ side keep C++ names. Renamed: u_fgets -> read_line_chars, u_fgetc -> read_char, u_fputc -> write_char, u_get_combining_class -> combining_class (uextras + math_parser), u_strchr -> find_char_before_nul, u_parse_args -> parse_args, module icu_uoptions -> arg_parser. Dissolved rather than renamed: u_fflush (12 sites) because a free `flush(out)` is strictly worse than `out.flush()`, and the four predicate shims u_isalnum/u_ispunct/u_isupper/u_isdigit (two copies), whose entire bodies were one std method call and whose only remaining value — the ICU-vs-Rust parity note — already lives in each module header. No rule was retired: uextras.u-fflush-fn keeps its def/sem annotations on a DISSOLVED comment block, exactly as the u_fprintf family already does in that file, because flushing still happens and the id is not obsolesced. The `u_fputc() wrapper can't handle >= 0x7FFF` panic text keeps the C++ spelling — it is the source's string literal, not a Rust name. Kept U_EOF: the 0xFFFF sentinel value is chosen because ICU chose it, which is what makes the C++ `c == U_EOF` comparisons port 1:1, so the name carries the design reason rather than a habit. 224 tests (228 with profiler), coverage 812/812."
+                    }
+
+                    {
+                        at 2026-09-14T18:01:41.646731Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
+            }
+
+            {
+                id deicu.ux-helpers
+                title "Rename and consolidate the ux_ helper surface: sixteen functions wear ICU's u-for-Unicode prefix, ux_str_case_compare exists five times over as four private copies of one public function, and HashUString keeps an overload pair that collapsed into one method"
+                priority 2
+                deps (deicu.stdio-shims)
             }
         )
     }

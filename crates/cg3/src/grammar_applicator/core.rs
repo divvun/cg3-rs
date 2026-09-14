@@ -16,8 +16,8 @@
 //! `let GrammarApplicator { grammar, store, gWindow, .. } = self;` destructuring.
 //!
 //! OUTPUT SINK. The C++ `std::ostream& output` becomes a generic
-//! `output: &mut W` (`W: std::io::Write`); the ported `uextras::{u_fprintf,
-//! u_fputc, u_fflush}` primitives write UTF-8 to it. `%S`/`%u` printf tokens are
+//! `output: &mut W` (`W: std::io::Write`); `write!` and the ported
+//! `uextras::write_char` primitive write UTF-8 to it. `%S`/`%u` printf tokens are
 //! translated to Rust `format_args!` interpolation. The EXTERNAL `Process&`
 //! endpoints are bridged with the local [`ProcWrite`]/[`ProcRead`] adapters.
 //!
@@ -48,7 +48,7 @@ use crate::tag::{
 };
 use crate::tag_trie::trie_get_tag_list_append;
 use crate::types::{GlobalNumber, TagHash};
-use crate::uextras::{u_fflush, u_fputc, ux_str_case_compare};
+use crate::uextras::{ux_str_case_compare, write_char};
 
 use super::{Engine, Matcher, TmplContext};
 
@@ -215,7 +215,7 @@ pub fn print_trace<W: Write>(
             let _ = write!(output, ":{}", r.line);
         }
         if !r.name.is_empty() {
-            u_fputc(':', output);
+            write_char(':', output);
             let _ = write!(output, "{}", r.name);
         }
     } else {
@@ -704,10 +704,10 @@ impl Engine<'_> {
             if !trace {
                 return;
             }
-            u_fputc(';', output);
+            write_char(';', output);
         }
         for _ in 0..sub {
-            u_fputc('\t', output);
+            write_char('\t', output);
         }
         let parent_cid = parent_cid.expect("reading has no parent cohort");
         let wordform_hash = {
@@ -860,12 +860,12 @@ impl Engine<'_> {
         if trace {
             let hit_by: Vec<u32> = self.doc.store.readings.get(reading.0).hit_by.clone();
             for hb in hit_by {
-                u_fputc(' ', output);
+                write_char(' ', output);
                 self.print_trace(output, hb);
             }
         }
 
-        u_fputc('\n', output);
+        write_char('\n', output);
 
         let next = self.doc.store.readings.get(reading.0).next;
         if let Some(next_id) = next {
@@ -900,7 +900,7 @@ impl Engine<'_> {
             if !wblank.is_empty() {
                 self.print_plain_text_line(&wblank, output);
                 if !isnl(wblank.chars().next_back().unwrap_or('\0')) {
-                    u_fputc('\n', output);
+                    write_char('\n', output);
                 }
             }
 
@@ -916,8 +916,8 @@ impl Engine<'_> {
                 if !trace || self.cfg.trace_no_removed {
                     removed_goto = true;
                 } else {
-                    u_fputc(';', output);
-                    u_fputc(' ', output);
+                    write_char(';', output);
+                    write_char(' ', output);
                 }
             }
 
@@ -945,7 +945,7 @@ impl Engine<'_> {
                         let _ = write!(output, " {}", self.grammar.single_tags_list[tid.0].tag);
                     }
                 }
-                u_fputc('\n', output);
+                write_char('\n', output);
 
                 if !profiling {
                     unignore_all(&mut self.doc.store, cohort);
@@ -987,7 +987,7 @@ impl Engine<'_> {
         if !text.is_empty() && text.chars().any(|c| !self.is_ws(c)) {
             self.print_plain_text_line(&text, output);
             if !isnl(text.chars().next_back().unwrap_or('\0')) {
-                u_fputc('\n', output);
+                write_char('\n', output);
             }
         }
 
@@ -1093,7 +1093,7 @@ impl Engine<'_> {
         if flush_after {
             self.print_stream_command(STR_CMD_FLUSH, output);
         }
-        u_fflush(output);
+        let _ = output.flush();
     }
 
     // =======================================================================

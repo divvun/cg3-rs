@@ -9,12 +9,12 @@
 //! ## Shared conventions
 //! * **Options.** Arg parsing routes through [`crate::options`] /
 //!   [`crate::options_conv`] tables and [`crate::options_parser::parse_opts`] /
-//!   [`crate::icu_uoptions::u_parse_args`], exactly as the C++ does. The mutable
+//!   [`crate::arg_parser::parse_args`], exactly as the C++ does. The mutable
 //!   global `std::array` option tables become owned local copies (the port
 //!   exposes them as constructor functions — see the module NOTE in
 //!   [`crate::options`]), so each tool owns its `options` / `options_conv` /
 //!   `*_default` / `*_override` arrays and mutates them in place.
-//! * **`u_parse_args` argv.** The ICU parser consumes `&mut [Vec<char>]`; each
+//! * **`parse_args` argv.** The ICU parser consumes `&mut [Vec<char>]`; each
 //!   tool converts its incoming `&[String]` argv into that shape and reads the
 //!   returned "remaining" count (negative on error), exactly as C++'s
 //!   `argc = u_parseArgs(...)`.
@@ -197,7 +197,7 @@ pub const CG3_COPYRIGHT_STRING: &str =
 
 // --- Shared argv helper --------------------------------------------------------
 
-/// Build the `u_parse_args`-shaped argv (`Vec<Vec<char>>`, NUL-free tokens) from a
+/// Build the `parse_args`-shaped argv (`Vec<Vec<char>>`, NUL-free tokens) from a
 /// process `&[String]` argv. Element `0` (the program name) is preserved so the
 /// ICU parser's `i = 1` start and its non-option compaction behave exactly as in
 /// C++.

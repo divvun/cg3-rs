@@ -92,12 +92,6 @@ pub fn isdigit_c(p: char) -> bool {
     (p as u32) < 255 && c_isdigit(p as u32)
 }
 
-// u_isalnum -> char::is_alphanumeric (ICU-vs-Rust Unicode parity risk).
-#[inline]
-fn u_isalnum(c: char) -> bool {
-    c.is_alphanumeric()
-}
-
 // ---------------------------------------------------------------------------
 // Native-string cursor primitives
 // ---------------------------------------------------------------------------
@@ -205,7 +199,7 @@ pub fn is_icase(s: &str, pos: usize, uc: &str, lc: &str) -> usize {
             return 0;
         }
     }
-    if !u_isalnum(char_at(s, pos + n)) {
+    if !char_at(s, pos + n).is_alphanumeric() {
         return n;
     }
     0
@@ -372,7 +366,7 @@ pub fn is_icase_chars(p: &[char], pos: usize, uc: &[char], lc: &[char]) -> usize
         }
         i += 1;
     }
-    if !u_isalnum(p[pos + (n - 1)]) {
+    if !p[pos + (n - 1)].is_alphanumeric() {
         return i;
     }
     0

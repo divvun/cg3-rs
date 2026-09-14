@@ -150,6 +150,7 @@ assertions (
     {id tag-varstring-boxed, kind @doing, author "brendan@necessary.nu", at 2026-09-14T13:56:09.145645Z}
     {id tag-text-boxed-str, kind @doing, author "brendan@necessary.nu", at 2026-09-14T16:50:37.354354Z}
     {id deicu.type-aliases, kind @complete, author "brendan@necessary.nu", at 2026-09-14T17:35:09.821414Z}
+    {id deicu.stdio-shims, kind @complete, author "brendan@necessary.nu", at 2026-09-14T18:01:41.646731Z}
 )
 
 impl_evidence (

@@ -786,7 +786,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
             this.r#type |= T_DEPENDENCY;
         }
     }
-    if cat(0) == 'I' && cat(1) == 'D' && cat(2) == ':' && u_isdigit(cat(3)) {
+    if cat(0) == 'I' && cat(1) == 'D' && cat(2) == ':' && cat(3).is_numeric() {
         // u_sscanf("ID:%i", &dep_self) == 1 && dep_self != 0
         if let Some(v) = scan_id(&to_chars) {
             this.dep_self = v;
@@ -966,7 +966,7 @@ fn add_tag(grammar: &mut Grammar, mut tag: Tag) -> TagId {
 
 // ---------------------------------------------------------------------------
 // Local stand-ins for ICU helpers used above (they belong to other, not-yet-
-// wired modules — `uextras`/`u_sscanf`/`u_isdigit`). Deliberately un-annotated;
+// wired modules — `uextras`/`u_sscanf`). Deliberately un-annotated;
 // reimplemented here so this file compiles standalone (cf. `math_parser.rs`).
 // ---------------------------------------------------------------------------
 
@@ -977,12 +977,6 @@ fn ux_str_case_compare(a: &str, b: &str) -> bool {
     a.chars()
         .flat_map(char::to_lowercase)
         .eq(b.chars().flat_map(char::to_lowercase))
-}
-
-/// ICU `u_isdigit` (decimal-digit category), approximated with Rust's Unicode
-/// numeric table.
-fn u_isdigit(c: char) -> bool {
-    c.is_numeric()
 }
 
 /// `u_sscanf(txval, "%lf", &tval)`: parses a leading `strtod`-style double and

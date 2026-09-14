@@ -10,7 +10,7 @@
 //! ARENA MODEL. Pointers become arena ids resolved through `self.base.doc.store`
 //! (`Cohort*`→`CohortId`, `Reading*`→`ReadingId`, `SingleWindow*`→`SwId`) and
 //! `self.base.grammar.single_tags_list` (`Tag*`→`TagId`). Char-by-char C++ walks
-//! (UTF-16 `UChar`) become UTF-8 char reads via `uextras::u_fgetc`.
+//! (UTF-16 `UChar`) become UTF-8 char reads via `uextras::read_char`.
 //!
 //! OUTPUT SINK. C++ `std::ostream& output` → generic `output: &mut W`
 //! (`W: std::io::Write`).
@@ -37,7 +37,7 @@ use crate::single_window::append_cohort;
 use crate::store::RuntimeStore;
 use crate::tag::{T_BASEFORM, T_MAPPING, T_WORDFORM, TagVector};
 use crate::types::TagHash;
-use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fputc, ux_strip_bom};
+use crate::uextras::{U_EOF, read_char, ux_strip_bom, write_char};
 
 // C++ `Strings.hpp` string constants.
 const STR_BEGINTAG: &str = ">>>";
@@ -617,7 +617,7 @@ impl MatxinApplicator {
                     .push(global_number.get() as i32);
             }
 
-            u_fflush(output);
+            let _ = output.flush();
         }
 
         let mut depth = 0i32;
@@ -713,8 +713,8 @@ impl MatxinApplicator {
         self.running_with_null_flush = true;
         while !stream_eof(input) {
             self.run_grammar_on_text_impl(input, output)?;
-            u_fputc('\0', output);
-            u_fflush(output);
+            write_char('\0', output);
+            let _ = output.flush();
         }
         self.running_with_null_flush = false;
         Ok(())
@@ -808,7 +808,7 @@ impl MatxinApplicator {
             // C++ `while ((inchar = u_fgetc(input)) != 0)` then `if (input.eof())
             // break;`. A read of '\0' terminates the loop (the `!= 0` guard); an
             // EOF (U_EOF) also terminates it (the `input.eof()` break).
-            inchar = u_fgetc(input);
+            inchar = read_char(input);
             if inchar == '\0' || inchar == U_EOF {
                 break;
             }
@@ -821,7 +821,7 @@ impl MatxinApplicator {
             }
 
             if inchar == '\\' && !incohort && !superblank {
-                let n = u_fgetc(input);
+                let n = read_char(input);
                 if let Some(cc) = c_cohort {
                     self.base.doc.store.cohorts.get_mut(cc.0).text.push(inchar);
                     self.base.doc.store.cohorts.get_mut(cc.0).text.push(n);
@@ -1009,11 +1009,11 @@ impl MatxinApplicator {
             // Read the wordform.
             let mut wordform: String = String::from("\"<");
             loop {
-                inchar = u_fgetc(input);
+                inchar = read_char(input);
                 if inchar == '/' || inchar == '<' {
                     break;
                 } else if inchar == '\\' {
-                    inchar = u_fgetc(input);
+                    inchar = read_char(input);
                     wordform.push(inchar);
                 } else {
                     wordform.push(inchar);
@@ -1033,9 +1033,9 @@ impl MatxinApplicator {
                 self.base.doc.store.cohorts.get_mut(cc.0).wread = Some(wread);
                 let mut tagbuf: String = String::new();
                 loop {
-                    inchar = u_fgetc(input);
+                    inchar = read_char(input);
                     if inchar == '\\' {
-                        inchar = u_fgetc(input);
+                        inchar = read_char(input);
                         tagbuf.push(inchar);
                         continue;
                     }
@@ -1060,9 +1060,9 @@ impl MatxinApplicator {
 
             // Read the readings.
             while incohort {
-                inchar = u_fgetc(input);
+                inchar = read_char(input);
                 if inchar == '\\' {
-                    inchar = u_fgetc(input);
+                    inchar = read_char(input);
                     current_reading.push(inchar);
                     continue;
                 }
@@ -1166,7 +1166,7 @@ impl MatxinApplicator {
             let _ = write!(output, "{inchar}");
         }
         let _ = writeln!(output, "</corpus>");
-        u_fflush(output);
+        let _ = output.flush();
         Ok(())
     }
 

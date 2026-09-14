@@ -498,13 +498,13 @@ fn ux_simplecasecmp(a: &str, b: &str) -> bool {
     }
     match a_chars.get(n) {
         None => true,
-        Some(&c) => c == '\0' || is_space(c) || is_delim(c) || u_get_combining_class(c) == 0,
+        Some(&c) => c == '\0' || is_space(c) || is_delim(c) || combining_class(c) == 0,
     }
 }
 
 /// ICU `u_getCombiningClass` is unavailable; combining class is 0 for every
 /// ASCII char, which is all that appears in numeric expressions.
-fn u_get_combining_class(_c: char) -> u8 {
+fn combining_class(_c: char) -> u8 {
     0
 }
 

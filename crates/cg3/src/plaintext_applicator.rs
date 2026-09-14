@@ -38,7 +38,7 @@ use crate::cohort::CT_REMOVED;
 use crate::grammar::Grammar;
 use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::types::TagHash;
-use crate::uextras::{get_line_clean, u_fflush, u_fputc, ux_strip_bom};
+use crate::uextras::{get_line_clean, ux_strip_bom, write_char};
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — hash → `TagId`, `TagId(0)` on
 /// a miss (benign; see `niceline_applicator`).
@@ -354,14 +354,14 @@ where
                     let mut start = 0usize;
                     let mut len = p.len();
                     // Peel LEADING punctuation into single-char tokens.
-                    while start < p.len() && len > 0 && u_ispunct(p[start]) {
+                    while start < p.len() && len > 0 && p[start].is_ascii_punctuation() {
                         tokens.push(vec![p[start]]);
                         start += 1;
                         len -= 1;
                     }
                     let tkz = tokens.len();
                     // Peel TRAILING punctuation (appended in reverse order).
-                    while len > 0 && u_ispunct(p[start + len - 1]) {
+                    while len > 0 && p[start + len - 1].is_ascii_punctuation() {
                         tokens.push(vec![p[start + len - 1]]);
                         p[start + len - 1] = '\0';
                         len -= 1;
@@ -375,11 +375,11 @@ where
 
                 // Cohort creation.
                 for token in &tokens {
-                    let first_upper = !token.is_empty() && u_isupper(token[0]);
+                    let first_upper = !token.is_empty() && token[0].is_uppercase();
                     let mut all_upper = first_upper;
                     let mut mixed_upper = false;
                     for &ch in token.iter().skip(1) {
-                        if u_isupper(ch) {
+                        if ch.is_uppercase() {
                             mixed_upper = true;
                         } else {
                             all_upper = false;
@@ -544,7 +544,7 @@ where
             self.base.doc.stream.previous.remove(0);
         }
 
-        u_fflush(output);
+        let _ = output.flush();
         Ok(())
     }
 }
@@ -601,8 +601,8 @@ impl PlaintextFormat {
         for cohort in all_cohorts {
             self.print_cohort_e(e, cohort, output, profiling);
         }
-        u_fputc('\n', output);
-        u_fflush(output);
+        write_char('\n', output);
+        let _ = output.flush();
     }
 }
 
@@ -636,18 +636,6 @@ impl crate::grammar_applicator::stream_format::StreamFormat for PlaintextFormat 
     fn print_plain_text_line<W: Write>(&mut self, e: &mut Engine<'_>, line: &str, output: &mut W) {
         e.print_plain_text_line(line, output);
     }
-}
-
-/// ICU `u_ispunct` approximation — ASCII punctuation only (parity gap: ICU
-/// classifies the full Unicode punctuation categories; non-ASCII punctuation is
-/// NOT peeled here).
-fn u_ispunct(c: char) -> bool {
-    c.is_ascii_punctuation()
-}
-
-/// ICU `u_isupper` → Rust `char::is_uppercase` (full Unicode uppercase).
-fn u_isupper(c: char) -> bool {
-    c.is_uppercase()
 }
 
 /// `wordform.data()+2` for `size()-4` — strip the leading `"<` and trailing `>"`

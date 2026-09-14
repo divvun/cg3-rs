@@ -2,7 +2,7 @@
 //! wave 4 (native-string) form.
 //!
 //! Tokenizes a command line embedded in text (an env var, or a grammar
-//! `CMDARGS` directive) into an `argv` vector and feeds it to `u_parse_args` to
+//! `CMDARGS` directive) into an `argv` vector and feeds it to `parse_args` to
 //! populate a `UOption` table.
 //!
 //! ## Genericity (NOTE)
@@ -18,9 +18,9 @@
 //! plain `&str` by slicing — the mutation, the sentinel NULs, and the guard-NUL
 //! quirk all disappear; the produced argv is identical for every input the C++
 //! accepted. (Tokens are converted to the `Vec<char>` form at the
-//! [`u_parse_args`] boundary, which is ICU-domain code-unit territory.)
+//! [`parse_args`] boundary, which is ICU-domain code-unit territory.)
 
-use crate::icu_uoptions::u_parse_args;
+use crate::arg_parser::parse_args;
 use crate::inlines::isspace;
 use crate::options::UOption;
 
@@ -67,7 +67,7 @@ pub fn parse_opts(p: &str, where_: &mut [UOption]) {
         }
     }
     let n_opts = where_.len() as i32;
-    u_parse_args(argv.len() as i32, &mut argv, n_opts, where_);
+    parse_args(argv.len() as i32, &mut argv, n_opts, where_);
 }
 
 // [spec:cg3:def:options-parser.options.parse-opts-env-fn]
@@ -100,7 +100,7 @@ mod tests {
 
     // `parse_opts` tokenizes an embedded command line (splitting on whitespace,
     // honoring `"`/`'` quotes and `-` option tokens) into an argv and feeds it to
-    // u_parse_args. Drives the dash-token, quoted-token, and bare-token paths.
+    // parse_args. Drives the dash-token, quoted-token, and bare-token paths.
     // [spec:cg3:sem:options-parser.options.parse-opts-fn/test]
     #[test]
     fn tokenizes_and_populates_options() {
@@ -120,7 +120,7 @@ mod tests {
     // Double-quoted tokens are handled the same way, and a bare (non-dash,
     // non-quoted) trailing token runs to the end of input (the old
     // one-byte-past-terminator quirk site — now just a slice to the end). Here
-    // the bare token is compacted by u_parse_args (not consumed as an option
+    // the bare token is compacted by parse_args (not consumed as an option
     // value).
     #[test]
     fn double_quotes_and_trailing_bare_token() {

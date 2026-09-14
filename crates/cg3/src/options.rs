@@ -9,7 +9,7 @@
 //! The C++ tables use the vendored `Options::UOption` struct from
 //! `include/uoptions.hpp` (out of scope for this wave). We reproduce a faithful
 //! local equivalent here so the tables type-check and so `options_parser` /
-//! `icu_uoptions` have a concrete type to populate:
+//! `arg_parser` have a concrete type to populate:
 //!
 //! ```text
 //! struct UOption {

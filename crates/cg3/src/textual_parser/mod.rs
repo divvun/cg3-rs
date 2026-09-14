@@ -328,13 +328,6 @@ fn is_icase_kw(buf: &[char], pos: usize, uc: &str, lc: &str) -> usize {
     crate::inlines::is_icase_chars(buf, pos, &ucv, &lcv)
 }
 
-/// ICU `u_isdigit` (decimal-digit category), approximated with Rust's Unicode
-/// numeric table (parity with `<= '9'` ASCII loops is exact for 0-9).
-#[inline]
-fn u_isdigit(c: char) -> bool {
-    c.is_numeric()
-}
-
 /// `u_sscanf(s, "%d", &out)`: leading optional sign + decimal digits.
 fn scan_d(s: &str) -> i32 {
     let chars: Vec<char> = s.chars().collect();
@@ -1411,7 +1404,7 @@ impl TextualParser {
                 negative = true;
                 *pos += 1;
             }
-            if u_isdigit(buf[*pos]) {
+            if buf[*pos].is_numeric() {
                 had_digits = true;
                 while buf[*pos] >= '0' && buf[*pos] <= '9' {
                     offset = (offset * 10) + (buf[*pos] as i32 - '0' as i32);
@@ -1459,7 +1452,7 @@ impl TextualParser {
                     posb |= POS_JUMP;
                     jump_pos = PosJumpPos::JumpTarget as i8;
                     *pos += 2;
-                } else if buf[*pos + 1] == 'C' && u_isdigit(buf[*pos + 2]) {
+                } else if buf[*pos + 1] == 'C' && buf[*pos + 2].is_numeric() {
                     *pos += 2;
                     posb |= POS_JUMP;
                     jump_pos = (buf[*pos] as i32 - '0' as i32) as i8;
@@ -1492,7 +1485,7 @@ impl TextualParser {
                     negative2 = true;
                     *pos += 1;
                 }
-                if u_isdigit(buf[*pos]) {
+                if buf[*pos].is_numeric() {
                     while buf[*pos] >= '0' && buf[*pos] <= '9' {
                         offset_sub = (offset_sub * 10) + (buf[*pos] as i32 - '0' as i32);
                         *pos += 1;
