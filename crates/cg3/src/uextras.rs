@@ -718,7 +718,7 @@ fn u_get_combining_class(_c: UChar) -> u8 {
 // `catch(const std::exception&)`) has no analog — the std folding path has no
 // `UErrorCode`, so it is simply unreachable here.
 /// C++ `ux_strCaseCompare`.
-pub fn ux_str_case_compare(a: &UString, b: &UString) -> bool {
+pub fn ux_str_case_compare(a: &str, b: &str) -> bool {
     let fold = |s: &str| -> String { s.chars().flat_map(|c| c.to_lowercase()).collect() };
     fold(a) == fold(b)
 }
@@ -1026,15 +1026,9 @@ mod tests {
         assert!(!ux_simplecasecmp_sv("abc", "xyz"));
 
         // ux_str_case_compare: proper Unicode case-insensitive equality.
-        assert!(ux_str_case_compare(
-            &"Hello".to_string(),
-            &"hello".to_string()
-        ));
-        assert!(ux_str_case_compare(
-            &"GRüßE".to_string(),
-            &"grüße".to_string()
-        ));
-        assert!(!ux_str_case_compare(&"abc".to_string(), &"abd".to_string()));
+        assert!(ux_str_case_compare("Hello", "hello"));
+        assert!(ux_str_case_compare("GRüßE", "grüße"));
+        assert!(!ux_str_case_compare("abc", "abd"));
     }
 
     // substr / substr_t::new build a proxy; data() returns the [offset, offset+

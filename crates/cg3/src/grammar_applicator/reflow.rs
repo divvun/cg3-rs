@@ -1711,7 +1711,7 @@ impl Matcher<'_> {
         }
 
         let nt: String = tmp.into_iter().collect();
-        if !did_something && nt == tag.tag {
+        if !did_something && *nt == *tag.tag {
             // "Warning: Unable to generate from tag ..." — I/O deferred.
         }
         // addTag(nt, tag->type)

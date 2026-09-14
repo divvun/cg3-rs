@@ -500,7 +500,7 @@ impl MatxinApplicator {
                 if firstc == Some('+') {
                     let _ = write!(output, "{}", tag.tag);
                 } else if firstc == Some('@') {
-                    node.si = tag.tag.clone();
+                    node.si = tag.tag.to_string();
                 } else if first {
                     mi.push_str(&tag.tag);
                     first = false;

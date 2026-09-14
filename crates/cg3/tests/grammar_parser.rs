@@ -68,7 +68,7 @@ fn set_tag_vectors(g: &Grammar, s: SetId) -> Vec<Vec<String>> {
     tvs.iter()
         .map(|tv| {
             tv.iter()
-                .map(|t| g.single_tags_list[t.0].tag.clone())
+                .map(|t| g.single_tags_list[t.0].tag.to_string())
                 .collect()
         })
         .collect()
@@ -78,7 +78,7 @@ fn set_tag_vectors(g: &Grammar, s: SetId) -> Vec<Vec<String>> {
 fn tag_hash_by_text(g: &Grammar, text: &str) -> Option<u32> {
     for i in 0..g.single_tags_list.capacity() {
         if let Some(t) = g.single_tags_list.try_get(i)
-            && t.tag == text
+            && &*t.tag == text
         {
             return Some(t.hash.get());
         }
@@ -189,7 +189,7 @@ fn list_set_parsing_and_composite_tag_ordering() {
     // Composite paths were stored highest-frequency-first: `aa` (freq 2) is
     // the shared trie ROOT of both composite entries, `bb`/`cc` its children,
     // and the single `dd` a terminal root of its own.
-    let text = |t: &cg3::arena::TagId| g.single_tags_list[t.0].tag.clone();
+    let text = |t: &cg3::arena::TagId| g.single_tags_list[t.0].tag.to_string();
     let trie = &g.sets_list[comp.0].trie;
     let roots: BTreeSet<String> = trie.keys().map(text).collect();
     assert_eq!(
@@ -241,7 +241,11 @@ fn list_set_parsing_and_composite_tag_ordering() {
 
     // addTag dedup: exactly one interned tag with text "aa".
     let n_aa = (0..g.single_tags_list.capacity())
-        .filter(|&i| g.single_tags_list.try_get(i).is_some_and(|t| t.tag == "aa"))
+        .filter(|&i| {
+            g.single_tags_list
+                .try_get(i)
+                .is_some_and(|t| &*t.tag == "aa")
+        })
         .count();
     assert_eq!(n_aa, 1, "identical tag text must intern to a single tag");
 }
@@ -366,7 +370,7 @@ fn rules_sections_anchors_and_jump() {
     let nn = set_by_name(g, "NN");
     let tags = g.get_tag_list_any_ret(nn);
     assert_eq!(tags.len(), 1);
-    assert_eq!(g.single_tags_list[tags[0].0].tag, "nn");
+    assert_eq!(&*g.single_tags_list[tags[0].0].tag, "nn");
 }
 
 // T_Templates: TEMPLATE directives build named contextual-test templates

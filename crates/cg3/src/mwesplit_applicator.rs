@@ -315,7 +315,7 @@ impl Engine<'_> {
                     let existing_wf = self.doc.store.cohorts.get(c.0).wordform;
                     if let Some(ewf) = existing_wf {
                         let existing_text = &self.grammar.single_tags_list[ewf.0].tag;
-                        if &wf != existing_text {
+                        if *wf != **existing_text {
                             // "Ambiguous wordform-tags for same cohort ... not splitting." deferred.
                             cos.clear();
                             cos.push(cohort);

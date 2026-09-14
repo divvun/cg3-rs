@@ -899,7 +899,7 @@ fn tag_parse_raw_and_numeric() {
 
     // parseNumeric operators and values.
     let mut t = Tag {
-        tag: "<w>=12>".to_string(),
+        tag: "<w>=12>".into(),
         ..Default::default()
     };
     t.parse_numeric(false);
@@ -909,7 +909,7 @@ fn tag_parse_raw_and_numeric() {
     assert_eq!(t.comparison_hash, hash_value_ustring("w", 0));
 
     let mut t = Tag {
-        tag: "<w<3>".to_string(),
+        tag: "<w<3>".into(),
         ..Default::default()
     };
     t.parse_numeric(false);
@@ -917,14 +917,14 @@ fn tag_parse_raw_and_numeric() {
     assert_eq!(t.comparison_val, 3.0);
 
     let mut t = Tag {
-        tag: "<w=MAX>".to_string(),
+        tag: "<w=MAX>".into(),
         ..Default::default()
     };
     t.parse_numeric(false);
     assert_eq!(t.comparison_val, NUMERIC_MAX);
 
     let mut t = Tag {
-        tag: "<w=abc>".to_string(),
+        tag: "<w=abc>".into(),
         ..Default::default()
     };
     t.parse_numeric(false);
@@ -966,13 +966,13 @@ fn tag_interning_closure() {
         ("T_VARSTRING", T_VARSTRING),
     ] {
         let mut plain = Tag {
-            tag: "x".to_string(),
+            tag: "x".into(),
             ..Default::default()
         };
         let plain_hash = plain.rehash();
 
         let mut t = Tag {
-            tag: "x".to_string(),
+            tag: "x".into(),
             r#type: bit,
             ..Default::default()
         };
@@ -992,7 +992,7 @@ fn tag_interning_closure() {
 #[test]
 fn tag_ctor_rehash_markused_vs_tostring() {
     let mut t = Tag {
-        tag: "x".to_string(),
+        tag: "x".into(),
         ..Default::default()
     };
     let base = t.rehash();
@@ -1024,22 +1024,22 @@ fn tag_ctor_rehash_markused_vs_tostring() {
     // toUString: regex tag gets /…/r wrapping; escape mode backslashes specials;
     // a non-empty tag_raw short-circuits everything.
     let rt = Tag {
-        tag: "x".to_string(),
+        tag: "x".into(),
         r#type: T_REGEXP,
         ..Default::default()
     };
     assert_eq!(rt.to_u_string(false), "/x/r");
     let mut et = Tag {
-        tag: "a b(c)".to_string(),
+        tag: "a b(c)".into(),
         ..Default::default()
     };
     assert_eq!(et.to_u_string(true), "a\\ b\\(c\\)");
     assert_eq!(et.to_u_string(false), "a b(c)");
-    et.tag_raw = "RAW".to_string();
+    et.tag_raw = "RAW".into();
     assert_eq!(et.to_u_string(true), "RAW");
 
     // Copy ctor: everything copied except tag_raw (quirk), vs_names cloned.
-    t.tag_raw = "orig-raw".to_string();
+    t.tag_raw = "orig-raw".into();
     let c = t.clone();
     assert_eq!(c.tag, t.tag);
     assert_eq!(c.hash, t.hash);

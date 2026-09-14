@@ -176,9 +176,9 @@ pub struct Tag {
     /// `uint32_t seed = 0;`
     pub seed: u32,
     /// `UString tag;`
-    pub tag: UString,
+    pub tag: Box<str>,
     /// `UString tag_raw;`
-    pub tag_raw: UString,
+    pub tag_raw: Box<str>,
     /// `std::unique_ptr<SetVector> vs_sets;` — nullable, lazily allocated.
     ///
     /// Boxed, which is both the faithful shape (the C++ is a `unique_ptr`, one
@@ -211,15 +211,19 @@ pub struct Tag {
 /// another 48 the two varstring vectors that are `None` on everything but a
 /// varstring. At that size one tag spanned roughly four cache lines, and the
 /// flag scans that walk `0..capacity` paid all four per tag to read the
-/// four-byte `type`. Boxing all three brought it to 120. This fails the build
-/// rather than a test, because the way it regresses is someone adding an
-/// innocuous field and never looking at the number.
+/// four-byte `type`. Boxing all three brought it to 120.
+///
+/// The next 16 came from `tag` and `tag_raw`: tag text is interned once and
+/// never edited afterwards, so the capacity word a `String` carries was dead
+/// weight on every tag in the arena. Both are `Box<str>` now, which is 104.
+/// This fails the build rather than a test, because the way it regresses is
+/// someone adding an innocuous field and never looking at the number.
 ///
 /// Raise it only deliberately. What is left is mostly load-bearing: two
-/// `String`s at 24 each (`tag` and `tag_raw`), and ~40 bytes of scalars that
-/// every tag genuinely uses.
+/// `Box<str>`s at 16 each, and ~40 bytes of scalars that every tag genuinely
+/// uses.
 const _: () = assert!(
-    size_of::<Tag>() <= 120,
+    size_of::<Tag>() <= 104,
     "Tag has grown; see the note above before raising this"
 );
 
@@ -587,7 +591,7 @@ impl Tag {
     // [spec:cg3:sem:tag.cg3.tag.to-u-string-fn]
     pub fn to_u_string(&self, escape: bool) -> UString {
         if !self.tag_raw.is_empty() {
-            return self.tag_raw.clone();
+            return self.tag_raw.to_string();
         }
 
         let mut str = UString::new();
@@ -612,7 +616,7 @@ impl Tag {
             str.push_str("VSTR:");
         }
 
-        if self.r#type.intersects(T_CASE_INSENSITIVE | T_REGEXP) && !is_textual(&self.tag) {
+        if self.r#type.intersects(T_CASE_INSENSITIVE | T_REGEXP) && !is_textual(&*self.tag) {
             str.push('/');
         }
 
@@ -629,7 +633,7 @@ impl Tag {
             str.push_str(&self.tag);
         }
 
-        if self.r#type.intersects(T_CASE_INSENSITIVE | T_REGEXP) && !is_textual(&self.tag) {
+        if self.r#type.intersects(T_CASE_INSENSITIVE | T_REGEXP) && !is_textual(&*self.tag) {
             str.push('/');
         }
         if self.r#type.intersects(T_REGEXP_LINE) {
@@ -670,7 +674,7 @@ impl Clone for Tag {
             seed: o.seed,
             tag: o.tag.clone(),
             // QUIRK: `tag_raw` is NOT copied by the C++ ctor.
-            tag_raw: UString::new(),
+            tag_raw: Box::default(),
             vs_sets: None,
             vs_names: None,
             regexp: None,
@@ -735,7 +739,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     }
 
     // tag.assign(to, length)
-    this.tag = to.to_string();
+    this.tag = to.into();
 
     // grammar->regex_tags scan: uregex_setText + uregex_find == unanchored
     // is_match against the tag text. Collect ids first to end the borrows.
@@ -898,7 +902,7 @@ fn allocate_tag(grammar: &mut Grammar, txt: &[char]) -> TagId {
     };
     if let Some(tid) = found {
         let existing = &grammar.single_tags_list[tid.0];
-        if !existing.tag.is_empty() && existing.tag == txt_str {
+        if !existing.tag.is_empty() && *existing.tag == *txt_str {
             return tid;
         }
     }

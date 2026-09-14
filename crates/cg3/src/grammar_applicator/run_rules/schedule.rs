@@ -338,7 +338,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 let matches = utag.starts_with("R:")
                     && utag.len() > 2 + base.len()
                     && utag.as_bytes().get(2 + base.len()) == Some(&b':')
-                    && utag[2..2 + base.len()] == base;
+                    && utag[2..2 + base.len()] == *base;
                 if matches {
                     let rr = self.doc.store.readings.get_mut(r.0);
                     rr.tags.erase(h);

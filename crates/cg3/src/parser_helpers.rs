@@ -214,7 +214,7 @@ pub fn parse_tag<S: ParseTagState>(
         if it != g.single_tags.end() {
             let tid = it.get().1;
             let existing = &g.single_tags_list[tid.0];
-            if !existing.tag.is_empty() && existing.tag == to_owned {
+            if !existing.tag.is_empty() && *existing.tag == *to_owned {
                 return Ok(tid);
             }
         }
@@ -398,19 +398,21 @@ pub fn parse_tag<S: ParseTagState>(
                 built.push(tget(tmp_off, i, &to_chars));
                 i += 1;
             }
-            tag.tag = built;
             length = new_length;
-            if tag.tag.is_empty() {
+            if built.is_empty() {
                 return Err(state.error_at(near));
             }
 
             // ToDo: T_REGEXP_LINE `__` substitution.
+            // Done while the text is still growable — `Tag::tag` is a `Box<str>`,
+            // which is the point: it is written once and never edited after.
             if tag.r#type.intersects(T_REGEXP_LINE) {
-                while let Some(pos) = tag.tag.find("__") {
-                    tag.tag.replace_range(pos..pos + 2, "(?:^|$| | .+? )");
+                while let Some(pos) = built.find("__") {
+                    built.replace_range(pos..pos + 2, "(?:^|$| | .+? )");
                     length += 15 - 2;
                 }
             }
+            tag.tag = built.into();
 
             // regex_tags scan (empty during textual parse; populated at runtime
             // by GrammarApplicator::addTag) — unanchored is_match.
@@ -472,56 +474,56 @@ pub fn parse_tag<S: ParseTagState>(
             }
 
             // Special-name recognition (exact equality on final tag->tag).
-            if tag.tag == STR_ASTERIK {
+            if &*tag.tag == STR_ASTERIK {
                 tag.r#type |= T_ANY;
-            } else if tag.tag == STR_UU_LEFT {
+            } else if &*tag.tag == STR_UU_LEFT {
                 tag.r#type |= T_PAR_LEFT;
-            } else if tag.tag == STR_UU_RIGHT {
+            } else if &*tag.tag == STR_UU_RIGHT {
                 tag.r#type |= T_PAR_RIGHT;
-            } else if tag.tag == STR_UU_ENCL {
+            } else if &*tag.tag == STR_UU_ENCL {
                 tag.r#type |= T_ENCL;
-            } else if tag.tag == STR_UU_TARGET {
+            } else if &*tag.tag == STR_UU_TARGET {
                 tag.r#type |= T_TARGET;
-            } else if tag.tag == STR_UU_MARK {
+            } else if &*tag.tag == STR_UU_MARK {
                 tag.r#type |= T_MARK;
-            } else if tag.tag == STR_UU_ATTACHTO {
+            } else if &*tag.tag == STR_UU_ATTACHTO {
                 tag.r#type |= T_ATTACHTO;
-            } else if tag.tag == STR_UU_SAME_BASIC {
+            } else if &*tag.tag == STR_UU_SAME_BASIC {
                 tag.r#type |= T_SAME_BASIC;
-            } else if tag.tag == STR_UU_C1 {
+            } else if &*tag.tag == STR_UU_C1 {
                 tag.r#type |= T_CONTEXT;
                 tag.set_context_ref_pos(1);
-            } else if tag.tag == STR_UU_C2 {
+            } else if &*tag.tag == STR_UU_C2 {
                 tag.r#type |= T_CONTEXT;
                 tag.set_context_ref_pos(2);
-            } else if tag.tag == STR_UU_C3 {
+            } else if &*tag.tag == STR_UU_C3 {
                 tag.r#type |= T_CONTEXT;
                 tag.set_context_ref_pos(3);
-            } else if tag.tag == STR_UU_C4 {
+            } else if &*tag.tag == STR_UU_C4 {
                 tag.r#type |= T_CONTEXT;
                 tag.set_context_ref_pos(4);
-            } else if tag.tag == STR_UU_C5 {
+            } else if &*tag.tag == STR_UU_C5 {
                 tag.r#type |= T_CONTEXT;
                 tag.set_context_ref_pos(5);
-            } else if tag.tag == STR_UU_C6 {
+            } else if &*tag.tag == STR_UU_C6 {
                 tag.r#type |= T_CONTEXT;
                 tag.set_context_ref_pos(6);
-            } else if tag.tag == STR_UU_C7 {
+            } else if &*tag.tag == STR_UU_C7 {
                 tag.r#type |= T_CONTEXT;
                 tag.set_context_ref_pos(7);
-            } else if tag.tag == STR_UU_C8 {
+            } else if &*tag.tag == STR_UU_C8 {
                 tag.r#type |= T_CONTEXT;
                 tag.set_context_ref_pos(8);
-            } else if tag.tag == STR_UU_C9 {
+            } else if &*tag.tag == STR_UU_C9 {
                 tag.r#type |= T_CONTEXT;
                 tag.set_context_ref_pos(9);
             }
 
             // Regex compile.
             if tag.r#type.intersects(T_REGEXP) {
-                if tag.tag == STR_RXTEXT_ANY
-                    || tag.tag == STR_RXBASE_ANY
-                    || tag.tag == STR_RXWORD_ANY
+                if &*tag.tag == STR_RXTEXT_ANY
+                    || &*tag.tag == STR_RXBASE_ANY
+                    || &*tag.tag == STR_RXWORD_ANY
                 {
                     tag.r#type |= T_REGEXP_ANY;
                     tag.r#type &= !T_REGEXP;
@@ -562,7 +564,7 @@ pub fn parse_tag<S: ParseTagState>(
                 if cat(&tchars, 0) == '/' && cat(&tchars, length - 1) == '/' {
                     // resize(-1) + erase(begin()) → drop first and last char.
                     let inner: String = tchars[1..tchars.len() - 1].iter().collect();
-                    tag.tag = inner;
+                    tag.tag = inner.into();
                 }
             }
         }
@@ -582,8 +584,8 @@ pub fn parse_tag<S: ParseTagState>(
         return Err(state.error_at(near)); // "cannot mix varstring with any other special feature"
     }
 
-    if tag.tag != to_owned {
-        tag.tag_raw = to_owned;
+    if *tag.tag != *to_owned {
+        tag.tag_raw = to_owned.into();
     }
 
     Ok(state.add_tag(tag))
@@ -716,7 +718,7 @@ mod tests {
 
     /// The tag text of a parsed tag id.
     fn tag_text(p: &TextualParser, id: TagId) -> String {
-        p.grammar.single_tags_list[id.0].tag.clone()
+        p.grammar.single_tags_list[id.0].tag.to_string()
     }
     fn tag_type(p: &TextualParser, id: TagId) -> crate::tag::TagType {
         p.grammar.single_tags_list[id.0].r#type

@@ -37,7 +37,7 @@ fn applicator() -> GrammarApplicator {
 fn observe(txt: &str) -> Result<String, String> {
     let mut app = applicator();
     match app.add_tag(txt, T_VARSTRING) {
-        Ok(id) => Ok(app.grammar.single_tags_list[id.0].tag.clone()),
+        Ok(id) => Ok(app.grammar.single_tags_list[id.0].tag.to_string()),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -113,5 +113,5 @@ fn plain_tags_bypass_the_parse_tag_path() {
     let id = app
         .add_tag("\"<word>\"", TagType::empty())
         .expect("a plain tag never goes near parse_tag");
-    assert_eq!(app.grammar.single_tags_list[id.0].tag, "\"<word>\"");
+    assert_eq!(&*app.grammar.single_tags_list[id.0].tag, "\"<word>\"");
 }

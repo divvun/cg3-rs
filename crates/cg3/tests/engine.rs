@@ -310,7 +310,7 @@ fn engine_inprocess_error_getters_and_dead_helpers() {
 
     // get_grammar(): returns the owned grammar (our two tags are interned).
     let g = app.get_grammar();
-    assert_eq!(g.single_tags_list[aa.0].tag, "enginetag-aa");
+    assert_eq!(&*g.single_tags_list[aa.0].tag, "enginetag-aa");
 
     // _check_options: CAREFUL demands all readings matched; DEPREL bypasses;
     // otherwise any match suffices.
@@ -616,7 +616,7 @@ fn add_tag_reflow_ignores_non_dependency_union_roles() {
     let reading = alloc_reading(&mut engine.doc.store, None);
 
     let mut numeric = Tag {
-        tag: "<number=1+2>".to_owned(),
+        tag: "<number=1+2>".into(),
         ..Tag::default()
     };
     numeric.parse_numeric(true);

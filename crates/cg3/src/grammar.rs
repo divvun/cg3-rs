@@ -648,7 +648,7 @@ impl Grammar {
         };
         if let Some(tid) = fast {
             let existing = &self.single_tags_list[tid.0];
-            if !existing.tag.is_empty() && existing.tag == txt {
+            if !existing.tag.is_empty() && &*existing.tag == txt {
                 return Ok(tid);
             }
         }
@@ -1678,7 +1678,7 @@ impl Grammar {
                 let t = &self.single_tags_list[tid.0];
                 (
                     t.regexp.is_some(),
-                    is_textual(&t.tag),
+                    is_textual(&*t.tag),
                     t.r#type.intersects(T_CASE_INSENSITIVE),
                     t.vs_sets.clone(),
                 )

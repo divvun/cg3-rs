@@ -442,7 +442,7 @@ impl super::GrammarApplicator {
             );
             // Collect (pattern, icase) so the grammar borrow ends before we push
             // into self.text_delimiters.
-            let specs: Vec<(String, bool)> = the_tags
+            let specs: Vec<(Box<str>, bool)> = the_tags
                 .iter()
                 .map(|t| {
                     let tag = &self.grammar.single_tags_list[t.0];
@@ -1292,7 +1292,7 @@ impl Engine<'_> {
                 let tid = tag_by_hash(self.grammar, baseform);
                 self.grammar.single_tags_list[tid.0].tag.clone()
             };
-            if str != cur {
+            if *str != *cur {
                 let tag = self.add_tag(&str, crate::tag::TagType::empty())?;
                 self.doc.store.readings.get_mut(reading.0).baseform =
                     Some(self.grammar.single_tags_list[tag.0].hash);
@@ -1381,7 +1381,7 @@ impl Engine<'_> {
             .wordform
             .map(|t| self.grammar.single_tags_list[t.0].tag.clone())
             .unwrap_or_default();
-        if str != cur_wf {
+        if *str != *cur_wf {
             let tag = self.add_tag(&str, crate::tag::TagType::empty())?;
             self.doc.store.cohorts.get_mut(cohort.0).wordform = Some(tag);
             force_readings = true;
@@ -1919,7 +1919,7 @@ impl Matcher<'_> {
             if it != self.grammar.single_tags.end() {
                 let tid = it.get().1;
                 let t = &self.grammar.single_tags_list[tid.0];
-                if !t.tag.is_empty() && t.tag == txt {
+                if !t.tag.is_empty() && &*t.tag == txt {
                     return Ok(tid);
                 }
             }
@@ -1974,7 +1974,7 @@ impl Matcher<'_> {
         let mut reflow = false;
         let (ttype, is_txt) = {
             let t = &self.grammar.single_tags_list[tag.0];
-            (t.r#type, is_textual(&t.tag))
+            (t.r#type, is_textual(&*t.tag))
         };
 
         if (ttype.intersects(T_REGEXP)) && !is_txt {

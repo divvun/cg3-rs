@@ -889,7 +889,7 @@ impl TextualParser {
                     | T_SAME_BASIC,
             ) {
                 // Always allow...
-            } else if tagstr == ">>>" || tagstr == "<<<" {
+            } else if &*tagstr == ">>>" || &*tagstr == "<<<" {
                 // Always allow >>> and <<<
             } else if ty.intersects(T_REGEXP | T_REGEXP_ANY) {
                 if self.strict_regex {

@@ -532,9 +532,9 @@ impl GrammarWriter {
         for h in anchor_hashes {
             let tid = grammar.single_tags.find(h).get().1;
             let tag = &grammar.single_tags_list[tid.0].tag;
-            if tag == KEYWORDS_NAMES[Keywords::KStart as usize]
-                || tag == KEYWORDS_NAMES[Keywords::KEnd as usize]
-                || *tag == rule.name
+            if &**tag == KEYWORDS_NAMES[Keywords::KStart as usize]
+                || &**tag == KEYWORDS_NAMES[Keywords::KEnd as usize]
+                || **tag == *rule.name
             {
                 continue;
             }

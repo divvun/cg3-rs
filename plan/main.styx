@@ -2338,4 +2338,26 @@ children (
             }
         )
     }
+
+    {
+        id tag-text-boxed-str
+        title "Drop the capacity word from every tag's text: tag and tag_raw are Strings but are interned once and never grow, so each carries a dead third word on every tag in the arena"
+        priority 0
+        kind @perf
+        log (
+            {
+                at 2026-09-14T16:50:37.354354Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+
+            {
+                at 2026-09-14T17:06:57.977028Z
+                author "brendan@necessary.nu"
+                kind @note
+                text "248 → 104 across the three boxing changes; this one took the last 16 by dropping the capacity word from `tag` and `tag_raw`. The const assert is tight, verified by lowering it to 103 and watching the build fail.\n\nOne in-place mutation had to be restructured rather than converted: parser_helpers.rs did `tag.tag.replace_range(..)` for the T_REGEXP_LINE `__` substitution AFTER assigning the built string to the tag. Box<str> has no replace_range and should not — the whole premise is that tag text is written once. The substitution now runs on the local `built: String` and the assignment moved after it. Nothing between the old and new assignment points reads `tag.tag`, so the reordering is inert.\n\nOne signature widened: uextras::ux_str_case_compare from (&UString, &UString) to (&str, &str). &Box<str> coerces to &str but not to &String, so its sole caller (grammar_applicator/core.rs:2032, inside the T_TEXTUAL rescan's inner loop) had no non-allocating alternative — two .to_string()s per iteration, in a change whose entire point is allocation. Strictly permissive, and it makes the public copy match the four private ones in parser_helpers, tag, grammar and match_set, all of which already took &str.\n\nByte-identity re-verified independently of the agent that did the conversion: 68 fixtures, 0 differing, 0 skipped, against a cg-comp built from 5633f32 in a throwaway worktree, distinct binary hashes confirmed. Worth the second run because several edits landed in binary_grammar.rs.\n\nNothing further is cheap here. What remains is two Box<str> at 16 each and ~40 bytes of scalars every tag genuinely uses; the next idea would be interning text into a side arena behind a u32 offset+len, which is a different kind of change."
+            }
+        )
+    }
 )

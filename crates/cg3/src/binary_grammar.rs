@@ -343,7 +343,7 @@ impl BinaryGrammar {
             let t = Self::read_tag_record(input, &mut tag_varsets, &mut bad_regexes);
             let hash = t.hash;
             let number = t.number;
-            let is_star = t.tag == "*";
+            let is_star = &*t.tag == "*";
             // single_tags[t->hash] = t (id == arena slot `number`).
             self.grammar.single_tags.insert((hash.get(), TagId(number)));
             if is_star {
@@ -713,7 +713,7 @@ impl BinaryGrammar {
             if len != 0 {
                 let mut buf = vec![0u8; len as usize];
                 let _ = input.read_exact(&mut buf);
-                t.tag = String::from_utf8_lossy(&buf).into_owned();
+                t.tag = String::from_utf8_lossy(&buf).into();
             }
         }
         if tfields & (1 << 9) != 0 {

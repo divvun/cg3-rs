@@ -285,7 +285,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
                 }
             }
 
-            let from_tag_str = relabels.single_tags_list[from_tag.0].tag.clone();
+            let from_tag_str = relabels.single_tags_list[from_tag.0].tag.to_string();
             if !to_tags.is_empty() {
                 // as_list->emplace(fromTag->tag.data(), target) — first wins.
                 as_list.entry(from_tag_str).or_insert(target);
@@ -748,7 +748,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
             .map(TagId)
             .collect();
         for tid in &tag_ids {
-            let s = self.grammar.single_tags_list[tid.0].tag.clone();
+            let s = self.grammar.single_tags_list[tid.0].tag.to_string();
             tag_by_str.insert(s, *tid);
         }
 
@@ -760,7 +760,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
             let trie = self.grammar.sets_list[sid.0].trie.clone();
             let to_tags = trie_get_tag_list(&trie, self.grammar);
             for toit in to_tags {
-                let ts = self.grammar.single_tags_list[toit.0].tag.clone();
+                let ts = self.grammar.single_tags_list[toit.0].tag.to_string();
                 sets_by_tag.entry(ts).or_default().insert(*sid);
             }
         }
