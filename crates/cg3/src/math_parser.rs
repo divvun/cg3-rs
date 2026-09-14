@@ -22,8 +22,6 @@
 
 use std::f64::consts::PI;
 
-use crate::types::{UChar, UStringView};
-
 /// Why an expression would not evaluate, and where.
 ///
 /// The C++ raised `std::runtime_error` with a bare message. That text was the
@@ -86,8 +84,8 @@ const ERANGE: i32 = 34;
 // a lifetime parameter (not present in C++) lets them borrow the `exp` passed
 // to `eval`. Consequence: one instance's `eval` calls share a lifetime.
 pub struct MathParser<'a> {
-    exp_ptr: UStringView<'a>,
-    token: UStringView<'a>,
+    exp_ptr: &'a str,
+    token: &'a str,
     tok_type: u8,
     vars: [f64; NUMVARS],
     min: f64,
@@ -135,7 +133,7 @@ impl<'a> MathParser<'a> {
         }
     }
 
-    pub fn eval(&mut self, exp: UStringView<'a>) -> Result<f64, MathError> {
+    pub fn eval(&mut self, exp: &'a str) -> Result<f64, MathError> {
         let mut result: f64 = 0.0;
         self.source = exp;
         self.exp_ptr = exp;
@@ -156,8 +154,8 @@ impl<'a> MathParser<'a> {
     // branch ever reads it; it is scoped to that branch here.
     fn eval_assign(&mut self, result: &mut f64) -> Result<(), MathError> {
         if self.tok_type == TypeT::Variable as u8 {
-            let t_ptr: UStringView<'a> = self.exp_ptr;
-            let temp_token: UStringView<'a> = self.token;
+            let t_ptr: &'a str = self.exp_ptr;
+            let temp_token: &'a str = self.token;
             // Quirk: `slot` is `token[0]-'A'` even for MIN/MAX (first letter
             // 'M' => 12) and for a lowercase single-letter name ('a'-'A' == 32),
             // which then indexes past the 26-slot `vars`. In C++ the OOB index
@@ -182,7 +180,7 @@ impl<'a> MathParser<'a> {
     /// op == a || op == b))`: `Some(op)` — the current token's first char —
     /// when the token is non-empty and that char is `a` or `b`, else `None`
     /// (loop exit). Same evaluation order: emptiness first, then the char test.
-    fn peek_op(&self, a: UChar, b: UChar) -> Option<UChar> {
+    fn peek_op(&self, a: char, b: char) -> Option<char> {
         if self.token.is_empty() {
             return None;
         }
@@ -243,7 +241,7 @@ impl<'a> MathParser<'a> {
     // [spec:cg3:def:math-parser.cg3.math-parser.eval-unary-fn]
     // [spec:cg3:sem:math-parser.cg3.math-parser.eval-unary-fn]
     fn eval_unary(&mut self, result: &mut f64) -> Result<(), MathError> {
-        let mut op: UChar = '\0';
+        let mut op: char = '\0';
         if self.tok_type == TypeT::Delimiter as u8
             && (first_char(self.token) == '+' || first_char(self.token) == '-')
         {
@@ -262,7 +260,7 @@ impl<'a> MathParser<'a> {
     // [spec:cg3:sem:math-parser.cg3.math-parser.eval-func-fn]
     fn eval_func(&mut self, result: &mut f64) -> Result<(), MathError> {
         let isfunc = self.tok_type == TypeT::Function as u8;
-        let mut temp_token: UStringView<'a> = "";
+        let mut temp_token: &'a str = "";
         if isfunc {
             temp_token = self.token;
             self.get_token()?;
@@ -419,12 +417,12 @@ impl<'a> MathParser<'a> {
 /// Peek the first `char` of `s`, or `'\0'` when empty. Models the C++ reads of
 /// `view[0]` on a possibly-empty view, which land on the string's null
 /// terminator (`0`) rather than reading past the buffer.
-fn first_char(s: &str) -> UChar {
+fn first_char(s: &str) -> char {
     s.chars().next().unwrap_or('\0')
 }
 
 /// `inlines.hpp` `ISDELIM`.
-fn is_delim(c: UChar) -> bool {
+fn is_delim(c: char) -> bool {
     c == '('
         || c == ')'
         || c == '+'
@@ -438,7 +436,7 @@ fn is_delim(c: UChar) -> bool {
 
 /// `inlines.hpp` `ISSPACE`. The `u_isWhitespace` ICU tail (only reachable for
 /// code points > 0xFF) is approximated with `char::is_whitespace`.
-fn is_space(c: UChar) -> bool {
+fn is_space(c: char) -> bool {
     let u = c as u32;
     if u <= 0xFF && u != 0x09 && u != 0x0A && u != 0x0D && u != 0x20 && u != 0xA0 {
         return false;
@@ -448,12 +446,12 @@ fn is_space(c: UChar) -> bool {
 
 /// `inlines.hpp` `ISALPHA_C`: `(p < 255) && isalpha(p)`. In the C locale
 /// `isalpha` matches ASCII A-Z/a-z, approximated with `is_ascii_alphabetic`.
-fn is_alpha_c(c: UChar) -> bool {
+fn is_alpha_c(c: char) -> bool {
     (c as u32) < 255 && c.is_ascii_alphabetic()
 }
 
 /// `inlines.hpp` `ISDIGIT_C`: `(p < 255) && isdigit(p)`.
-fn is_digit_c(c: UChar) -> bool {
+fn is_digit_c(c: char) -> bool {
     (c as u32) < 255 && c.is_ascii_digit()
 }
 
@@ -485,8 +483,8 @@ fn find_first_of(s: &str, set: &str) -> usize {
 /// C++ — any non-combining trailing char makes the compare succeed once the
 /// prefix matches. (This reproduces quirks like `"SINH"` matching `"SIN"`.)
 fn ux_simplecasecmp(a: &str, b: &str) -> bool {
-    let a_chars: Vec<UChar> = a.chars().collect();
-    let b_chars: Vec<UChar> = b.chars().collect();
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
     let n = b_chars.len();
     for (i, &bc) in b_chars.iter().enumerate() {
         match a_chars.get(i) {
@@ -506,7 +504,7 @@ fn ux_simplecasecmp(a: &str, b: &str) -> bool {
 
 /// ICU `u_getCombiningClass` is unavailable; combining class is 0 for every
 /// ASCII char, which is all that appears in numeric expressions.
-fn u_get_combining_class(_c: UChar) -> u8 {
+fn u_get_combining_class(_c: char) -> u8 {
     0
 }
 

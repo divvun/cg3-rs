@@ -14,8 +14,8 @@
 //!   `'\0'` terminator (the loops stop on `*p == 0`). Just like the C++ there is
 //!   NO lower-bound check: an underflowing `*pos - a` panics here where the C++
 //!   would read out of bounds — same precondition, different failure mode.
-//! * `Char` is instantiated concretely as `char` (our `UChar`), matching the
-//!   UTF-16 `UChar` text buffers of the original but over Unicode scalars.
+//! * `Char` is instantiated concretely as `char`, matching the UTF-16 `UChar`
+//!   text buffers of the original but over Unicode scalars.
 //! * Byte IO (`readRaw`/`writeRaw`/`readBE`…): the C++ `std::istream&` /
 //!   `std::ostream&` become `std::io::Read` / `Write`. The generic byte plumbing
 //!   goes through the [`ByteOrdered`] trait. Reads are return-style (the C++
@@ -29,7 +29,7 @@
 //!   `static_cast` is UB/implementation-defined there; for in-range values they
 //!   agree. `constexpr` becomes a plain fn (const trait methods are unstable),
 //!   except `make_64` which stays `const fn`.
-//! * ICU is not available in Wave 2. Because our `UString` is already UTF-8, the
+//! * ICU is not available. Because our strings are already UTF-8, the
 //!   `u_strToUTF8`/`u_strFromUTF8` transcoding collapses to identity over the
 //!   string's bytes, so the UTF-8 read/write helpers keep the exact on-disk
 //!   format (length prefix + UTF-8 bytes) with no external crate. `u_isalnum`,

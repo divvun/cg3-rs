@@ -58,8 +58,8 @@ pub fn render_parse_errors(
     // Built once and reborrowed per report: `Cache` is implemented for
     // `&mut C`, so the sources are not cloned per error.
     let mut cache = ariadne::sources(sources.iter().map(|s| (s.name.clone(), s.text.clone())));
-    // The parser is char-indexed end to end — `UChar` is `char` and a parse
-    // buffer is a `Vec<char>` — so spans are char offsets and ariadne needs no
+    // The parser is char-indexed end to end — a parse buffer is a `Vec<char>`
+    // — so spans are char offsets and ariadne needs no
     // byte-mapping table. `IndexType::Char` is ariadne 0.6's default; it is set
     // here anyway, because the whole span contract turns on it.
     let config = Config::new()

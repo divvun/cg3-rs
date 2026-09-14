@@ -9,7 +9,7 @@
 //! ## Representation decisions (parity notes)
 //!
 //! * **Output → `std::io::Write`.** The C++ `u_fprintf(std::ostream&, ...)` calls
-//!   become `write!(output, ...)` over a generic `W: Write`. Our `UString` is
+//!   become `write!(output, ...)` over a generic `W: Write`. Our strings are
 //!   already UTF-8, so `%S`/`%C`/`%s`/`%d`/`%u` format specifiers map to Rust's
 //!   `{}` and the bytes written are the same UTF-8 the ICU `u_fprintf` produced.
 //!   Write errors are swallowed (the C++ ignores the stream failbit).

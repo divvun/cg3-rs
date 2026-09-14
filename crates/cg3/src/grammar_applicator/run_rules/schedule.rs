@@ -9,7 +9,7 @@ use crate::interval_vector::Uint32IntervalVector;
 use crate::reading::ReadingList;
 use crate::rule::{RF_ENCL_FINAL, RF_NOITERATE, RF_REPEAT};
 use crate::tag::{T_MAPPING, T_VARSTRING, TagList};
-use crate::types::{TagHash, UString};
+use crate::types::TagHash;
 
 // C++ anonymous `enum { RV_NOTHING = 1, RV_SOMETHING = 2, RV_DELIMITED = 4,
 // RV_TRACERULE = 8 };` — the return-value bit flags of runRulesOnSingleWindow.
@@ -293,7 +293,7 @@ impl crate::grammar_applicator::Engine<'_> {
         id: u32,
     ) -> Result<TagId, crate::error::RunError> {
         let base = self.grammar.single_tags_list.get(tag.0).tag.clone();
-        let tmp: UString = format!("R:{}:{}", base, id);
+        let tmp: String = format!("R:{}:{}", base, id);
         // C++ `addTag(tmp)` is the `addTag(const UChar*)` convenience overload →
         // `addTag(str, 0)`.
         self.add_tag(&tmp, crate::tag::TagType::empty())

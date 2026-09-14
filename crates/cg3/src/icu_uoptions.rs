@@ -35,13 +35,12 @@
 //! into the live `std::string value`) become `String` collects.
 
 use crate::options::{UOPT_NO_ARG, UOPT_REQUIRES_ARG, UOption};
-use crate::types::UChar;
 
 /// Reads the `k`-th `char` of a NUL-free token, returning `'\0'` for any index
 /// at or past the end. This is the `arg[k]` / `*arg`-style access from the C
 /// original, where reading at/after the terminator yields the NUL byte.
 #[inline]
-fn at(token: &[UChar], k: usize) -> UChar {
+fn at(token: &[char], k: usize) -> char {
     if k < token.len() { token[k] } else { '\0' }
 }
 
@@ -53,7 +52,7 @@ fn at(token: &[UChar], k: usize) -> UChar {
 /// C++ `u_parseArgs`.
 pub fn u_parse_args(
     argc: i32,
-    argv: &mut [Vec<UChar>],
+    argv: &mut [Vec<char>],
     option_count: i32,
     options: &mut [UOption],
 ) -> i32 {
@@ -66,7 +65,7 @@ pub fn u_parse_args(
         let iu = i as usize;
         if !stop_options && at(&argv[iu], 0) == '-' && at(&argv[iu], 1) != '\0' {
             // process an option
-            let mut c: UChar = at(&argv[iu], 1);
+            let mut c: char = at(&argv[iu], 1);
             // arg += 2 (past "-X"); tracked as an offset into argv[i]
             let mut arg_off: usize = 2;
 
@@ -174,7 +173,7 @@ pub fn u_parse_args(
 mod tests {
     use super::*;
 
-    fn opt(long: &'static str, short: UChar, has_arg: u8) -> UOption {
+    fn opt(long: &'static str, short: char, has_arg: u8) -> UOption {
         UOption {
             long_name: Some(long),
             short_name: short,
@@ -185,7 +184,7 @@ mod tests {
         }
     }
 
-    fn tok(s: &str) -> Vec<UChar> {
+    fn tok(s: &str) -> Vec<char> {
         s.chars().collect()
     }
 

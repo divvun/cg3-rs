@@ -36,7 +36,7 @@ use crate::grammar::Grammar;
 use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::sorted_vector::Uint32SortedVector;
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
-use crate::types::{TagHash, UString, UStringView};
+use crate::types::TagHash;
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — resolve a hash to its
 /// `TagId`. operator[] would default-insert a null `Tag*` on a miss (deref
@@ -71,7 +71,7 @@ const CT_REMOVED: crate::cohort::CohortType = crate::cohort::CT_REMOVED;
 /// port the internal representation is already UTF-8, so this is the identity on
 /// the string content (the ICU two-pass `u_strToUTF8` preflight collapses to a
 /// plain copy). Returns an owned `String`.
-pub fn ustring_to_utf8(ustr: UStringView) -> String {
+pub fn ustring_to_utf8(ustr: &str) -> String {
     ustr.to_string()
 }
 
@@ -81,10 +81,10 @@ pub fn ustring_to_utf8(ustr: UStringView) -> String {
 /// JSON string, decode its UTF-8 bytes to the internal (UTF-8) representation;
 /// for any non-string value (null / number / bool / array / object / missing),
 /// return an empty string.
-pub fn json_to_ustring(val: &Value) -> UString {
+pub fn json_to_ustring(val: &Value) -> String {
     match val {
         Value::String(s) => s.clone(),
-        _ => UString::new(),
+        _ => String::new(),
     }
 }
 
@@ -151,7 +151,7 @@ impl<'a> JsonlApplicator<'a> {
         if let Some(l_val) = obj.get("l") {
             let base_str = json_to_ustring(l_val);
             if !base_str.is_empty() {
-                let mut base_tag = UString::new();
+                let mut base_tag = String::new();
                 base_tag.push('"');
                 base_tag.push_str(&base_str);
                 base_tag.push('"');
@@ -267,9 +267,9 @@ impl<'a> JsonlApplicator<'a> {
                 "Warning: JSON cohort on line {} missing 'w' (wordform). Using empty.",
                 self.base.doc.num_lines
             );
-            UString::new()
+            String::new()
         };
-        let mut wform_tag = UString::new();
+        let mut wform_tag = String::new();
         wform_tag.push_str("\"<");
         wform_tag.push_str(&wform_str);
         wform_tag.push_str(">\"");
@@ -830,7 +830,7 @@ impl<'a> JsonlApplicator<'a> {
                         .clone()
                 };
                 let it = variables_set.find(var);
-                let mut cmd_buf = UString::new();
+                let mut cmd_buf = String::new();
                 if it != variables_set.end() {
                     let val = it.get().1;
                     if val != self.base.grammar.tag_any {
@@ -1008,7 +1008,7 @@ impl JsonlFormat {
     // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
     /// C++ `void printStreamCommand(UStringView cmd, std::ostream& output)`. Emits
     /// `{"cmd": <cmd>}` + `"\n"`. Does NOT flush.
-    pub(crate) fn print_stream_command_e<W: Write>(&self, cmd: UStringView, output: &mut W) {
+    pub(crate) fn print_stream_command_e<W: Write>(&self, cmd: &str, output: &mut W) {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
         let doc = json!({ "cmd": ustring_to_utf8(cmd) });
         let s = serde_json::to_string(&doc).unwrap();
@@ -1021,7 +1021,7 @@ impl JsonlFormat {
     /// Emits `{"t": <line>}` + `"\n"`. Does NOT flush. Newlines embedded in
     /// `line` are JSON-escaped by the writer, so the output stays one physical
     /// line.
-    pub(crate) fn print_plain_text_line_e<W: Write>(&self, line: UStringView, output: &mut W) {
+    pub(crate) fn print_plain_text_line_e<W: Write>(&self, line: &str, output: &mut W) {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
         let doc = json!({ "t": ustring_to_utf8(line) });
         let s = serde_json::to_string(&doc).unwrap();
@@ -1239,7 +1239,7 @@ impl JsonlFormat {
                     None
                 }
             };
-            let mut cmd_buf = UString::new();
+            let mut cmd_buf = String::new();
             match value_hash {
                 Some(vh) => {
                     if vh != e.grammar.tag_any {

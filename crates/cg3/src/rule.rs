@@ -12,7 +12,7 @@
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::contextual_test::ContextList;
 use crate::strings::Keywords;
-use crate::types::{SetNumber, UString};
+use crate::types::SetNumber;
 use std::collections::{BTreeMap, HashMap};
 
 // [spec:cg3:def:rule.cg3.rule-flags]
@@ -193,7 +193,7 @@ pub struct RuleProvenance {
 /// because `type`'s C++ default is `K_IGNORE` and [`Keywords`] has no `Default`.
 #[derive(Clone, Debug)]
 pub struct Rule {
-    pub name: UString,
+    pub name: String,
     pub wordform: Option<TagId>,
     pub target: SetNumber,
     pub childset1: SetNumber,
@@ -230,7 +230,7 @@ pub struct Rule {
 impl Default for Rule {
     fn default() -> Self {
         Rule {
-            name: UString::new(),
+            name: String::new(),
             wordform: None,
             target: SetNumber(0),
             childset1: SetNumber(0),

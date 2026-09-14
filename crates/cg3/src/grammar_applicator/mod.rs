@@ -43,7 +43,7 @@ use crate::process::Process;
 use crate::scoped_stack::ScopedStack;
 use crate::sorted_vector::{SortedVector, Uint32SortedVector};
 use crate::tag::TagList;
-use crate::types::{TagHash, UChar, UString, Uint32Vector};
+use crate::types::{TagHash, Uint32Vector};
 
 pub mod context;
 pub mod core;
@@ -78,7 +78,7 @@ pub enum StreamFormatKind {
 // [spec:cg3:def:grammar-applicator.cg3.regexgrps-t]
 /// C++ `typedef std::vector<UnicodeString> regexgrps_t` — the captured regex
 /// groups for one context frame (`UnicodeString` → UTF-8 [`UString`]).
-pub type RegexGroups = Vec<UString>;
+pub type RegexGroups = Vec<String>;
 
 // [spec:cg3:def:grammar-applicator.cg3.unif-key]
 /// Semantic identity of a unified trie node, replacing the C++ `const void*`
@@ -311,10 +311,10 @@ pub struct EngineConfig {
 
     pub parse_dep: bool,
 
-    pub span_pattern_latin: UString,
-    pub span_pattern_utf: UString,
+    pub span_pattern_latin: String,
+    pub span_pattern_utf: String,
     /// C++ `UChar ws[4]{ ' ', '\t', 0, 0 }` — the whitespace set.
-    pub ws: [UChar; 4],
+    pub ws: [char; 4],
 
     pub did_index: bool,
 

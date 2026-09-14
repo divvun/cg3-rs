@@ -23,7 +23,6 @@
 use crate::icu_uoptions::u_parse_args;
 use crate::inlines::isspace;
 use crate::options::UOption;
-use crate::types::UChar;
 
 // [spec:cg3:def:options-parser.options.parse-opts-fn]
 // [spec:cg3:sem:options-parser.options.parse-opts-fn]
@@ -37,7 +36,7 @@ use crate::types::UChar;
 // The C++ in-place NUL writes + the one-past-terminator guard-NUL quirk are
 // dissolved (see the module note); observable argv is unchanged.
 pub fn parse_opts(p: &str, where_: &mut [UOption]) {
-    let mut argv: Vec<Vec<UChar>> = vec![Vec::new()]; // 0th element is the program name
+    let mut argv: Vec<Vec<char>> = vec![Vec::new()]; // 0th element is the program name
     let chars: Vec<char> = p.chars().collect();
     let mut pos = 0usize;
     let len = chars.len();
@@ -88,7 +87,7 @@ mod tests {
     use super::*;
     use crate::options::{UOPT_NO_ARG, UOPT_REQUIRES_ARG};
 
-    fn opt(long: &'static str, short: UChar, has_arg: u8) -> UOption {
+    fn opt(long: &'static str, short: char, has_arg: u8) -> UOption {
         UOption {
             long_name: Some(long),
             short_name: short,

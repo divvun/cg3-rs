@@ -2,7 +2,6 @@
 //!
 //! Split out of the wave-2 monolithic `inlines.rs` (wave 4, w4-file-split-fmt).
 
-use crate::types::UString;
 use std::io::{Read, Write};
 
 use super::*;
@@ -209,7 +208,7 @@ pub fn write_utf8_le<W: Write>(output: &mut W, str: &str) {
 // [spec:cg3:sem:inlines.cg3.read-utf8-raw-fn]
 // Length prefix read RAW (host byte order). ICU decode with ignored status ->
 // from_utf8_lossy (malformed bytes -> U+FFFD, matching ICU's substitution).
-pub fn read_utf8_raw<R: Read>(input: &mut R) -> UString {
+pub fn read_utf8_raw<R: Read>(input: &mut R) -> String {
     let len: u16 = read_raw(input);
     let mut buffer = vec![0u8; len as usize];
     let _ = input.read_exact(&mut buffer);
@@ -219,7 +218,7 @@ pub fn read_utf8_raw<R: Read>(input: &mut R) -> UString {
 // [spec:cg3:def:inlines.cg3.read-utf8-le-fn]
 // [spec:cg3:sem:inlines.cg3.read-utf8-le-fn]
 // Length prefix read LITTLE-ENDIAN, decoded into the out-param `rv`.
-pub fn read_utf8_le<R: Read>(input: &mut R, rv: &mut UString) {
+pub fn read_utf8_le<R: Read>(input: &mut R, rv: &mut String) {
     let len: u16 = read_le(input);
     let mut buffer = vec![0u8; len as usize];
     let _ = input.read_exact(&mut buffer);
@@ -228,8 +227,8 @@ pub fn read_utf8_le<R: Read>(input: &mut R, rv: &mut UString) {
 }
 
 // Returning convenience overload (`readUTF8_LE(S&) -> UString`).
-pub fn read_utf8_le_ret<R: Read>(input: &mut R) -> UString {
-    let mut rv = UString::new();
+pub fn read_utf8_le_ret<R: Read>(input: &mut R) -> String {
+    let mut rv = String::new();
     read_utf8_le(input, &mut rv);
     rv
 }

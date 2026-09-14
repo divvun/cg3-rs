@@ -856,7 +856,7 @@ impl NicelineFormat {
 
 /// C++ `UString::find_first_not_of(ws)` membership: is `c` in the (NUL-
 /// terminated) whitespace set `ws`?
-fn is_ws(ws: &[crate::types::UChar; 4], c: char) -> bool {
+fn is_ws(ws: &[char; 4], c: char) -> bool {
     for &w in ws {
         if w == '\0' {
             break;

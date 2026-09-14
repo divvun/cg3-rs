@@ -24,7 +24,7 @@
 //!
 //! Mapping: `const char* longName` -> `Option<&'static str>` (the `nullptr`
 //! default becomes `None`, matching u_parseArgs' `if (longName && ...)` guard);
-//! `char shortName` -> [`crate::types::UChar`] (`char`), with the C++ `0`
+//! `char shortName` -> `char` (a Unicode scalar), with the C++ `0`
 //! "no short name" sentinel written as `'\0'`; `uint8_t hasArg` -> `u8` (the
 //! [`UOPT_NO_ARG`]/[`UOPT_REQUIRES_ARG`]/[`UOPT_OPTIONAL_ARG`] constants);
 //! `std::string description`/`value` -> `String`.
@@ -39,8 +39,6 @@
 //! the tools layer is expected to own the mutable copies. The table data is a
 //! 1:1 transcription.
 
-use crate::types::UChar;
-
 // --- values of UOption.hasArg (from include/uoptions.hpp; local port) ---
 // NOTE: sourced from the vendored `enum : uint8_t { ... }`; no spec id in scope.
 pub const UOPT_NO_ARG: u8 = 0;
@@ -52,7 +50,7 @@ pub const UOPT_OPTIONAL_ARG: u8 = 2;
 #[derive(Clone, Debug)]
 pub struct UOption {
     pub long_name: Option<&'static str>,
-    pub short_name: UChar,
+    pub short_name: char,
     pub has_arg: u8,
     pub description: String,
     pub does_occur: bool,
@@ -61,7 +59,7 @@ pub struct UOption {
 
 impl UOption {
     /// Four-field aggregate init `UOption{long, short, hasArg, desc}`.
-    fn new(long: &'static str, short: UChar, has_arg: u8, desc: &'static str) -> Self {
+    fn new(long: &'static str, short: char, has_arg: u8, desc: &'static str) -> Self {
         UOption {
             long_name: Some(long),
             short_name: short,
@@ -74,7 +72,7 @@ impl UOption {
 
     /// Three-field aggregate init `UOption{long, short, hasArg}` (description
     /// defaults to empty).
-    fn new3(long: &'static str, short: UChar, has_arg: u8) -> Self {
+    fn new3(long: &'static str, short: char, has_arg: u8) -> Self {
         UOption {
             long_name: Some(long),
             short_name: short,

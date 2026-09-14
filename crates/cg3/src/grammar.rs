@@ -38,7 +38,7 @@ use crate::flat_unordered_map::{FlatUnorderedMap, Uint32FlatHashMap};
 use crate::interval_vector::Uint32IntervalVector;
 use crate::sorted_vector::{SortedVector, Uint32SortedVector};
 use crate::strings::STR_DUMMY;
-use crate::types::{DynBitset, SetNumber, UChar, UString, Uint32Vector};
+use crate::types::{DynBitset, SetNumber, Uint32Vector};
 
 // Sibling grammar-object types (created by parallel agents). Aliased locally so
 // the arena declarations read against a stable name.
@@ -99,11 +99,11 @@ pub type Contexts = BTreeMap<u32, CtxId>;
 // [spec:cg3:def:grammar.cg3.grammar.set-name-seeds-t]
 /// C++ `typedef std::unordered_map<UString, uint32_t, hash_ustring> set_name_seeds_t`.
 /// UTF-8 `String` keys; `hash_ustring` collapses into the std hasher.
-pub type SetNameSeeds = HashMap<UString, u32>;
+pub type SetNameSeeds = HashMap<String, u32>;
 
 // [spec:cg3:def:grammar.cg3.grammar.static-sets-t]
 /// C++ `typedef std::vector<UString> static_sets_t`.
-pub type StaticSets = Vec<UString>;
+pub type StaticSets = Vec<String>;
 
 // [spec:cg3:def:grammar.cg3.grammar.regex-tags-t]
 /// C++ `typedef std::set<URegularExpression*> regex_tags_t`.
@@ -187,7 +187,7 @@ pub struct Grammar {
     /// no trie and must not be serialised. Reachable after a run via
     /// `vislcg3 --grammar-bin` without `--grammar-only`.
     pub num_tags: usize,
-    pub mapping_prefix: UChar,
+    pub mapping_prefix: char,
     pub lines: u32,
     pub verbosity_level: u32,
     pub total_time: f64,

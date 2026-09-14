@@ -12,7 +12,7 @@
 //! `self.base.doc.store` (`cohorts`/`readings`/`single_windows` arenas) and
 //! `self.base.grammar.single_tags_list` (the `Tag` arena). Nullable pointers →
 //! `Option<…Id>`. The char-by-char C++ state machines walk `UChar` (UTF-16 code
-//! units); here `UString = String` and the walks are over `Vec<char>` scratch
+//! units); here text is UTF-8 and the walks are over `Vec<char>` scratch
 //! buffers (matching the already-ported engine `run_grammar.rs` convention).
 //!
 //! OUTPUT SINK. C++ `std::ostream& output` → generic `output: &mut W`
@@ -37,7 +37,7 @@ use crate::inlines::{hash_value, insert_if_exists};
 use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
 use crate::single_window::{SingleWindow, append_cohort};
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_WORDFORM, TagList};
-use crate::types::{DynBitset, TagHash, UString};
+use crate::types::{DynBitset, TagHash};
 use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fputc, ux_strip_bom};
 
 // C++ `constexpr UChar esc_lt = '\1';` — the sentinel the reading scanner
@@ -346,7 +346,7 @@ where
         self.base.engine().add_tag_to_reading(c_reading, wform)?;
 
         let mut taglist: TagList = Vec::new();
-        let mut bf: UString = String::from("\"");
+        let mut bf: String = String::from("\"");
         let mut tags: TagList = Vec::new();
         let mut prefix_tags: TagList = Vec::new();
 
@@ -1207,11 +1207,11 @@ struct ApertiumStreamState {
     /// C++ `bool inCohort`.
     in_cohort: bool,
     /// C++ `UString blank`.
-    blank: UString,
+    blank: String,
     /// C++ `UString wblank`.
-    wblank: UString,
+    wblank: String,
     /// C++ `UString token`.
-    token: UString,
+    token: String,
     /// C++ `SingleWindow* cSWindow`.
     c_swindow: Option<SwId>,
     /// C++ `Cohort* cCohort`.

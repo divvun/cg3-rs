@@ -84,7 +84,7 @@ use crate::tag::{
     T_VARIABLE, T_VARSTRING, T_WORDFORM, Tag, TagList, TagSortedVector,
 };
 use crate::tag_trie::{TagTrie, TrieNode};
-use crate::types::{SetNumber, TagHash, UString};
+use crate::types::{SetNumber, TagHash};
 
 use super::{CohortMatchContext, Matcher, RegexGroups, UnifKey};
 
@@ -120,16 +120,16 @@ fn capture_regex(
     let caps = regexp.captures(input);
     let mut i = 1i32;
     while i <= gc {
-        let text: UString = match &caps {
+        let text: String = match &caps {
             Some(c) => c
                 .get(i as usize)
                 .map(|m| m.as_str().to_string())
                 .unwrap_or_default(),
-            None => UString::new(),
+            None => String::new(),
         };
         let need = (*regexgrp_ct as usize) + 1;
         if regexgrps.len() < need {
-            regexgrps.resize(need, UString::new());
+            regexgrps.resize(need, String::new());
         }
         let slot = &mut regexgrps[*regexgrp_ct as usize];
         slot.clear(); // ucstr.remove()
@@ -373,7 +373,7 @@ impl Matcher<'_> {
                     let pc = self.readings.get(reading.0).parent;
                     match pc {
                         Some(cid) => self.cohorts.get(cid.0).text.clone(),
-                        None => UString::new(),
+                        None => String::new(),
                     }
                 };
                 if !text.is_empty() {

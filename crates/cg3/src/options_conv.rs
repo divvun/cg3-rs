@@ -16,11 +16,10 @@
 //! they are exposed here as constructor functions returning fresh arrays.
 
 use crate::options::{UOPT_NO_ARG, UOPT_OPTIONAL_ARG, UOPT_REQUIRES_ARG, UOption};
-use crate::types::UChar;
 
 /// Local four/three-field `UOption` aggregate-init helpers, mirroring the ones
 /// in [`crate::options`] (kept private there).
-fn uo(long: &'static str, short: UChar, has_arg: u8, desc: &'static str) -> UOption {
+fn uo(long: &'static str, short: char, has_arg: u8, desc: &'static str) -> UOption {
     UOption {
         long_name: Some(long),
         short_name: short,
@@ -30,7 +29,7 @@ fn uo(long: &'static str, short: UChar, has_arg: u8, desc: &'static str) -> UOpt
         value: String::new(),
     }
 }
-fn uo3(long: &'static str, short: UChar, has_arg: u8) -> UOption {
+fn uo3(long: &'static str, short: char, has_arg: u8) -> UOption {
     UOption {
         long_name: Some(long),
         short_name: short,

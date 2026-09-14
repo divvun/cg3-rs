@@ -12,7 +12,7 @@ use crate::grammar::Grammar;
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_ustring, is_textual};
 use crate::math_parser::MathParser;
 use crate::sorted_vector::SortedVector;
-use crate::types::{TagHash, UString, UStringVector};
+use crate::types::TagHash;
 
 // C++ `using SetVector = std::vector<Set*>;` (forward-declared in Tag.hpp).
 // NOTE(lead): Set.hpp re-declares the identical `SetVector` typedef as
@@ -187,7 +187,7 @@ pub struct Tag {
     pub vs_sets: Option<Box<SetVector>>,
     /// `std::unique_ptr<UStringVector> vs_names;` — nullable, lazily allocated.
     /// Boxed for the same reason as [`vs_sets`](Self::vs_sets).
-    pub vs_names: Option<Box<UStringVector>>,
+    pub vs_names: Option<Box<Vec<String>>>,
     /// `mutable URegularExpression* regexp = nullptr;`
     ///
     /// FIELD-TYPE CHANGE (method pass): the Wave-2 `URegularExpression`
@@ -444,7 +444,7 @@ impl Tag {
     // [spec:cg3:sem:tag.cg3.tag.allocate-vs-names-fn]
     pub fn allocate_vs_names(&mut self) {
         if self.vs_names.is_none() {
-            self.vs_names = Some(Box::new(UStringVector::new()));
+            self.vs_names = Some(Box::new(Vec::new()));
         }
     }
 
@@ -589,12 +589,12 @@ impl Tag {
 
     // [spec:cg3:def:tag.cg3.tag.to-u-string-fn]
     // [spec:cg3:sem:tag.cg3.tag.to-u-string-fn]
-    pub fn to_u_string(&self, escape: bool) -> UString {
+    pub fn to_u_string(&self, escape: bool) -> String {
         if !self.tag_raw.is_empty() {
             return self.tag_raw.to_string();
         }
 
-        let mut str = UString::new();
+        let mut str = String::new();
         str.reserve(self.tag.len());
 
         if self.r#type.intersects(T_FAILFAST) {

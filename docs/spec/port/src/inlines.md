@@ -708,18 +708,25 @@ rather than outstanding work.
 > caller's original argument to `b` is not affected — only `a` is
 > temporarily overwritten.
 
-> [spec:cg3:def:inlines.cg3.usv-fn]
-> inline UStringView USV(UnicodeString& str)
+`[spec:cg3:def:inlines.cg3.usv-fn]` and `[spec:cg3:sem:inlines.cg3.usv-fn]`
+stood here, naming the C++ `inline UStringView USV(UnicodeString& str)`. It
+built a `UStringView` (a `basic_string_view<UChar>`) over an ICU
+`UnicodeString`'s internal buffer without copying, returning
+`UStringView(str.getTerminatedBuffer(), str.length())`:
+`getTerminatedBuffer()` returns a pointer to the NUL-terminated internal
+UTF-16 buffer (this call may mutate/reallocate `str` internally to ensure
+termination), and `length()` gives the number of UChar code units. The
+returned view was valid only while `str` was unmodified and alive. A sibling
+overload `USV(UString&)` simply returned `UStringView(str)`.
 
-> [spec:cg3:sem:inlines.cg3.usv-fn]
-> Builds a `UStringView` (a `basic_string_view<UChar>`) over an ICU
-> `UnicodeString`'s internal buffer, without copying. Returns
-> `UStringView(str.getTerminatedBuffer(), str.length())`:
-> `getTerminatedBuffer()` returns a pointer to the NUL-terminated internal
-> UTF-16 buffer (this call may mutate/reallocate `str` internally to ensure
-> termination), and `length()` gives the number of UChar code units. The
-> returned view is valid only while `str` is unmodified and alive. (A
-> sibling overload `USV(UString&)` simply returns `UStringView(str)`.)
+They are obsolesced, not unmet. The named overload takes an ICU
+`UnicodeString` and exists to reach through `getTerminatedBuffer()` — a
+guaranteed-NUL-terminated view of ICU's private UTF-16 storage. This port has
+no ICU, so that overload never had a counterpart. The sibling `USV(UString&)`
+overload, which is all the port ever stood in for, is `&String` → `&str`: deref
+coercion, a language rule rather than a function. Keeping a `fn usv(s: &str) ->
+&str` alive to host the annotation would be scaffolding with no caller, so the
+helper is gone and the ids with it.
 
 > [spec:cg3:def:inlines.cg3.write-be-fn]
 > inline void writeBE(std::ostream& stream, double value)

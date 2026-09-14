@@ -2,20 +2,9 @@
 //!
 //! Split out of the wave-2 monolithic `inlines.rs` (wave 4, w4-file-split-fmt).
 
-use crate::types::{UString, UStringView};
-
 // ---------------------------------------------------------------------------
 // Misc utilities
 // ---------------------------------------------------------------------------
-
-// [spec:cg3:def:inlines.cg3.usv-fn]
-// [spec:cg3:sem:inlines.cg3.usv-fn]
-// Only the `USV(UString&)` overload is ported (it simply returns a view); the
-// `USV(UnicodeString&)` overload requires ICU and is omitted in Wave 2.
-#[inline]
-pub fn usv(str: &UString) -> UStringView<'_> {
-    str
-}
 
 // [spec:cg3:def:inlines.cg3.size-fn]
 // [spec:cg3:sem:inlines.cg3.size-fn]

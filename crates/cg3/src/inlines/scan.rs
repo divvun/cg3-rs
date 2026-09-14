@@ -22,8 +22,6 @@
 //! NOT C pointers) is a faithful, idiomatic representation, and migrating its
 //! ~300 in-place byte offsets carries poor risk/reward in a soft-gate wave.
 
-use crate::types::UChar;
-
 // ---------------------------------------------------------------------------
 // Character predicates
 // ---------------------------------------------------------------------------
@@ -31,7 +29,7 @@ use crate::types::UChar;
 // [spec:cg3:def:inlines.cg3.isdelim-fn]
 // [spec:cg3:sem:inlines.cg3.isdelim-fn]
 #[inline]
-pub fn isdelim(c: UChar) -> bool {
+pub fn isdelim(c: char) -> bool {
     c == '('
         || c == ')'
         || c == '+'
@@ -49,7 +47,7 @@ pub fn isdelim(c: UChar) -> bool {
 // and Rust's White_Space tables may differ for c > 0xFF). The NBSP (0xA0) quirk
 // is preserved via the explicit test.
 #[inline]
-pub fn isspace(c: UChar) -> bool {
+pub fn isspace(c: char) -> bool {
     let u = c as u32;
     if u <= 0xFF && u != 0x09 && u != 0x0A && u != 0x0D && u != 0x20 && u != 0xA0 {
         return false;
@@ -61,7 +59,7 @@ pub fn isspace(c: UChar) -> bool {
 // [spec:cg3:sem:inlines.cg3.isnl-fn]
 // U+000D (CR) is deliberately NOT included.
 #[inline]
-pub fn isnl(c: UChar) -> bool {
+pub fn isnl(c: char) -> bool {
     let u = c as u32;
     u == 0x2028 || u == 0x2029 || u == 0x000C || u == 0x000B || u == 0x000A
 }
@@ -83,14 +81,14 @@ fn c_isdigit(c: u32) -> bool {
 // (p < 255) && isalpha(p). Strict `<` (255 excluded). The C++ signed-char UB
 // caveat does not arise here since our Char (char) is an unsigned scalar.
 #[inline]
-pub fn isalpha_c(p: UChar) -> bool {
+pub fn isalpha_c(p: char) -> bool {
     (p as u32) < 255 && c_isalpha(p as u32)
 }
 
 // [spec:cg3:def:inlines.cg3.isdigit-c-fn]
 // [spec:cg3:sem:inlines.cg3.isdigit-c-fn]
 #[inline]
-pub fn isdigit_c(p: UChar) -> bool {
+pub fn isdigit_c(p: char) -> bool {
     (p as u32) < 255 && c_isdigit(p as u32)
 }
 
@@ -243,7 +241,7 @@ pub fn skipln(s: &str, pos: &mut usize) -> u32 {
 // [spec:cg3:sem:inlines.cg3.skipws-fn]
 // Stop test uses the VALUE form `!isspace(*p)` (escape-INsensitive). `a`/`b`
 // default to '\0' at call sites (no Rust default args).
-pub fn skipws(s: &str, pos: &mut usize, a: UChar, b: UChar, allowhash: bool) -> u32 {
+pub fn skipws(s: &str, pos: &mut usize, a: char, b: char, allowhash: bool) -> u32 {
     let mut n = 0u32;
     loop {
         let c = char_at(s, *pos);
@@ -272,7 +270,7 @@ pub fn skipws(s: &str, pos: &mut usize, a: UChar, b: UChar, allowhash: bool) -> 
 // Loop guard uses the escape-aware pointer form `!isspace_p(p)`. Statement order
 // reproduced exactly (comment-line double-count and post-newline step-over
 // quirks preserved).
-pub fn skiptows(s: &str, pos: &mut usize, a: UChar, allowhash: bool, allowscol: bool) -> u32 {
+pub fn skiptows(s: &str, pos: &mut usize, a: char, allowhash: bool, allowscol: bool) -> u32 {
     let mut n = 0u32;
     while char_at(s, *pos) != '\0' && !isspace_p(s, *pos) {
         if !allowhash && char_at(s, *pos) == '#' && !isesc(s, *pos) {
@@ -296,7 +294,7 @@ pub fn skiptows(s: &str, pos: &mut usize, a: UChar, allowhash: bool, allowscol: 
 
 // [spec:cg3:def:inlines.cg3.skipto-fn]
 // [spec:cg3:sem:inlines.cg3.skipto-fn]
-pub fn skipto(s: &str, pos: &mut usize, a: UChar) -> u32 {
+pub fn skipto(s: &str, pos: &mut usize, a: char) -> u32 {
     let mut n = 0u32;
     while char_at(s, *pos) != '\0' && (char_at(s, *pos) != a || isesc(s, *pos)) {
         if isnl(char_at(s, *pos)) {
@@ -309,7 +307,7 @@ pub fn skipto(s: &str, pos: &mut usize, a: UChar) -> u32 {
 
 // [spec:cg3:def:inlines.cg3.skipto-nospan-fn]
 // [spec:cg3:sem:inlines.cg3.skipto-nospan-fn]
-pub fn skipto_nospan(s: &str, pos: &mut usize, a: UChar) {
+pub fn skipto_nospan(s: &str, pos: &mut usize, a: char) {
     while char_at(s, *pos) != '\0' && (char_at(s, *pos) != a || isesc(s, *pos)) {
         if isnl(char_at(s, *pos)) {
             break;
@@ -320,7 +318,7 @@ pub fn skipto_nospan(s: &str, pos: &mut usize, a: UChar) {
 
 // [spec:cg3:def:inlines.cg3.skipto-nospan-raw-fn]
 // [spec:cg3:sem:inlines.cg3.skipto-nospan-raw-fn]
-pub fn skipto_nospan_raw(s: &str, pos: &mut usize, a: UChar) {
+pub fn skipto_nospan_raw(s: &str, pos: &mut usize, a: char) {
     while char_at(s, *pos) != '\0' && char_at(s, *pos) != a {
         if isnl(char_at(s, *pos)) {
             break;
@@ -395,7 +393,7 @@ pub fn skipln_chars(p: &[char], pos: &mut usize) -> u32 {
     1
 }
 
-pub fn skipws_chars(p: &[char], pos: &mut usize, a: UChar, b: UChar, allowhash: bool) -> u32 {
+pub fn skipws_chars(p: &[char], pos: &mut usize, a: char, b: char, allowhash: bool) -> u32 {
     let mut s = 0u32;
     while p[*pos] != '\0' && p[*pos] != a && p[*pos] != b {
         if isnl(p[*pos]) {
@@ -416,7 +414,7 @@ pub fn skipws_chars(p: &[char], pos: &mut usize, a: UChar, b: UChar, allowhash: 
 pub fn skiptows_chars(
     p: &[char],
     pos: &mut usize,
-    a: UChar,
+    a: char,
     allowhash: bool,
     allowscol: bool,
 ) -> u32 {
@@ -441,7 +439,7 @@ pub fn skiptows_chars(
     s
 }
 
-pub fn skipto_chars(p: &[char], pos: &mut usize, a: UChar) -> u32 {
+pub fn skipto_chars(p: &[char], pos: &mut usize, a: char) -> u32 {
     let mut s = 0u32;
     while p[*pos] != '\0' && (p[*pos] != a || isesc_chars(p, *pos)) {
         if isnl(p[*pos]) {
@@ -452,7 +450,7 @@ pub fn skipto_chars(p: &[char], pos: &mut usize, a: UChar) -> u32 {
     s
 }
 
-pub fn skipto_nospan_chars(p: &[char], pos: &mut usize, a: UChar) {
+pub fn skipto_nospan_chars(p: &[char], pos: &mut usize, a: char) {
     while p[*pos] != '\0' && (p[*pos] != a || isesc_chars(p, *pos)) {
         if isnl(p[*pos]) {
             break;
@@ -461,7 +459,7 @@ pub fn skipto_nospan_chars(p: &[char], pos: &mut usize, a: UChar) {
     }
 }
 
-pub fn skipto_nospan_raw_chars(p: &[char], pos: &mut usize, a: UChar) {
+pub fn skipto_nospan_raw_chars(p: &[char], pos: &mut usize, a: char) {
     while p[*pos] != '\0' && p[*pos] != a {
         if isnl(p[*pos]) {
             break;

@@ -27,7 +27,7 @@ use crate::grammar::Grammar;
 use crate::inlines::{hash_value, ui32};
 use crate::sorted_vector::Uint32SortedVector;
 use crate::store::RuntimeStore;
-use crate::types::{TagHash, UString, Uint32Vector};
+use crate::types::{TagHash, Uint32Vector};
 
 // [spec:cg3:def:reading.cg3.reading-list]
 /// C++ `typedef std::vector<Reading*> ReadingList` → `Vec<ReadingId>`.
@@ -87,7 +87,7 @@ pub struct Reading {
     pub tags_numerical: TagsNumerical,
 
     // ToDo (C++): Remove for real ordered mode
-    pub tags_string: UString,
+    pub tags_string: String,
     pub tags_string_hash: u32,
 }
 

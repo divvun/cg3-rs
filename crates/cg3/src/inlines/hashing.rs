@@ -2,8 +2,6 @@
 //!
 //! Split out of the wave-2 monolithic `inlines.rs` (wave 4, w4-file-split-fmt).
 
-use crate::types::{UString, UStringView};
-
 use super::*;
 
 // ---------------------------------------------------------------------------
@@ -193,12 +191,12 @@ impl HashUString {
     // C++ `operator()` -> ported to a `call` method (Rust has no call operator
     // overloading for arbitrary self). Forces the seed to CG3_HASH_SEED and
     // hashes the string's bytes; return type widened to usize (size_t).
-    pub fn call(&self, str: &UString) -> usize {
+    pub fn call(&self, str: &str) -> usize {
         hash_value_ustring(str, 0) as usize
     }
 
     // Sibling `operator()(const UStringView&)`.
-    pub fn call_view(&self, str: UStringView) -> usize {
+    pub fn call_view(&self, str: &str) -> usize {
         hash_value_ustring(str, 0) as usize
     }
 }

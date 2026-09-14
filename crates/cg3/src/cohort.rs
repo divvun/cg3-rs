@@ -28,7 +28,7 @@ use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, ui32};
 use crate::reading::{Reading, ReadingList, alloc_reading, alloc_reading_copy, free_reading};
 use crate::sorted_vector::{SortedVector, Uint32SortedVector};
 use crate::store::RuntimeStore;
-use crate::types::{DynBitset, GlobalNumber, UString};
+use crate::types::{DynBitset, GlobalNumber};
 use crate::window::{CohortRegistry, DepBookkeeping};
 
 // Cohort `type` bit flags (C++ anonymous enum, OR'd into the `uint8_t type`
@@ -126,8 +126,8 @@ pub struct Cohort {
     pub is_pright: u32,
     /// C++ `SingleWindow* parent = nullptr`.
     pub parent: Option<SwId>,
-    pub text: UString,
-    pub wblank: UString,
+    pub text: String,
+    pub wblank: String,
     /// C++ `Cohort* prev = nullptr` — sibling chain.
     pub prev: Option<CohortId>,
     /// C++ `Cohort* next = nullptr` — sibling chain.
@@ -162,8 +162,8 @@ impl Default for Cohort {
             is_pleft: 0,
             is_pright: 0,
             parent: None,
-            text: UString::new(),
-            wblank: UString::new(),
+            text: String::new(),
+            wblank: String::new(),
             prev: None,
             next: None,
             wread: None,

@@ -38,7 +38,7 @@ use crate::inlines::{
 use crate::reading::alloc_reading;
 use crate::single_window::{append_cohort, free_swindow};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
-use crate::types::{TagHash, UString};
+use crate::types::TagHash;
 use crate::uextras::{get_line_clean_chars, u_fputc, ux_strip_bom};
 
 /// C++ `grammar->single_tags[hash]` — resolves a tag hash to its `TagId`, else
@@ -67,8 +67,8 @@ pub struct FSTApplicator<B = Box<GrammarApplicator>> {
     pub base: B,
     pub did_warn_statictags: bool,
     pub wfactor: f64,
-    pub wtag: UString,
-    pub sub_delims: UString,
+    pub wtag: String,
+    pub sub_delims: String,
 }
 
 impl FSTApplicator<Box<GrammarApplicator>> {
@@ -369,7 +369,7 @@ where
                                 format!("{:.6}", weight)
                             };
                             // wtag_buf = "<" + wtag + ":" + buf + ">"
-                            let mut wtag_buf: UString = String::new();
+                            let mut wtag_buf: String = String::new();
                             wtag_buf.push('<');
                             wtag_buf.push_str(&self.wtag);
                             wtag_buf.push(':');
@@ -968,8 +968,8 @@ struct FstStreamState {
 pub struct FstFormat {
     pub did_warn_statictags: bool,
     pub wfactor: f64,
-    pub wtag: UString,
-    pub sub_delims: UString,
+    pub wtag: String,
+    pub sub_delims: String,
 }
 
 impl Default for FstFormat {

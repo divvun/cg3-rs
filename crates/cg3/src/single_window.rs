@@ -18,7 +18,7 @@ use crate::inlines::ui32;
 use crate::interval_vector::Uint32IntervalVector;
 use crate::sorted_vector::Uint32SortedVector;
 use crate::store::RuntimeStore;
-use crate::types::{GlobalNumber, UString};
+use crate::types::GlobalNumber;
 use crate::window::{CohortRegistry, DepBookkeeping};
 
 // [spec:cg3:def:single-window.cg3.single-window]
@@ -39,8 +39,8 @@ pub struct SingleWindow {
     /// C++ `Window* parent` — back-reference to the owning `Window`, which is
     /// not an arena type (no id exists). Raw handle placeholder wired later.
     pub parent: Option<u32>,
-    pub text: UString,
-    pub text_post: UString,
+    pub text: String,
+    pub text_post: String,
     /// C++ `CohortVector all_cohorts` (`std::vector<Cohort*>`).
     pub all_cohorts: Vec<CohortId>,
     /// C++ `CohortVector cohorts` (`std::vector<Cohort*>`).

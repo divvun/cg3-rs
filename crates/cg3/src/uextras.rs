@@ -7,8 +7,8 @@
 //!
 //! ## Representation decisions (parity notes)
 //!
-//! * **UTF-8 / `char` model.** Per `crate::types`, `UChar = char` (a full
-//!   Unicode scalar) and `UString = String` / `UStringView = &str` (UTF-8).
+//! * **UTF-8 / `char` model.** Text is `String` / `&str` (UTF-8) and a
+//!   character is a `char` (a full Unicode scalar).
 //!   The C++ code operates on UTF-16 `UChar` code units. Where the algorithm
 //!   scans a NUL-terminated `UChar*` buffer, the port uses `&[char]` / `&str`;
 //!   the trailing NUL is represented by the slice/string length.
@@ -43,7 +43,6 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use crate::inlines::{isdelim, isnl, isspace};
-use crate::types::{UChar, UString, UStringView};
 
 // ---------------------------------------------------------------------------
 // Set-operator codes.
@@ -447,7 +446,7 @@ fn dirname_posix(path: &str) -> String {
 // the `from`/`to` sizes are byte offsets into the UTF-8 buffer (the direct
 // analog of C++'s code-unit offsets). Advancing `offset` past the inserted `to`
 // prevents re-scanning replacements, so a `to` containing `from` cannot loop.
-pub fn find_and_replace(str: &mut UString, from: UStringView, to: UStringView) -> usize {
+pub fn find_and_replace(str: &mut String, from: &str, to: &str) -> usize {
     let mut rv = 0usize;
     let mut offset = 0usize;
     while let Some(idx) = str[offset..].find(from) {
@@ -672,7 +671,7 @@ pub fn ux_is_empty(text: &str) -> bool {
 // `for (i=0; i<n; ++i)` pointer walk): `a` running out inside the prefix is a
 // mismatch, and `b[i]` is indexed with `n` — panicking where the C++ read past
 // `b` (UB) if a caller ever passes `n > b.len()`.
-pub fn ux_simplecasecmp(a: &[UChar], b: &[UChar], n: usize) -> bool {
+pub fn ux_simplecasecmp(a: &[char], b: &[char], n: usize) -> bool {
     for (i, &ai) in a.iter().enumerate().take(n) {
         if ai != b[i] && (ai as u32) != (b[i] as u32) + 32 {
             return false;
@@ -694,8 +693,8 @@ pub fn ux_simplecasecmp(a: &[UChar], b: &[UChar], n: usize) -> bool {
 /// `ux_simplecasecmp(a, b.data(), b.size())` — for `b` being `UString`,
 /// `UStringView`, and `(UStringView, UStringView)`. `n` is `b`'s char count.
 pub fn ux_simplecasecmp_sv(a: &str, b: &str) -> bool {
-    let ac: Vec<UChar> = a.chars().collect();
-    let bc: Vec<UChar> = b.chars().collect();
+    let ac: Vec<char> = a.chars().collect();
+    let bc: Vec<char> = b.chars().collect();
     let n = bc.len();
     ux_simplecasecmp(&ac, &bc, n)
 }
@@ -703,7 +702,7 @@ pub fn ux_simplecasecmp_sv(a: &str, b: &str) -> bool {
 /// ICU `u_getCombiningClass` is unavailable in std; combining class is 0 for
 /// every ASCII char, which is all that reaches this branch in practice. NOTE:
 /// parity risk for real combining marks (Wave 4 may wire a Unicode-data crate).
-fn u_get_combining_class(_c: UChar) -> u8 {
+fn u_get_combining_class(_c: char) -> u8 {
     0
 }
 
@@ -738,7 +737,7 @@ pub struct Substr<'a> {
     pub str: &'a str,
     pub offset: usize,
     pub count: usize,
-    pub old_value: UChar,
+    pub old_value: char,
 }
 
 impl<'a> Substr<'a> {
@@ -802,7 +801,7 @@ pub fn substr(str: &str, offset: usize, count: usize) -> Substr<'_> {
 // NUL-terminates `dst`. Stops early at the first NUL in `src` (represented by
 // the slice end) or immediately if `src` is `None` (the C++ null check). The
 // caller must ensure `dst` has room for at least `i + 1` chars.
-pub fn ux_bufcpy(dst: &mut [UChar], src: Option<&[UChar]>, n: usize) {
+pub fn ux_bufcpy(dst: &mut [char], src: Option<&[char]>, n: usize) {
     let mut i = 0usize;
     while i < n {
         match src.and_then(|s| s.get(i)).copied() {
@@ -851,17 +850,17 @@ mod tests {
     // [spec:cg3:sem:uextras.cg3.find-and-replace-fn/test]
     #[test]
     fn find_and_replace_counts_and_no_loop() {
-        let mut s: UString = "a.b.c".to_string();
+        let mut s: String = "a.b.c".to_string();
         assert_eq!(find_and_replace(&mut s, ".", "-"), 2);
         assert_eq!(s, "a-b-c");
 
         // `to` contains `from`: must terminate, one replacement.
-        let mut s2: UString = "x".to_string();
+        let mut s2: String = "x".to_string();
         assert_eq!(find_and_replace(&mut s2, "x", "xx"), 1);
         assert_eq!(s2, "xx");
 
         // No occurrence -> 0 replacements, string unchanged.
-        let mut s3: UString = "abc".to_string();
+        let mut s3: String = "abc".to_string();
         assert_eq!(find_and_replace(&mut s3, "z", "!"), 0);
         assert_eq!(s3, "abc");
     }
@@ -1062,7 +1061,7 @@ mod tests {
     // [spec:cg3:sem:uextras.cg3.ux-bufcpy-fn/test]
     #[test]
     fn bufcpy_maps_newlines() {
-        let src: Vec<UChar> = "a\nb".chars().collect();
+        let src: Vec<char> = "a\nb".chars().collect();
         let mut dst = vec!['X'; 8];
         ux_bufcpy(&mut dst, Some(&src), 8);
         assert_eq!(dst[0], 'a');
@@ -1071,7 +1070,7 @@ mod tests {
         assert_eq!(dst[3], '\0'); // NUL-terminated
 
         // CR maps to its Control Picture too.
-        let src_cr: Vec<UChar> = "\r".chars().collect();
+        let src_cr: Vec<char> = "\r".chars().collect();
         let mut dst_cr = vec!['X'; 4];
         ux_bufcpy(&mut dst_cr, Some(&src_cr), 4);
         assert_eq!(dst_cr[0], '\u{240D}');

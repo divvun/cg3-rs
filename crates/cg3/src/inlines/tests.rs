@@ -1,7 +1,6 @@
 //! `inlines` unit tests (split out of the monolithic inlines.rs, wave 4).
 
 use super::*;
-use crate::types::{UString, UStringView};
 
 // The narrowing static_cast helpers over the Prim trait. Concrete in/out
 // pairs, including the truncating/sign behaviour of `as`.
@@ -91,19 +90,10 @@ fn hashing_family() {
     // hash_ustring facade forces the seed and widens to usize; UTF-16-unit
     // hashing means it equals hash_value_ustring(_, 0) by construction.
     let hu = HashUString;
-    let s: UString = "kitten".to_string();
+    let s: String = "kitten".to_string();
     assert_eq!(hu.call(&s), hash_value_ustring(&s, 0) as usize);
     assert_eq!(hu.call(&s), hu.call_view("kitten"));
-    assert_ne!(hu.call(&s), hu.call(&"sitting".to_string()));
-}
-
-// usv returns a borrowed view over the whole UString unchanged.
-// [spec:cg3:sem:inlines.cg3.usv-fn/test]
-#[test]
-fn usv_view() {
-    let s: UString = "hello".to_string();
-    let v: UStringView = usv(&s);
-    assert_eq!(v, "hello");
+    assert_ne!(hu.call(&s), hu.call("sitting"));
 }
 
 // Character predicates: isdelim / isspace (incl. NBSP quirk) / isnl (CR
@@ -324,7 +314,7 @@ fn utf8_io() {
     write_utf8_le(&mut buf, "abc");
     assert_eq!(&buf[..2], &[3u8, 0u8], "length 3 as LE u16 prefix");
     let mut cur = std::io::Cursor::new(buf);
-    let mut out = UString::from("stale");
+    let mut out = String::from("stale");
     read_utf8_le(&mut cur, &mut out);
     assert_eq!(out, "abc");
 

@@ -36,7 +36,7 @@ use crate::reading::{Reading, ReadingList, alloc_reading, alloc_reading_copy};
 use crate::single_window::append_cohort;
 use crate::store::RuntimeStore;
 use crate::tag::{T_BASEFORM, T_MAPPING, T_WORDFORM, TagVector};
-use crate::types::{TagHash, UString};
+use crate::types::TagHash;
 use crate::uextras::{U_EOF, u_fflush, u_fgetc, u_fputc, ux_strip_bom};
 
 // C++ `Strings.hpp` string constants.
@@ -48,11 +48,11 @@ const STR_ENDTAG: &str = "<<<";
 #[derive(Default, Clone)]
 pub struct Node {
     pub self_: i32,
-    pub lemma: UString,
-    pub form: UString,
-    pub pos: UString,
-    pub mi: UString,
-    pub si: UString,
+    pub lemma: String,
+    pub form: String,
+    pub pos: String,
+    pub mi: String,
+    pub si: String,
 }
 
 // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator]
@@ -213,7 +213,7 @@ impl MatxinApplicator {
         }
 
         // Pass 1: find the multiword suffix `suf`.
-        let mut suf: UString = String::new();
+        let mut suf: String = String::new();
         {
             let mut tags = false;
             let mut multi = false;
@@ -237,7 +237,7 @@ impl MatxinApplicator {
         }
 
         // Build the baseform `base`, wrapped in `"`.
-        let mut base: UString = String::from("\"");
+        let mut base: String = String::from("\"");
         let mut unknown = false;
         {
             let mut c = 0usize;
@@ -270,7 +270,7 @@ impl MatxinApplicator {
         let mut taglist: TagVector = vec![tag];
 
         // Read the tags.
-        let mut tmptag: UString = String::new();
+        let mut tmptag: String = String::new();
         let mut joiner = false;
         let mut intag = false;
         let mut multi = false;
@@ -298,7 +298,7 @@ impl MatxinApplicator {
                     intag = true;
                     if joiner {
                         // Flush the pending joined baseform.
-                        let mut bf: UString = String::from("\"");
+                        let mut bf: String = String::from("\"");
                         let tt: Vec<char> = tmptag.chars().collect();
                         if tt.first() == Some(&'+') {
                             bf.extend(tt[1..].iter());
@@ -478,7 +478,7 @@ impl MatxinApplicator {
 
         // Build `mi` (pipe-joined morphology).
         let mut used_tags = crate::sorted_vector::Uint32SortedVector::new();
-        let mut mi: UString = String::new();
+        let mut mi: String = String::new();
         let mut first = true;
         for tter in tags_list {
             if self.base.cfg.unique_tags {
@@ -575,7 +575,7 @@ impl MatxinApplicator {
             } else {
                 Vec::new()
             };
-            let mut wf_escaped: UString = String::new();
+            let mut wf_escaped: String = String::new();
             for &ch in &wf {
                 if ch == '&' {
                     wf_escaped.push_str("&amp;");
@@ -774,7 +774,7 @@ impl MatxinApplicator {
         let mut inchar: char;
         let mut superblank = false;
         let mut incohort = false;
-        let mut firstblank: UString = String::new();
+        let mut firstblank: String = String::new();
 
         self.base.index();
 
@@ -1007,7 +1007,7 @@ impl MatxinApplicator {
             self.base.doc.store.cohorts.get_mut(cc.0).global_number = gn;
 
             // Read the wordform.
-            let mut wordform: UString = String::from("\"<");
+            let mut wordform: String = String::from("\"<");
             loop {
                 inchar = u_fgetc(input);
                 if inchar == '/' || inchar == '<' {
@@ -1031,7 +1031,7 @@ impl MatxinApplicator {
             if inchar == '<' {
                 let wread = alloc_reading(&mut self.base.doc.store, Some(cc));
                 self.base.doc.store.cohorts.get_mut(cc.0).wread = Some(wread);
-                let mut tagbuf: UString = String::new();
+                let mut tagbuf: String = String::new();
                 loop {
                     inchar = u_fgetc(input);
                     if inchar == '\\' {

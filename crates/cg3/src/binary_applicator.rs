@@ -46,7 +46,7 @@ use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{read_le, ui8, ui16, ui32, write_le, write_utf8_le};
 use crate::reading::Reading;
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION};
-use crate::types::{GlobalNumber, TagHash, UString};
+use crate::types::{GlobalNumber, TagHash};
 
 /// C++ `version.hpp` `constexpr uint32_t CG3_BINARY_STREAM = 1`. `version.hpp`
 /// is not yet ported, so the constant is reproduced here verbatim (its only
@@ -149,7 +149,7 @@ pub struct BinaryApplicator<'a> {
     /// The `GrammarApplicator` base (C++ `public virtual` inheritance).
     pub base: &'a mut GrammarApplicator,
     /// C++ reusable `UString text` reused across TEXT packets.
-    pub text: UString,
+    pub text: String,
 }
 
 impl<'a> BinaryApplicator<'a> {
@@ -160,7 +160,7 @@ impl<'a> BinaryApplicator<'a> {
     pub fn new(base: &'a mut GrammarApplicator) -> Self {
         BinaryApplicator {
             base,
-            text: UString::new(),
+            text: String::new(),
         }
     }
 

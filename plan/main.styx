@@ -2370,6 +2370,29 @@ children (
                 id deicu.type-aliases
                 title "Delete the UTF-16 type vocabulary: UString, UStringView, UStringVector and UChar are aliases for String, &str, Vec String and char, carrying no information and pointing at a representation this port does not have"
                 priority 0
+                sealed true
+                log (
+                    {
+                        at 2026-09-14T17:16:32.834089Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-09-14T17:35:03.541687Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Retired four rule ids, not the three the aliases hosted. `UChar` turned out never to have had a rule — ICU declares it, cg3 does not, so extraction never produced one; the alias was pure vocabulary. The fourth retirement is `inlines.cg3.usv-fn` (def+sem), whose home `usv()` was deleted: its def names `USV(UnicodeString&)`, an ICU overload the port never implemented, and the sibling `USV(UString&)` it actually stood in for is `&String` -> `&str`, i.e. deref coercion rather than a function. It had no production callers, only a unit test asserting it returned its argument, so the test went with it (225 -> 224; 229 -> 228 with profiler). Coverage holds at 100%, 812/812."
+                    }
+
+                    {
+                        at 2026-09-14T17:35:09.821414Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
 
             {

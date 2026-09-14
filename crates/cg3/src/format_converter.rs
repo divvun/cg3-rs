@@ -36,7 +36,6 @@ use crate::niceline_applicator::{NicelineApplicator, NicelineFormat};
 use crate::plaintext_applicator::{PlaintextApplicator, PlaintextFormat};
 use crate::streambuf::BStreamBuf;
 use crate::strings::STR_DUMMY;
-use crate::types::UStringView;
 
 const BUF_SIZE: usize = 1000;
 
@@ -369,7 +368,7 @@ impl FormatConverter {
     /// C++ `void FormatConverter::printStreamCommand(UStringView cmd, std::ostream&
     /// output)`. JSONL/BINARY need special encoding; every other format (CG,
     /// APERTIUM, FST, NICELINE, PLAIN, default) uses the base implementation.
-    pub fn print_stream_command<W: Write>(&mut self, cmd: UStringView, output: &mut W) {
+    pub fn print_stream_command<W: Write>(&mut self, cmd: &str, output: &mut W) {
         self.fmt
             .print_stream_command(&mut self.base.engine(), cmd, output);
     }
@@ -379,7 +378,7 @@ impl FormatConverter {
     /// C++ `void FormatConverter::printPlainTextLine(UStringView line, std::ostream&
     /// output)`. JSONL/BINARY need special handling; every other format uses the
     /// base implementation.
-    pub fn print_plain_text_line<W: Write>(&mut self, line: UStringView, output: &mut W) {
+    pub fn print_plain_text_line<W: Write>(&mut self, line: &str, output: &mut W) {
         self.fmt
             .print_plain_text_line(&mut self.base.engine(), line, output);
     }

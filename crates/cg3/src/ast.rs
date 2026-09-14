@@ -17,8 +17,8 @@
 //!   textual parser (which walks `&[char]` with a cursor) supplies the offset
 //!   directly (`pos`) and clones the shared buffer handle; this replaces the
 //!   original's raw `buf.as_ptr().add(pos)` with no observable change.
-//!   - DEVIATION (inherent to the UTF-8 port, see [`crate::types`]): `UChar` is
-//!     a `char` (Unicode scalar, 4 bytes), not a UTF-16 code unit, so the `b`/`e`
+//!   - DEVIATION (inherent to the UTF-8 port): a character is a `char`
+//!     (Unicode scalar, 4 bytes), not a UTF-16 code unit, so the `b`/`e`
 //!     offsets printed by [`print_ast`] are in **code-point** units, whereas the
 //!     C++ prints **UTF-16 code-unit** offsets (its `<!-- b is ... UTF-16 code
 //!     unit offset -->` comment). The numbers differ for any text containing
@@ -45,7 +45,6 @@ use std::io::Write;
 use std::rc::Rc;
 
 use crate::inlines::ui32;
-use crate::types::{UChar, UString};
 
 /// Shared, immutable handle to a grammar source buffer. The parser's
 /// `grammarbufs` entries and every [`ASTNode`] span reference one of these; a
@@ -357,8 +356,8 @@ impl Ast {
 /// `u_fprintf` — before calling again). That footgun does not translate to safe
 /// Rust, so this returns an **owned** [`UString`]; the returned text is
 /// identical and callers no longer have the consume-before-reuse constraint.
-pub fn xml_encode(src: &[UChar]) -> UString {
-    let mut buf = UString::new();
+pub fn xml_encode(src: &[char]) -> String {
+    let mut buf = String::new();
     // C++ `buf.reserve(e - b)` (element count).
     buf.reserve(src.len());
     for &c in src {
@@ -560,7 +559,7 @@ mod tests {
     #[test]
     fn node_ctor_and_xml_encode() {
         // A source buffer the b/e offsets index into.
-        let src: SrcBuf = Rc::from("a&b<c>\"d'e".chars().collect::<Vec<UChar>>().as_slice());
+        let src: SrcBuf = Rc::from("a&b<c>\"d'e".chars().collect::<Vec<char>>().as_slice());
         let (b, e) = (0usize, src.len());
 
         // ASTNode::new: fields set from args; u=0, cs empty.
@@ -586,7 +585,7 @@ mod tests {
     #[test]
     fn print_ast_renders_tree() {
         // Buffer for offsets and text spans.
-        let src: SrcBuf = Rc::from("noun".chars().collect::<Vec<UChar>>().as_slice());
+        let src: SrcBuf = Rc::from("noun".chars().collect::<Vec<char>>().as_slice());
 
         // A Tag child (text-bearing -> gets a t="noun" attribute), spanning [0,4).
         let child = ASTNode::new(ASTType::AstTag, 2, 0, 4, src.clone());
@@ -620,7 +619,7 @@ mod tests {
     // [spec:cg3:sem:ast.ast-helper.destroy-fn/test]
     #[test]
     fn ast_helper_open_and_close() {
-        let src: SrcBuf = Rc::from("x".chars().collect::<Vec<UChar>>().as_slice());
+        let src: SrcBuf = Rc::from("x".chars().collect::<Vec<char>>().as_slice());
 
         // Disabled: helper is inert (no node created).
         let mut ast_off = Ast::new(false);

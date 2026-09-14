@@ -63,7 +63,7 @@ use crate::tag_trie::{
     TagTrie, TrieNode, trie_copy_helper, trie_delete, trie_get_tag_list, trie_get_tags_ordered,
     trie_insert,
 };
-use crate::types::{SetNumber, UString};
+use crate::types::SetNumber;
 
 // C++ Strings.hpp `enum : uint32_t { ... S_OR = 3, S_PLUS, S_MINUS, ... }`. Only
 // the two operators the relabeller emits are reproduced here (same precedent as
@@ -81,12 +81,12 @@ pub type RelabellerTagVector = Vec<TagId>;
 /// C++ `typedef std::unordered_map<UString, UString, hash_ustring> UStringMap`.
 /// Declared in the header but unused by any ported method; reproduced for
 /// fidelity.
-pub type UStringMap = HashMap<UString, UString>;
+pub type UStringMap = HashMap<String, String>;
 
 // [spec:cg3:def:relabeller.cg3.relabeller.u-string-set-map]
 /// C++ `typedef std::unordered_map<UString, Set*, hash_ustring> UStringSetMap`.
 /// The `Set*` value is a relabel-target set in the RELABELS grammar → [`SetId`].
-pub type UStringSetMap = HashMap<UString, SetId>;
+pub type UStringSetMap = HashMap<String, SetId>;
 
 // [spec:cg3:def:relabeller.cg3.freq-sorter]
 /// C++ `struct freq_sorter` — a comparator that sorts tags by DESCENDING
@@ -742,7 +742,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     pub fn relabel(&mut self) -> Result<(), crate::error::Cg3Error> {
         // (1) tag_by_str: iterate single_tags_list (arena, insertion order),
         // last-wins per tag string.
-        let mut tag_by_str: HashMap<UString, TagId> = HashMap::new();
+        let mut tag_by_str: HashMap<String, TagId> = HashMap::new();
         let tag_ids: Vec<TagId> = (0..self.grammar.single_tags_list.capacity())
             .filter(|&i| self.grammar.single_tags_list.try_get(i).is_some())
             .map(TagId)
@@ -754,7 +754,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
 
         // (2) sets_by_tag: for every set in sets_list, index its MAIN-trie tags.
         // Iterate the C++ sets_list vector (the numbered order).
-        let mut sets_by_tag: HashMap<UString, HashSet<SetId>> = HashMap::new();
+        let mut sets_by_tag: HashMap<String, HashSet<SetId>> = HashMap::new();
         let set_ids: Vec<SetId> = self.grammar.sets_list_order.clone();
         for sid in &set_ids {
             let trie = self.grammar.sets_list[sid.0].trie.clone();
@@ -766,7 +766,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         }
 
         // (3) RELABEL AS LIST.
-        let as_list: Vec<(UString, SetId)> = self
+        let as_list: Vec<(String, SetId)> = self
             .relabel_as_list
             .iter()
             .map(|(k, &v)| (k.clone(), v))
@@ -788,7 +788,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         }
 
         // (4) RELABEL AS SET.
-        let as_set: Vec<(UString, SetId)> = self
+        let as_set: Vec<(String, SetId)> = self
             .relabel_as_set
             .iter()
             .map(|(k, &v)| (k.clone(), v))

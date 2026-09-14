@@ -471,10 +471,7 @@ impl super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-text-delimiter-fn]
     /// C++ `void setTextDelimiter(UString rx)` — replaces the compiled
     /// text-delimiter regex from a (possibly `/.../ri`-wrapped) pattern.
-    pub fn set_text_delimiter(
-        &mut self,
-        rx: crate::types::UString,
-    ) -> Result<(), crate::error::Cg3Error> {
+    pub fn set_text_delimiter(&mut self, rx: String) -> Result<(), crate::error::Cg3Error> {
         // uregex_close(r) for each: regex::Regex drops here.
         self.cfg.text_delimiters.clear();
 
