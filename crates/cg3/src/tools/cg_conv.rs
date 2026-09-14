@@ -154,7 +154,7 @@ pub fn main_conv(args: &[String]) -> i32 {
     let mut input_bytes = Vec::new();
     let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut input_bytes);
     let mut instream = std::io::Cursor::new(input_bytes);
-    crate::uextras::ux_strip_bom(&mut instream);
+    crate::uextras::strip_bom(&mut instream);
 
     // cg3_sformat fmt = CG3SF_INVALID;
     use crate::grammar_applicator::StreamFormatKind;

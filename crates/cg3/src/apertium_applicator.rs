@@ -38,7 +38,7 @@ use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
 use crate::single_window::{SingleWindow, append_cohort};
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_WORDFORM, TagList};
 use crate::types::{DynBitset, TagHash};
-use crate::uextras::{U_EOF, read_char, ux_strip_bom, write_char};
+use crate::uextras::{U_EOF, read_char, strip_bom, write_char};
 
 // C++ `constexpr UChar esc_lt = '\1';` — the sentinel the reading scanner
 // substitutes for an escaped `\<` so it becomes literal baseform text rather
@@ -657,7 +657,7 @@ where
 
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
-        ux_strip_bom(input);
+        strip_bom(input);
 
         // Main character loop: while ((c = u_fgetc(input)) != U_EOF).
         loop {

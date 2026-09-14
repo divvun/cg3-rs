@@ -479,7 +479,7 @@ pub fn main_proc(args: &[String]) -> i32 {
     // STREAMING (the C++ reads std::cin incrementally; null-flush clients expect
     // a response per '\0' while the pipe is still open), so it is wrapped in an
     // adapter supporting the only Seek the drivers perform: the ≤3-byte
-    // `ux_strip_bom` rewind (SeekFrom::Current with a small negative offset).
+    // `strip_bom` rewind (SeekFrom::Current with a small negative offset).
     let mut cursor: Box<dyn ReadSeek> = match input_path {
         Some(path) => Box::new(std::io::Cursor::new(
             std::fs::read(path).unwrap_or_default(),
@@ -524,7 +524,7 @@ impl<T: Read + std::io::Seek> ReadSeek for T {}
 /// Streaming stdin with tiny pushback, standing in for the C++ `std::cin`
 /// istream. `Read` pulls straight from `Stdin` (internally buffered, returns as
 /// soon as bytes are available on the pipe — no read-to-EOF). `Seek` supports
-/// only what `ux_strip_bom` does: `SeekFrom::Current(-n)` for the last few bytes
+/// only what `strip_bom` does: `SeekFrom::Current(-n)` for the last few bytes
 /// read (istream `putback`); everything else is unsupported.
 struct StreamingStdin {
     inner: std::io::Stdin,

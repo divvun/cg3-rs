@@ -39,7 +39,7 @@ use crate::reading::alloc_reading;
 use crate::single_window::{append_cohort, free_swindow};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
 use crate::types::TagHash;
-use crate::uextras::{get_line_clean_chars, ux_strip_bom, write_char};
+use crate::uextras::{get_line_clean_chars, strip_bom, write_char};
 
 /// C++ `grammar->single_tags[hash]` — resolves a tag hash to its `TagId`, else
 /// `TagId(0)`. Reproduces `grammar_applicator::core::tag_by_hash` (which is
@@ -202,7 +202,7 @@ where
 
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
-        ux_strip_bom(input);
+        strip_bom(input);
 
         // C++ `while (!input.eof())`: reproduced by breaking when a read makes no
         // progress (get_line_clean returns 0 and the line buffer stays empty).

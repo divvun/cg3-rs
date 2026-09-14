@@ -2430,6 +2430,29 @@ children (
                 title "Rename and consolidate the ux_ helper surface: sixteen functions wear ICU's u-for-Unicode prefix, ux_str_case_compare exists five times over as four private copies of one public function, and HashUString keeps an overload pair that collapsed into one method"
                 priority 2
                 deps (deicu.stdio-shims)
+                sealed true
+                log (
+                    {
+                        at 2026-09-14T18:03:50.898037Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-09-14T18:12:15.566796Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "The sixteen-name list was produced by a regex that stops at the first uppercase letter, so four entries are prefixes of C++ camelCase spellings (ux_str/ux_strip/ux_is = ux_strCaseCompare/ux_stripBOM/ux_isSetOp) and four more (ux_err, ux_stderr, ux_stdin, ux_stdout) exist only in comments naming C++ members. The actual Rust surface was eight public fns, four private duplicates, one differently-shaped private copy and two locals. Renamed: ux_strip_bom -> strip_bom, ux_dirname -> dir_prefix, ux_is_set_op -> set_op_code, ux_is_empty -> is_blank, ux_simplecasecmp -> matches_keyword_chars, ux_simplecasecmp_sv -> matches_keyword, ux_str_case_compare -> eq_ignore_case, ux_bufcpy -> copy_with_visible_newlines, plus locals ux_stdout -> out_stream and ux_stdin_file -> stdin_file in vislcg3. No rule retired: all four deleted eq_ignore_case copies were deliberately un-annotated stand-ins, so the id stayed on the surviving public one, and the HashUString sibling overload is marked \"not separately specced\" in the sem rule, so dropping call_view orphaned nothing. math_parser's ux_simplecasecmp turned out to be a duplicate of ux_simplecasecmp_sv rather than of the fn it shares a name with, and provably so: both tails end in an always-true `combining_class(c) == 0`, so the isspace/isdelim difference is unreachable. Collapsing it gave the shared &str helper the production caller it lacked and took math_parser's local combining_class with it, leaving its local stand-ins as exactly the four inlines.hpp char predicates. Kept uextras.rs: module paths in this crate map 1:1 onto the C++ translation unit they port and key the spec ids, and unlike icu_uoptions the `u` is inside cg3's own file name rather than a claim about a dependency. 224 tests (228 with profiler), coverage 812/812, cg-comp byte-identical on all 68 grammars."
+                    }
+
+                    {
+                        at 2026-09-14T18:12:20.630693Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
         )
     }

@@ -10,7 +10,7 @@
 //! ## I/O model
 //! C++ `std::istream& input` / `std::ostream& output` become generic Rust handles
 //! passed as PARAMS: `input: &mut R` where `R: Read + Seek` (Seek is needed by
-//! `ux_strip_bom`) and `output: &mut W` where `W: Write`. The `ux_stdin`/
+//! `strip_bom`) and `output: &mut W` where `W: Write`. The `ux_stdin`/
 //! `ux_stdout`/`ux_stderr` struct fields are `Option<()>` placeholders, so the
 //! streams are NOT stored into them; the good()/eof()/output/grammar validity
 //! guards (each a `CG3Quit(1)` + `ux_stderr` diagnostic) and every verbose
@@ -588,7 +588,7 @@ impl super::Engine<'_> {
         let mut indents: Vec<(usize, crate::arena::ReadingId)> = Vec::new();
         let mut all_mappings: super::AllMappings = super::AllMappings::new();
 
-        crate::uextras::ux_strip_bom(input);
+        crate::uextras::strip_bom(input);
 
         // binary_maybe_window() [inlined; the C++ lambda captures cSWindow/lSWindow]
         if self.cfg.fmt_output == super::StreamFormatKind::Binary {

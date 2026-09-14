@@ -52,7 +52,7 @@ use crate::tag::{
     T_VARIABLE, T_VARSTRING, T_VSTR, T_WORDFORM, Tag,
 };
 use crate::textual_parser::TextualParser;
-use crate::uextras::{S_IGNORE, ux_is_set_op};
+use crate::uextras::{S_IGNORE, eq_ignore_case, set_op_code};
 
 // Local `STR_*` constants (their canonical home is `Strings.hpp`, which the
 // `strings` port has not yet grown; reproduced verbatim, same precedent as
@@ -161,7 +161,7 @@ pub fn parse_tag<S: ParseTagState>(
     if to0 == '(' {
         return Err(state.error_at(near)); // "Tag ... cannot start with ("
     }
-    if ux_is_set_op(to) != S_IGNORE {
+    if set_op_code(to) != S_IGNORE {
         // Warning (not fatal): looks like a set operator.
         tracing::warn!(
             "{}: Warning: Tag '{}' looks like a set operator.",
@@ -427,7 +427,7 @@ pub fn parse_tag<S: ParseTagState>(
             // icase_tags scan (empty during textual parse).
             let icase_ids: Vec<TagId> = state.grammar().icase_tags.iter().copied().collect();
             for tid in icase_ids {
-                if ux_str_case_compare(&tag.tag, &state.grammar().single_tags_list[tid.0].tag) {
+                if eq_ignore_case(&tag.tag, &state.grammar().single_tags_list[tid.0].tag) {
                     tag.r#type |= T_TEXTUAL;
                 }
             }
@@ -600,7 +600,7 @@ pub fn parse_set(
 ) -> Result<SetId, crate::error::ParseError> {
     let mut sh = hash_value_ustring(name, 0);
 
-    if ux_is_set_op(name) != S_IGNORE {
+    if set_op_code(name) != S_IGNORE {
         return Err(state.error_at(near)); // "Found set operator where set name expected"
     }
 
@@ -698,14 +698,6 @@ fn scan_star_u_colon_s(s: &str) -> Option<String> {
         return None; // %S not assigned
     }
     Some(chars[start..i].iter().collect())
-}
-
-/// `uextras.hpp` `ux_strCaseCompare` — full case-fold equality (Unicode
-/// lowercase-fold approximation; ICU parity risk for non-ASCII).
-fn ux_str_case_compare(a: &str, b: &str) -> bool {
-    a.chars()
-        .flat_map(char::to_lowercase)
-        .eq(b.chars().flat_map(char::to_lowercase))
 }
 
 #[cfg(test)]

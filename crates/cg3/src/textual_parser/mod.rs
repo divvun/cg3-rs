@@ -75,7 +75,9 @@ use crate::tag_trie::{trie_get_tags, trie_insert};
 use crate::types::SetNumber;
 mod driver;
 mod rules;
-use crate::uextras::{S_IGNORE, basename, ux_bufcpy, ux_dirname, ux_is_empty, ux_is_set_op};
+use crate::uextras::{
+    S_IGNORE, basename, copy_with_visible_newlines, dir_prefix, is_blank, set_op_code,
+};
 
 // ---------------------------------------------------------------------------
 // Local constants (canonical home `Strings.hpp`; reproduced verbatim, same
@@ -315,10 +317,10 @@ fn slen(s: &str) -> usize {
     s.chars().count()
 }
 
-/// `ux_simplecasecmp(p, STR.data(), STR.size())`.
+/// C++ `ux_simplecasecmp(p, STR.data(), STR.size())`.
 fn simplecasecmp(buf: &[char], pos: usize, s: &str) -> bool {
     let bc: Vec<char> = s.chars().collect();
-    crate::uextras::ux_simplecasecmp(&buf[pos..], &bc, bc.len())
+    crate::uextras::matches_keyword_chars(&buf[pos..], &bc, bc.len())
 }
 
 /// `IS_ICASE(p, "UPPER", "lower")` → matched length, else 0.
@@ -770,7 +772,7 @@ impl TextualParser {
             // every scan first), so it degrades rather than panicking.
             return self.parse_error_at(String::new(), crate::error::ParseErrorKind::Syntax);
         }
-        ux_bufcpy(&mut self.nearbuf, Some(&buf[at..]), NEAR_CONTEXT_CHARS);
+        copy_with_visible_newlines(&mut self.nearbuf, Some(&buf[at..]), NEAR_CONTEXT_CHARS);
         let near: String = self.nearbuf.iter().take_while(|&&c| c != '\0').collect();
         let start = at - BUF_TEXT_START;
         crate::error::ParseError {
@@ -789,7 +791,7 @@ impl TextualParser {
     /// varstring re-parsed out of its own tag text. Quotes the text, but has no
     /// span to give, because there is no source position to give one from.
     pub fn error_near_text(&mut self, near: &[char]) -> crate::error::ParseError {
-        ux_bufcpy(&mut self.nearbuf, Some(near), NEAR_CONTEXT_CHARS);
+        copy_with_visible_newlines(&mut self.nearbuf, Some(near), NEAR_CONTEXT_CHARS);
         let near_text: String = self.nearbuf.iter().take_while(|&&c| c != '\0').collect();
         self.parse_error_at(near_text, crate::error::ParseErrorKind::Syntax)
     }
@@ -1201,7 +1203,7 @@ impl TextualParser {
                         self.grammar.lines += skiptows_chars(buf, &mut n, '\0', true, false);
                     }
                     let token: String = buf[*pos..n].iter().collect();
-                    let sop = ux_is_set_op(&token);
+                    let sop = set_op_code(&token);
                     if sop != S_IGNORE {
                         set_ops.push(sop as u32);
                         wantop = false;
@@ -1655,7 +1657,7 @@ impl TextualParser {
         self.grammar.lines += skiptows_chars(buf, &mut n_peek, '(', false, false);
         let token: String = buf[*pos..n_peek].iter().collect();
 
-        if ux_is_empty(&token) {
+        if is_blank(&token) {
             // (1) Inline template.
             if self.no_itmpls {
                 return Err(self.error_near(*pos));

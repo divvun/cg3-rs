@@ -85,6 +85,7 @@ use crate::tag::{
 };
 use crate::tag_trie::{TagTrie, TrieNode};
 use crate::types::{SetNumber, TagHash};
+use crate::uextras::eq_ignore_case;
 
 use super::{CohortMatchContext, Matcher, RegexGroups, UnifKey};
 
@@ -285,17 +286,6 @@ pub fn test_tag_numerical(
         _ => {}
     }
     m
-}
-
-/// `uextras.hpp` `ux_strCaseCompare(a, b)` (ICU `u_strCaseCompare` with
-/// `U_FOLD_CASE_DEFAULT`): true on full case-fold equality. Approximated with
-/// Unicode lowercase folding (ICU-vs-Rust parity risk for non-ASCII), mirroring
-/// the `tag.rs` stand-in. Deliberately un-annotated (its spec id belongs to the
-/// `uextras` port).
-fn ux_str_case_compare(a: &str, b: &str) -> bool {
-    a.chars()
-        .flat_map(char::to_lowercase)
-        .eq(b.chars().flat_map(char::to_lowercase))
 }
 
 /// Collect a `Uint32FlatHashMap`'s live `(key, value)` entries in physical slot
@@ -1597,7 +1587,7 @@ impl Matcher<'_> {
                 let t = &self.grammar.single_tags_list[tid.0];
                 (t.hash.get(), t.tag.clone())
             };
-            if ux_str_case_compare(&tag.tag, &itag_text) {
+            if eq_ignore_case(&tag.tag, &itag_text) {
                 m = itag_hash;
             }
             if m != 0 {

@@ -345,7 +345,7 @@ impl TextualParser {
         if expanded.contains('~') || expanded.contains('$') || expanded.contains('*') {
             expanded = shell_expand(&expanded);
         }
-        let dir = ux_dirname(fname);
+        let dir = dir_prefix(fname);
         let mut abspath = if expanded.starts_with('/') {
             expanded.clone()
         } else {

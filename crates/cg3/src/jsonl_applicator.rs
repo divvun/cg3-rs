@@ -419,7 +419,7 @@ impl<'a> JsonlApplicator<'a> {
     /// grammar, and prints JSONL output.
     ///
     /// PORT NOTES:
-    /// * `input` is `Read + Seek` (needs `Seek` for [`ux_strip_bom`]); line
+    /// * `input` is `Read + Seek` (needs `Seek` for [`crate::uextras::strip_bom`]); line
     ///   reading uses a [`BufReader`](std::io::BufReader). The C++ `ux_stdin` /
     ///   `ux_stdout` assignments are elided (`Option<()>` placeholders). Output
     ///   validity checks (`!output`) have no analog.
@@ -477,7 +477,7 @@ impl<'a> JsonlApplicator<'a> {
         let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::default();
         let mut variables_output = Uint32SortedVector::new();
 
-        crate::uextras::ux_strip_bom(input);
+        crate::uextras::strip_bom(input);
 
         // getline loop. `BufReader::read_line` reads up to and including '\n'.
         let mut reader = std::io::BufReader::new(input);

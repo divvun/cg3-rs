@@ -48,7 +48,7 @@ use crate::tag::{
 };
 use crate::tag_trie::trie_get_tag_list_append;
 use crate::types::{GlobalNumber, TagHash};
-use crate::uextras::{ux_str_case_compare, write_char};
+use crate::uextras::{eq_ignore_case, write_char};
 
 use super::{Engine, Matcher, TmplContext};
 
@@ -2026,7 +2026,7 @@ impl Matcher<'_> {
                     let text = self.grammar.single_tags_list[titer.0].tag.clone();
                     for &iid in &icase_ids {
                         let itext = &self.grammar.single_tags_list[iid.0].tag;
-                        if ux_str_case_compare(&text, itext) {
+                        if eq_ignore_case(&text, itext) {
                             self.grammar.single_tags_list[titer.0].r#type |= T_TEXTUAL;
                             reflow = true;
                         }

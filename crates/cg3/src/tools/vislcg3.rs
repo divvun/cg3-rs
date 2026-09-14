@@ -197,7 +197,7 @@ pub fn main_run(args: &[String]) -> i32 {
     // is false and those checks never fire; the C++ proceeds with a dead stream
     // (output silently discarded / input reads as empty). Mirrored here with
     // sink()/empty-input fallbacks. The `--stdin` stat() failure DOES exit.
-    let mut ux_stdout: Box<dyn Write> = if occ(&options, Opt::Stdout) {
+    let mut out_stream: Box<dyn Write> = if occ(&options, Opt::Stdout) {
         match std::fs::File::create(&options[Opt::Stdout as usize].value) {
             Ok(f) => Box::new(f),
             Err(_) => Box::new(std::io::sink()), // dead ofstream — see NOTE.
@@ -211,7 +211,7 @@ pub fn main_run(args: &[String]) -> i32 {
         // placeholder in this port, so diagnostics still go to process stderr.
         let _ = std::fs::File::create(&options[Opt::Stderr as usize].value);
     }
-    let ux_stdin_file: Option<std::fs::File> = if occ(&options, Opt::Stdin) {
+    let stdin_file: Option<std::fs::File> = if occ(&options, Opt::Stdin) {
         let path = options[Opt::Stdin as usize].value.clone();
         // int serr = stat(path, &info); if (serr) { ... CG3Quit(1); } — stat
         // returns -1 on failure, so the message prints "error -1".
@@ -354,7 +354,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
         // --dump-ast prints the parse tree to *ux_stdout.
         if occ(&options, Opt::DumpAst) {
-            parser.print_ast(&mut ux_stdout);
+            parser.print_ast(&mut out_stream);
         }
         // --profile: capture the grammar AST into the profiler string table.
         if let Some(p) = profiler.as_mut() {
@@ -510,7 +510,7 @@ pub fn main_run(args: &[String]) -> i32 {
         // applicator.runGrammarOnText(*ux_stdin, *ux_stdout); — the ported
         // driver needs `R: Read + Seek`; buffer the input stream into a Cursor.
         let mut input_bytes = Vec::new();
-        match ux_stdin_file {
+        match stdin_file {
             Some(mut f) => {
                 let _ = f.read_to_end(&mut input_bytes);
             }
@@ -519,7 +519,7 @@ pub fn main_run(args: &[String]) -> i32 {
             }
         }
         let mut cursor = std::io::Cursor::new(input_bytes);
-        if let Err(e) = applicator.run_grammar_on_text(&mut cursor, &mut ux_stdout) {
+        if let Err(e) = applicator.run_grammar_on_text(&mut cursor, &mut out_stream) {
             return fail(&e);
         }
 

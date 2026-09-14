@@ -37,7 +37,7 @@ use crate::single_window::append_cohort;
 use crate::store::RuntimeStore;
 use crate::tag::{T_BASEFORM, T_MAPPING, T_WORDFORM, TagVector};
 use crate::types::TagHash;
-use crate::uextras::{U_EOF, read_char, ux_strip_bom, write_char};
+use crate::uextras::{U_EOF, read_char, strip_bom, write_char};
 
 // C++ `Strings.hpp` string constants.
 const STR_BEGINTAG: &str = ">>>";
@@ -802,7 +802,7 @@ impl MatxinApplicator {
 
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
-        ux_strip_bom(input);
+        strip_bom(input);
 
         loop {
             // C++ `while ((inchar = u_fgetc(input)) != 0)` then `if (input.eof())

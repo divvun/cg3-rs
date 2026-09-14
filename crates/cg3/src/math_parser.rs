@@ -14,13 +14,16 @@
 //!   the read-past-end inside `ux_simplecasecmp` are Undefined Behaviour in
 //!   C++. Safe Rust cannot reproduce UB; the closest safe behaviour is used and
 //!   annotated inline.
-//! * `ISSPACE`, `ISDELIM`, `ISALPHA_C`, `ISDIGIT_C` (inlines.hpp) and
-//!   `ux_simplecasecmp` (uextras.hpp) belong to other modules that are not yet
-//!   wired into `lib.rs`. To keep this file self-contained and compiling, they
-//!   are reimplemented here as private local helpers and deliberately left
-//!   without `[spec:...]` annotations (their spec ids belong to those modules).
+//! * `ISSPACE`, `ISDELIM`, `ISALPHA_C`, `ISDIGIT_C` (inlines.hpp) are
+//!   reimplemented here as private local helpers, deliberately left without
+//!   `[spec:...]` annotations because their spec ids belong to `crate::inlines`.
+//!   They are the last of the local stand-ins this file was written with; the
+//!   `ux_simplecasecmp` keyword matcher now comes from `crate::uextras`, whose
+//!   copy carries the annotations.
 
 use std::f64::consts::PI;
+
+use crate::uextras::matches_keyword;
 
 /// Why an expression would not evaluate, and where.
 ///
@@ -272,43 +275,43 @@ impl<'a> MathParser<'a> {
                 return Err(self.err(MathErrorKind::UnbalancedParens));
             }
             if isfunc {
-                if ux_simplecasecmp(temp_token, "SIN") {
+                if matches_keyword(temp_token, "SIN") {
                     *result = (PI / 180.0 * *result).sin();
-                } else if ux_simplecasecmp(temp_token, "COS") {
+                } else if matches_keyword(temp_token, "COS") {
                     *result = (PI / 180.0 * *result).cos();
-                } else if ux_simplecasecmp(temp_token, "TAN") {
+                } else if matches_keyword(temp_token, "TAN") {
                     *result = (PI / 180.0 * *result).tan();
-                } else if ux_simplecasecmp(temp_token, "ASIN") {
+                } else if matches_keyword(temp_token, "ASIN") {
                     *result = 180.0 / PI * result.asin();
-                } else if ux_simplecasecmp(temp_token, "ACOS") {
+                } else if matches_keyword(temp_token, "ACOS") {
                     *result = 180.0 / PI * result.acos();
-                } else if ux_simplecasecmp(temp_token, "ATAN") {
+                } else if matches_keyword(temp_token, "ATAN") {
                     *result = 180.0 / PI * result.atan();
-                } else if ux_simplecasecmp(temp_token, "SINH") {
+                } else if matches_keyword(temp_token, "SINH") {
                     *result = result.sinh();
-                } else if ux_simplecasecmp(temp_token, "COSH") {
+                } else if matches_keyword(temp_token, "COSH") {
                     *result = result.cosh();
-                } else if ux_simplecasecmp(temp_token, "TANH") {
+                } else if matches_keyword(temp_token, "TANH") {
                     *result = result.tanh();
-                } else if ux_simplecasecmp(temp_token, "ASINH") {
+                } else if matches_keyword(temp_token, "ASINH") {
                     *result = result.asinh();
-                } else if ux_simplecasecmp(temp_token, "ACOSH") {
+                } else if matches_keyword(temp_token, "ACOSH") {
                     *result = result.acosh();
-                } else if ux_simplecasecmp(temp_token, "ATANH") {
+                } else if matches_keyword(temp_token, "ATANH") {
                     *result = result.atanh();
-                } else if ux_simplecasecmp(temp_token, "LN") {
+                } else if matches_keyword(temp_token, "LN") {
                     *result = result.ln();
-                } else if ux_simplecasecmp(temp_token, "LOG") {
+                } else if matches_keyword(temp_token, "LOG") {
                     *result = result.log10();
-                } else if ux_simplecasecmp(temp_token, "EXP") {
+                } else if matches_keyword(temp_token, "EXP") {
                     *result = result.exp();
-                } else if ux_simplecasecmp(temp_token, "SQRT") {
+                } else if matches_keyword(temp_token, "SQRT") {
                     *result = result.sqrt();
-                } else if ux_simplecasecmp(temp_token, "SQR") {
+                } else if matches_keyword(temp_token, "SQR") {
                     *result = *result * *result;
-                } else if ux_simplecasecmp(temp_token, "ROUND") {
+                } else if matches_keyword(temp_token, "ROUND") {
                     *result = result.round();
-                } else if ux_simplecasecmp(temp_token, "FLOOR") {
+                } else if matches_keyword(temp_token, "FLOOR") {
                     *result = result.floor();
                 } else {
                     return Err(self.err(MathErrorKind::UnknownFunction));
@@ -316,9 +319,9 @@ impl<'a> MathParser<'a> {
             }
             self.get_token()?;
         } else if self.tok_type == TypeT::Variable as u8 {
-            if ux_simplecasecmp(self.token, "MIN") {
+            if matches_keyword(self.token, "MIN") {
                 *result = self.min;
-            } else if ux_simplecasecmp(self.token, "MAX") {
+            } else if matches_keyword(self.token, "MAX") {
                 *result = self.max;
             } else {
                 // `vars[token[0]-'A']` assumes an uppercase A-Z letter; a
@@ -389,7 +392,7 @@ impl<'a> MathParser<'a> {
         // else: tok_type stays 0 and token keeps its pre-whitespace-skip value.
 
         if self.tok_type == TypeT::Variable as u8 {
-            if ux_simplecasecmp(self.token, "MIN") || ux_simplecasecmp(self.token, "MAX") {
+            if matches_keyword(self.token, "MIN") || matches_keyword(self.token, "MAX") {
                 // Nothing
             } else if self.token.chars().count() > 1 {
                 return Err(self.err(MathErrorKind::LongVariableName));
@@ -465,47 +468,6 @@ fn find_first_of(s: &str, set: &str) -> usize {
         }
     }
     s.len()
-}
-
-/// `uextras.hpp` `ux_simplecasecmp(a, b)`: case-insensitive (ASCII, lowercase
-/// == uppercase + 32) prefix compare of the first `b.len()` chars, with a
-/// trailing-char acceptance check.
-///
-/// C++ reads `a[i]` for `i` up to `b.size()` and `a[n]` directly from `a`'s
-/// buffer, potentially one past `a`'s own length (UB when `a` is shorter). Safe
-/// Rust cannot read past the slice: a missing `a[i]` in the compare loop is
-/// treated as a mismatch (faithful, because the char following a token is
-/// always a delimiter/space/end that never equals a letter), and a missing
-/// `a[n]` at the tail is treated as end-of-string (`a[n] == 0` -> match).
-///
-/// The `u_getCombiningClass(a[n]) == 0` tail is approximated as always true:
-/// ICU combining classes are unavailable and are 0 for all ASCII, so — as in
-/// C++ — any non-combining trailing char makes the compare succeed once the
-/// prefix matches. (This reproduces quirks like `"SINH"` matching `"SIN"`.)
-fn ux_simplecasecmp(a: &str, b: &str) -> bool {
-    let a_chars: Vec<char> = a.chars().collect();
-    let b_chars: Vec<char> = b.chars().collect();
-    let n = b_chars.len();
-    for (i, &bc) in b_chars.iter().enumerate() {
-        match a_chars.get(i) {
-            Some(&ac) => {
-                if ac != bc && (ac as u32) != (bc as u32) + 32 {
-                    return false;
-                }
-            }
-            None => return false,
-        }
-    }
-    match a_chars.get(n) {
-        None => true,
-        Some(&c) => c == '\0' || is_space(c) || is_delim(c) || combining_class(c) == 0,
-    }
-}
-
-/// ICU `u_getCombiningClass` is unavailable; combining class is 0 for every
-/// ASCII char, which is all that appears in numeric expressions.
-fn combining_class(_c: char) -> u8 {
-    0
 }
 
 /// C `strtod(s, nullptr)`. Parses the leading decimal/scientific numeric
@@ -648,7 +610,7 @@ mod tests {
         assert_eq!(eval("SQR(5)").unwrap(), 25.0);
         assert_eq!(eval("FLOOR(3.9)").unwrap(), 3.0);
         assert_eq!(eval("ROUND(2.5)").unwrap(), 3.0);
-        // ux_simplecasecmp is case-insensitive: lowercase name still matches.
+        // matches_keyword is case-insensitive: lowercase name still matches.
         assert_eq!(eval("sqrt(16)").unwrap(), 4.0);
 
         // Unknown function -> "Unknown function".

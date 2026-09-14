@@ -182,21 +182,21 @@ pub fn super_fast_hash_u16(data: &[u16], hash: u32) -> u32 {
 }
 
 // [spec:cg3:def:inlines.cg3.hash-ustring]
-/// C++ `struct hash_ustring` (inlines.hpp) — the `UString` hash functor.
-pub struct HashUString;
+/// C++ `struct hash_ustring` (inlines.hpp) — the string hash functor used as
+/// the `Hash` type for containers keyed on a tag's text.
+pub struct StringHasher;
 
-impl HashUString {
+impl StringHasher {
     // [spec:cg3:def:inlines.cg3.hash-ustring.operator-fn]
     // [spec:cg3:sem:inlines.cg3.hash-ustring.operator-fn]
     // C++ `operator()` -> ported to a `call` method (Rust has no call operator
     // overloading for arbitrary self). Forces the seed to CG3_HASH_SEED and
     // hashes the string's bytes; return type widened to usize (size_t).
+    //
+    // The C++ has a second, unspecced `operator()(const UStringView&)` overload.
+    // It exists because `const UString&` will not bind a view; `&str` binds both
+    // an owned `String` and a borrowed slice, so the pair is one method here.
     pub fn call(&self, str: &str) -> usize {
-        hash_value_ustring(str, 0) as usize
-    }
-
-    // Sibling `operator()(const UStringView&)`.
-    pub fn call_view(&self, str: &str) -> usize {
         hash_value_ustring(str, 0) as usize
     }
 }

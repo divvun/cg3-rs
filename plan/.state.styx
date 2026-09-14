@@ -151,6 +151,7 @@ assertions (
     {id tag-text-boxed-str, kind @doing, author "brendan@necessary.nu", at 2026-09-14T16:50:37.354354Z}
     {id deicu.type-aliases, kind @complete, author "brendan@necessary.nu", at 2026-09-14T17:35:09.821414Z}
     {id deicu.stdio-shims, kind @complete, author "brendan@necessary.nu", at 2026-09-14T18:01:41.646731Z}
+    {id deicu.ux-helpers, kind @complete, author "brendan@necessary.nu", at 2026-09-14T18:12:20.630693Z}
 )
 
 impl_evidence (

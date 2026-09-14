@@ -39,6 +39,7 @@ use crate::interval_vector::Uint32IntervalVector;
 use crate::sorted_vector::{SortedVector, Uint32SortedVector};
 use crate::strings::STR_DUMMY;
 use crate::types::{DynBitset, SetNumber, Uint32Vector};
+use crate::uextras::eq_ignore_case;
 
 // Sibling grammar-object types (created by parallel agents). Aliased locally so
 // the arena declarations read against a stable name.
@@ -1719,7 +1720,7 @@ impl Grammar {
             }
             for iid in &icase_tag_ids {
                 let itext = &self.single_tags_list[iid.0].tag;
-                if ux_str_case_compare(&ttext, itext) {
+                if eq_ignore_case(&ttext, itext) {
                     textual = true;
                 }
             }
@@ -2285,15 +2286,4 @@ pub fn trie_unserialize<R: Read>(
             );
         }
     }
-}
-
-/// `uextras.hpp` `ux_strCaseCompare(a, b)` (ICU `u_strCaseCompare`,
-/// `U_FOLD_CASE_DEFAULT`) — true on full case-fold equality. Approximated with
-/// Unicode simple lowercase folding (same stand-in as `tag.rs`; ICU-vs-Rust
-/// parity risk for non-ASCII). Local because `uextras` is not yet ported and this
-/// pass edits only `grammar.rs`.
-fn ux_str_case_compare(a: &str, b: &str) -> bool {
-    a.chars()
-        .flat_map(char::to_lowercase)
-        .eq(b.chars().flat_map(char::to_lowercase))
 }

@@ -1,9 +1,19 @@
 //! Port of `src/uextras.cpp` + `src/uextras.hpp`.
 //!
 //! Literal, bug-for-bug 1:1 translation of the CG-3 Unicode/stream helper
-//! utilities (spec `docs/spec/port/src/uextras.md`). Same control flow and
-//! names (snake_cased where the task requests) as the original; the flagged
-//! quirks are reproduced rather than fixed (Wave 4 does the idiomatic cleanup).
+//! utilities (spec `docs/spec/port/src/uextras.md`): the flagged quirks are
+//! reproduced rather than fixed.
+//!
+//! ## Naming
+//! Control flow follows the original; the names do not. C++ prefixes these
+//! helpers `ux_` and the stream wrappers `u_` — ICU's marker for "operates on
+//! Unicode text", a real distinction in a codebase where the other half of the
+//! string functions take `char*`. Every string here is UTF-8 `&str`, so the
+//! prefix marks nothing; each function is named for what it does, with the C++
+//! symbol kept on its doc line and in the `[spec:...]` id above it. The FILE
+//! keeps the C++ name: module paths in this crate map 1:1 onto the translation
+//! unit they port and key the spec ids (`uextras.*`), so renaming it would cost
+//! that mapping to fix a prefix no signature shows.
 //!
 //! ## Representation decisions (parity notes)
 //!
@@ -15,7 +25,7 @@
 //!
 //! * **Streams → `std::io`.** The C++ `std::istream&` / `std::ostream&`
 //!   parameters become `&mut impl Read` / `&mut impl Write` generics (matching
-//!   `crate::inlines`' binary-IO helpers). `ux_strip_bom` additionally needs
+//!   `crate::inlines`' binary-IO helpers). `strip_bom` additionally needs
 //!   `Seek` because it "puts back" up to three bytes and `std::io::Read` has no
 //!   `putback`; the C++ `istream::putback` calls map to `Seek::seek(Current(-n))`.
 //!
@@ -135,7 +145,7 @@ fn read_byte<R: Read>(stream: &mut R) -> Option<u8> {
 // rewinding by the number of bytes consumed so the stream is left exactly as
 // found on any non-BOM path. Byte comparisons are against the unsigned values
 // 0xEF/0xBB/0xBF, as in the source.
-pub fn ux_strip_bom<S: Read + Seek>(stream: &mut S) -> bool {
+pub fn strip_bom<S: Read + Seek>(stream: &mut S) -> bool {
     let a = match read_byte(stream) {
         Some(v) => v,
         None => return false, // EOF: nothing consumed
@@ -395,7 +405,7 @@ pub fn write_char<W: Write>(c32: char, output: &mut W) -> char {
 // reimplementation (`dirname_posix`) is used. The empty-`tmp` `tmp[tlen-1]`
 // out-of-bounds read is latent UB in C++ (POSIX `dirname` never returns "");
 // safe Rust simply never hits it (`dirname_posix` returns "." at minimum).
-pub fn ux_dirname(input: &str) -> String {
+pub fn dir_prefix(input: &str) -> String {
     let mut tmp = dirname_posix(input);
     if !(tmp.ends_with('/') || tmp.ends_with('\\')) {
         tmp.push('/');
@@ -615,7 +625,7 @@ pub fn get_line_clean_chars<R: Read>(
 // `const UChar* it` (NUL-terminated) → `&str`. `it[1] == 0` (a one-code-unit
 // token) is "the string has exactly one char" (`c1 == None`). Returns the `S_*`
 // code, or `S_IGNORE`.
-pub fn ux_is_set_op(it: &str) -> i32 {
+pub fn set_op_code(it: &str) -> i32 {
     let mut chars = it.chars();
     let c0 = chars.next();
     let c1 = chars.next();
@@ -652,7 +662,7 @@ pub fn ux_is_set_op(it: &str) -> i32 {
 // `const UChar* text` (NUL-terminated) → `&str`; `u_strlen` (length to NUL) is
 // the string's char count. Returns true when empty or all-whitespace per
 // `ISSPACE`.
-pub fn ux_is_empty(text: &str) -> bool {
+pub fn is_blank(text: &str) -> bool {
     for c in text.chars() {
         if !isspace(c) {
             return false;
@@ -676,7 +686,7 @@ pub fn ux_is_empty(text: &str) -> bool {
 // `for (i=0; i<n; ++i)` pointer walk): `a` running out inside the prefix is a
 // mismatch, and `b[i]` is indexed with `n` — panicking where the C++ read past
 // `b` (UB) if a caller ever passes `n > b.len()`.
-pub fn ux_simplecasecmp(a: &[char], b: &[char], n: usize) -> bool {
+pub fn matches_keyword_chars(a: &[char], b: &[char], n: usize) -> bool {
     for (i, &ai) in a.iter().enumerate().take(n) {
         if ai != b[i] && (ai as u32) != (b[i] as u32) + 32 {
             return false;
@@ -694,14 +704,16 @@ pub fn ux_simplecasecmp(a: &[char], b: &[char], n: usize) -> bool {
     }
 }
 
-/// `&str` convenience form collapsing the C++ overloads
+/// `&str` form collapsing the C++ overloads
 /// `ux_simplecasecmp(a, b.data(), b.size())` — for `b` being `UString`,
 /// `UStringView`, and `(UStringView, UStringView)`. `n` is `b`'s char count.
-pub fn ux_simplecasecmp_sv(a: &str, b: &str) -> bool {
+/// `a` is the text being scanned and `b` the keyword it must start with; the
+/// comparison is not symmetric (see [`matches_keyword_chars`]).
+pub fn matches_keyword(a: &str, b: &str) -> bool {
     let ac: Vec<char> = a.chars().collect();
     let bc: Vec<char> = b.chars().collect();
     let n = bc.len();
-    ux_simplecasecmp(&ac, &bc, n)
+    matches_keyword_chars(&ac, &bc, n)
 }
 
 /// ICU `u_getCombiningClass` is unavailable in std; combining class is 0 for
@@ -722,9 +734,10 @@ fn combining_class(_c: char) -> u8 {
 // `catch(const std::exception&)`) has no analog — the std folding path has no
 // `UErrorCode`, so it is simply unreachable here.
 /// C++ `ux_strCaseCompare`.
-pub fn ux_str_case_compare(a: &str, b: &str) -> bool {
-    let fold = |s: &str| -> String { s.chars().flat_map(|c| c.to_lowercase()).collect() };
-    fold(a) == fold(b)
+pub fn eq_ignore_case(a: &str, b: &str) -> bool {
+    a.chars()
+        .flat_map(char::to_lowercase)
+        .eq(b.chars().flat_map(char::to_lowercase))
 }
 
 // [spec:cg3:def:uextras.cg3.substr-t.value-type]
@@ -806,7 +819,7 @@ pub fn substr(str: &str, offset: usize, count: usize) -> Substr<'_> {
 // NUL-terminates `dst`. Stops early at the first NUL in `src` (represented by
 // the slice end) or immediately if `src` is `None` (the C++ null check). The
 // caller must ensure `dst` has room for at least `i + 1` chars.
-pub fn ux_bufcpy(dst: &mut [char], src: Option<&[char]>, n: usize) {
+pub fn copy_with_visible_newlines(dst: &mut [char], src: Option<&[char]>, n: usize) {
     let mut i = 0usize;
     while i < n {
         match src.and_then(|s| s.get(i)).copied() {
@@ -828,19 +841,19 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    // Pure path helpers: ux_dirname reimplements POSIX dirname(3) and guarantees
+    // Pure path helpers: dir_prefix reimplements POSIX dirname(3) and guarantees
     // a trailing separator; basename splits on the last '/' or '\\'.
     // [spec:cg3:sem:uextras.cg3.ux-dirname-fn/test]
     // [spec:cg3:sem:uextras.basename-fn/test]
     #[test]
     fn dirname_and_basename() {
-        // ux_dirname: directory portion, always ending in a separator.
-        assert_eq!(ux_dirname("/usr/lib/foo.txt"), "/usr/lib/");
-        assert_eq!(ux_dirname("foo.txt"), "./"); // no dir part -> "." + '/'
-        assert_eq!(ux_dirname("/foo"), "/"); // root already ends in sep
-        assert_eq!(ux_dirname(""), "./");
+        // dir_prefix: directory portion, always ending in a separator.
+        assert_eq!(dir_prefix("/usr/lib/foo.txt"), "/usr/lib/");
+        assert_eq!(dir_prefix("foo.txt"), "./"); // no dir part -> "." + '/'
+        assert_eq!(dir_prefix("/foo"), "/"); // root already ends in sep
+        assert_eq!(dir_prefix(""), "./");
         // trailing slashes are stripped before dropping the last component
-        assert_eq!(ux_dirname("/a/b/"), "/a/");
+        assert_eq!(dir_prefix("/a/b/"), "/a/");
 
         // basename: piece after the final separator.
         assert_eq!(basename(Some("/usr/lib/foo.txt")), "foo.txt");
@@ -922,27 +935,27 @@ mod tests {
         assert_eq!(std::str::from_utf8(&out).unwrap(), text);
     }
 
-    // ux_strip_bom consumes a leading UTF-8 BOM (EF BB BF) and returns true; on
+    // strip_bom consumes a leading UTF-8 BOM (EF BB BF) and returns true; on
     // any non-BOM prefix it rewinds (Seek) so the stream is left untouched.
     // [spec:cg3:sem:uextras.ux-strip-bom-fn/test]
     #[test]
     fn strip_bom_consumes_or_rewinds() {
         // With a BOM: consumed, true, cursor now at the real content.
         let mut with_bom = Cursor::new(vec![0xEF, 0xBB, 0xBF, b'h', b'i']);
-        assert!(ux_strip_bom(&mut with_bom));
+        assert!(strip_bom(&mut with_bom));
         let rest = read_utf8(&mut with_bom, 1000);
         assert_eq!(rest, b"hi");
 
         // No BOM: false, and the stream is rewound to the start (nothing eaten).
         let mut no_bom = Cursor::new(vec![b'h', b'i']);
-        assert!(!ux_strip_bom(&mut no_bom));
+        assert!(!strip_bom(&mut no_bom));
         assert_eq!(no_bom.position(), 0);
         let rest = read_utf8(&mut no_bom, 1000);
         assert_eq!(rest, b"hi");
 
         // Partial BOM (EF BB then a non-BF byte): false, all three bytes put back.
         let mut partial = Cursor::new(vec![0xEF, 0xBB, b'x']);
-        assert!(!ux_strip_bom(&mut partial));
+        assert!(!strip_bom(&mut partial));
         assert_eq!(partial.position(), 0);
     }
 
@@ -991,48 +1004,48 @@ mod tests {
     }
 
     // Set-op detection: single tokens (|,+,-,^,\,U+2229,U+2206) and "OR"/case.
-    // ux_is_empty is true for empty / all-whitespace strings.
+    // is_blank is true for empty / all-whitespace strings.
     // [spec:cg3:sem:uextras.cg3.ux-is-set-op-fn/test]
     // [spec:cg3:sem:uextras.cg3.ux-is-empty-fn/test]
     #[test]
     fn set_op_and_empty() {
-        assert_eq!(ux_is_set_op("|"), S_OR);
-        assert_eq!(ux_is_set_op("+"), S_PLUS);
-        assert_eq!(ux_is_set_op("-"), S_MINUS);
-        assert_eq!(ux_is_set_op("^"), S_FAILFAST);
-        assert_eq!(ux_is_set_op("\\"), S_SET_DIFF);
-        assert_eq!(ux_is_set_op("\u{2229}"), S_SET_ISECT_U);
-        assert_eq!(ux_is_set_op("\u{2206}"), S_SET_SYMDIFF_U);
-        assert_eq!(ux_is_set_op("OR"), S_OR); // two-char OR (any case)
-        assert_eq!(ux_is_set_op("or"), S_OR);
-        assert_eq!(ux_is_set_op("foo"), S_IGNORE);
-        assert_eq!(ux_is_set_op(""), S_IGNORE);
+        assert_eq!(set_op_code("|"), S_OR);
+        assert_eq!(set_op_code("+"), S_PLUS);
+        assert_eq!(set_op_code("-"), S_MINUS);
+        assert_eq!(set_op_code("^"), S_FAILFAST);
+        assert_eq!(set_op_code("\\"), S_SET_DIFF);
+        assert_eq!(set_op_code("\u{2229}"), S_SET_ISECT_U);
+        assert_eq!(set_op_code("\u{2206}"), S_SET_SYMDIFF_U);
+        assert_eq!(set_op_code("OR"), S_OR); // two-char OR (any case)
+        assert_eq!(set_op_code("or"), S_OR);
+        assert_eq!(set_op_code("foo"), S_IGNORE);
+        assert_eq!(set_op_code(""), S_IGNORE);
 
-        assert!(ux_is_empty(""));
-        assert!(ux_is_empty("   \t "));
-        assert!(!ux_is_empty("  x "));
+        assert!(is_blank(""));
+        assert!(is_blank("   \t "));
+        assert!(!is_blank("  x "));
     }
 
-    // ux_simplecasecmp: crude ASCII case-insensitive prefix compare with the
-    // documented lowercase-of-`a` asymmetry; ux_str_case_compare is full-Unicode.
+    // matches_keyword_chars: crude ASCII case-insensitive prefix compare with the
+    // documented lowercase-of-`a` asymmetry; eq_ignore_case is full-Unicode.
     // [spec:cg3:sem:uextras.cg3.ux-simplecasecmp-fn/test]
     // [spec:cg3:sem:uextras.cg3.ux-str-case-compare-fn/test]
     #[test]
     fn case_compares() {
-        // ux_simplecasecmp_sv: prefix "abc" of `b`, matched case-insensitively.
-        assert!(ux_simplecasecmp_sv("abc", "abc"));
+        // matches_keyword: prefix "abc" of `b`, matched case-insensitively.
+        assert!(matches_keyword("abc", "abc"));
         // ASYMMETRY: a is the lowercase form (a[i] == b[i] + 32), so "abc" matches
         // the uppercase "ABC" prefix.
-        assert!(ux_simplecasecmp_sv("abc", "ABC"));
+        assert!(matches_keyword("abc", "ABC"));
         // ...but the reverse direction does NOT (b[i] + 32 != a[i]).
-        assert!(!ux_simplecasecmp_sv("ABC", "abc"));
+        assert!(!matches_keyword("ABC", "abc"));
         // Different letters do not match.
-        assert!(!ux_simplecasecmp_sv("abc", "xyz"));
+        assert!(!matches_keyword("abc", "xyz"));
 
-        // ux_str_case_compare: proper Unicode case-insensitive equality.
-        assert!(ux_str_case_compare("Hello", "hello"));
-        assert!(ux_str_case_compare("GRüßE", "grüße"));
-        assert!(!ux_str_case_compare("abc", "abd"));
+        // eq_ignore_case: proper Unicode case-insensitive equality.
+        assert!(eq_ignore_case("Hello", "hello"));
+        assert!(eq_ignore_case("GRüßE", "grüße"));
+        assert!(!eq_ignore_case("abc", "abd"));
     }
 
     // substr / substr_t::new build a proxy; data() returns the [offset, offset+
@@ -1061,14 +1074,14 @@ mod tests {
         assert_eq!(sub3.old_value, '\0');
     }
 
-    // ux_bufcpy copies up to n chars, mapping LF/CR to Control Pictures and
-    // NUL-terminating; a None src copies nothing.
+    // copy_with_visible_newlines copies up to n chars, mapping LF/CR to Control
+    // Pictures and NUL-terminating; a None src copies nothing.
     // [spec:cg3:sem:uextras.cg3.ux-bufcpy-fn/test]
     #[test]
     fn bufcpy_maps_newlines() {
         let src: Vec<char> = "a\nb".chars().collect();
         let mut dst = vec!['X'; 8];
-        ux_bufcpy(&mut dst, Some(&src), 8);
+        copy_with_visible_newlines(&mut dst, Some(&src), 8);
         assert_eq!(dst[0], 'a');
         assert_eq!(dst[1], '\u{240A}'); // LF -> Control Picture LF
         assert_eq!(dst[2], 'b');
@@ -1077,13 +1090,13 @@ mod tests {
         // CR maps to its Control Picture too.
         let src_cr: Vec<char> = "\r".chars().collect();
         let mut dst_cr = vec!['X'; 4];
-        ux_bufcpy(&mut dst_cr, Some(&src_cr), 4);
+        copy_with_visible_newlines(&mut dst_cr, Some(&src_cr), 4);
         assert_eq!(dst_cr[0], '\u{240D}');
         assert_eq!(dst_cr[1], '\0');
 
         // None src copies nothing but still NUL-terminates at index 0.
         let mut dst_none = vec!['X'; 4];
-        ux_bufcpy(&mut dst_none, None, 4);
+        copy_with_visible_newlines(&mut dst_none, None, 4);
         assert_eq!(dst_none[0], '\0');
     }
 }

@@ -13,6 +13,7 @@ use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_ustring, i
 use crate::math_parser::MathParser;
 use crate::sorted_vector::SortedVector;
 use crate::types::TagHash;
+use crate::uextras::eq_ignore_case;
 
 // C++ `using SetVector = std::vector<Set*>;` (forward-declared in Tag.hpp).
 // NOTE(lead): Set.hpp re-declares the identical `SetVector` typedef as
@@ -707,7 +708,7 @@ impl Clone for Tag {
 /// The `grammar->regex_tags` scan (`uregex_setText` + `uregex_find`) becomes an
 /// unanchored `Regex::is_match` against the tag text using each regex-tag's
 /// compiled `regexp` (anchoring is baked into the pattern at compile time in the
-/// parser layer). `grammar->icase_tags` uses `ux_str_case_compare` (ICU
+/// parser layer). `grammar->icase_tags` uses `eq_ignore_case` (ICU
 /// `u_strCaseCompare`, approximated with Unicode lowercase folding).
 pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     this.r#type = TagType::empty();
@@ -754,7 +755,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     // grammar->icase_tags scan.
     let icase_ids: Vec<TagId> = grammar.icase_tags.iter().copied().collect();
     for tid in icase_ids {
-        if ux_str_case_compare(&this.tag, &grammar.single_tags_list[tid.0].tag) {
+        if eq_ignore_case(&this.tag, &grammar.single_tags_list[tid.0].tag) {
             this.r#type |= T_TEXTUAL;
         }
     }
@@ -965,19 +966,11 @@ fn add_tag(grammar: &mut Grammar, mut tag: Tag) -> TagId {
 }
 
 // ---------------------------------------------------------------------------
-// Local stand-ins for ICU helpers used above (they belong to other, not-yet-
-// wired modules — `uextras`/`u_sscanf`). Deliberately un-annotated;
-// reimplemented here so this file compiles standalone (cf. `math_parser.rs`).
+// Local stand-ins for the `u_sscanf` conversions used above: ICU's scanf engine
+// has no std analogue, so each format string gets a hand-written parser rather
+// than a shared one. Deliberately un-annotated — their spec ids belong to the
+// ICU surface, not to `Tag.cpp`.
 // ---------------------------------------------------------------------------
-
-/// `uextras.hpp` `ux_strCaseCompare(a, b)`: ICU `u_strCaseCompare` with
-/// `U_FOLD_CASE_DEFAULT`, true on full case-fold equality. Approximated with
-/// Unicode simple lowercase folding (ICU-vs-Rust parity risk for non-ASCII).
-fn ux_str_case_compare(a: &str, b: &str) -> bool {
-    a.chars()
-        .flat_map(char::to_lowercase)
-        .eq(b.chars().flat_map(char::to_lowercase))
-}
 
 /// `u_sscanf(txval, "%lf", &tval)`: parses a leading `strtod`-style double and
 /// writes it to `out`, returning whether a number was read (== the C `1` count).

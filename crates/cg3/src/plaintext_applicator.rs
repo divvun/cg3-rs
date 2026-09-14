@@ -38,7 +38,7 @@ use crate::cohort::CT_REMOVED;
 use crate::grammar::Grammar;
 use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::types::TagHash;
-use crate::uextras::{get_line_clean, ux_strip_bom, write_char};
+use crate::uextras::{get_line_clean, strip_bom, write_char};
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — hash → `TagId`, `TagId(0)` on
 /// a miss (benign; see `niceline_applicator`).
@@ -165,7 +165,7 @@ where
 
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
-        ux_strip_bom(input);
+        strip_bom(input);
 
         loop {
             let mut packoff = get_line_clean(&mut line, &mut cleaned, input, false);

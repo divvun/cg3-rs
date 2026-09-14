@@ -37,7 +37,7 @@ use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{isnl, skipto_nospan};
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION};
 use crate::types::TagHash;
-use crate::uextras::{get_line_clean, ux_strip_bom, write_char};
+use crate::uextras::{get_line_clean, strip_bom, write_char};
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — resolve a hash to its
 /// `TagId`. operator[] would default-insert a null `Tag*` on a miss (deref
@@ -152,7 +152,7 @@ impl<'a> NicelineApplicator<'a> {
 
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
-        ux_strip_bom(input);
+        strip_bom(input);
 
         // C++ `while (!input.eof())`: loop until get_line_clean stops producing.
         loop {
