@@ -322,7 +322,7 @@ fn include_prefers_including_dir_over_cwd() {
 /// Compiling writes the grammar's source beside the `.cg3b`, with no flag asked
 /// for, and the companion file describes THIS binary — so a rule number
 /// resolves back to the text the author wrote, across the `INCLUDE` boundary.
-// [spec:cg3:req:diagnostics.sidecar/test]
+// [spec:cg3:req:diagnostics.sidecar+1/test]
 // [spec:cg3:req:diagnostics.sidecar-identity/test]
 #[test]
 fn cg_comp_writes_grammar_source_beside_binary() {
@@ -717,8 +717,28 @@ fn cg_relabel_main_relabels_t_relabel_list() {
     );
 
     run_vislcg3_expect(&dir, &bin_out, "relabel-select.txt");
+
+    // [spec:cg3:req:diagnostics.sidecar+1/test]
+    // The companion came across and is stamped against the RELABELLED binary,
+    // not the one it was compiled beside — read_sidecar re-checks the stamp, so
+    // getting a value back is the assertion. A rule still resolves through it,
+    // which is what the carry is for.
+    let carried = cg3::grammar_sources::read_sidecar(&bin_out)
+        .expect("the relabelled binary must carry its sources");
+    assert!(
+        !carried.sources.is_empty() && !carried.rules.is_empty(),
+        "carried companion is empty"
+    );
+    let (number, _) = carried.rules[0];
+    assert!(
+        carried.locate(number).is_some(),
+        "a rule must still resolve to a span after the carry"
+    );
+
     let _ = std::fs::remove_file(&bin);
     let _ = std::fs::remove_file(&bin_out);
+    let _ = std::fs::remove_file(cg3::grammar_sources::sidecar_path(&bin));
+    let _ = std::fs::remove_file(cg3::grammar_sources::sidecar_path(&bin_out));
 }
 
 // [spec:cg3:sem:cg-relabel.end-program-fn+3/test]

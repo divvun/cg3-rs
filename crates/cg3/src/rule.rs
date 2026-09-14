@@ -204,7 +204,7 @@ pub struct Rule {
     /// rule read back from a `.cg3b`: the binary format is frozen at revision
     /// 13898 and carries no field for this, so a binary load resolves provenance
     /// from the companion source file instead
-    /// (`[spec:cg3:req:diagnostics.sidecar]`).
+    /// (`[spec:cg3:req:diagnostics.sidecar+1]`).
     pub provenance: Option<RuleProvenance>,
     pub number: u32,
     pub varname: u32,

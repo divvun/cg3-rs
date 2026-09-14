@@ -144,7 +144,7 @@ pub fn main_comp(args: &[String]) -> i32 {
                 return EXIT_FAILURE;
             }
             let _ = gout.flush();
-            // [spec:cg3:req:diagnostics.sidecar]
+            // [spec:cg3:req:diagnostics.sidecar+1]
             crate::grammar_sources::write_beside(
                 std::path::Path::new(&args[2]),
                 &blob,

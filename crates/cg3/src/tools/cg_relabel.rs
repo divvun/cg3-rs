@@ -211,6 +211,15 @@ pub fn main_relabel(args: &[String]) -> i32 {
                 return fail(&e);
             }
             let _ = gout.flush();
+            drop(gout);
+            // [spec:cg3:req:diagnostics.sidecar+1]
+            // Relabelling rewrote tags and sets, not rule numbering, so the
+            // input's companion still describes this grammar — but it is
+            // stamped against the binary just superseded.
+            crate::grammar_sources::carry_beside(
+                std::path::Path::new(&args[1]),
+                std::path::Path::new(&args[3]),
+            );
         }
         Err(_) => {
             tracing::error!("Could not write grammar to {}", args[3]);

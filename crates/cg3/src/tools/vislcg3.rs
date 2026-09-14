@@ -305,7 +305,7 @@ pub fn main_run(args: &[String]) -> i32 {
         }
     };
 
-    // [spec:cg3:req:diagnostics.sidecar]
+    // [spec:cg3:req:diagnostics.sidecar+1]
     // The parse's own buffers, kept only when `--grammar-bin` will need them for
     // the companion file it writes. Retaining a multi-megabyte grammar text for
     // the whole run of every other invocation is exactly what
@@ -581,7 +581,7 @@ fn input_name(options: &crate::options::OptionsTable) -> String {
     crate::grammar_applicator::STDIN_SOURCE_NAME.to_string()
 }
 
-// [spec:cg3:req:diagnostics.sidecar]
+// [spec:cg3:req:diagnostics.sidecar+1]
 /// `--grammar-bin`: write the grammar in binary form, and its sources beside it.
 ///
 /// Takes the grammar by value and hands it back, because the binary writer owns

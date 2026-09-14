@@ -142,6 +142,7 @@ assertions (
     {id textual-sniff-bounds, kind @doing, author "brendan@necessary.nu", at 2026-08-15T22:31:05.119277Z}
     {id ctx-override-restore-on-error, kind @doing, author "brendan@necessary.nu", at 2026-09-14T13:16:06.230874Z}
     {id grammar-diagnostics.include-resolution, kind @doing, author "brendan@necessary.nu", at 2026-09-14T13:22:37.826278Z}
+    {id runtime-diagnostics.relabel-carry, kind @doing, author "brendan@necessary.nu", at 2026-09-14T13:27:09.771867Z}
 )
 
 impl_evidence (

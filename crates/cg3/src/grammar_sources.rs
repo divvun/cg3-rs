@@ -42,7 +42,7 @@ pub const SIDECAR_MAGIC: [u8; 4] = *b"CG3S";
 
 /// Bumped whenever the layout above changes. A reader that does not recognise a
 /// version treats the file as absent, which is the same degradation
-/// `[spec:cg3:req:diagnostics.sidecar]` requires for no file at all.
+/// `[spec:cg3:req:diagnostics.sidecar+1]` requires for no file at all.
 pub const FORMAT_VERSION: u32 = 1;
 
 /// Sanity ceiling on the counts read out of a companion file. `read_be`
@@ -50,7 +50,7 @@ pub const FORMAT_VERSION: u32 = 1;
 /// and would otherwise have this allocate against it.
 const MAX_ENTRIES: u32 = 1 << 24;
 
-// [spec:cg3:req:diagnostics.sidecar]
+// [spec:cg3:req:diagnostics.sidecar+1]
 /// The companion file for a `.cg3b` at `binary`.
 pub fn sidecar_path(binary: &Path) -> PathBuf {
     let mut name = binary.as_os_str().to_os_string();
@@ -86,7 +86,7 @@ impl BinaryStamp {
     }
 }
 
-// [spec:cg3:req:diagnostics.sidecar]
+// [spec:cg3:req:diagnostics.sidecar+1]
 /// A grammar's sources and the rules written in them — what a companion file
 /// holds, and what a textual load reconstructs from disk.
 #[derive(Debug, Default)]
@@ -128,7 +128,7 @@ pub fn provenance_of(grammar: &Grammar) -> Vec<(u32, RuleProvenance)> {
     rules
 }
 
-// [spec:cg3:req:diagnostics.sidecar]
+// [spec:cg3:req:diagnostics.sidecar+1]
 /// Write the companion file for the `.cg3b` at `binary`, whose bytes are
 /// `binary_bytes`.
 ///
@@ -164,7 +164,7 @@ pub fn write_sidecar(
     out.flush()
 }
 
-// [spec:cg3:req:diagnostics.sidecar]
+// [spec:cg3:req:diagnostics.sidecar+1]
 /// Write the companion file for a `.cg3b` a tool has just written, taking the
 /// per-rule provenance off the grammar itself.
 ///
@@ -183,6 +183,38 @@ pub fn write_beside(
         tracing::warn!(
             "Warning: could not write grammar sources to {} ({e}); runtime errors in this grammar will not be quoted",
             sidecar_path(binary).display()
+        );
+    }
+}
+
+// [spec:cg3:req:diagnostics.sidecar+1]
+/// Carry `from`'s companion file across to `to`, re-stamped against `to`.
+///
+/// For tools that REWRITE a `.cg3b` rather than compile one. They loaded a
+/// binary, so there is no parse to take provenance from — but relabelling
+/// substitutes tags and sets and leaves rule numbering alone, so the companion
+/// already describes this grammar. All it needs is a stamp naming the binary
+/// that replaced the one it was written for; without that the identity check
+/// refuses it and the rewritten grammar quietly loses its locations.
+///
+/// A source binary with no companion, or one that fails its own identity check,
+/// leaves `to` without one. Guessing would be worse than the location-free
+/// report: nothing downstream can tell a carried companion from an invented one.
+pub fn carry_beside(from: &Path, to: &Path) {
+    let Some(sources) = read_sidecar(from) else {
+        return;
+    };
+    let bytes = match std::fs::read(to) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::debug!("cannot re-read {} to stamp its sources: {e}", to.display());
+            return;
+        }
+    };
+    if let Err(e) = write_sidecar(to, &bytes, &sources.sources, &sources.rules) {
+        tracing::warn!(
+            "Warning: could not carry grammar sources to {} ({e}); runtime errors in this grammar will not be quoted",
+            sidecar_path(to).display()
         );
     }
 }
@@ -418,7 +450,7 @@ mod tests {
 
     /// What went in comes back out: the sources under their own names, and each
     /// rule's span still selecting its own text.
-    // [spec:cg3:req:diagnostics.sidecar/test]
+    // [spec:cg3:req:diagnostics.sidecar+1/test]
     #[test]
     fn a_sidecar_round_trips() {
         let binary = scratch("roundtrip");
@@ -467,7 +499,7 @@ mod tests {
 
     /// No sidecar is the ordinary case for a grammar the C++ compiled, and it
     /// degrades to nothing rather than to an error.
-    // [spec:cg3:req:diagnostics.sidecar/test]
+    // [spec:cg3:req:diagnostics.sidecar+1/test]
     #[test]
     fn a_missing_sidecar_is_not_an_error() {
         let binary = scratch("absent");

@@ -2130,6 +2130,13 @@ children (
                         kind @note
                         text "Recorded as prose on [dec:cg3:grammar-source-sidecar] when the sidecar landed, but never given a node. Relabelling rewrites tags rather than rules, so the per-rule provenance stays accurate across the rewrite — the sidecar is not invalidated by relabelling, it is merely orphaned by the .cg3b identity stamp changing. So the fix is to re-stamp and re-emit the companion alongside the rewritten binary, not to regenerate provenance. Verified with the sidecar deliberately staled: the loader refuses it and degrades to the bare RT RULE line rather than quoting the wrong source, so today's behaviour is safe, just uninformative."
                     }
+
+                    {
+                        at 2026-09-14T13:27:09.771867Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

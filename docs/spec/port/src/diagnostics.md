@@ -93,7 +93,7 @@ of a dozen `INCLUDE`d files.
 > therefore in-memory state of a textual parse, and anything a binary load needs
 > MUST arrive beside the `.cg3b` rather than inside it.
 
-> [spec:cg3:req:diagnostics.sidecar]
+> [spec:cg3:req:diagnostics.sidecar+1]
 > Compiling a grammar MUST write the sources and their per-rule provenance to a
 > companion file beside the `.cg3b`, named by suffixing the binary's own path.
 > This is unconditional, not an option: the port tracks the C++ `Options` table,
@@ -101,6 +101,18 @@ of a dozen `INCLUDE`d files.
 > does not. A consumer that finds no companion file MUST degrade to the
 > location-free report it would have given anyway — a grammar compiled by the
 > C++, or by an older build of this port, still runs.
+>
+> A tool that REWRITES a `.cg3b` MUST carry the companion file across to the
+> binary it writes. Relabelling substitutes tags and sets and leaves rule
+> numbering alone, so the provenance still describes the grammar correctly — but
+> it is stamped against the binary that was replaced, so the identity check in
+> `[spec:cg3:req:diagnostics.sidecar-identity]` would refuse it and a relabelled
+> grammar would lose its locations without saying so. Carrying it means
+> RE-STAMPING the companion against the new binary, not regenerating it: the
+> rewriting tool loaded a `.cg3b`, so it has no parse to take provenance from.
+> Where the source binary has no companion, or one that fails its own identity
+> check, the rewritten binary MUST be left without one rather than given a
+> companion whose accuracy nothing established.
 
 > [spec:cg3:req:diagnostics.sidecar-identity]
 > A companion source file MUST carry a stamp identifying the exact `.cg3b` it
