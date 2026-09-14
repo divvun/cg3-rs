@@ -180,9 +180,14 @@ pub struct Tag {
     /// `UString tag_raw;`
     pub tag_raw: UString,
     /// `std::unique_ptr<SetVector> vs_sets;` — nullable, lazily allocated.
-    pub vs_sets: Option<SetVector>,
+    ///
+    /// Boxed, which is both the faithful shape (the C++ is a `unique_ptr`, one
+    /// pointer) and the cheap one: this is `None` on every tag that is not a
+    /// varstring, and inline it cost all of them 24 bytes for the few that are.
+    pub vs_sets: Option<Box<SetVector>>,
     /// `std::unique_ptr<UStringVector> vs_names;` — nullable, lazily allocated.
-    pub vs_names: Option<UStringVector>,
+    /// Boxed for the same reason as [`vs_sets`](Self::vs_sets).
+    pub vs_names: Option<Box<UStringVector>>,
     /// `mutable URegularExpression* regexp = nullptr;`
     ///
     /// FIELD-TYPE CHANGE (method pass): the Wave-2 `URegularExpression`
@@ -202,19 +207,19 @@ pub struct Tag {
 /// A `Tag` is the arena element the hot paths walk, so its size is a property
 /// worth defending rather than rediscovering.
 ///
-/// It was 248 bytes until [`crate::tag_regex::TagRegex`] was boxed — 104 of them
-/// a compiled regex that nearly no tag has. At that size one tag spans roughly
-/// four cache lines, and the flag scans that walk `0..capacity` paid all four
-/// per tag to read the four-byte `type`. This fails the build rather than a
-/// test, because the way it regresses is someone adding an innocuous field and
-/// never looking at the number.
+/// It was 248 bytes: 104 of them a compiled regex that nearly no tag has, and
+/// another 48 the two varstring vectors that are `None` on everything but a
+/// varstring. At that size one tag spanned roughly four cache lines, and the
+/// flag scans that walk `0..capacity` paid all four per tag to read the
+/// four-byte `type`. Boxing all three brought it to 120. This fails the build
+/// rather than a test, because the way it regresses is someone adding an
+/// innocuous field and never looking at the number.
 ///
-/// Raise it only deliberately. The next reductions available, if it is ever
-/// worth it, are `vs_sets` and `vs_names` — 24 bytes each, `None` on everything
-/// but a varstring — though unlike the regex those are public fields, so boxing
-/// them changes call sites rather than being invisible.
+/// Raise it only deliberately. What is left is mostly load-bearing: two
+/// `String`s at 24 each (`tag` and `tag_raw`), and ~40 bytes of scalars that
+/// every tag genuinely uses.
 const _: () = assert!(
-    size_of::<Tag>() <= 152,
+    size_of::<Tag>() <= 120,
     "Tag has grown; see the note above before raising this"
 );
 
@@ -427,7 +432,7 @@ impl Tag {
     // [spec:cg3:sem:tag.cg3.tag.allocate-vs-sets-fn]
     pub fn allocate_vs_sets(&mut self) {
         if self.vs_sets.is_none() {
-            self.vs_sets = Some(SetVector::new());
+            self.vs_sets = Some(Box::new(SetVector::new()));
         }
     }
 
@@ -435,7 +440,7 @@ impl Tag {
     // [spec:cg3:sem:tag.cg3.tag.allocate-vs-names-fn]
     pub fn allocate_vs_names(&mut self) {
         if self.vs_names.is_none() {
-            self.vs_names = Some(UStringVector::new());
+            self.vs_names = Some(Box::new(UStringVector::new()));
         }
     }
 

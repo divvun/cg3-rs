@@ -2323,4 +2323,19 @@ children (
             }
         )
     }
+
+    {
+        id tag-varstring-boxed
+        title "Box the varstring-only vectors on Tag: vs_sets and vs_names are 24 bytes each and None on every tag that is not a varstring, so the whole arena carries them for the few that are"
+        priority 0
+        kind @perf
+        log (
+            {
+                at 2026-09-14T13:56:09.145645Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+        )
+    }
 )

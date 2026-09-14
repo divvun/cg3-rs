@@ -1694,7 +1694,7 @@ impl Grammar {
                 continue;
             }
             if let Some(vs) = vs {
-                for sit in vs {
+                for sit in *vs {
                     Set::mark_used(self, sit);
                 }
             }

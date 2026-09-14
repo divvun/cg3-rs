@@ -1073,7 +1073,7 @@ impl BinaryGrammar {
             if let Some(vs) = &vs_sets {
                 tfields |= 1 << 10;
                 write_be(&mut buffer, vs.len() as u32);
-                for sid in vs {
+                for sid in vs.iter() {
                     let n = self.grammar.sets_list[sid.0].number.get();
                     write_be(&mut buffer, n);
                 }
@@ -1081,7 +1081,7 @@ impl BinaryGrammar {
             if let Some(vn) = &vs_names {
                 tfields |= 1 << 11;
                 write_be(&mut buffer, vn.len() as u32);
-                for name in vn {
+                for name in vn.iter() {
                     let b = name.as_bytes();
                     write_be(&mut buffer, b.len() as i32);
                     buffer.extend_from_slice(b);
