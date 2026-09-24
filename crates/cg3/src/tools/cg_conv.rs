@@ -132,21 +132,41 @@ pub fn main_conv(args: &[String]) -> i32 {
 
     // ucnv_setDefaultName / uloc_setDefault dropped (UTF-8 port).
 
-    // FormatConverter applicator(std::cerr);
+    // FormatConverter applicator(std::cerr); Grammar& grammar = applicator.conv_grammar;
+    // The C++ sets ORDERED, SUB_LTR and MAPPING_PREFIX on `grammar` further
+    // down, after the ctor installed it. Installing freezes the core here, so
+    // all three are applied as the conv grammar is built instead.
+    //
+    // DIVERGENCE: `_MPREFIX` is seeded at install time, so it now reports the
+    // `--prefix` in effect (as vislcg3's always has) rather than the default.
+    let ordered = occ(&options_conv, Opt::Ordered);
+    let sub_ltr = occ(&options_conv, Opt::SubLtr);
+    // C++ converts the option value and takes buf[0]; UTF-8 port: first char,
+    // and buf[0] of an empty conversion is its NUL terminator.
+    let mapping_prefix = occ(&options_conv, Opt::MappingPrefix).then(|| {
+        options_conv[Opt::MappingPrefix as usize]
+            .value
+            .chars()
+            .next()
+            .unwrap_or('\0')
+    });
     let base =
         crate::grammar_applicator::GrammarApplicator::new(crate::grammar::Grammar::default());
-    let mut applicator = match crate::format_converter::FormatConverter::new(base) {
+    let conv = crate::format_converter::FormatConverter::with_conv_grammar(base, |grammar| {
+        if ordered {
+            grammar.ordered = true;
+        }
+        if sub_ltr {
+            grammar.sub_readings_ltr = true;
+        }
+        if let Some(mp) = mapping_prefix {
+            grammar.mapping_prefix = mp;
+        }
+    });
+    let mut applicator = match conv {
         Ok(a) => a,
         Err(e) => return fail(&e),
     };
-
-    // Grammar& grammar = applicator.conv_grammar; if (ORDERED) grammar.ordered = true;
-    // NOTE: in C++ `conv_grammar` IS the applicator's active grammar; in this
-    // port that storage lives in `base.grammar` (`FormatConverter::conv_grammar`
-    // is a kept-for-parity placeholder), so grammar settings target `base_mut()`.
-    if occ(&options_conv, Opt::Ordered) {
-        applicator.base_mut().grammar.ordered = true;
-    }
 
     // ux_stripBOM(std::cin); — the ported drivers need `R: Read + Seek`, and
     // stdin is not seekable, so the whole stream is buffered into a Cursor first
@@ -197,18 +217,6 @@ pub fn main_conv(args: &[String]) -> i32 {
     }
     applicator.base_mut().cfg.fmt_input = fmt;
 
-    // Grammar& settings — live grammar is base.grammar (see the ORDERED NOTE).
-    if occ(&options_conv, Opt::SubLtr) {
-        applicator.base_mut().grammar.sub_readings_ltr = true;
-    }
-    if occ(&options_conv, Opt::MappingPrefix) {
-        // C++ converts the option value and takes buf[0]; UTF-8 port: first char.
-        applicator.base_mut().grammar.mapping_prefix = options_conv[Opt::MappingPrefix as usize]
-            .value
-            .chars()
-            .next()
-            .unwrap();
-    }
     if occ(&options_conv, Opt::SubDelimiter) {
         let mut sub_delims = options_conv[Opt::SubDelimiter as usize].value.clone();
         sub_delims.push('+');

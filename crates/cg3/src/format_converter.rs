@@ -162,7 +162,18 @@ impl FormatConverter {
     /// port, so "install" is a move of `conv_grammar` into `base.grammar`; the
     /// previous grammar is returned into `conv_grammar`'s slot). `has_relations`
     /// etc. keep their base defaults.
-    pub fn new(mut base: GrammarApplicator) -> Result<Self, crate::error::Cg3Error> {
+    pub fn new(base: GrammarApplicator) -> Result<Self, crate::error::Cg3Error> {
+        FormatConverter::with_conv_grammar(base, |_| {})
+    }
+
+    /// [`new`](Self::new), running `edit` on the conv grammar after it is built
+    /// and before it is installed — cg-conv's `--ordered` / `--ltr` / `--prefix`.
+    /// The C++ sets those on `conv_grammar` after the ctor's `setGrammar`; here
+    /// installing freezes the core, so this is the last point it can change.
+    pub fn with_conv_grammar(
+        mut base: GrammarApplicator,
+        edit: impl FnOnce(&mut Grammar),
+    ) -> Result<Self, crate::error::Cg3Error> {
         // Build the minimal working grammar directly in base.grammar (which is the
         // storage the C++ `conv_grammar` provides; the base owns its grammar by
         // value in this port, so building in place == `setGrammar(&conv_grammar)`).
@@ -182,6 +193,7 @@ impl FormatConverter {
         // these can fail on user input — but they return Result, and turning
         // that back into a panic is the thing this project is removing.
         let _ = base.grammar.reindex(false, false)?;
+        edit(&mut base.grammar);
         base.set_grammar()?;
 
         // PlaintextApplicator's C++ constructor runs as one of

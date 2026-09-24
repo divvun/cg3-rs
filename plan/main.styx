@@ -2604,4 +2604,36 @@ children (
             }
         )
     }
+
+    {
+        id grammar-phases
+        title "Give each phase of a grammar its own type, so a shared core is immutable because nothing can name it mutably, not because a runtime check refuses"
+        kind @refactor
+        children (
+            {
+                id grammar-phases.conv-flags
+                title "cg-conv applies --ordered, --ltr and --prefix to its conv grammar before installing it: installing freezes the core, and all three panicked editing it afterwards"
+                kind @fix
+                log (
+                    {
+                        at 2026-09-24T22:41:03.575669Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
+            }
+
+            {
+                id grammar-phases.one-interner
+                title "One seed-probe interner instead of three: Grammar::add_tag, tag.rs's relation-tag copy and the engine's add_tag_ptr walk the same probe, and the phase split needs it written once over both phases"
+            }
+
+            {
+                id grammar-phases.core-type
+                title "Loaders, the relabeller and the writers own a GrammarCore; Grammar becomes only a run's view (Arc core plus overlay, Deref without DerefMut), deleting CoreHandle, freeze, unshare and the building_mut asserts"
+                deps (grammar-phases.conv-flags grammar-phases.one-interner)
+            }
+        )
+    }
 )

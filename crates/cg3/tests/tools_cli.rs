@@ -595,6 +595,62 @@ fn cg_conv_main_converts_niceline_stream() {
     );
 }
 
+fn cg_conv(args: &[&str], input: &str) -> std::process::Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cg-conv"))
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn cg-conv");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().expect("wait cg-conv")
+}
+
+// cg-conv sets `ordered`, `sub_readings_ltr` and `mapping_prefix` on its conv
+// grammar; each used to be written after the grammar was installed, when its
+// core is frozen, and aborted the process.
+#[test]
+fn cg_conv_applies_grammar_flags_without_aborting() {
+    let apertium = "^w/a<n>+b<v>$\n";
+    for (args, input, want) in [
+        (&["-o"][..], "\"<a>\"\n\t\"a\" N\n", "\"<a>\"\n\t\"a\" N\n"),
+        (
+            &["-a", "-p", "%"],
+            "^w/a<n><%X>$\n",
+            "\"<w>\"\n\t\"a\" n %X\n\n",
+        ),
+        (&["-a"], apertium, "\"<w>\"\n\t\"b\" v\n\t\t\"a\" n\n\n"),
+        (
+            &["-a", "-l"],
+            apertium,
+            "\"<w>\"\n\t\"a\" n\n\t\t\"b\" v\n\n",
+        ),
+    ] {
+        let out = cg_conv(args, input);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            out.status.success(),
+            "cg-conv {args:?} exited with {}: {stderr}",
+            out.status
+        );
+        assert!(
+            !stderr.contains("panicked"),
+            "cg-conv {args:?} panicked: {stderr}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            want,
+            "cg-conv {args:?}"
+        );
+    }
+}
+
 // [spec:cg3:sem:inlines.cg3.is-cg3bsf-fn+1/test]
 // The format sniff hands the stream magic detector whatever the first read
 // returned, so an empty stream used to index past the end of a zero-length

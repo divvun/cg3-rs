@@ -157,6 +157,7 @@ assertions (
     {id grammar-split.flags-to-overlay, kind @complete, author "brendan@necessary.nu", at 2026-09-14T22:17:44.055672Z}
     {id grammar-split.core-split, kind @complete, author "brendan@necessary.nu", at 2026-09-14T23:05:07.626632Z}
     {id grammar-split.applicator-arc, kind @complete, author "brendan@necessary.nu", at 2026-09-14T23:31:58.267288Z}
+    {id grammar-phases.conv-flags, kind @doing, author "brendan@necessary.nu", at 2026-09-24T22:41:03.575669Z}
 )
 
 impl_evidence (
