@@ -2670,12 +2670,20 @@ children (
             {
                 id grammar-phases.parser-trait
                 title "IGrammarParser states one contract: a parser builds into the grammar it owns. The trait's per-call destination is swapped in by one implementor and silently ignored by the other; the dead UTF-16 overloads and duplicated inherent setters go"
+                sealed true
                 log (
                     {
                         at 2026-09-24T22:58:22.137237Z
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-09-24T22:59:14.946256Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
