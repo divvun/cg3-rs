@@ -1,90 +1,50 @@
-//! Port of `src/IGrammarParser.hpp` — the abstract grammar-parser interface.
+//! Port of `src/IGrammarParser.hpp` — the contract both grammar parsers keep.
 //!
-//! Literal, bug-for-bug 1:1 translation (Wave 2). The C++ `class IGrammarParser`
-//! is an abstract base with pure-virtual parsing hooks; here it becomes a
-//! [`trait IGrammarParser`](IGrammarParser). `TextualParser` and `BinaryGrammar`
-//! will `impl` it in a later pass.
+//! A parser owns the grammar it builds, as the C++ `result` member binds one
+//! at construction: [`TextualParser`](crate::textual_parser::TextualParser)
+//! and [`BinaryGrammar`](crate::binary_grammar::BinaryGrammar) each take theirs
+//! in `new` and hand it back as a field once parsing is done. The C++ base
+//! class's data members (`nrules`, `nrules_inv`, `verbosity`) live on the two
+//! implementors, since a trait has no fields.
 //!
-//! ## Class → trait mapping
-//! * **Data members.** The C++ base class carries `std::ostream* ux_stderr`,
-//!   `URegularExpression* nrules`, `URegularExpression* nrules_inv`,
-//!   `Grammar* result`, and `uint32_t verbosity`. A Rust trait has no fields, so
-//!   these live on the concrete implementor structs (e.g. `TextualParser`,
-//!   `BinaryGrammar`), which reconcile them with this trait's methods.
-//! * **Constructor.** The non-specced C++ ctor
-//!   `IGrammarParser(Grammar& res, std::ostream& ux_err)` (sets `result = &res`,
-//!   `ux_stderr = &ux_err`; `nrules`/`nrules_inv` null; `verbosity` 0) has no
-//!   trait analog — traits have no constructor. Each implementor provides its own.
-//! * **Virtual destructor** (`[spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.i-grammar-parser-fn]`).
-//!   Deliberately **not** modelled on the trait: a trait cannot declare a
-//!   destructor. The C++ dtor frees the two owned ICU filter regexes (the
-//!   `--nrules` / `--nrules-inv` filters) via `uregex_close`; since those
-//!   resources live on the concrete implementor, that cleanup belongs to the
-//!   implementor's [`Drop`] impl.
-//! * **`parse_grammar` overloads.** The C++ declares four public overloads —
-//!   `(const char*, size_t)`, `(const UChar*, size_t)`, `(const std::string&)`,
-//!   `(const char* filename)` — plus a protected `(UString&)`. Rust has no
-//!   overloading; the trait exposes the single spec-modelled buffer form
-//!   `(const char* buffer, size_t length)` as `parse_grammar(.., input: &[u8])`.
-//!   The other forms (notably the filename overload) can be added by the
-//!   implementors or as helpers in a later pass.
+//! The C++ declares `parse_grammar` over four input shapes. One is modelled
+//! here: bytes. A file path is the implementor's business (the binary reader
+//! records it for the companion source file; the textual one names its
+//! diagnostics with it), and the UTF-16 forms describe nothing a UTF-8 port
+//! has.
 
 use crate::grammar::Grammar;
 
 // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser]
 // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.i-grammar-parser-fn]
 // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.i-grammar-parser-fn]
-// NOTE: the `i-grammar-parser-fn` id names the C++ `virtual ~IGrammarParser()`
-// destructor (which `uregex_close`s the two owned `--nrules`/`--nrules-inv`
-// filter regexes). A Rust trait has no destructor and no constructor; that
-// cleanup belongs to each concrete implementor's `Drop` impl. Modelled here as a
-// no-op associated default so the manifest id has a target home on the trait.
-/// C++ `class IGrammarParser` — the abstract base parser contract. See the
-/// module docs for how the base-class data members / ctor / dtor map onto Rust.
+// The `i-grammar-parser-fn` id names the C++ `virtual ~IGrammarParser()`,
+// which closes the two `--nrules` filter regexes. Those are owned `Option`
+// fields on each implementor here, so ordinary drop glue is the destructor.
+/// C++ `class IGrammarParser` — what a grammar parser offers regardless of the
+/// format it reads.
 pub trait IGrammarParser {
-    /// No-op default for the C++ `virtual ~IGrammarParser()` destructor. On the
-    /// trait model there are no owned resources to release; concrete implementors
-    /// free their ICU filter regexes in `Drop`.
-    fn drop_parser(&mut self) {}
-
     // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.parse-grammar-fn]
     // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.parse-grammar-fn]
-    /// C++ pure-virtual `int parse_grammar(const char* buffer, size_t length) = 0`.
-    /// Parses the grammar held in the in-memory byte buffer `input` into
-    /// `grammar`. Success is `Ok(())` and nothing else; the C++ nonzero return
-    /// (a count of recoverable parse errors) becomes
+    /// C++ pure-virtual `int parse_grammar(const char* buffer, size_t length)`.
+    /// Parses `input` into this parser's own grammar. The C++ nonzero return (a
+    /// count of recoverable parse errors) becomes
     /// [`GrammarError::Parse`](crate::error::GrammarError::Parse), and every
-    /// other load failure its own `GrammarError` variant. The C++
-    /// `(const char*, size_t)` buffer+length pair collapses to Rust
-    /// `input: &[u8]`; the destination `Grammar*` (the C++ `result` member) is
-    /// passed as `&mut Grammar`.
-    fn parse_grammar(
-        &mut self,
-        grammar: &mut Grammar,
-        input: &[u8],
-    ) -> Result<(), crate::error::Cg3Error>;
+    /// other load failure its own `GrammarError` variant.
+    fn parse_grammar(&mut self, input: &[u8]) -> Result<(), crate::error::Cg3Error>;
 
     // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.set-compatible-fn]
     // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.set-compatible-fn]
-    /// C++ pure-virtual `void setCompatible(bool compat) = 0`. Enable/disable
-    /// "compatible" parsing mode per `compat`. (`BinaryGrammar`'s override
-    /// ignores it — a no-op; a textual parser may use it to relax syntax.)
+    /// C++ pure-virtual `void setCompatible(bool compat)`: vislcg
+    /// compatibility mode, which relaxes the textual syntax.
     fn set_compatible(&mut self, compat: bool);
 
     // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.set-verbosity-fn]
     // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.set-verbosity-fn]
-    /// C++ pure-virtual `void setVerbosity(uint32_t level) = 0`. Store the
-    /// diagnostic verbosity `level` (higher = more warnings). Implementors keep
-    /// it in the inherited `verbosity` member, which gates optional warnings.
+    /// C++ pure-virtual `void setVerbosity(uint32_t level)`: higher levels
+    /// enable more optional warnings.
     fn set_verbosity(&mut self, level: u32);
 
-    /// Accessor for the parser's built `result` grammar. No C++ spec id — this
-    /// is a port addition (the C++ exposes the result via the public `result`
-    /// pointer / the `Grammar&` handed to the ctor). NOTE(lead): with
-    /// `parse_grammar` taking the destination `&mut Grammar` per-call, an
-    /// implementor that does not retain that grammar may not be able to satisfy
-    /// this; whether the trait keeps `get_grammar` (vs. relying solely on the
-    /// caller-owned `Grammar`) is a reconciliation point once the concrete
-    /// parsers land.
+    /// The grammar this parser builds (C++ `result`).
     fn get_grammar(&self) -> &Grammar;
 }

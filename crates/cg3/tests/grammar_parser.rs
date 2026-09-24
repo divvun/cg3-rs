@@ -86,16 +86,12 @@ fn tag_hash_by_text(g: &Grammar, text: &str) -> Option<u32> {
     None
 }
 
-// The TextualParser constructor, its inherent setCompatible/setVerbosity and
-// getGrammar, and the whole IGrammarParser trait surface, driven directly:
-// the parser is built, configured, and run through the trait's parse_grammar
-// (which swaps the caller's Grammar in, runs the private parse_grammar driver
-// -> parseFromUChar over the buffer, and swaps back). Compatible mode is
-// observable: with vislcg-compat on, a `NOT` context is rewritten to NEGATE.
-// The Grammar values constructed and dropped here also run the C++ ~Grammar()
-// analog (the documented no-op Drop) — the grammar-fn dtor id lives here.
-// The trait's i-grammar-parser-fn id names the C++ virtual ~IGrammarParser();
-// its Rust model is the no-op `drop_parser` default, called explicitly below.
+// The TextualParser constructor and the whole IGrammarParser surface it
+// implements, driven directly: the parser is built, configured, and run
+// through the trait's parse_grammar, which builds into the parser's own
+// grammar. Compatible mode is observable: with vislcg-compat on, a `NOT`
+// context is rewritten to NEGATE. The parser and its grammar drop at the end,
+// which is both destructors — ~IGrammarParser() and the ~Grammar() analog.
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.textual-parser-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.set-compatible-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.set-verbosity-fn/test]
@@ -111,23 +107,14 @@ fn tag_hash_by_text(g: &Grammar, text: &str) -> Option<u32> {
 fn constructor_trait_surface_and_compat_mode() {
     let mut p = TextualParser::new(Grammar::default(), false);
 
-    // Inherent setters (TextualParser.cpp) ...
     p.set_compatible(true);
     p.set_verbosity(1);
-    // ... and the IGrammarParser trait overrides (same fields, distinct fns).
-    IGrammarParser::set_compatible(&mut p, true);
-    IGrammarParser::set_verbosity(&mut p, 1);
-    IGrammarParser::drop_parser(&mut p);
 
     let src =
         b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nLIST BB = bb ;\nSELECT AA IF (NOT 1 BB) ;\n";
-    let mut g = Grammar::default();
-    IGrammarParser::parse_grammar(&mut p, &mut g, src).expect("trait parse_grammar failed");
-
-    // The result landed in the CALLER's grammar; the parser's own grammar is
-    // still the pristine ctor one (getGrammar shows it).
+    p.parse_grammar(src).expect("trait parse_grammar failed");
+    let g = p.get_grammar();
     assert_eq!(g.rule_by_number.capacity(), 1, "one SELECT rule expected");
-    assert_eq!(p.get_grammar().rule_by_number.capacity(), 0);
 
     // vislcg-compat rewrote the NOT context to NEGATE.
     let negated = (0..g.contexts_arena.capacity()).any(|i| {
@@ -136,7 +123,6 @@ fn constructor_trait_surface_and_compat_mode() {
             .is_some_and(|c| c.pos.intersects(POS_NEGATE))
     });
     assert!(negated, "compat mode should turn NOT into NEGATE");
-    // `g` and the parser's grammar drop here -> the ~Grammar() analog runs.
 }
 
 // LIST/SET parsing end to end over a crafted grammar with composite entries:

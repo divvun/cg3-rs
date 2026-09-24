@@ -17,6 +17,7 @@ use std::process::Command;
 
 use cg3::binary_grammar::BinaryGrammar;
 use cg3::grammar::Grammar;
+use cg3::igrammar_parser::IGrammarParser;
 use cg3::textual_parser::TextualParser;
 
 fn repo_root() -> PathBuf {

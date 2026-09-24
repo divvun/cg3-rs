@@ -638,24 +638,6 @@ impl TextualParser {
         }
     }
 
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.set-compatible-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.set-compatible-fn]
-    pub fn set_compatible(&mut self, f: bool) {
-        self.option_vislcg_compat = f;
-    }
-
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.set-verbosity-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.set-verbosity-fn]
-    pub fn set_verbosity(&mut self, level: u32) {
-        self.verbosity_level = level;
-    }
-
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.get-grammar-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.get-grammar-fn]
-    pub fn get_grammar(&self) -> &Grammar {
-        &self.grammar
-    }
-
     // [spec:cg3:def:textual-parser.cg3.textual-parser.print-ast-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.print-ast-fn]
     pub fn print_ast(&self, out: &mut dyn Write) {

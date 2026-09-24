@@ -175,18 +175,6 @@ impl BinaryGrammar {
         }
     }
 
-    // [spec:cg3:def:binary-grammar.cg3.binary-grammar.set-compatible-fn]
-    // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.set-compatible-fn]
-    /// C++ `void setCompatible(bool)` — an empty body; the flag is discarded.
-    pub fn set_compatible(&mut self, _compat: bool) {}
-
-    // [spec:cg3:def:binary-grammar.cg3.binary-grammar.set-verbosity-fn]
-    // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.set-verbosity-fn]
-    /// C++ `void setVerbosity(uint32_t v)` — stores `verbosity = v`.
-    pub fn set_verbosity(&mut self, level: u32) {
-        self.verbosity = level;
-    }
-
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.parse-grammar-fn]
     // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.parse-grammar-fn]
     /// C++ `int parse_grammar(const char* filename)` — the file-path entry point.
@@ -213,8 +201,8 @@ impl BinaryGrammar {
         // [spec:cg3:req:diagnostics.source-lazy]
         // The path, not the text: it is what lets a runtime failure find the
         // companion source file, and it costs nothing until one happens. Only
-        // this entry point can supply it — the buffer overloads were handed
-        // bytes with no file behind them.
+        // this entry point can supply it — the buffer one is handed bytes with
+        // no file behind them.
         self.grammar.binary_path = Some(filename.to_string());
         rv
     }
@@ -225,24 +213,6 @@ impl BinaryGrammar {
     pub fn parse_grammar_buffer(&mut self, buffer: &[u8]) -> Result<(), crate::error::Cg3Error> {
         let mut cur = std::io::Cursor::new(buffer);
         self.parse_grammar_reader(&mut cur)
-    }
-
-    /// C++ `int parse_grammar(const std::string& buffer)` → `(buffer.data(),
-    /// buffer.size())`.
-    pub fn parse_grammar_string(&mut self, buffer: &str) -> Result<(), crate::error::Cg3Error> {
-        self.parse_grammar_buffer(buffer.as_bytes())
-    }
-
-    /// C++ `int parse_grammar(const UChar*, size_t)` — unconditionally throws
-    /// ("UChar* interface doesn't make sense for binary grammars.").
-    pub fn parse_grammar_uchar(&mut self, _buffer: &[char], _length: usize) -> i32 {
-        panic!("UChar* interface doesn't make sense for binary grammars.");
-    }
-
-    /// C++ private `int parse_grammar(UString&)` — unconditionally throws
-    /// ("UString interface doesn't make sense for binary grammars.").
-    pub fn parse_grammar_ustring(&mut self, _buffer: &mut String) -> i32 {
-        panic!("UString interface doesn't make sense for binary grammars.");
     }
 
     // [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn]
@@ -1569,31 +1539,22 @@ fn keywords_from_u32(v: u32) -> Keywords {
 }
 
 impl IGrammarParser for BinaryGrammar {
-    // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.parse-grammar-fn]
-    // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.parse-grammar-fn]
-    /// C++ `int parse_grammar(const char* buffer, size_t length)` override.
-    /// RECONCILIATION: the C++ writes into the member `grammar` (bound at
-    /// construction), so the trait's per-call `grammar` param is unused here — the
-    /// port owns its result (see the `binary_grammar` ctor and the module's
-    /// `IGrammarParser` note). Delegates to `parse_grammar_buffer`.
-    fn parse_grammar(
-        &mut self,
-        _grammar: &mut Grammar,
-        input: &[u8],
-    ) -> Result<(), crate::error::Cg3Error> {
+    /// Reads `input` as a `.cg3b` blob; see
+    /// [`parse_grammar_buffer`](BinaryGrammar::parse_grammar_buffer).
+    fn parse_grammar(&mut self, input: &[u8]) -> Result<(), crate::error::Cg3Error> {
         self.parse_grammar_buffer(input)
     }
 
-    // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.set-compatible-fn]
-    // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.set-compatible-fn]
-    fn set_compatible(&mut self, compat: bool) {
-        BinaryGrammar::set_compatible(self, compat);
-    }
+    // [spec:cg3:def:binary-grammar.cg3.binary-grammar.set-compatible-fn]
+    // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.set-compatible-fn]
+    /// C++ `void setCompatible(bool)` — an empty body; the flag is discarded.
+    fn set_compatible(&mut self, _compat: bool) {}
 
-    // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.set-verbosity-fn]
-    // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.set-verbosity-fn]
+    // [spec:cg3:def:binary-grammar.cg3.binary-grammar.set-verbosity-fn]
+    // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.set-verbosity-fn]
+    /// C++ `void setVerbosity(uint32_t v)` — stores `verbosity = v`.
     fn set_verbosity(&mut self, level: u32) {
-        BinaryGrammar::set_verbosity(self, level);
+        self.verbosity = level;
     }
 
     fn get_grammar(&self) -> &Grammar {

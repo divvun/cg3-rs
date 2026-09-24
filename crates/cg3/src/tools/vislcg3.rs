@@ -18,6 +18,7 @@ use crate::arg_parser::parse_args;
 use crate::binary_grammar::BinaryGrammar;
 use crate::grammar::{Grammar, Reindexed};
 use crate::grammar_writer::GrammarWriter;
+use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::is_cg3b;
 use crate::options::{
     Opt, grammar_options_default, grammar_options_override, options, options_default,

@@ -887,32 +887,26 @@ fn shell_expand(s: &str) -> String {
 }
 
 impl IGrammarParser for TextualParser {
-    // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.parse-grammar-fn]
-    // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.parse-grammar-fn]
-    /// Reconciliation: `TextualParser` builds into its OWN `self.grammar`; the
-    /// caller's `&mut Grammar` is swapped in for the duration so the result lands
-    /// there (faithful to the C++ `result` being the `Grammar&` handed at ctor).
-    fn parse_grammar(
-        &mut self,
-        grammar: &mut Grammar,
-        input: &[u8],
-    ) -> Result<(), crate::error::Cg3Error> {
-        std::mem::swap(&mut self.grammar, grammar);
-        let rv = self.parse_grammar_utf8(input);
-        // Swap back unconditionally (even on Err) so the caller's grammar holds
-        // whatever was built, matching the C++ result-by-reference contract.
-        std::mem::swap(&mut self.grammar, grammar);
-        rv
+    /// Parses `input` as grammar text with no file behind it; see
+    /// [`parse_grammar_utf8`](TextualParser::parse_grammar_utf8).
+    fn parse_grammar(&mut self, input: &[u8]) -> Result<(), crate::error::Cg3Error> {
+        self.parse_grammar_utf8(input)
     }
 
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.set-compatible-fn]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.set-compatible-fn]
     fn set_compatible(&mut self, compat: bool) {
         self.option_vislcg_compat = compat;
     }
 
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.set-verbosity-fn]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.set-verbosity-fn]
     fn set_verbosity(&mut self, level: u32) {
         self.verbosity_level = level;
     }
 
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.get-grammar-fn]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.get-grammar-fn]
     fn get_grammar(&self) -> &Grammar {
         &self.grammar
     }

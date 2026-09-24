@@ -2656,7 +2656,28 @@ children (
             {
                 id grammar-phases.core-type
                 title "Loaders, the relabeller and the writers own a GrammarCore; Grammar becomes only a run's view (Arc core plus overlay, Deref without DerefMut), deleting CoreHandle, freeze, unshare and the building_mut asserts"
-                deps (grammar-phases.conv-flags grammar-phases.one-interner)
+                deps (grammar-phases.conv-flags grammar-phases.one-interner grammar-phases.parser-trait)
+                log (
+                    {
+                        at 2026-09-24T22:50:03.226911Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
+            }
+
+            {
+                id grammar-phases.parser-trait
+                title "IGrammarParser states one contract: a parser builds into the grammar it owns. The trait's per-call destination is swapped in by one implementor and silently ignored by the other; the dead UTF-16 overloads and duplicated inherent setters go"
+                log (
+                    {
+                        at 2026-09-24T22:58:22.137237Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
         )
     }
