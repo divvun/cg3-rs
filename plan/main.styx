@@ -2614,12 +2614,20 @@ children (
                 id grammar-phases.conv-flags
                 title "cg-conv applies --ordered, --ltr and --prefix to its conv grammar before installing it: installing freezes the core, and all three panicked editing it afterwards"
                 kind @fix
+                sealed true
                 log (
                     {
                         at 2026-09-24T22:41:03.575669Z
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-09-24T22:43:46.462813Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }

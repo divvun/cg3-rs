@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-09-14T23:01:58.642512Z
+last_sync_at 2026-09-24T22:43:38.453087Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -49,6 +49,9 @@ derived_priorities (
     {id all-tools-version-banner.impl, priority 3, derived_at 2026-08-14T10:13:48.791798Z}
     {id all-tools-version-banner.port-spec, priority 3, derived_at 2026-08-14T10:13:48.791798Z}
     {id all-tools-version-banner.spec, priority 2, derived_at 2026-08-14T10:13:48.791798Z}
+    {id grammar-phases.conv-flags, priority 0, derived_at 2026-09-24T22:43:38.453087Z}
+    {id grammar-phases.core-type, priority 1, derived_at 2026-09-24T22:43:38.453087Z}
+    {id grammar-phases.one-interner, priority 0, derived_at 2026-09-24T22:43:38.453087Z}
     {id issue-2-main-rule-repin, priority 3, derived_at 2026-08-10T10:24:24.995876Z}
     {id issue-2-version-banner.impl, priority 2, derived_at 2026-08-10T10:24:24.995876Z}
     {id issue-2-version-banner.spec, priority 1, derived_at 2026-08-10T10:24:24.995876Z}
@@ -157,7 +160,7 @@ assertions (
     {id grammar-split.flags-to-overlay, kind @complete, author "brendan@necessary.nu", at 2026-09-14T22:17:44.055672Z}
     {id grammar-split.core-split, kind @complete, author "brendan@necessary.nu", at 2026-09-14T23:05:07.626632Z}
     {id grammar-split.applicator-arc, kind @complete, author "brendan@necessary.nu", at 2026-09-14T23:31:58.267288Z}
-    {id grammar-phases.conv-flags, kind @doing, author "brendan@necessary.nu", at 2026-09-24T22:41:03.575669Z}
+    {id grammar-phases.conv-flags, kind @complete, author "brendan@necessary.nu", at 2026-09-24T22:43:46.462813Z}
 )
 
 impl_evidence (
