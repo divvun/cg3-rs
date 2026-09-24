@@ -2635,6 +2635,14 @@ children (
             {
                 id grammar-phases.one-interner
                 title "One seed-probe interner instead of three: Grammar::add_tag, tag.rs's relation-tag copy and the engine's add_tag_ptr walk the same probe, and the phase split needs it written once over both phases"
+                log (
+                    {
+                        at 2026-09-24T22:47:30.997073Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

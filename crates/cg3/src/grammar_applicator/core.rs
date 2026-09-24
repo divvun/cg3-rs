@@ -33,8 +33,8 @@ use crate::cohort::{CT_RELATED, CT_REMOVED, DEP_NO_PARENT, unignore_all};
 use crate::contextual_test::POS_NEGATE;
 use crate::grammar::Grammar;
 use crate::inlines::{
-    g_app_set_opts_ranged, hash_value_ustring, is_textual, isnl, read_raw, read_utf8_raw, ui8,
-    ui32, write_raw, write_utf8_raw,
+    g_app_set_opts_ranged, is_textual, isnl, read_raw, read_utf8_raw, ui8, ui32, write_raw,
+    write_utf8_raw,
 };
 use crate::options::{Opt, OptionsTable};
 use crate::process::Process;
@@ -366,7 +366,7 @@ impl super::GrammarApplicator {
     }
 
     // =======================================================================
-    // addTag (Tag* internal overload + UChar*/type public overload)
+    // addTag (UChar*/type overload; the Tag* one is Grammar::add_tag)
     // =======================================================================
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
@@ -1833,59 +1833,8 @@ fn sort_readings(store: &RuntimeStore, list: &mut [ReadingId]) {
 
 impl Matcher<'_> {
     // =======================================================================
-    // addTag (Tag* internal overload + UChar*/type public overload)
+    // addTag (UChar*/type overload; the Tag* one is Grammar::add_tag)
     // =======================================================================
-
-    /// C++ (unspecced internal) `Tag* GrammarApplicator::addTag(Tag* tag)` —
-    /// interns a freshly-built `Tag` value into `grammar.single_tags_list`
-    /// (arena) + `grammar.single_tags` (hash → id) with the 0..9999 seed-probe
-    /// dedup. Identical algorithm to `Grammar::add_tag`; kept as the applicator's
-    /// own per scope. The `verbosity_level>0` seed warning is deferred I/O
-    /// (`ux_stderr` placeholder). Returns the canonical `TagId`.
-    fn add_tag_ptr(&mut self, mut tag: Tag) -> TagId {
-        let hash = tag.rehash();
-        let mut existing: Option<TagId> = None;
-        let mut chosen_seed: Option<u32> = None;
-        let mut seed = 0u32;
-        while seed < 10000 {
-            let ih = hash.wrapping_add(seed);
-            let found: Option<TagId> = {
-                let it = self.grammar.single_tags().find(ih.get());
-                if it != self.grammar.single_tags().end() {
-                    Some(it.get().1)
-                } else {
-                    None
-                }
-            };
-            match found {
-                Some(t_id) => {
-                    // `t == tag` (pointer identity) is impossible for a fresh
-                    // by-value tag; only the text-equality dedup applies.
-                    if self.grammar.single_tags_list[t_id.0].tag == tag.tag {
-                        existing = Some(t_id);
-                        break;
-                    }
-                }
-                None => {
-                    chosen_seed = Some(seed);
-                    break;
-                }
-            }
-            seed += 1;
-        }
-
-        if let Some(t_id) = existing {
-            // C++ `delete tag`: the incoming value drops at end of scope.
-            return t_id;
-        }
-
-        let seed = chosen_seed.expect("addTag: hash seed space exhausted");
-        tag.seed = seed;
-        let new_hash = tag.rehash();
-        let id = self.grammar.intern_tag_slot(tag);
-        self.grammar.insert_tag_hash(new_hash.get(), id);
-        id
-    }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
@@ -1907,17 +1856,8 @@ impl Matcher<'_> {
         txt: &str,
         r#type: crate::tag::TagType,
     ) -> Result<TagId, crate::error::RunError> {
-        // Fast path: an existing un-seeded slot whose text matches exactly.
-        let thash = hash_value_ustring(txt, 0);
-        {
-            let it = self.grammar.single_tags().find(thash);
-            if it != self.grammar.single_tags().end() {
-                let tid = it.get().1;
-                let t = &self.grammar.single_tags_list[tid.0];
-                if !t.tag.is_empty() && &*t.tag == txt {
-                    return Ok(tid);
-                }
-            }
+        if let Some(tid) = self.grammar.find_unseeded(txt) {
+            return Ok(tid);
         }
 
         let tag: TagId = if r#type.intersects(T_VARSTRING) {
@@ -1961,9 +1901,7 @@ impl Matcher<'_> {
                 }
             }
         } else {
-            let mut t = Tag::default();
-            crate::tag::parse_tag_raw(&mut t, txt, self.grammar);
-            self.add_tag_ptr(t)
+            self.grammar.add_tag_text(txt)
         };
 
         let mut reflow = false;
@@ -2089,6 +2027,6 @@ impl crate::parser_helpers::ParseTagState for Matcher<'_> {
     /// C++ `state.addTag(tag)` → `GrammarApplicator::addTag(Tag*)` — the
     /// seed-probing interner, NOT `Grammar::addTag`.
     fn add_tag(&mut self, tag: Tag) -> TagId {
-        self.add_tag_ptr(tag)
+        self.grammar.add_tag(tag)
     }
 }

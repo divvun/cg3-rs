@@ -647,12 +647,6 @@ impl Grammar {
         Tag::default()
     }
 
-    // [spec:cg3:def:grammar.cg3.grammar.allocate-tag-fn]
-    // [spec:cg3:sem:grammar.cg3.grammar.allocate-tag-fn]
-    /// Interns a tag from raw text. Empty / leading-`(` texts are hard errors
-    /// (`CG3Quit(1)`; the `u_fprintf` diagnostic is deferred I/O). Fast path: an
-    /// un-seeded slot whose text matches is returned directly. Otherwise a fresh
-    /// `Tag` is `parse_tag_raw`'d and interned via `add_tag`.
     /// A grammar-construction failure at the current source line. These are
     /// failures in what the grammar SAYS, so they are parse errors even though
     /// they surface here rather than in the parser.
@@ -670,6 +664,11 @@ impl Grammar {
         }
     }
 
+    // [spec:cg3:def:grammar.cg3.grammar.allocate-tag-fn]
+    // [spec:cg3:sem:grammar.cg3.grammar.allocate-tag-fn]
+    /// Interns a tag from raw text. Empty / leading-`(` texts are hard errors
+    /// (`CG3Quit(1)`; the `u_fprintf` diagnostic is deferred I/O); anything
+    /// else goes to [`intern_text`](Self::intern_text).
     pub fn allocate_tag(&mut self, txt: &str) -> Result<TagId, crate::error::ParseError> {
         let first = txt.chars().next().unwrap_or('\0');
         if first == '\0' {
@@ -682,25 +681,37 @@ impl Grammar {
                 }),
             );
         }
-        let thash = hash_value_ustring(txt, 0);
-        // Fast path: only the un-seeded slot is checked.
-        let fast = {
-            let it = self.single_tags().find(thash);
-            if it != self.single_tags().end() {
-                Some(it.get().1)
-            } else {
-                None
-            }
-        };
-        if let Some(tid) = fast {
-            let existing = &self.single_tags_list[tid.0];
-            if !existing.tag.is_empty() && &*existing.tag == txt {
-                return Ok(tid);
-            }
+        Ok(self.intern_text(txt))
+    }
+
+    /// `allocateTag`'s body past its checks: the tag already at `txt`'s
+    /// un-seeded slot, else a fresh one parsed from `txt` and interned.
+    pub(crate) fn intern_text(&mut self, txt: &str) -> TagId {
+        match self.find_unseeded(txt) {
+            Some(tid) => tid,
+            None => self.add_tag_text(txt),
         }
+    }
+
+    /// The interners' fast path: the tag at `txt`'s un-seeded hash slot, if it
+    /// holds exactly `txt`. A miss is not proof of absence — a collision can
+    /// have parked the same text at a seeded slot, which
+    /// [`add_tag`](Self::add_tag)'s probe finds.
+    pub(crate) fn find_unseeded(&self, txt: &str) -> Option<TagId> {
+        let it = self.single_tags().find(hash_value_ustring(txt, 0));
+        if it == self.single_tags().end() {
+            return None;
+        }
+        let tid = it.get().1;
+        let t = &self.single_tags_list[tid.0];
+        (!t.tag.is_empty() && &*t.tag == txt).then_some(tid)
+    }
+
+    /// C++ `new Tag; tag->parseTagRaw(txt, this); addTag(tag)` — no fast path.
+    pub(crate) fn add_tag_text(&mut self, txt: &str) -> TagId {
         let mut tag = Tag::default();
         crate::tag::parse_tag_raw(&mut tag, txt, self);
-        Ok(self.add_tag(tag))
+        self.add_tag(tag)
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.add-tag-fn]
@@ -710,6 +721,9 @@ impl Grammar {
     /// `t == tag` (pointer identity) can never hold for a fresh by-value tag, so
     /// only the text-equality dedup applies; the read-only probe is split from the
     /// insert so the incoming `tag` moves exactly once (after the loop).
+    ///
+    /// The only seed probe in the crate: the applicator's `addTag(Tag*)` and
+    /// `parseTagRaw`'s relation interner are this same walk in the C++.
     pub fn add_tag(&mut self, mut tag: Tag) -> TagId {
         let hash = tag.rehash();
         let mut existing: Option<TagId> = None;
@@ -758,14 +772,10 @@ impl Grammar {
     }
 
     /// Give `tag` an arena slot, stamp its `number`, and seed the slot's entry in
-    /// [`tag_flags`](Self::tag_flags).
-    ///
-    /// The one place a `Tag` enters the arena through an interner — there are
-    /// three of them (here, `tag.rs`'s `R:` relation interner, and the
-    /// applicator's own), and the flags array has to stay parallel for all of
-    /// them, including the two that run mid-stream. Which half of the arena the
-    /// slot comes from is [`TagStore::intern`]'s call, not this one's.
-    pub(crate) fn intern_tag_slot(&mut self, tag: Tag) -> TagId {
+    /// [`tag_flags`](Self::tag_flags), which has to stay parallel to the arena
+    /// for tags interned mid-stream too. Which half of the arena the slot comes
+    /// from is [`TagStore::intern`]'s call, not this one's.
+    fn intern_tag_slot(&mut self, tag: Tag) -> TagId {
         let id = self.single_tags_list.intern(tag);
         self.record_tag_flags(id);
         id

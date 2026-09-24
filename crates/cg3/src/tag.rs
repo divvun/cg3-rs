@@ -805,7 +805,11 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
         }
         if n == 2 && this.dep_parent() != u32::MAX {
             this.r#type |= T_RELATION;
-            let reltag = allocate_tag(grammar, &relname);
+            // C++ `grammar->allocateTag(relname)`. `%[^:]` matched at least
+            // one char, so only its leading-`(` quit could fire.
+            // DIVERGENCE: that quit is not reproduced; `(` names intern.
+            let relname: String = relname.iter().collect();
+            let reltag = grammar.intern_text(&relname);
             this.comparison_hash = grammar.single_tags_list[reltag.0].hash.get();
         }
     }
@@ -876,90 +880,6 @@ pub fn fill_tagvector(
             tags.push(tag);
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Grammar interning needed by `parse_tag_raw`'s `R:` branch. These reproduce
-// `Grammar::allocateTag(const UChar*)` + `Grammar::addTag` faithfully enough for
-// the relation-tag hash, using only the public `Grammar` fields and the ported
-// `Tag` methods. Placed here (not annotated with the grammar spec ids, which
-// belong to `grammar.rs`) so `parse_tag_raw` compiles with only `tag.rs` edited.
-//
-// Registration into `single_tags` mirrors `Grammar::addTag`'s
-// `single_tags[hash + seed] = tag` so relation-name tags resolve later (e.g.
-// printReading's `grammar->single_tags.find(comparison_hash)` for `R:name:n`
-// output; Wave-3 T_MergeCohorts).
-fn allocate_tag(grammar: &mut Grammar, txt: &[char]) -> TagId {
-    let txt_str: String = txt.iter().collect();
-    // txt[0] == 0 / '(' are CG3Quit diagnostics in C++ (parser I/O); omitted.
-    let thash = hash_value_ustring(&txt_str, 0);
-    let found: Option<TagId> = {
-        let it = grammar.single_tags().find(thash);
-        if it != grammar.single_tags().end() {
-            Some(it.get().1)
-        } else {
-            None
-        }
-    };
-    if let Some(tid) = found {
-        let existing = &grammar.single_tags_list[tid.0];
-        if !existing.tag.is_empty() && *existing.tag == *txt_str {
-            return tid;
-        }
-    }
-
-    let mut tag = Tag::default();
-    parse_tag_raw(&mut tag, &txt_str, grammar);
-    add_tag(grammar, tag)
-}
-
-fn add_tag(grammar: &mut Grammar, mut tag: Tag) -> TagId {
-    let hash = tag.rehash();
-    // Seed probe, faithful to Grammar::addTag.
-    let mut existing: Option<TagId> = None;
-    let mut chosen_seed: Option<u32> = None;
-    let mut seed = 0u32;
-    while seed < 10000 {
-        let ih = hash.wrapping_add(seed);
-        let found: Option<TagId> = {
-            let it = grammar.single_tags().find(ih.get());
-            if it != grammar.single_tags().end() {
-                Some(it.get().1)
-            } else {
-                None
-            }
-        };
-        match found {
-            Some(t_id) => {
-                // C++ `t == tag` (identity) never holds for a fresh, un-interned
-                // tag, so only the text-equality dedup applies.
-                if grammar.single_tags_list[t_id.0].tag == tag.tag {
-                    // C++ `hash += seed; return single_tags[hash]` — subsumed by
-                    // returning `t_id` directly (== `single_tags[hash + seed]`).
-                    existing = Some(t_id);
-                    break;
-                }
-            }
-            None => {
-                chosen_seed = Some(seed);
-                break;
-            }
-        }
-        seed += 1;
-    }
-
-    if let Some(t_id) = existing {
-        return t_id;
-    }
-
-    let seed = chosen_seed.expect("addTag: seed space exhausted");
-    tag.seed = seed;
-    let _hash = tag.rehash();
-    // tag->number = single_tags_list.size() - 1 (== idx when appending, as the
-    // parse phase never frees arena slots).
-    let id = grammar.intern_tag_slot(tag);
-    grammar.insert_tag_hash(_hash.get(), id);
-    id
 }
 
 // ---------------------------------------------------------------------------
