@@ -14,7 +14,7 @@
 //!   `'\0'` terminator (the loops stop on `*p == 0`). Just like the C++ there is
 //!   NO lower-bound check: an underflowing `*pos - a` panics here where the C++
 //!   would read out of bounds — same precondition, different failure mode.
-//! * `Char` is instantiated concretely as `char`, matching the UTF-16 `UChar`
+//! * `Char` is instantiated concretely as `char`, matching the UTF-16 code-unit
 //!   text buffers of the original but over Unicode scalars.
 //! * Byte IO (`readRaw`/`writeRaw`/`readBE`…): the C++ `std::istream&` /
 //!   `std::ostream&` become `std::io::Read` / `Write`. The generic byte plumbing
@@ -29,13 +29,12 @@
 //!   `static_cast` is UB/implementation-defined there; for in-range values they
 //!   agree. `constexpr` becomes a plain fn (const trait methods are unstable),
 //!   except `make_64` which stays `const fn`.
-//! * ICU is not available. Because our strings are already UTF-8, the
-//!   `u_strToUTF8`/`u_strFromUTF8` transcoding collapses to identity over the
-//!   string's bytes, so the UTF-8 read/write helpers keep the exact on-disk
-//!   format (length prefix + UTF-8 bytes) with no external crate. `u_isalnum`,
-//!   `u_isWhitespace` are approximated with Rust's Unicode tables (parity risk
-//!   noted at each site). `isalpha`/`isdigit` use the C "C"-locale semantics
-//!   (no libc, no crate).
+//! * Our strings are already UTF-8, so the C++ UTF-16/UTF-8 transcoding
+//!   collapses to identity over the string's bytes, and the UTF-8 read/write
+//!   helpers keep the exact on-disk format (length prefix + UTF-8 bytes) with
+//!   no external crate. The C++ Unicode alphanumeric and whitespace tests are
+//!   approximated with Rust's Unicode tables (parity risk noted at each site).
+//!   `isalpha`/`isdigit` use the C "C"-locale semantics (no libc, no crate).
 //! * No external crate is required (std only): `to_be_bytes`/`from_le_bytes`/…
 //!   for endianness, hand-ported musl `frexp`/`scalbn` for `ldexp`.
 

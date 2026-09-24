@@ -1,8 +1,8 @@
 //! Port of `src/Tag.hpp` — the `Tag` type and its tag-flag constants, comparison
 //! functors, and tag-container typedefs. Wave 2 TYPE-SKELETON pass: only the
 //! type definitions are ported here; the method/function bodies
-//! (`parseTagRaw`, `rehash`, `toUString`, `parseNumeric`, the copy constructor,
-//! and the functor `operator()`s) land in a later pass.
+//! (`parseTagRaw`, `rehash`, the string conversion, `parseNumeric`, the copy
+//! constructor, and the functor `operator()`s) land in a later pass.
 //!
 //! Pointer→arena mapping: C++ `Tag*` → [`TagId`], `Set*` → [`SetId`].
 
@@ -176,9 +176,9 @@ pub struct Tag {
     pub number: u32,
     /// `uint32_t seed = 0;`
     pub seed: u32,
-    /// `UString tag;`
+    /// The tag text.
     pub tag: Box<str>,
-    /// `UString tag_raw;`
+    /// The tag text as written, when it differs from `tag`.
     pub tag_raw: Box<str>,
     /// `std::unique_ptr<SetVector> vs_sets;` — nullable, lazily allocated.
     ///
@@ -186,22 +186,19 @@ pub struct Tag {
     /// pointer) and the cheap one: this is `None` on every tag that is not a
     /// varstring, and inline it cost all of them 24 bytes for the few that are.
     pub vs_sets: Option<Box<SetVector>>,
-    /// `std::unique_ptr<UStringVector> vs_names;` — nullable, lazily allocated.
+    /// `std::unique_ptr` to a string vector — nullable, lazily allocated.
     /// Boxed for the same reason as [`vs_sets`](Self::vs_sets).
     pub vs_names: Option<Box<Vec<String>>>,
-    /// `mutable URegularExpression* regexp = nullptr;`
-    ///
-    /// FIELD-TYPE CHANGE (method pass): the Wave-2 `URegularExpression`
-    /// placeholder is replaced by `Option<fancy_regex::Regex>` — the ICU
-    /// `URegularExpression*` owning handle becomes an owned compiled `Regex`.
+    /// C++ `mutable regexp = nullptr`, a nullable owning handle to the
+    /// compiled pattern; here an owned [`TagRegex`](crate::tag_regex::TagRegex).
     /// The engine is `fancy_regex`, not the `regex` crate; see
     /// `crate::tag_regex` for why.
     /// The pattern is compiled by the grammar/binary parser layer (C++
     /// `parseTag` / `BinaryGrammar_read`), NOT by `parseTagRaw`; here the field
     /// is only *consumed* (the `grammar.regex_tags` scan in `parse_tag_raw`
     /// matches each compiled regex against the tag text via unanchored
-    /// `Regex::is_match`, reproducing `uregex_find`). The copy ctor
-    /// (`impl Clone`) clones it (C++ `uregex_clone`).
+    /// `is_match`, reproducing the C++ unanchored find). The copy ctor
+    /// (`impl Clone`) clones it, as the C++ does.
     pub regexp: Option<crate::tag_regex::TagRegex>,
 }
 
@@ -366,14 +363,11 @@ impl Tag {
     // [spec:cg3:sem:tag.cg3.tag.rehash-fn]
     /// Recomputes and caches `hash`/`plain_hash` from `type`, `tag`, `seed`.
     ///
-    /// HASHING PARITY: the ASCII marker strings (`"^"`, `"META:"`, `"i"`, ...)
-    /// are hashed by `hash_value_str`, whose UTF-8 bytes equal the C++
-    /// `hash_value(const char*)` bytes, so those fold identically. The `tag`
-    /// itself is hashed via `hash_value_str` over UTF-8 bytes, whereas the
-    /// C++ hashed UTF-16 `UChar` code units — so `plain_hash`/`hash` diverge
-    /// from the C++ for the tag text (documented deviation of the UTF-8 port;
-    /// internally consistent, so hash-dedup still works). The uint32 mixer and
-    /// CG3_HASH_SEED remap rules are reproduced exactly by `crate::inlines`.
+    /// HASHING PARITY: the marker strings (`"^"`, `"META:"`, `"i"`, ...) and
+    /// the tag text are all hashed by `hash_value_str`, over UTF-16 code units
+    /// as the C++ does, so `plain_hash`/`hash` match the C++ for any text. The
+    /// uint32 mixer and CG3_HASH_SEED remap rules are reproduced exactly by
+    /// `crate::inlines`.
     /// The static `dump_hashes_out` debug stream is not reproduced.
     pub fn rehash(&mut self) -> TagHash {
         let mut hash: u32 = 0;
@@ -451,10 +445,11 @@ impl Tag {
 
     // [spec:cg3:def:tag.cg3.tag.parse-numeric-fn]
     // [spec:cg3:sem:tag.cg3.tag.parse-numeric-fn]
-    /// Ported over `char`s (the UTF-8 analog of the UChar buffers): `tag.size()`
+    /// Ported over `char`s (the analog of the C++ UTF-16 buffers): `tag.size()`
     /// == the tag's `char` count and the 256-slot stack buffers become bounds
-    /// checks. `u_sscanf("%*[<]%[^<>=:!]%[<>=:!]")`, `u_strspn`, the `MAX`/`MIN`
-    /// keywords, `%lf`, and the `find_first_of` sets are reproduced inline.
+    /// checks. The C++ scanf pattern `%*[<]%[^<>=:!]%[<>=:!]`, its leading-span
+    /// count, the `MAX`/`MIN` keywords, `%lf`, and the `find_first_of` sets are
+    /// reproduced inline.
     pub fn parse_numeric(&mut self, trusted: bool) {
         let chars: Vec<char> = self.tag.chars().collect();
         let size = chars.len();
@@ -462,7 +457,7 @@ impl Tag {
             return;
         }
 
-        // u_sscanf(tag, "%*[<]%[^<>=:!]%[<>=:!]", &tkey, &top) == 2 && top[0]
+        // C++ scanf(tag, "%*[<]%[^<>=:!]%[<>=:!]", &tkey, &top) == 2 && top[0]
         let opset = ['<', '>', '=', ':', '!'];
         let mut i = 0usize;
         // %*[<] : discard a run of '<' (scanset needs >= 1 char, else count 0).
@@ -509,7 +504,7 @@ impl Tag {
         }
 
         let mut tval: f64 = 0.0;
-        // r = u_strspn(txval, "-.0123456789")
+        // r = length of txval's leading run of "-.0123456789"
         let numset = ['-', '.', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
         let mut r = 0usize;
         while r < txval.len() && numset.contains(&txval[r]) {
@@ -590,7 +585,7 @@ impl Tag {
 
     // [spec:cg3:def:tag.cg3.tag.to-u-string-fn]
     // [spec:cg3:sem:tag.cg3.tag.to-u-string-fn]
-    pub fn to_u_string(&self, escape: bool) -> String {
+    pub fn to_text(&self, escape: bool) -> String {
         if !self.tag_raw.is_empty() {
             return self.tag_raw.to_string();
         }
@@ -657,7 +652,7 @@ impl Tag {
 /// Copy constructor `Tag(const Tag& o)`. In the port every C++ `Tag` copy goes
 /// through this ctor, so it is the faithful mapping of `Clone`. QUIRKS
 /// reproduced verbatim: `tag_raw` is NOT copied (left default-empty) and
-/// `regexp` is cloned (C++ `uregex_clone`, ignoring the ICU status) rather than
+/// `regexp` is cloned (the C++ ignores the clone's error status) rather than
 /// left null in the init list.
 impl Clone for Tag {
     fn clone(&self) -> Self {
@@ -690,7 +685,6 @@ impl Clone for Tag {
             *t.vs_sets.as_mut().unwrap() = sets.clone();
         }
         if let Some(re) = &o.regexp {
-            // uregex_clone(o.regexp, &status) — status ignored/unused.
             t.regexp = Some(re.clone());
         }
         t
@@ -699,17 +693,16 @@ impl Clone for Tag {
 
 // [spec:cg3:def:tag.cg3.tag.parse-tag-raw-fn]
 // [spec:cg3:sem:tag.cg3.tag.parse-tag-raw-fn]
-/// Free fn (interning/allocation touches `Grammar`): C++
-/// `void Tag::parseTagRaw(const UChar* to, Grammar* grammar)`. `this` is a
-/// standalone tag (not yet in the grammar arena) — its C++ call sites are
-/// `new Tag()` in `allocateTag` and a fresh tag in `GrammarApplicator`, so there
-/// is no aliasing with the grammar arena.
+/// Free fn (interning/allocation touches `Grammar`): C++ `Tag::parseTagRaw`.
+/// `this` is a standalone tag (not yet in the grammar arena) — its C++ call
+/// sites are `new Tag()` in `allocateTag` and a fresh tag in
+/// `GrammarApplicator`, so there is no aliasing with the grammar arena.
 ///
-/// The `grammar->regex_tags` scan (`uregex_setText` + `uregex_find`) becomes an
+/// The `grammar->regex_tags` scan (an unanchored find per regex) becomes an
 /// unanchored `Regex::is_match` against the tag text using each regex-tag's
 /// compiled `regexp` (anchoring is baked into the pattern at compile time in the
-/// parser layer). `grammar->icase_tags` uses `eq_ignore_case` (ICU
-/// `u_strCaseCompare`, approximated with Unicode lowercase folding).
+/// parser layer). `grammar->icase_tags` uses `eq_ignore_case` (the C++ full
+/// Unicode case-folding compare, approximated with lowercase folding).
 pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     this.r#type = TagType::empty();
     let to_chars: Vec<char> = to.chars().collect();
@@ -742,7 +735,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
     // tag.assign(to, length)
     this.tag = to.into();
 
-    // grammar->regex_tags scan: uregex_setText + uregex_find == unanchored
+    // grammar->regex_tags scan: the C++ unanchored find is an unanchored
     // is_match against the tag text. Collect ids first to end the borrows.
     let regex_ids: Vec<TagId> = grammar.regex_tags.iter().copied().collect();
     for tid in regex_ids {
@@ -764,7 +757,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
         this.parse_numeric(false);
     }
     if cat(0) == '#' {
-        // u_sscanf("#%i->%i", &dep_self, &dep_parent) == 2 && dep_self != 0
+        // C++ scanf("#%i->%i", &dep_self, &dep_parent) == 2 && dep_self != 0
         let (n, v1, v2) = scan_hash_i_arrow_i(&to_chars, &['-', '>']);
         if let Some(v) = v1 {
             this.dep_self = v;
@@ -775,7 +768,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
         if n == 2 && this.dep_self != 0 {
             this.r#type |= T_DEPENDENCY;
         }
-        // Unicode-arrow form: u_sscanf_u("#%i\u{2192}%i", ...)
+        // Unicode-arrow form: scanf("#%i\u{2192}%i", ...)
         let (n, v1, v2) = scan_hash_i_arrow_i(&to_chars, &['\u{2192}']);
         if let Some(v) = v1 {
             this.dep_self = v;
@@ -788,7 +781,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
         }
     }
     if cat(0) == 'I' && cat(1) == 'D' && cat(2) == ':' && cat(3).is_numeric() {
-        // u_sscanf("ID:%i", &dep_self) == 1 && dep_self != 0
+        // C++ scanf("ID:%i", &dep_self) == 1 && dep_self != 0
         if let Some(v) = scan_id(&to_chars) {
             this.dep_self = v;
             if this.dep_self != 0 {
@@ -797,7 +790,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
         }
     }
     if cat(0) == 'R' && cat(1) == ':' {
-        // dep_parent = UINT32_MAX; u_sscanf("R:%[^:]:%i", &relname, &dep_parent)
+        // dep_parent = UINT32_MAX; scanf("R:%[^:]:%i", &relname, &dep_parent)
         this.set_dep_parent(u32::MAX);
         let (n, relname, dp) = scan_relation(&to_chars);
         if let Some(v) = dp {
@@ -883,14 +876,14 @@ pub fn fill_tagvector(
 }
 
 // ---------------------------------------------------------------------------
-// Local stand-ins for the `u_sscanf` conversions used above: ICU's scanf engine
+// Local stand-ins for the C++ scanf conversions used above: a scanf engine
 // has no std analogue, so each format string gets a hand-written parser rather
-// than a shared one. Deliberately un-annotated — their spec ids belong to the
-// ICU surface, not to `Tag.cpp`.
+// than a shared one. Deliberately un-annotated — they port a library call, not
+// `Tag.cpp`.
 // ---------------------------------------------------------------------------
 
-/// `u_sscanf(txval, "%lf", &tval)`: parses a leading `strtod`-style double and
-/// writes it to `out`, returning whether a number was read (== the C `1` count).
+/// scanf `"%lf"`: parses a leading `strtod`-style double and writes it to
+/// `out`, returning whether a number was read (== the C `1` count).
 fn scan_double(chars: &[char], out: &mut f64) -> bool {
     let mut i = 0usize;
     while i < chars.len() && chars[i].is_whitespace() {
@@ -981,8 +974,8 @@ fn scan_i(chars: &[char], mut pos: usize) -> Option<(u32, usize)> {
     Some((out, pos))
 }
 
-/// `u_sscanf("#%i<arrow>%i", &a, &b)`: returns `(count, a?, b?)` where `count`
-/// is the number of assigned `%i` conversions (0..=2).
+/// scanf `"#%i<arrow>%i"`: returns `(count, a?, b?)` where `count` is the
+/// number of assigned `%i` conversions (0..=2).
 fn scan_hash_i_arrow_i(chars: &[char], arrow: &[char]) -> (u32, Option<u32>, Option<u32>) {
     if chars.first() != Some(&'#') {
         return (0, None, None);
@@ -1003,7 +996,7 @@ fn scan_hash_i_arrow_i(chars: &[char], arrow: &[char]) -> (u32, Option<u32>, Opt
     }
 }
 
-/// `u_sscanf("ID:%i", &dep_self)`: `Some(dep_self)` iff exactly one conversion.
+/// scanf `"ID:%i"`: `Some(dep_self)` iff exactly one conversion.
 fn scan_id(chars: &[char]) -> Option<u32> {
     if chars.len() >= 3 && chars[0] == 'I' && chars[1] == 'D' && chars[2] == ':' {
         scan_i(chars, 3).map(|(v, _)| v)
@@ -1012,7 +1005,7 @@ fn scan_id(chars: &[char]) -> Option<u32> {
     }
 }
 
-/// `u_sscanf("R:%[^:]:%i", &relname, &dep_parent)`: returns
+/// scanf `"R:%[^:]:%i"`: returns
 /// `(count, relname, dep_parent?)`; `count` is the number of assigned
 /// conversions (`%[^:]` then `%i`).
 fn scan_relation(chars: &[char]) -> (u32, Vec<char>, Option<u32>) {

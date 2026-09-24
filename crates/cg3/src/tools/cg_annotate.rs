@@ -10,11 +10,11 @@
 //! ## UTF-16 offset parity (NOTE)
 //! The profiler records rule/context source spans (`b`/`e`) and the grammar-AST
 //! `b`/`e` attributes as ABSOLUTE UTF-16 code-unit offsets (see the AST printer).
-//! The C++ therefore keeps a `UnicodeString` (UTF-16) copy of each grammar and
-//! slices it by those offsets. This port reproduces that by holding a
+//! The C++ therefore keeps a UTF-16 copy of each grammar and slices it by
+//! those offsets. This port reproduces that by holding a
 //! `Vec<u16>` (UTF-16) copy of each grammar string and slicing it by the same
 //! offsets, decoding each slice back to UTF-8 for output — byte-for-byte
-//! equivalent to the C++ `tempSubString*` extraction for the offsets these
+//! equivalent to the C++ substring extraction for the offsets these
 //! attributes carry.
 
 use std::collections::BTreeMap;
@@ -64,8 +64,8 @@ fn to_utf16(s: &str) -> Vec<u16> {
     s.encode_utf16().collect()
 }
 
-/// Decode a UTF-16 slice `[b, e)` back to UTF-8 (C++ `tempSubString`/`Between` +
-/// `toUTF8String`). Offsets are clamped to the slice bounds.
+/// Decode a UTF-16 slice `[b, e)` back to UTF-8 (the C++ substring-then-convert).
+/// Offsets are clamped to the slice bounds.
 fn utf16_slice(u: &[u16], b: usize, e: usize) -> String {
     let b = b.min(u.len());
     let e = e.min(u.len()).max(b);
@@ -76,8 +76,6 @@ fn utf16_slice(u: &[u16], b: usize, e: usize) -> String {
 // [spec:cg3:sem:cg-annotate.main-fn]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_annotate(args: &[String]) -> i32 {
-    // ICU init / codepage / locale dropped (UTF-8 port).
-
     // Profiler profiler; profiler.read(argv[1]);
     let mut profiler = Profiler::default();
     let _ = profiler.read(&args[1]);
@@ -247,7 +245,7 @@ pub fn main_annotate(args: &[String]) -> i32 {
     }
 
     // UTF-16 copies of the grammars, to enable extracting snippets from offsets.
-    // std::map<size_t, UnicodeString> grammars; (keyed by grammar id == it.second)
+    // C++ `grammars`: grammar id (== it.second) → that grammar's UTF-16 text.
     let mut grammars_u16: BTreeMap<usize, Vec<u16>> = BTreeMap::new();
     for (&_fid, &gid) in &profiler.grammars {
         grammars_u16
@@ -345,7 +343,7 @@ fn write_grammar(
     html.push_str(&format!("<span class=\"ln\">{:06}</span>", ln));
 
     for (&off, tag_list) in tags {
-        // tmp = grammar.tempSubStringBetween(last, off); toUTF8; xml_encode.
+        // tmp = grammar text between last and off, as UTF-8; xml_encode.
         let tmp = utf16_slice(grammar_u16, last, off);
         last = off;
         let buf = xml_encode(&tmp);
@@ -391,7 +389,7 @@ fn write_entry(strings: &BTreeMap<usize, String>, id: u32, e: &crate::profiler::
 "#,
     );
 
-    // snip = g.tempSubString(e.b, e.e - e.b); toUTF8; xml_encode.
+    // snip = g's text from e.b, length e.e - e.b, as UTF-8; xml_encode.
     let snip = utf16_slice(g, e.b, e.e);
     html.push_str(&xml_encode(&snip));
     html.push_str(

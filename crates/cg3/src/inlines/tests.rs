@@ -53,7 +53,7 @@ fn make_64_packs_words() {
 }
 
 // SuperFastHash (byte + u16 overloads), the integer mixer, and the
-// UString/hash_ustring facades. Assert stability + documented degenerate
+// string-hash facades. Assert stability + documented degenerate
 // cases (empty -> 0; seed==0 -> len fallback; reserved-value remap).
 // [spec:cg3:sem:inlines.cg3.super-fast-hash-fn/test]
 // [spec:cg3:sem:inlines.cg3.hash-value-fn/test]
@@ -87,7 +87,7 @@ fn hashing_family() {
     assert!(m1 != 0 && m1 != u32::MAX && m1 != u32::MAX - 1);
     assert_ne!(hash_value(1, 100), hash_value(2, 100));
 
-    // hash_ustring facade forces the seed and widens to usize; UTF-16-unit
+    // StringHasher facade forces the seed and widens to usize; UTF-16-unit
     // hashing means it equals hash_value_str(_, 0) by construction.
     let hu = StringHasher;
     let s: String = "kitten".to_string();

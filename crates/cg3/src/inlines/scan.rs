@@ -43,9 +43,9 @@ pub fn isdelim(c: char) -> bool {
 
 // [spec:cg3:def:inlines.cg3.isspace-fn]
 // [spec:cg3:sem:inlines.cg3.isspace-fn]
-// Value form. `u_isWhitespace(c)` -> `char::is_whitespace()` (parity risk: ICU
-// and Rust's White_Space tables may differ for c > 0xFF). The NBSP (0xA0) quirk
-// is preserved via the explicit test.
+// Value form. The C++ Unicode whitespace test -> `char::is_whitespace()`
+// (parity risk: the C++ and Rust White_Space tables may differ for c > 0xFF).
+// The NBSP (0xA0) quirk is preserved via the explicit test.
 #[inline]
 pub fn isspace(c: char) -> bool {
     let u = c as u32;

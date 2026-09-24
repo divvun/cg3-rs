@@ -25,8 +25,8 @@
 //! * `grammar->addTag(new Tag(*tag_r))` (deep-copy then intern) → clone the tag
 //!   value out of the source arena and hand it to [`Grammar::add_tag`] (by value),
 //!   which interns/dedups and returns the canonical [`TagId`].
-//! * The relabel rules are keyed by tag STRING (`UString`); the two maps use
-//!   `HashMap<UString, SetId>` (the `Set*` value is the relabel target's SetId in
+//! * The relabel rules are keyed by tag STRING; the two maps use
+//!   `HashMap<String, SetId>` (the `Set*` value is the relabel target's SetId in
 //!   the RELABELS grammar).
 //!
 //! ## Flagged bugs reproduced
@@ -78,13 +78,13 @@ const S_PLUS: u32 = 4;
 pub type RelabellerTagVector = Vec<TagId>;
 
 // [spec:cg3:def:relabeller.cg3.relabeller.u-string-map]
-/// C++ `typedef std::unordered_map<UString, UString, hash_ustring> StringMap`.
+/// C++ header typedef: an unordered map from string to string.
 /// Declared in the header but unused by any ported method; reproduced for
 /// fidelity.
 pub type StringMap = HashMap<String, String>;
 
 // [spec:cg3:def:relabeller.cg3.relabeller.u-string-set-map]
-/// C++ `typedef std::unordered_map<UString, Set*, hash_ustring> StringSetMap`.
+/// C++ header typedef: an unordered map from string to `Set*`.
 /// The `Set*` value is a relabel-target set in the RELABELS grammar → [`SetId`].
 pub type StringSetMap = HashMap<String, SetId>;
 
@@ -203,7 +203,7 @@ pub fn trie_copy_helper_reintern(trie: &TagTrie, grammar: &mut Grammar) -> Box<T
 /// C++ `class Relabeller`. Owns pointers to the target `grammar` (mutated) and the
 /// read-only `relabels` grammar, plus the two partitioned relabel-rule maps.
 ///
-/// The C++ `std::ostream* ux_stderr` diagnostic sink has no field analogue:
+/// The C++ error-stream pointer has no field analogue:
 /// diagnostics are tracing events (wave 4). The two grammars are held as
 /// `&mut`/`&` borrows for the lifetime of the relabeller (the C++ raw pointers).
 pub struct Relabeller<'g, 'r> {

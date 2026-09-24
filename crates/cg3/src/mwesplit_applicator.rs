@@ -74,7 +74,7 @@ pub struct MweSplitApplicator {
 impl MweSplitApplicator {
     // [spec:cg3:def:mwe-split-applicator.cg3.mwe-split-applicator.mwe-split-applicator-fn]
     // [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.mwe-split-applicator-fn]
-    /// C++ `MweSplitApplicator::MweSplitApplicator(std::ostream& ux_err)`. Builds
+    /// C++ `MweSplitApplicator::MweSplitApplicator`. Builds
     /// and installs a minimal dummy grammar (a delimiters set holding the
     /// never-matching `STR_DUMMY` sentinel tag), then `setGrammar`, sets
     /// `is_conv = true`. (The C++ `owns_grammar = true` is dropped — Rust owns
@@ -85,7 +85,6 @@ impl MweSplitApplicator {
     /// rather than allocated separately and assigned via `setGrammar(res)` (which
     /// in the port takes no argument and operates on `self.grammar`).
     pub fn new(mut base: GrammarApplicator) -> Result<Self, crate::error::Cg3Error> {
-        // grammar->ux_stderr = ux_stderr; (Option<()> placeholder — no-op)
         base.grammar.allocate_dummy_set();
         let dset = base.grammar.allocate_set();
         base.grammar.delimiters = Some(dset);
@@ -113,7 +112,7 @@ impl MweSplitApplicator {
     /// `input`/`output` are threaded as method params (`R: Read + Seek` /
     /// `W: Write`), matching the base
     /// [`GrammarApplicator::run_grammar_on_text`](GrammarApplicator::run_grammar_on_text)
-    /// signature (the `ux_stdin`/`ux_stdout` `Option<()>` fields are elided).
+    /// signature.
     pub fn run_grammar_on_text<R, W>(
         &mut self,
         input: &mut R,
@@ -499,7 +498,7 @@ impl Engine<'_> {
     }
 }
 
-/// C++ `UString::find_first_not_of(set, pos)` over a `&[char]` — first index
+/// C++ `find_first_not_of(set, pos)` over a `&[char]` — first index
 /// `>= pos` whose char is NOT in `set` (else the length, mirroring the fact that
 /// these tags always have non-blank content within the brackets).
 fn find_first_not_of(s: &[char], set: &[char], pos: usize) -> usize {
@@ -510,7 +509,7 @@ fn find_first_not_of(s: &[char], set: &[char], pos: usize) -> usize {
     i
 }
 
-/// C++ `UString::find_last_not_of(set, pos)` over a `&[char]` — last index
+/// C++ `find_last_not_of(set, pos)` over a `&[char]` — last index
 /// `<= pos` whose char is NOT in `set`.
 fn find_last_not_of(s: &[char], set: &[char], pos: usize) -> usize {
     let mut i = pos as isize;

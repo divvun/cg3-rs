@@ -1,15 +1,14 @@
-//! Port of `src/icu_uoptions.cpp` (`u_parseArgs`) — an ICU-derived getopt-style
-//! command-line parser.
+//! Port of CG-3's vendored getopt-style command-line parser.
 //!
 //! ## DEAD CODE (NOTE / reconcile)
-//! The C++ translation unit `src/icu_uoptions.cpp` is **not** in the CMake
-//! build. It `#include`s a non-existent `icu_uoptions.hpp`, and it reads
-//! `option->optionFn` / `option->context` — members that do **not** exist on
-//! the live `ArgOption` struct — so it would not even compile against the real
-//! header. The parser actually linked into every binary is the *identical*
-//! inline `u_parseArgs` in the vendored `include/uoptions.hpp` (out of scope),
-//! which is byte-for-byte the same algorithm MINUS the `optionFn` callback
-//! block, and which uses `strcmp` / `size_t optionCount`.
+//! The C++ translation unit this ports is **not** in the CMake build. It
+//! `#include`s a non-existent header, and it reads `option->optionFn` /
+//! `option->context` — members that do **not** exist on the live `ArgOption`
+//! struct — so it would not even compile against the real header. The parser
+//! actually linked into every binary is the *identical* inline copy in the
+//! vendored `include/` header (out of scope), which is byte-for-byte the same
+//! algorithm MINUS the `optionFn` callback block, and which uses `strcmp` /
+//! `size_t optionCount`.
 //!
 //! Per the spec sem note ("Port the live (header) behavior; the callback path
 //! here is dead"), this port reproduces the shared algorithm operating on the
@@ -17,14 +16,14 @@
 //! block (it cannot be expressed — `ArgOption` has no `optionFn`/`context`). The
 //! one place it would have run is marked below.
 //!
-//! Faithful-to-`icu_uoptions.cpp` residue that survives: the signature keeps
-//! `optionCount: i32` (the dead file's `int`, vs the header's `size_t`) and the
-//! comment notes `uprv_strcmp` (an ICU macro) where the header uses `strcmp`.
+//! Residue of the dead file that survives: the signature keeps
+//! `optionCount: i32` (the dead file's `int`, vs the header's `size_t`).
 //!
-//! Because `options_parser::parse_opts` needs a `u_parseArgs` to call and the
-//! live header is out of scope, `parse_opts` currently routes here (the logic
-//! is identical to the live version). RECONCILE: once `include/uoptions.hpp` is
-//! ported, repoint `parse_opts` at that and drop/retire this module.
+//! Because `options_parser::parse_opts` needs an argument parser to call and
+//! the live header is out of scope, `parse_opts` currently routes here (the
+//! logic is identical to the live version). RECONCILE: once the vendored
+//! header's parser is ported, repoint `parse_opts` at that and drop/retire this
+//! module.
 //!
 //! ## `char* argv[]` representation (NOTE)
 //! The C `argv` is an array of NUL-terminated C strings that this function
@@ -49,7 +48,6 @@ fn at(token: &[char], k: usize) -> char {
 // faithful port: the option searches scan `options[0..optionCount]` (the passed
 // count, not `.len()`) and capture the matched index, mirroring the C++
 // `for (j=0; j<optionCount; ++j)` scans.
-/// C++ `u_parseArgs`.
 pub fn parse_args(
     argc: i32,
     argv: &mut [Vec<char>],
@@ -75,8 +73,7 @@ pub fn parse_args(
                     // stop processing options after "--"
                     stop_options = true;
                 } else {
-                    // search for the option string (uprv_strcmp in the dead
-                    // file; strcmp in the live header) — exact match
+                    // search for the option string — exact match
                     let name: String = argv[iu][arg_off..].iter().collect();
                     let option = options
                         .iter()
@@ -150,7 +147,7 @@ pub fn parse_args(
                 }
             }
 
-            // DEAD optionFn callback block (icu_uoptions.cpp only):
+            // DEAD optionFn callback block (the unbuilt translation unit only):
             //   if (option != 0 && option->optionFn != 0 &&
             //       option->optionFn(option->context, option) < 0) return -i;
             // Omitted: the live `ArgOption` has no `optionFn`/`context` members, so

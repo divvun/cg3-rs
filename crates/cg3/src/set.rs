@@ -91,7 +91,7 @@ pub struct Set {
     pub hash: u32,
     /// `uint32_t number = 0;`
     pub number: SetNumber,
-    /// `UString name;`
+    /// The set's name.
     pub name: String,
     /// `trie_t trie;` — placeholder type; see [`TagTrie`].
     pub trie: TagTrie,
@@ -208,7 +208,7 @@ impl Set {
             let name = grammar.sets_list[id.0].name.clone();
             // name[0] read unconditionally (empty -> '\0', so no branch taken).
             let name0 = name.chars().next().unwrap_or('\0');
-            // u_sscanf(name.data(), "&&%u:%*S", &u) == 1 && u != 0
+            // C++ scanf(name.data(), "&&%u:%*S", &u) == 1 && u != 0
             if name0 == '&' {
                 if let Some(u) = scan_prefixed_uint(&name, '&')
                     && u != 0
@@ -216,7 +216,7 @@ impl Set {
                     retval = hash_value(u, retval);
                 }
             }
-            // else if name[0] == '$' && u_sscanf(name.data(), "$$%u:%*S", &u) == 1 && u != 0
+            // else if name[0] == '$' && scanf(name.data(), "$$%u:%*S", &u) == 1 && u != 0
             else if name0 == '$'
                 && let Some(u) = scan_prefixed_uint(&name, '$')
                 && u != 0
@@ -378,13 +378,13 @@ pub fn trie_reindex(trie: &TagTrie, grammar: &Grammar) -> SetType {
 }
 
 // ---------------------------------------------------------------------------
-// Local stand-ins for the ICU `u_sscanf` unify-name parse and libc `rand()`
+// Local stand-ins for the C++ scanf unify-name parse and libc `rand()`
 // used by `rehash` / `setName`. Deliberately un-annotated (they stand in for
 // helpers owned by other, not-yet-wired modules); reimplemented here so this
 // file compiles standalone.
 // ---------------------------------------------------------------------------
 
-/// Reproduces `u_sscanf(name.data(), "pp%u:%*S", &u) == 1` for a doubled prefix
+/// Reproduces scanf `"pp%u:%*S"` == 1 on the name, for a doubled prefix
 /// char `p` (`'&'` -> `"&&"`, `'$'` -> `"$$"`). Because `%*S` is
 /// assignment-suppressed, the return count can only be 0 or 1, so `== 1`
 /// reduces to "the literal `pp` matched and `%u` read at least one digit". The

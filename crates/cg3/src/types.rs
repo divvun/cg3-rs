@@ -1,6 +1,6 @@
 //! Core type aliases for the cg3 port.
 //!
-//! **UTF-8 throughout.** The C++ text types are ICU UTF-16; this port is
+//! **UTF-8 throughout.** The C++ text types are UTF-16; this port is
 //! `String` / `&str` / `char` (Unicode scalars) end to end. There is no UTF-16
 //! representation, so byte- vs codepoint-level scanning is decided per call
 //! site. Regex goes through `regex` / `fancy-regex` with parity checks.

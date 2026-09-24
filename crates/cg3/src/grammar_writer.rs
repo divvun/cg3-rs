@@ -8,10 +8,10 @@
 //!
 //! ## Representation decisions (parity notes)
 //!
-//! * **Output → `std::io::Write`.** The C++ `u_fprintf(std::ostream&, ...)` calls
-//!   become `write!(output, ...)` over a generic `W: Write`. Our strings are
-//!   already UTF-8, so `%S`/`%C`/`%s`/`%d`/`%u` format specifiers map to Rust's
-//!   `{}` and the bytes written are the same UTF-8 the ICU `u_fprintf` produced.
+//! * **Output → `std::io::Write`.** The C++ formatted-print calls become
+//!   `write!(output, ...)` over a generic `W: Write`. Our strings are already
+//!   UTF-8, so `%S`/`%C`/`%s`/`%d`/`%u` format specifiers map to Rust's `{}` and
+//!   the bytes written are the same UTF-8 the C++ produced.
 //!   Write errors are swallowed (the C++ ignores the stream failbit).
 //!
 //! * **Arena-model signature reconciliation.** The C++ class stores a
@@ -27,7 +27,7 @@
 //!   methods take `grammar: &Grammar`, `write_grammar` takes `grammar: &mut
 //!   Grammar` (naming pass, then reborrowed immutably for the print phase). The
 //!   struct retains only the writer's own state (`used_sets`, `seen_rules`,
-//!   `anchors`, `ux_stderr`). The ctor still consumes `res` (to build `anchors`)
+//!   `anchors`). The ctor still consumes `res` (to build `anchors`)
 //!   but does not retain it.
 //!
 //! * **Name tables local stand-ins.** `keywords[]`, `g_flags[]`, `stringbits[]`,
@@ -79,7 +79,7 @@ const FL_SUB: usize = 23;
 const FL_BEFORE: usize = 27;
 const FL_AFTER: usize = 28;
 
-// `Strings.hpp` `constexpr UStringView keywords[KEYWORD_COUNT]` (72 entries),
+// `Strings.hpp` `keywords[KEYWORD_COUNT]` (72 entries),
 // indexed by the `KEYWORDS` enum value.
 const KEYWORDS_NAMES: [&str; 72] = [
     "__CG3_DUMMY_KEYWORD__",
@@ -156,7 +156,7 @@ const KEYWORDS_NAMES: [&str; 72] = [
     "SWITCHPARENT",
 ];
 
-// `Strings.hpp` `constexpr UStringView g_flags[FLAGS_COUNT]` (34 entries).
+// `Strings.hpp` `g_flags[FLAGS_COUNT]` (34 entries).
 const G_FLAGS: [&str; FLAGS_COUNT] = [
     "NEAREST",
     "ALLOWLOOP",
@@ -194,11 +194,11 @@ const G_FLAGS: [&str; FLAGS_COUNT] = [
     "DETACH",
 ];
 
-// `Strings.hpp` `constexpr UStringView stringbits[]` (9 entries), indexed by the
+// `Strings.hpp` `stringbits[]` (9 entries), indexed by the
 // set-operator code held in `Set::set_ops`.
 const STRINGBITS: [&str; 9] = ["", "", "", "OR", "+", "-", "", "", "^"];
 
-/// C++ `const UChar* data()[i]` / `UString::operator[](i)` NUL-terminator
+/// C++ `data()[i]` / `operator[](i)` NUL-terminator
 /// semantics: index at/after the length reads the `'\0'` terminator (as a byte)
 /// rather than panicking, reproducing the flagged unguarded `name[i]` reads.
 #[inline]
@@ -222,7 +222,7 @@ fn rule_ids(grammar: &Grammar) -> Vec<RuleId> {
         .collect()
 }
 
-/// `write!` to the sink, swallowing the error (the C++ `u_fprintf` ignores the
+/// `write!` to the sink, swallowing the error (the C++ prints ignore the
 /// stream failbit).
 macro_rules! w {
     ($o:expr, $($arg:tt)*) => {{ let _ = write!($o, $($arg)*); }};
@@ -233,7 +233,7 @@ macro_rules! w {
 ///
 /// The C++ `const Grammar* grammar` member is NOT stored (see the module note on
 /// arena-model signature reconciliation); `grammar` is threaded through the
-/// methods instead. The C++ `ux_stderr` diagnostics sink has no field analogue:
+/// methods instead. The C++ diagnostics-stream member has no field analogue:
 /// diagnostics are tracing events (wave 4).
 pub struct GrammarWriter {
     used_sets: Uint32FlatHashSet,
@@ -246,14 +246,13 @@ pub struct GrammarWriter {
 impl GrammarWriter {
     // [spec:cg3:def:grammar-writer.cg3.grammar-writer.grammar-writer-fn]
     // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.grammar-writer-fn]
-    /// Constructor `GrammarWriter(Grammar& res, std::ostream& ux_err)`. Builds
+    /// C++ `GrammarWriter` constructor. Builds
     /// the `anchors` multimap by INVERTING
     /// `res.anchors` (anchor-tag-hash → rule-number): for each pair
     /// `(first, second)` it inserts `(second, first)`, so the multimap is keyed by
     /// rule number with anchor-tag-hash values, which `print_rule` later queries
     /// via `equal_range(rule.number)`. (The non-specced destructor merely nulls
     /// `grammar`; the arena port keeps no such pointer, so it is a no-op.)
-    /// C++ `GrammarWriter(Grammar& res, std::ostream& ux_err)` constructor.
     pub fn new(res: &Grammar) -> GrammarWriter {
         let mut anchors: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
 
@@ -317,7 +316,7 @@ impl GrammarWriter {
                 self.print_set(grammar, output, grammar.set_id_by_number(SetNumber(s)));
             }
             let name = grammar.sets_list[id.0].name.clone();
-            // const UChar* n = curset.name.data(); n[0]/n[1] read without a guard.
+            // n = curset.name.data(); n[0]/n[1] read without a guard.
             let n0 = byte_at(&name, 0);
             let n1 = byte_at(&name, 1);
             if (n0 == b'$' && n1 == b'$') || (n0 == b'&' && n1 == b'&') {
@@ -444,7 +443,7 @@ impl GrammarWriter {
                 } else if grammar.text_delimiters == Some(id) {
                     grammar.sets_list[id.0].name = STR_TEXTDELIMITSET.to_string();
                 } else {
-                    // s->name.resize(12); s->name.resize(u_sprintf("S%u", number)).
+                    // s->name = "S<number>", formatted into a 12-unit buffer.
                     let number = grammar.sets_list[id.0].number;
                     grammar.sets_list[id.0].name = format!("S{number}");
                 }
@@ -917,11 +916,11 @@ impl GrammarWriter {
 
     // [spec:cg3:def:grammar-writer.cg3.grammar-writer.print-tag-fn]
     // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.print-tag-fn]
-    /// Converts the tag to its CG-3 textual form via `tag.to_u_string(true)` (the
+    /// Converts the tag to its CG-3 textual form via `tag.to_text(true)` (the
     /// `true` requests the escaped/round-trippable rendering) and prints it. No
     /// trailing space or separator is added here — callers add those.
     fn print_tag<W: Write>(&self, to: &mut W, tag: &Tag) {
-        let str = tag.to_u_string(true);
+        let str = tag.to_text(true);
         w!(to, "{str}");
     }
 }

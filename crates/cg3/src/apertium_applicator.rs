@@ -11,14 +11,14 @@
 //! ids `CohortId`/`ReadingId`/`SwId`/`TagId` resolved through
 //! `self.base.doc.store` (`cohorts`/`readings`/`single_windows` arenas) and
 //! `self.base.grammar.single_tags_list` (the `Tag` arena). Nullable pointers →
-//! `Option<…Id>`. The char-by-char C++ state machines walk `UChar` (UTF-16 code
-//! units); here text is UTF-8 and the walks are over `Vec<char>` scratch
+//! `Option<…Id>`. The char-by-char C++ state machines walk UTF-16 code units;
+//! here text is UTF-8 and the walks are over `Vec<char>` scratch
 //! buffers (matching the already-ported engine `run_grammar.rs` convention).
 //!
 //! OUTPUT SINK. C++ `std::ostream& output` → generic `output: &mut W`
 //! (`W: std::io::Write`); the `uextras::write_char`
-//! primitive writes UTF-8. `u_fprintf_u` (UChar pattern) collapses to
-//! `format_args!` with the literal Unicode chars.
+//! primitive writes UTF-8. The C++ prints with UTF-16 format patterns collapse
+//! to `format_args!` with the literal Unicode chars.
 //!
 //! REPRODUCED BUGS (bug-for-bug):
 //! * `esc_lt` sentinel `'\1'` substitution for escaped `\<` in reading baseforms
@@ -38,9 +38,9 @@ use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
 use crate::single_window::{SingleWindow, append_cohort};
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_WORDFORM, TagList};
 use crate::types::{DynBitset, TagHash};
-use crate::uextras::{U_EOF, read_char, strip_bom, write_char};
+use crate::uextras::{EOF_CHAR, read_char, strip_bom, write_char};
 
-// C++ `constexpr UChar esc_lt = '\1';` — the sentinel the reading scanner
+// C++ `esc_lt = '\1'` — the sentinel the reading scanner
 // substitutes for an escaped `\<` so it becomes literal baseform text rather
 // than a tag opener.
 const ESC_LT: char = '\u{1}';
@@ -53,7 +53,7 @@ const STR_ENDTAG: &str = "<<<";
 const STR_CMD_SETVAR: &str = "<STREAMCMD:SETVAR:";
 const STR_CMD_REMVAR: &str = "<STREAMCMD:REMVAR:";
 
-// C++ `Strings.hpp` `constexpr UChar not_sign = u'¬';`.
+// C++ `Strings.hpp` `not_sign = u'¬'`.
 const NOT_SIGN: char = '\u{AC}';
 
 // [spec:cg3:def:apertium-applicator.cg3.apertium-casing]
@@ -106,8 +106,8 @@ fn substr_from(s: &str, start: usize) -> String {
 impl ApertiumApplicator<Box<GrammarApplicator>> {
     // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.apertium-applicator-fn]
     // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.apertium-applicator-fn]
-    /// C++ `ApertiumApplicator::ApertiumApplicator(std::ostream& ux_err)` — forwards
-    /// `ux_err` to the base `GrammarApplicator(ux_err)` ctor (body empty); all
+    /// C++ `ApertiumApplicator::ApertiumApplicator` — forwards the error stream
+    /// to the base `GrammarApplicator` ctor (body empty); all
     /// Apertium flags keep their in-class defaults.
     pub fn new(base: GrammarApplicator) -> Self {
         Self::with_base(Box::new(base))
@@ -138,12 +138,10 @@ where
 
     // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn]
     // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn]
-    /// C++ `void ApertiumApplicator::parseStreamVar(const SingleWindow* cSWindow,
-    /// UString& cleaned, uint32FlatHashMap& variables_set, uint32FlatHashSet&
-    /// variables_rem, uint32SortedVector& variables_output)`.
+    /// C++ `ApertiumApplicator::parseStreamVar`.
     ///
     /// `cleaned` is a `Vec<char>` (the C++ mutates it in place with NUL
-    /// terminators; here the `u_strchr`/prefix walks operate on `usize` indices
+    /// terminators; here the char-search/prefix walks operate on `usize` indices
     /// over that buffer and slices are re-interned with `add_tag`). BUG-FOR-BUG:
     /// the live member `variables` map is only updated in case (a) (single bare
     /// identifier) and only when `c_swindow` is null.
@@ -165,13 +163,13 @@ where
         let setvar: Vec<char> = STR_CMD_SETVAR.chars().collect();
         let remvar: Vec<char> = STR_CMD_REMVAR.chars().collect();
 
-        // u_strncmp(&cleaned[0], STR_CMD_SETVAR, size) == 0
+        // cleaned starts with STR_CMD_SETVAR
         if cleaned.len() >= setvar.len() && cleaned[..setvar.len()] == setvar[..] {
             let base = setvar.len();
             let len = cleaned.len();
             // s points just past the prefix.
             let s0 = base;
-            // c = u_strchr(s, ','), d = u_strchr(s, '=')
+            // c = first ',' in s, d = first '=' in s
             let find_from = |from: usize, ch: char| -> Option<usize> {
                 (from..len).find(|&i| cleaned[i] == ch)
             };
@@ -333,10 +331,10 @@ where
 
     // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.process-reading-fn]
     // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.process-reading-fn]
-    /// C++ `void ApertiumApplicator::processReading(Reading* cReading, UChar* p,
-    /// Tag* wform)`. Parses one Apertium analysis string (already extracted
-    /// between `/` and the next `/`/`$`) into `c_reading`, incl. sub-readings.
-    /// `p` is the `Vec<char>` reading buffer (mutable: `esc_lt` → `<` rewrites).
+    /// C++ `ApertiumApplicator::processReading`. Parses one Apertium analysis
+    /// string (already extracted between `/` and the next `/`/`$`) into
+    /// `c_reading`, incl. sub-readings. `p` is the `Vec<char>` reading buffer
+    /// (mutable: `esc_lt` → `<` rewrites).
     pub fn process_reading(
         &mut self,
         c_reading: ReadingId,
@@ -485,7 +483,7 @@ where
         Ok(())
     }
 
-    /// C++ overload `processReading(Reading*, UString&, Tag*)` → forwards.
+    /// C++ string overload of `processReading` → forwards.
     pub fn process_reading_str(
         &mut self,
         c_reading: ReadingId,
@@ -585,8 +583,6 @@ where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        // ux_stdin/ux_stdout are Option<()> placeholders — assignment elided.
-
         // No-hard/soft-delimiter warnings.
         let no_hard = self.base.grammar.delimiters.is_none();
         let no_soft = self.base.grammar.soft_delimiters.is_none();
@@ -604,8 +600,8 @@ where
             }
         }
 
-        // C++ `UChar c = 0;` — the `while ((c = u_fgetc(input)) …)` head assigns
-        // it before every read, so no initializer is needed here.
+        // The C++ zero-initializes `c`, but the read-loop head assigns it before
+        // every read, so no initializer is needed here.
         let mut c: char;
         // The C++ locals the `flush` lambda captures by reference.
         let mut st = ApertiumStreamState {
@@ -645,10 +641,10 @@ where
 
         strip_bom(input);
 
-        // Main character loop: while ((c = u_fgetc(input)) != U_EOF).
+        // Main character loop: until `read_char` returns `EOF_CHAR`.
         loop {
             c = read_char(input);
-            if c == U_EOF {
+            if c == EOF_CHAR {
                 break;
             }
 
@@ -1192,11 +1188,11 @@ struct ApertiumStreamState {
     in_wblank: bool,
     /// C++ `bool inCohort`.
     in_cohort: bool,
-    /// C++ `UString blank`.
+    /// C++ `blank`.
     blank: String,
-    /// C++ `UString wblank`.
+    /// C++ `wblank`.
     wblank: String,
-    /// C++ `UString token`.
+    /// C++ `token`.
     token: String,
     /// C++ `SingleWindow* cSWindow`.
     c_swindow: Option<SwId>,

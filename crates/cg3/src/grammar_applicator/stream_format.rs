@@ -54,10 +54,10 @@ pub trait StreamFormat {
         profiling: bool,
     ) -> Result<(), crate::error::RunError>;
 
-    /// Virtual `printStreamCommand(UStringView, std::ostream&)`.
+    /// Virtual `printStreamCommand`.
     fn print_stream_command<W: Write>(&mut self, e: &mut Engine<'_>, cmd: &str, output: &mut W);
 
-    /// Virtual `printPlainTextLine(UStringView, std::ostream&)`.
+    /// Virtual `printPlainTextLine`.
     fn print_plain_text_line<W: Write>(&mut self, e: &mut Engine<'_>, line: &str, output: &mut W);
 }
 

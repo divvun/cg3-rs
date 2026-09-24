@@ -1,7 +1,7 @@
 //! Port of `src/cg-proc.cpp` — the Apertium/Matxin/Binary stream processor.
 //!
 //! Unlike the other tools, cg-proc parses its own options with POSIX `getopt`
-//! (NOT the ICU `u_parseArgs` / `ArgOption` tables), then loads a grammar and runs
+//! (NOT the shared `ArgOption` tables), then loads a grammar and runs
 //! the applicator matching the `-f` stream format. This port reproduces the
 //! getopt loop faithfully — including the flagged UB bug (see below).
 //!
@@ -265,8 +265,6 @@ pub fn main_proc(args: &[String]) -> i32 {
     let mut stream_format: i32 = 1;
     let mut single_rule = String::new();
 
-    // UErrorCode status = EXIT_SUCCESS; (dropped ICU init below)
-
     let prog = args.first().map(|s| s.as_str()).unwrap_or("cg-proc");
 
     let getopt = getopt_long_cgproc(args);
@@ -313,8 +311,6 @@ pub fn main_proc(args: &[String]) -> i32 {
             _ => return end_program(prog), // 'h' and default
         }
     }
-
-    // ICU init / codepage / locale dropped (UTF-8 port).
 
     // Owned option tables.
     let mut options = options();
@@ -486,7 +482,7 @@ pub fn main_proc(args: &[String]) -> i32 {
         )),
         None => Box::new(StreamingStdin::new()),
     };
-    // ux_stdout: argv[optind+2] if given (create failure → silent sink, per the
+    // Output: argv[optind+2] if given (create failure → silent sink, per the
     // C++ bad()-never-fires NOTE above), else stdout.
     let mut out: Box<dyn std::io::Write> = match output_path {
         Some(path) => match std::fs::File::create(path) {
@@ -511,7 +507,7 @@ pub fn main_proc(args: &[String]) -> i32 {
         return fail(&e);
     }
 
-    // u_cleanup dropped. C++ main falls off the end (implicit 0).
+    // C++ main falls off the end (implicit 0).
     0
 }
 

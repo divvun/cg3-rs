@@ -24,11 +24,11 @@
 //!     CohortId), never `&Reading`/`&Cohort` (the arenas live inside `self`, so a
 //!     `&Reading` borrowed from `self.readings` cannot coexist with `&mut self`).
 //!
-//! REGEX MAPPING (ICU `uregex_find(-1)` == UNANCHORED search): a tag's
-//! `regexp: Option<regex::Regex>` was compiled at parse time (`/.../` unanchored,
-//! `"..."r`/`<...>r` anchored `^…$`, `(?i)` when T_CASE_INSENSITIVE). Matching is
-//! `re.is_match(subject)` (unanchored, Unicode-by-default — the ICU semantics).
-//! `uregex_groupCount` == `re.captures_len() - 1` (excludes group 0).
+//! REGEX MAPPING (the C++ find == UNANCHORED search): a tag's `regexp` was
+//! compiled at parse time (`/.../` unanchored, `"..."r`/`<...>r` anchored `^…$`,
+//! case-insensitive when T_CASE_INSENSITIVE). Matching is `re.is_match(subject)`
+//! (unanchored, Unicode-by-default — the ICU regex semantics). The C++ group
+//! count == `re.captures_len() - 1` (excludes group 0).
 //! `captureRegex` re-runs `re.captures(subject)` (the regex crate has no stateful
 //! "last match"; identical input+regex ⇒ identical leftmost captures) and appends
 //! groups 1..=gc into the current context frame's `regexgrps` (a non-participating
@@ -102,15 +102,15 @@ const S_FAILFAST: u32 = 8;
 
 // [spec:cg3:def:grammar-applicator-match-set.cg3.capture-regex-fn]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.capture-regex-fn]
-/// C++ template `captureRegex(int32_t gc, uint8_t& regexgrp_ct, RXGS* regexgrps,
-/// Tag& tag)`. Harvests capture groups 1..=gc (group 0, the whole match, is
-/// deliberately NOT captured) of the last successful match into `regexgrps`,
-/// starting at `regexgrp_ct` and advancing it by `gc`. The C++ read them from
-/// the ICU regex object's stateful last match via `uregex_group`; the `regex`
-/// crate has no such state, so `regexp` + the matched `input` are threaded in and
-/// `regexp.captures(input)` is re-run (identical leftmost captures). A group that
-/// did not participate yields an empty string (ICU returned len 0). Never shrinks
-/// `regexgrps` (`resize(max(regexgrp_ct+1, size))`).
+/// C++ template `captureRegex(int32_t gc, uint8_t& regexgrp_ct, RXGS*
+/// regexgrps, Tag& tag)`. Harvests capture groups 1..=gc (group 0, the whole
+/// match, is deliberately NOT captured) of the last successful match into
+/// `regexgrps`, starting at `regexgrp_ct` and advancing it by `gc`. The C++
+/// read them from the regex object's stateful last match; the port's regex has
+/// no such state, so `regexp` + the matched `input` are threaded in and
+/// `regexp.captures(input)` is re-run (identical leftmost captures). A group
+/// that did not participate yields an empty string (the C++ got length 0).
+/// Never shrinks `regexgrps` (`resize(max(regexgrp_ct+1, size))`).
 fn capture_regex(
     gc: i32,
     regexgrp_ct: &mut u8,
@@ -298,9 +298,9 @@ fn collect_fum(m: &crate::flat_unordered_map::Uint32FlatHashMap) -> Vec<(u32, u3
     m.iter().copied().collect()
 }
 
-/// `uregex_groupCount(tag.regexp)` — the number of capture groups EXCLUDING the
-/// whole-match group 0. `regex::Regex::captures_len()` includes group 0, so
-/// subtract one. 0 when the tag has no compiled regex.
+/// The C++ group count of `tag.regexp` — the number of capture groups EXCLUDING
+/// the whole-match group 0. `captures_len()` includes group 0, so subtract one.
+/// 0 when the tag has no compiled regex.
 fn group_count(tag: &Tag) -> i32 {
     tag.regexp
         .as_ref()
@@ -1543,7 +1543,7 @@ impl Matcher<'_> {
                 let t = &self.grammar.single_tags_list[tid.0];
                 (t.hash.get(), t.tag.clone())
             };
-            // uregex_setText + uregex_find(-1) == unanchored `is_match`.
+            // The C++ unanchored find == unanchored `is_match`.
             if let Some(re) = &tag.regexp
                 && re.is_match(&itag_text)
             {

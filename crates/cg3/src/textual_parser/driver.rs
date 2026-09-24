@@ -1,4 +1,5 @@
-//! `TextualParser` — the grammar-buffer driver (parseFromUChar, parse_grammar entry points).
+//! `TextualParser` — the grammar-buffer driver (`parse_source`, parse_grammar
+//! entry points).
 //!
 //! Split out of the wave-2 monolithic `textual_parser.rs` (wave 4, w4-file-split-fmt).
 
@@ -785,7 +786,7 @@ impl TextualParser {
                 // The line is the deferred reference's own, not `grammar.lines`:
                 // resolution happens after the whole buffer has been walked, so
                 // the running line counter points at the end of the grammar. The
-                // C++ printed the correct line in a separate `u_fprintf` beside
+                // C++ printed the correct line in a separate message beside
                 // an error value that carried the wrong one; there is one
                 // diagnostic now, and it is the right one.
                 let mut e = self.parse_error_at(

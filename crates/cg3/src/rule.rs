@@ -258,8 +258,8 @@ impl Rule {
     // [spec:cg3:def:rule.cg3.rule.set-name-fn]
     // [spec:cg3:sem:rule.cg3.rule.set-name-fn]
     //
-    // C++ `void setName(const UChar* to)`: the nullable NUL-terminated `UChar*`
-    // becomes `Option<&str>` (`None` == `nullptr`). Clears `name`, then if `to` is
+    // C++ `setName(to)`: the nullable NUL-terminated string pointer becomes
+    // `Option<&str>` (`None` == `nullptr`). Clears `name`, then if `to` is
     // present assigns/copies it; a `None` leaves `name` empty. The `clear()` before
     // the assign is redundant but reproduced faithfully.
     pub fn set_name(&mut self, to: Option<&str>) {

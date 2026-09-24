@@ -21,10 +21,9 @@
 //! translated to Rust `format_args!` interpolation. The EXTERNAL `Process&`
 //! endpoints are bridged with the local [`ProcWrite`]/[`ProcRead`] adapters.
 //!
-//! PLACEHOLDERS. `self.diag.profiler`/`self.ux_stderr`/`self.ux_stdin`/`self.ux_stdout`
-//! are `Option<()>` stand-ins (no Profiler module, no wired streams yet), so the
-//! `error(...)`/`printDebugRule`/`addProfilingExample`/`profileRuleContext`
-//! emissions are built faithfully but not flushed to a real stream (noted inline).
+//! PLACEHOLDERS. The C++ standard-stream members have no counterpart here, so
+//! `error(...)` selects its label and line faithfully but defers emission
+//! (noted inline).
 
 use std::io::{Read, Write};
 
@@ -70,7 +69,7 @@ const STR_CMD_REMVAR: &str = "<STREAMCMD:REMVAR:";
 const STR_CMD_FLUSH: &str = "<STREAMCMD:FLUSH>";
 const STR_TEXTDELIM_DEFAULT: &str = "/(^|\\n)</s/r";
 
-/// C++ `Strings.hpp` `constexpr UStringView keywords[KEYWORD_COUNT]` — the
+/// C++ `Strings.hpp` `keywords[KEYWORD_COUNT]` — the
 /// keyword name table indexed by [`Keywords`]. Not ported in `strings.rs`
 /// (out of that module's spec scope), reproduced here verbatim for `print_trace`.
 fn keyword_name(k: Keywords) -> &'static str {
@@ -328,9 +327,9 @@ impl Drop for super::GrammarApplicator {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.grammar-applicator-fn+1]
     /// C++ `~GrammarApplicator()`. In the port every clause is subsumed by Rust
     /// ownership: `if (owns_grammar) delete grammar` + `grammar = nullptr` →
-    /// `self.grammar` is owned by value and dropped here; `ux_stderr = nullptr`
-    /// → placeholder; `for (rx : text_delimiters) uregex_close(rx)` → each
-    /// `regex::Regex` releases on drop. Net effect: nothing to do explicitly.
+    /// `self.grammar` is owned by value and dropped here; the text-delimiter
+    /// regexes the C++ closes in a loop release on drop. Net effect: nothing to
+    /// do explicitly.
     fn drop(&mut self) {}
 }
 
@@ -366,15 +365,14 @@ impl super::GrammarApplicator {
     }
 
     // =======================================================================
-    // addTag (UChar*/type overload; the Tag* one is Grammar::add_tag)
+    // addTag (text/type overload; the Tag* one is Grammar::add_tag)
     // =======================================================================
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
-    /// C++ `Tag* addTag(const UChar* txt, uint32_t type)` — interns a tag from
-    /// text and returns its canonical `TagId`. Collapses the three C++ overloads
-    /// (`const UChar*` / `const UString&` / `UStringView`), which all map onto
-    /// `&str`. Returns `TagId`.
+    /// C++ `addTag(txt, type)` — interns a tag from text and returns its
+    /// canonical `TagId`. Collapses the three C++ overloads (raw pointer, owned
+    /// string, string view), which all map onto `&str`. Returns `TagId`.
     ///
     /// Public-API entry retained on `GrammarApplicator` (the format applicators,
     /// setup, and tests call it through `self.base`); the body lives on
@@ -478,10 +476,9 @@ impl super::GrammarApplicator {
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.set-text-delimiter-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-text-delimiter-fn]
-    /// C++ `void setTextDelimiter(UString rx)` — replaces the compiled
+    /// C++ `setTextDelimiter` — replaces the compiled
     /// text-delimiter regex from a (possibly `/.../ri`-wrapped) pattern.
     pub fn set_text_delimiter(&mut self, rx: String) -> Result<(), crate::error::Cg3Error> {
-        // uregex_close(r) for each: regex::Regex drops here.
         self.cfg.text_delimiters.clear();
 
         if rx.is_empty() {
@@ -653,7 +650,7 @@ impl Engine<'_> {
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-stream-command-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-stream-command-fn]
-    /// C++ `void printStreamCommand(UStringView cmd, std::ostream& output)`.
+    /// C++ `printStreamCommand`.
     ///
     /// (The C++ virtual dispatch to per-format overrides is the
     /// [`StreamFormat`](super::stream_format::StreamFormat) strategy; this is
@@ -664,7 +661,7 @@ impl Engine<'_> {
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-plain-text-line-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-plain-text-line-fn]
-    /// C++ `void printPlainTextLine(UStringView line, std::ostream& output)`.
+    /// C++ `printPlainTextLine`.
     ///
     /// (The C++ virtual dispatch to per-format overrides is the
     /// [`StreamFormat`](super::stream_format::StreamFormat) strategy; this is
@@ -1005,7 +1002,7 @@ impl Engine<'_> {
         }
     }
 
-    /// C++ `UString::find_first_not_of(ws)` membership: is `c` in the (NUL-
+    /// C++ `find_first_not_of(ws)` membership: is `c` in the (NUL-
     /// terminated) whitespace set `ws`?
     fn is_ws(&self, c: char) -> bool {
         for &w in &self.cfg.ws {
@@ -1250,8 +1247,8 @@ impl Engine<'_> {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn]
     /// C++ `void pipeInReading(Reading* reading, Process& input, bool force)`.
-    /// The debug `u_fprintf(ux_stderr, ...)` traces are elided (`ux_stderr`
-    /// placeholder). `reflowReading` lives in the empty reflow.rs partial.
+    /// The C++ debug traces to stderr are not reproduced. `reflowReading` lives
+    /// in the empty reflow.rs partial.
     pub fn pipe_in_reading(
         &mut self,
         reading: ReadingId,
@@ -1429,7 +1426,7 @@ impl Engine<'_> {
     }
 
     // =======================================================================
-    // error (4 C++ overloads -> 3 Rust fns; two UChar*/char* single-arg
+    // error (4 C++ overloads -> 3 Rust fns; the narrow and UTF-16 single-arg
     // overloads collapse to &str)
     // =======================================================================
 }
@@ -1437,18 +1434,18 @@ impl Engine<'_> {
 impl super::GrammarApplicator {
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.error-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.error-fn]
-    /// C++ `void error(const char* str, const UChar* p)` — `p` ignored. The C
-    /// printf format `str` is filled with `(label, line, label)`; since the sink
-    /// (`ux_stderr`) is a placeholder and `str` is a runtime printf template
-    /// (not portable to Rust's compile-time `format!`), the label/line are
-    /// selected faithfully and emission is deferred. Returns the chosen
+    /// C++ `error(str, p)` — `p` ignored. The C printf format `str` is filled
+    /// with `(label, line, label)`; since the stderr sink is not wired and `str`
+    /// is a runtime printf template (not portable to Rust's compile-time
+    /// `format!`), the label/line are selected faithfully and emission is
+    /// deferred. Returns the chosen
     /// `(label, line)` for callers/tests.
     pub fn error(&self, _str: &str, _p: Option<&str>) -> (&'static str, u32) {
         self.error_labels()
     }
 
-    /// C++ `error(str, s, p)` — the `const char* s` and `const UChar* s`
-    /// overloads collapse to one `&str s` (spliced between the first label and
+    /// C++ `error(str, s, p)` — the narrow and UTF-16 `s` overloads collapse
+    /// to one `&str s` (spliced between the first label and
     /// the line in the format). Same deferred-emission note as [`error`].
     pub fn error_s(&self, _str: &str, _s: &str, _p: Option<&str>) -> (&'static str, u32) {
         self.error_labels()
@@ -1485,13 +1482,11 @@ impl super::GrammarApplicator {
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.set-options-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-options-fn]
-    /// C++ `void setOptions(UConverter* conv)` — copies the parsed CLI option
+    /// C++ `setOptions` — copies the parsed CLI option
     /// table into the applicator flags.
     ///
     /// DIVERGENCE: the C++ reads a global `Options::options[]`; here the parsed
-    /// table is passed in (`options: &options_t`). The `UConverter*` is dropped
-    /// — option values are already UTF-8 `String`s, so `ucnv_toUChars` is the
-    /// identity.
+    /// table is passed in (`options: &options_t`).
     pub fn set_options(&mut self, options: &OptionsTable) -> Result<(), crate::error::Cg3Error> {
         let occ = |o: Opt| options[o as usize].does_occur;
         let val = |o: Opt| options[o as usize].value.as_str();
@@ -1573,7 +1568,7 @@ impl super::GrammarApplicator {
             if first.is_ascii_digit() {
                 self.cfg.valid_rules.insert_sorted(stoi(v) as u32);
             } else {
-                // ucnv_toUChars is identity for UTF-8; compare rule names.
+                // Not a number: match by rule name.
                 for i in 0..self.grammar.rule_by_number.capacity() {
                     if let Some(rule) = self.grammar.rule_by_number.try_get(i)
                         && rule.name == v
@@ -1691,7 +1686,7 @@ impl Engine<'_> {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn+1]
     /// C++ inline `void printDebugRule(const Rule& rule, bool target, bool cntx)`.
     /// Renders the whole in-flight window set (profiling mode) with `trace`
-    /// force-disabled, into a buffer written to stderr (the C++ `ux_stderr`).
+    /// force-disabled, into a buffer written to stderr.
     /// The C++ `swapper<bool>(true, trace, ttrace=false)` save/restore of the
     /// shared `trace` member is replaced by passing `trace = false` down the
     /// print chain, so `self.trace` (config) is never mutated.
@@ -1731,8 +1726,8 @@ impl Engine<'_> {
 
         let _ = writeln!(&mut buf, "# ===== END RULE {line} =====");
 
-        // u_fprintf(ux_stderr, "%s", buf) — a raw stream dump (window data),
-        // not a log event: write it straight to stderr like the C++.
+        // A raw stream dump (window data), not a log event: write it straight
+        // to stderr like the C++.
         let _ = std::io::stderr().write_all(&buf);
     }
 
@@ -1833,15 +1828,14 @@ fn sort_readings(store: &RuntimeStore, list: &mut [ReadingId]) {
 
 impl Matcher<'_> {
     // =======================================================================
-    // addTag (UChar*/type overload; the Tag* one is Grammar::add_tag)
+    // addTag (text/type overload; the Tag* one is Grammar::add_tag)
     // =======================================================================
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
-    /// C++ `Tag* addTag(const UChar* txt, uint32_t type)` — interns a tag from
-    /// text and returns its canonical `TagId`. Collapses the three C++ overloads
-    /// (`const UChar*` / `const UString&` / `UStringView`), which all map onto
-    /// `&str`.
+    /// C++ `addTag(txt, type)` — interns a tag from text and returns its
+    /// canonical `TagId`. Collapses the three C++ overloads (raw pointer, owned
+    /// string, string view), which all map onto `&str`.
     ///
     /// The `T_VARSTRING` branch is the applicator instantiation of the
     /// `parser_helpers.hpp` template: `::CG3::parseTag(txt, 0, *this,

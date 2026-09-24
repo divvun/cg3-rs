@@ -87,11 +87,11 @@ const STR_VS: [&str; 9] = [
 // Free helpers (this file's namespace, matching the C++ translation unit).
 // ---------------------------------------------------------------------------
 
-/// `uextras.cpp` `findAndReplace(UnicodeString& str, from, to)`: replaces every
+/// `uextras.cpp` `findAndReplace(str, from, to)`: replaces every
 /// occurrence of `from` with `to`, advancing PAST each replacement (so text
 /// introduced by `to` is not re-scanned), and returns the number of
-/// replacements. Ported over `Vec<char>` for index-precise splicing (UTF-8
-/// `char` == the "one code unit" the C++ UChar ops assume). NOT a manifest
+/// replacements. Ported over `Vec<char>` for index-precise splicing (a `char`
+/// stands in for the one UTF-16 code unit the C++ ops assume). NOT a manifest
 /// symbol — port infra.
 fn find_and_replace(str: &mut Vec<char>, from: &str, to: &str) -> usize {
     let from_v: Vec<char> = from.chars().collect();
@@ -113,8 +113,8 @@ fn find_and_replace(str: &mut Vec<char>, from: &str, to: &str) -> usize {
     rv
 }
 
-/// `UnicodeString::lastIndexOf(needle, len, start)`: the greatest index `>=
-/// start` at which `needle` begins in `hay`, or `-1`. Reproduces the ICU
+/// The C++ string `lastIndexOf(needle, len, start)`: the greatest index `>=
+/// start` at which `needle` begins in `hay`, or `-1`. Reproduces the
 /// three-arg overload used by the case-marker loop. NOT a manifest symbol.
 fn last_index_of(hay: &[char], needle: &[char], start: usize) -> i32 {
     if needle.is_empty() || needle.len() > hay.len() {
@@ -146,7 +146,7 @@ impl Engine<'_> {
     /// wordform tag (`"<foo>"` → `"foo"`), interns and returns the result. The
     /// `uint32_t` overload resolved the hash to a `Tag*`; here the sole caller
     /// (run_grammar) already passes a `TagId`, so this is the single `TagId`
-    /// form. Ported over `char`s (the "one code unit" analog of the C++ UChar
+    /// form. Ported over `char`s (the analog of the C++ UTF-16 code-unit
     /// splice: keep everything except the chars at index 1 and `len-2`).
     pub fn make_base_from_word(&mut self, tag: TagId) -> Result<TagId, crate::error::RunError> {
         let chars: Vec<char> = self.grammar.single_tags_list[tag.0].tag.chars().collect();
@@ -206,7 +206,7 @@ impl Engine<'_> {
             }
             if i == 1000 && self.cfg.verbosity_level > 0 {
                 // "Warning: While testing whether %u is a child of %u the counter
-                // exceeded 1000 ..." — I/O deferred (ux_stderr placeholder).
+                // exceeded 1000 ..." — I/O deferred.
             }
         }
         retval
@@ -1558,9 +1558,10 @@ impl Matcher<'_> {
     /// generated tag inherits are the RUN's (`Grammar::tag_type`), not the
     /// clone's load-time copy.
     ///
-    /// ICU `UnicodeString` ops map to `Vec<char>` splicing (`findAndReplace`,
-    /// `lastIndexOf`) and `char::to_uppercase`/`to_lowercase` (the ICU full
-    /// case mapping analog; parity risk for locale-specific mappings, noted).
+    /// The C++ string ops map to `Vec<char>` splicing (`findAndReplace`,
+    /// `lastIndexOf`) and `char::to_uppercase`/`to_lowercase` (the analog of the
+    /// C++ full Unicode case mapping; parity risk for locale-specific mappings,
+    /// noted).
     pub fn generate_varstring_tag(
         &mut self,
         tag_id: TagId,

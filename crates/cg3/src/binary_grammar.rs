@@ -41,20 +41,19 @@
 //!   `Grammar::sets_list_order` and numbers by push position); the writer emits
 //!   set records over that order with the dense count, so a port-written `.cg3b`
 //!   re-reads cleanly. Remaining parity caveat: the DFS numbering order derives
-//!   from iterating `sets_by_contents` in `reindex` step (10) — a
-//!   `std::collections::HashMap` in the port vs `std::unordered_map` in C++ —
-//!   so the relative order of top-level used sets (and thus the exact number
-//!   assignment) is neither run-stable nor libstdc++-bucket-identical.
-//! * **`rehash`/`hash` on tags & contexts** already differ from the C++ for
-//!   non-ASCII text / set `tmpl` (documented in `crate::tag` / `crate::contextual_test`
-//!   — UTF-8 vs UTF-16 hashing, `CtxId` folded for the run-varying `tmpl`
-//!   pointer). Because `.cg3b` stores those hashes verbatim, a grammar
-//!   round-tripped THROUGH the port is self-consistent but its stored hashes
-//!   differ from a C++-produced file for such content.
+//!   from iterating `sets_by_contents` in `reindex` step (10) — a `BTreeMap`
+//!   in the port vs `std::unordered_map` in C++ — so the relative order of
+//!   top-level used sets (and thus the exact number assignment) is stable
+//!   across runs but not identical to any C++ stdlib's bucket order.
+//! * **Context hashes** that involve a template differ from a C++-produced
+//!   file: the C++ folds the `tmpl` POINTER into the hash (not reproducible
+//!   even between two C++ runs), and the port folds its `CtxId` instead (see
+//!   `crate::contextual_test`). `.cg3b` stores those hashes verbatim, so a
+//!   grammar round-tripped through the port is self-consistent for them.
 //! * **regex tags** store the PATTERN text only; the case-insensitive flag is
 //!   re-derived on read from `T_CASE_INSENSITIVE` in `type` (compiled with
 //!   `RegexBuilder::case_insensitive`, so `Regex::as_str` round-trips the bare
-//!   pattern — matching `uregex_pattern`).
+//!   pattern, as the C++ does).
 //! * **comparison_val** is a 12-byte double (`u64` BE mantissa + `i32` BE
 //!   exponent), via [`crate::inlines::write_be_f64`] / [`crate::inlines::read_be_f64`].
 //! * **context record count** is `grammar.contexts.size()` — every context
@@ -133,18 +132,18 @@ pub type DeferredOrs = HashMap<CtxId, Vec<u32>>;
 /// OWNS its result `grammar` (per the brief: "the struct holds/builds a
 /// `grammar: Grammar` (read) or references one (write)"). The inherited
 /// `IGrammarParser` members (`nrules`, `nrules_inv`, `verbosity`) live here as
-/// fields (a Rust trait has no fields). The C++ base `std::ostream* ux_stderr`
+/// fields (a Rust trait has no fields). The C++ base error-stream pointer
 /// has no field analogue: diagnostics are tracing events (wave 4).
 pub struct BinaryGrammar {
     /// C++ `Grammar* grammar` (aliases `result`); OWNED here.
     pub grammar: Grammar,
-    /// C++ base `URegularExpression* nrules` — the `--nrules` name filter,
-    /// compiled through the ICU seam like every other user-authored pattern
+    /// C++ base `nrules` — the `--nrules` name filter, compiled through the
+    /// tag-regex seam like every other user-authored pattern
     /// (`[spec:cg3:req:tag-regex.single-seam]`).
     /// Public: C++ main.cpp sets `parser->nrules` on the IGrammarParser base
     /// for BOTH the textual and binary parsers.
     pub nrules: Option<TagRegex>,
-    /// C++ base `URegularExpression* nrules_inv` — the `--nrules-inv` filter.
+    /// C++ base `nrules_inv` — the `--nrules-inv` filter.
     pub nrules_inv: Option<TagRegex>,
     /// C++ base `uint32_t verbosity`.
     verbosity: u32,
@@ -156,13 +155,11 @@ pub struct BinaryGrammar {
 impl BinaryGrammar {
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.binary-grammar-fn]
     // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.binary-grammar-fn]
-    /// C++ `BinaryGrammar(Grammar& res, std::ostream& ux_err)`. Delegates to the
-    /// base `IGrammarParser(res, ux_err)` (sets `ux_stderr = &ux_err`, `result =
-    /// &res`; `nrules`/`nrules_inv` null; `verbosity` 0), then sets `grammar =
-    /// result`. The port OWNS `res` (so `grammar` == `result` == the owned
-    /// field); the `ux_err` diagnostic sink is tracing (wave 4). No allocation
-    /// or I/O occurs.
-    /// C++ `BinaryGrammar(Grammar& res, std::ostream& ux_err)` constructor.
+    /// C++ `BinaryGrammar` constructor. Delegates to the base `IGrammarParser`
+    /// ctor (stores the error stream, `result = &res`; `nrules`/`nrules_inv`
+    /// null; `verbosity` 0), then sets `grammar = result`. The port OWNS `res`
+    /// (so `grammar` == `result` == the owned field); diagnostics are tracing
+    /// events. No allocation or I/O occurs.
     pub fn new(res: Grammar) -> BinaryGrammar {
         BinaryGrammar {
             grammar: res,
@@ -269,7 +266,7 @@ impl BinaryGrammar {
             let len = read_be::<u32, _>(input);
             let mut buf = vec![0u8; len as usize];
             let _ = input.read_exact(&mut buf);
-            // Decode into a single UChar (mapping_prefix has capacity 1).
+            // Decode into a single char (mapping_prefix is one character).
             self.grammar.mapping_prefix =
                 String::from_utf8_lossy(&buf).chars().next().unwrap_or('\0');
         }
@@ -425,7 +422,7 @@ impl BinaryGrammar {
                 if len != 0 {
                     let mut buf = vec![0u8; len as usize];
                     let _ = input.read_exact(&mut buf);
-                    // C++ s->setName(UChar*) (assign directly); the port's Set has
+                    // C++ s->setName(text) (assign directly); the port's Set has
                     // only the u32 setName overload, so inline the assignment.
                     s.name = String::from_utf8_lossy(&buf).into_owned();
                 }
@@ -696,7 +693,7 @@ impl BinaryGrammar {
                 let pattern = String::from_utf8_lossy(&buf).into_owned();
                 // Flags re-derived from type (NOT stored): case-insensitive iff
                 // T_CASE_INSENSITIVE. RegexBuilder keeps `as_str()` == the bare
-                // pattern (matching uregex_pattern round-trip).
+                // pattern, as the C++ round-trips it.
                 match crate::tag_regex::compile_tag_regex(
                     &pattern,
                     t.r#type.intersects(T_CASE_INSENSITIVE),

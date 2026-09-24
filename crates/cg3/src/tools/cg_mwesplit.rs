@@ -20,8 +20,8 @@ pub enum Opt {
 }
 
 /// C++ `OptionsMWE::options_mwe[]` — the two help aliases. Built as owned local
-/// state (the C++ global array is mutated in place by `u_parseArgs`); indexed by
-/// [`Opt`].
+/// state (the C++ global array is mutated in place by the argument parser);
+/// indexed by [`Opt`].
 fn options_mwe() -> [ArgOption; Opt::NumOptionsMwe as usize] {
     [
         ArgOption::new("help", 'h', HasArg::No, "shows this help"),
@@ -35,10 +35,7 @@ fn options_mwe() -> [ArgOption; Opt::NumOptionsMwe as usize] {
 // faithful port: the C++ `for (i=0; i<NUM_OPTIONS_MWE; ++i)` scans cover the
 // whole table — its length IS the enum constant (`[ArgOption; NumOptionsMwe]`).
 pub fn main_mwesplit(args: &[String]) -> i32 {
-    // UErrorCode status = EXIT_SUCCESS;
     let status: i32 = 0;
-
-    // ICU init dropped (UTF-8 port); see tools/mod.rs.
 
     let mut options_mwe = options_mwe();
     let mut argv = to_argv(args);
@@ -92,8 +89,6 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
         }
     }
 
-    // ucnv_setDefaultName / uloc_setDefault dropped (UTF-8 port).
-
     // MweSplitApplicator applicator(std::cerr);
     // The port's applicator OWNS its GrammarApplicator base (which owns a fresh
     // Grammar); the ctor builds+installs the minimal dummy grammar.
@@ -120,7 +115,7 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
         return fail(&e);
     }
 
-    // u_cleanup dropped. C++ main falls off the end → returns 0 (status unused
-    // by the return; kept for parity with the initialised value).
+    // C++ main falls off the end → returns 0 (status unused by the return;
+    // kept for parity with the initialised value).
     status
 }

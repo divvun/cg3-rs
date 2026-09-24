@@ -96,7 +96,7 @@ fn iv_next_after(iv: &Uint32IntervalVector, v: u32) -> Option<u32> {
     }
 }
 
-/// C++ `u_sscanf(str, "%[0-9cd]->%[0-9pm]", &dep_self, &dep_parent) == 2`.
+/// C++ `scanf(str, "%[0-9cd]->%[0-9pm]", &dep_self, &dep_parent) == 2`.
 /// Splits on the literal `"->"` and validates each side against its scanset:
 /// the left side accepts only `[0-9cd]`, the right only `[0-9pm]`. A scanset
 /// match consumes the maximal leading run of accepted chars (may be empty →
@@ -132,7 +132,7 @@ fn split_dep_mapping(s: &str) -> Option<(String, String)> {
     Some((left.to_string(), right[..run_end].to_string()))
 }
 
-/// C++ `u_sscanf(field, "%i", &out) == 1` for the dep-mapping numeric fields.
+/// C++ `scanf(field, "%i", &out) == 1` for the dep-mapping numeric fields.
 /// `%i` accepts an optional sign and (via C strtol base 0) `0x`/`0` prefixes;
 /// the fields here only ever hold `[0-9]` runs (the scanset filtered the rest),
 /// so a plain unsigned decimal parse of the leading digit run is faithful. An

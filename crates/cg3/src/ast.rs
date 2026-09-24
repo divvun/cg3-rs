@@ -7,7 +7,7 @@
 //!
 //! ## Porting-representation decisions (apply throughout this file)
 //! * **Source spans (`ASTNode::b` / `ASTNode::e` + `ASTNode::buf`).** The C++
-//!   `const UChar*` begin/end pointers delimit the node's span *inside the
+//!   begin/end pointers delimit the node's span *inside the
 //!   grammar source buffer*. The port stores them as `usize` **offsets** (`b`,
 //!   `e`) into the node's owning buffer plus a shared handle to that buffer
 //!   (`buf: Rc<[char]>`). [`print_ast`]'s offset arithmetic (`UI32(node.b - b)`)
@@ -30,7 +30,7 @@
 //!   identical for any node that was opened (which is every printed node), and
 //!   it avoids the C++ UB of `%s`-printing a null name for an unopened type.
 //! * **`xml_encode` return value.** Returns an owned `String` instead of a
-//!   `const UChar*` aliasing a shared `thread_local` scratch buffer — see the
+//!   pointer aliasing a shared `thread_local` scratch buffer — see the
 //!   note on [`xml_encode`].
 //! * **The `AST_OPEN` / `AST_CLOSE` / `AST_CLOSE_ID` macros + the `cur_ast_help`
 //!   self-pointer chain.** See the note on [`ASTHelper`]: the RAII open/close is
@@ -38,8 +38,8 @@
 //!   (close), and the [`ASTHelper::close`] / [`ASTHelper::close_id`] methods
 //!   (the two `AST_CLOSE*` macros). The global `cur_ast_help` pointer is elided.
 //! * **Output sink.** `print_ast` writes to a `&mut dyn std::io::Write`
-//!   (`u_fprintf(std::ostream&, ...)` → `write!`); like `u_fprintf`, write
-//!   errors are ignored.
+//!   (the C++ formatted prints become `write!`); as in the C++, write errors
+//!   are ignored.
 
 use std::io::Write;
 use std::rc::Rc;
@@ -220,11 +220,12 @@ pub struct ASTNode {
     pub r#type: ASTType,
     /// C++ `size_t line = 0;` — 1-based source line number.
     pub line: usize,
-    /// C++ `const UChar *b = nullptr;` — begin **offset** into [`buf`](Self::buf).
+    /// C++ `b` (a pointer, default `nullptr`) — begin **offset** into
+    /// [`buf`](Self::buf).
     pub b: usize,
-    /// C++ `const UChar *e = nullptr;` — end **offset** into [`buf`](Self::buf)
-    /// (`usize::MAX` marks the not-yet-set state the C++ null `e` had before
-    /// `AST_CLOSE` fills it in).
+    /// C++ `e` (a pointer, default `nullptr`) — end **offset** into
+    /// [`buf`](Self::buf) (`usize::MAX` marks the not-yet-set state the C++
+    /// null `e` had before `AST_CLOSE` fills it in).
     pub e: usize,
     /// The grammar source buffer this node's `[b, e)` span points into. Replaces
     /// the C++ pointers' implicit buffer identity; carried per-node so the
@@ -342,18 +343,18 @@ impl Ast {
 
 // [spec:cg3:def:ast.xml-encode-fn]
 // [spec:cg3:sem:ast.xml-encode-fn]
-/// XML-escapes the `[b, e)` `UChar` range of `src` and returns it. Escapes
+/// XML-escapes the `[b, e)` range of `src` and returns it. Escapes
 /// exactly five characters — `&`→`&amp;`, `"`→`&quot;`, `'`→`&apos;`, `<`→`&lt;`,
 /// `>`→`&gt;` — appending every other code unit verbatim.
 ///
-/// PORT DEVIATION (span form): the C++ takes two `const UChar*` (`b`, `e`) into a
+/// PORT DEVIATION (span form): the C++ takes two pointers (`b`, `e`) into a
 /// live buffer; the port passes the already-sliced `[b, e)` span (`src`) —
 /// identical elements, walked one-by-one exactly as the C++ `for (; b != e; ++b)`.
 ///
-/// PORT DEVIATION (buffer lifetime): the C++ returns a `const UChar*` aliasing a
-/// shared `static thread_local UString buf` that is valid only until the next
+/// PORT DEVIATION (buffer lifetime): the C++ returns a pointer aliasing a
+/// shared `static thread_local` string `buf` that is valid only until the next
 /// `xml_encode` call on the thread (callers must consume it — via a single
-/// `u_fprintf` — before calling again). That footgun does not translate to safe
+/// print — before calling again). That footgun does not translate to safe
 /// Rust, so this returns an **owned** `String`; the returned text is
 /// identical and callers no longer have the consume-before-reuse constraint.
 pub fn xml_encode(src: &[char]) -> String {
@@ -378,7 +379,7 @@ pub fn xml_encode(src: &[char]) -> String {
 /// Recursively serializes the `node` subtree to `out` as indented pseudo-XML.
 /// `base` is the base **offset** subtracted to yield each node's printed
 /// character offset (C++'s base pointer `b`); `n` is the indentation depth
-/// (leading spaces). Errors from `out` are ignored, matching `u_fprintf`.
+/// (leading spaces). Errors from `out` are ignored, as in the C++.
 pub fn print_ast(out: &mut dyn Write, base: usize, n: usize, node: &ASTNode) {
     use ASTType::*;
 
@@ -386,7 +387,8 @@ pub fn print_ast(out: &mut dyn Write, base: usize, n: usize, node: &ASTNode) {
     let indent = " ".repeat(n);
     // C++ `ASTType_str[node.type]` (see the ASTTYPE_STR deviation note).
     let name = ASTTYPE_STR[node.r#type as usize];
-    // C++ `%s<%s l="%u" b="%u" e="%u"` — offsets in UChar units (`node.b - base`).
+    // C++ `%s<%s l="%u" b="%u" e="%u"` — offsets (`node.b - base`) in chars here,
+    // UTF-16 code units in the C++.
     let _ = write!(
         out,
         "{}<{} l=\"{}\" b=\"{}\" e=\"{}\"",
@@ -485,7 +487,7 @@ impl ASTHelper {
     /// **offset** into `buf` (the node's owning grammar buffer); `e` is filled
     /// later by [`close`].
     ///
-    /// (The C++ ctor's default argument `const UChar* e = nullptr` is elided —
+    /// (The C++ ctor's default argument `e = nullptr` is elided —
     /// `AST_OPEN` never passes it; `e` is always unset at construction.)
     ///
     /// [`destroy`]: ASTHelper::destroy
@@ -553,7 +555,7 @@ mod tests {
     use super::*;
 
     // ASTNode::new member-initializes type/line/b/e/buf, defaulting u=0 and cs
-    // empty; xml_encode escapes exactly &,",',<,> over a [b,e) UChar span.
+    // empty; xml_encode escapes exactly &,",',<,> over a [b,e) span.
     // [spec:cg3:sem:ast.ast-node.ast-node-fn/test]
     // [spec:cg3:sem:ast.xml-encode-fn/test]
     #[test]

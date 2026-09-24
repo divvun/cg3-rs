@@ -175,19 +175,20 @@ pub fn read_be_f64<R: Read>(stream: &mut R) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// UTF-8 length-prefixed IO. ICU transcoding collapses to identity because our
-// UString is already UTF-8; the on-disk format (length prefix + UTF-8 bytes) is
-// preserved exactly, including the 16-bit prefix (>65535-byte strings wrap) and
-// the host-endian vs little-endian prefix distinction.
+// UTF-8 length-prefixed IO. The C++ transcodes to and from UTF-16; our strings
+// are already UTF-8, so that is the identity. The on-disk format (length prefix
+// + UTF-8 bytes) is preserved exactly, including the 16-bit prefix
+// (>65535-byte strings wrap) and the host-endian vs little-endian prefix
+// distinction.
 // ---------------------------------------------------------------------------
 
 // [spec:cg3:def:inlines.cg3.write-utf8-raw-fn]
 // [spec:cg3:sem:inlines.cg3.write-utf8-raw-fn]
-// The (UChar*, len) and UString overloads collapse to a single &str entry since
-// UString is UTF-8. Length prefix written RAW (host byte order).
+// The C++ pointer-plus-length and string overloads collapse to a single &str
+// entry. Length prefix written RAW (host byte order).
 pub fn write_utf8_raw<W: Write>(output: &mut W, str: &str) {
     let buffer = str.as_bytes();
-    let olen = buffer.len() as i32; // u_strToUTF8 is identity here
+    let olen = buffer.len() as i32;
     let cs = ui16(olen); // UI16 truncation quirk preserved
     write_raw(output, cs);
     let _ = output.write_all(&buffer[..cs as usize]);
@@ -206,8 +207,8 @@ pub fn write_utf8_le<W: Write>(output: &mut W, str: &str) {
 
 // [spec:cg3:def:inlines.cg3.read-utf8-raw-fn]
 // [spec:cg3:sem:inlines.cg3.read-utf8-raw-fn]
-// Length prefix read RAW (host byte order). ICU decode with ignored status ->
-// from_utf8_lossy (malformed bytes -> U+FFFD, matching ICU's substitution).
+// Length prefix read RAW (host byte order). The C++ decode ignores its error
+// status -> from_utf8_lossy (malformed bytes -> U+FFFD, as the C++ substitutes).
 pub fn read_utf8_raw<R: Read>(input: &mut R) -> String {
     let len: u16 = read_raw(input);
     let mut buffer = vec![0u8; len as usize];
@@ -226,7 +227,7 @@ pub fn read_utf8_le<R: Read>(input: &mut R, rv: &mut String) {
     *rv = String::from_utf8_lossy(&buffer).into_owned();
 }
 
-// Returning convenience overload (`readUTF8_LE(S&) -> UString`).
+// Returning convenience overload (`readUTF8_LE(S&)`, returning the string).
 pub fn read_utf8_le_ret<R: Read>(input: &mut R) -> String {
     let mut rv = String::new();
     read_utf8_le(input, &mut rv);

@@ -17,7 +17,7 @@
 //! plain `&str` by slicing — the mutation, the sentinel NULs, and the guard-NUL
 //! quirk all disappear; the produced argv is identical for every input the C++
 //! accepted. (Tokens are converted to the `Vec<char>` form at the
-//! [`parse_args`] boundary, which is ICU-domain code-unit territory.)
+//! [`parse_args`] boundary, which walks tokens one character at a time.)
 
 use crate::arg_parser::parse_args;
 use crate::inlines::isspace;

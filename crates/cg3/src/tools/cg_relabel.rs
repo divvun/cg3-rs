@@ -74,8 +74,7 @@ enum GrammarLoadError {
 // like libcg3's, but with a non-void grammar …
 // [spec:cg3:def:cg-relabel.cg3-grammar-load-fn+1]
 // [spec:cg3:sem:cg-relabel.cg3-grammar-load-fn+1]
-/// C++ `Grammar* cg3_grammar_load(const char* filename, std::ostream& ux_stdout,
-/// std::ostream& ux_stderr, bool require_binary = false)`.
+/// C++ `cg3_grammar_load(filename, ..., bool require_binary = false)`.
 ///
 /// DIVERGENCE: the C++ returns a null `Grammar*` for an open/read/parse failure
 /// and `CG3Quit`s from inside for the other two, so the same function reports
@@ -104,10 +103,9 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<Grammar, Gra
 
     // Grammar* grammar = new Grammar; (owned by value here.)
     let grammar = Grammar::default();
-    // grammar->ux_stderr / ux_stdout = ...; (Option<()> placeholders, elided.)
 
     let mut parsed = if is_cg3b(head) {
-        // parser.reset(new BinaryGrammar(*grammar, ux_stderr));
+        // parser.reset(new BinaryGrammar(*grammar, ...));
         let mut parser = BinaryGrammar::new(grammar);
         parser
             .parse_grammar_filename(filename)
@@ -122,7 +120,7 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<Grammar, Gra
                 path: filename.to_string(),
             });
         }
-        // parser.reset(new TextualParser(*grammar, ux_stderr));
+        // parser.reset(new TextualParser(*grammar, ...));
         let mut parser = TextualParser::new(grammar, false);
         let buffer = std::fs::read(filename).map_err(|source| GrammarLoadError::Open {
             path: filename.to_string(),
@@ -168,15 +166,12 @@ fn report_load(e: &GrammarLoadError) -> i32 {
 // [spec:cg3:sem:cg-relabel.main-fn+1]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_relabel(args: &[String]) -> i32 {
-    // UErrorCode status = EXIT_SUCCESS;
     let status: i32 = 0;
 
     // if (argc != 4) endProgram(argv[0]);
     if args.len() != 4 {
         return end_program(args.first().map(|s| s.as_str()));
     }
-
-    // ICU init / codepage / locale dropped (UTF-8 port).
 
     // std::unique_ptr<Grammar> grammar{ cg3_grammar_load(argv[1], ..., true) };
     // std::unique_ptr<Grammar> relabel_grammar{ cg3_grammar_load(argv[2], ...) };
@@ -226,6 +221,5 @@ pub fn main_relabel(args: &[String]) -> i32 {
         }
     }
 
-    // u_cleanup dropped.
     status
 }

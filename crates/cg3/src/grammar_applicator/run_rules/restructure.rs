@@ -1078,7 +1078,7 @@ impl crate::grammar_applicator::Engine<'_> {
 
     /// K_SPLITCOHORT: replace the apply-to cohort with a run of new cohorts built
     /// from the rule's `maplist` (wordform-delimited groups), each carrying
-    /// baseform-led readings. The `u_sscanf`-parsed `%[0-9cd]->%[0-9pm]`
+    /// baseform-led readings. The scanf-parsed `%[0-9cd]->%[0-9pm]`
     /// dependency-mapping tags drive `cohort_dep` (self/parent indices, with `c`/`d`
     /// self meaning "keep old children" and `p`/`m` parent meaning "keep old
     /// parent"); the `R:*` tag (or the last cohort) receives the transferred named
@@ -1158,7 +1158,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 continue;
             }
 
-            // u_sscanf("%[0-9cd]->%[0-9pm]", &dep_self, &dep_parent) == 2
+            // C++ scanf("%[0-9cd]->%[0-9pm]", &dep_self, &dep_parent) == 2
             let tagstr = self.grammar.single_tags_list.get(tter.0).tag.clone();
             if let Some((dep_self, dep_parent)) = split_dep_mapping(&tagstr) {
                 let sc = dep_self.chars().next();

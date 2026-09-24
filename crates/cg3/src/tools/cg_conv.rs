@@ -24,15 +24,11 @@ use super::{EXIT_FAILURE, EXIT_SUCCESS, fail, to_argv};
 // faithful port: the C++ `for (i=0; i<NUM_OPTIONS_CONV; ++i)` scans cover the
 // whole table — its length IS the enum constant (`ConvOptionsTable`).
 pub fn main_conv(args: &[String]) -> i32 {
-    // UErrorCode status = EXIT_SUCCESS;
-    // ICU init dropped (UTF-8 port).
-
     // Owned local option tables (the C++ globals are mutated in place).
     let mut options_conv = options_conv();
     let mut options_default = options_default();
     let mut options_override = options_override();
 
-    // argc = u_parseArgs(argc, argv, options_conv.size(), options_conv.data());
     let mut argv = to_argv(args);
     let argc = parse_args(
         argv.len() as i32,
@@ -130,8 +126,6 @@ pub fn main_conv(args: &[String]) -> i32 {
         options_conv[Opt::OutCg as usize].does_occur = true;
     }
 
-    // ucnv_setDefaultName / uloc_setDefault dropped (UTF-8 port).
-
     // FormatConverter applicator(std::cerr); Grammar& grammar = applicator.conv_grammar;
     // The C++ sets ORDERED, SUB_LTR and MAPPING_PREFIX on `grammar` further
     // down, after the ctor installed it. Installing freezes the core here, so
@@ -168,9 +162,10 @@ pub fn main_conv(args: &[String]) -> i32 {
         Err(e) => return fail(&e),
     };
 
-    // ux_stripBOM(std::cin); — the ported drivers need `R: Read + Seek`, and
-    // stdin is not seekable, so the whole stream is buffered into a Cursor first
-    // (faithful for the char-by-char state machines the applicators run).
+    // The C++ strips a BOM from stdin here. The ported drivers need
+    // `R: Read + Seek`, and stdin is not seekable, so the whole stream is
+    // buffered into a Cursor first (faithful for the char-by-char state
+    // machines the applicators run).
     let mut input_bytes = Vec::new();
     let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut input_bytes);
     let mut instream = std::io::Cursor::new(input_bytes);
@@ -283,6 +278,6 @@ pub fn main_conv(args: &[String]) -> i32 {
         return fail(&e);
     }
 
-    // u_cleanup dropped. C++ main returns nothing on this path (implicit 0).
+    // C++ main returns nothing on this path (implicit 0).
     EXIT_SUCCESS
 }

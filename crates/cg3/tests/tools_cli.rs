@@ -188,12 +188,12 @@ fn vislcg3_main_runs_t_select() {
     run_vislcg3_expect(&dir, Path::new("grammar.cg3"), "vislcg3-select.txt");
 }
 
-// The `--nrules` / `--nrules-v` filters are compiled through the ICU seam, so an
-// ICU-spelled filter means on the command line what the same spelling means in a
-// grammar. `\Q...\E` exists only in ICU — the `regex` crate rejects it outright —
-// and `[:script=Greek:]` is the reverse hazard: every Rust engine ACCEPTS it as a
-// literal character set and silently matches the wrong thing, so the seam names
-// it instead.
+// The `--nrules` / `--nrules-v` filters are compiled through the tag-regex seam,
+// so an ICU-spelled filter means on the command line what the same spelling
+// means in a grammar. `\Q...\E` exists only in ICU — the `regex` crate rejects
+// it outright — and `[:script=Greek:]` is the reverse hazard: every Rust engine
+// ACCEPTS it as a literal character set and silently matches the wrong thing,
+// so the seam names it instead.
 // [spec:cg3:req:tag-regex.single-seam+1/test]
 #[test]
 fn nrules_filters_speak_icu() {

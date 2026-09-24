@@ -300,8 +300,9 @@ impl crate::grammar_applicator::Engine<'_> {
             let varname = self.grammar.rule_by_number.get(rule.0).varname;
             if !self.doc.externals.contains_key(&varname) {
                 // Tag* ext = grammar->single_tags.find(rule->varname)->second;
-                // u_strToUTF8(cbuffers[0], ...) — the UTF-8 port uses the tag
-                // text directly (the C++ CG3_BUFFER_SIZE-1 truncation elided).
+                // The C++ converts the tag text to UTF-8 into a fixed buffer,
+                // truncating at CG3_BUFFER_SIZE-1; the tag text is used directly
+                // here, untruncated.
                 let ext_tid = {
                     let it = self.grammar.single_tags().find(varname);
                     it.get().1

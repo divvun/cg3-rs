@@ -17,12 +17,13 @@
 //! [`run_grammar_on_text`](FSTApplicator::run_grammar_on_text) is now a genuine
 //! port: the `input`/`output` streams are threaded as method params (mirroring
 //! the sibling `apertium_applicator.rs` — `input: &mut R (Read + Seek)` /
-//! `output: &mut W (Write)`), the `ux_stdin`/`ux_stdout` `Option<()>` fields are
-//! elided, and the C++ `u_strchr` / `u_strspn` / `u_strcspn` `UChar*` walks are
-//! reproduced over a `Vec<char>` scratch buffer with `usize` indices. The
+//! `output: &mut W (Write)`), and the C++ `strchr` / `strspn` / `strcspn`-style
+//! pointer walks are reproduced over a `Vec<char>` scratch buffer with `usize`
+//! indices. The
 //! `reverse(cReading)` sub-reading reversal maps to [`reverse_reading`] over the
-//! arena `next` chain. `strtof` → `str::parse::<f32>`; the delimiter/warning
-//! diagnostics are emitted to a discard sink (`ux_stderr` placeholder).
+//! arena `next` chain. `strtof` → `str::parse::<f32>`; the delimiter warnings
+//! go through `tracing`, and the verbose-only lines are deferred, as in the
+//! other stream drivers.
 
 use std::io::Write;
 use std::ops::DerefMut;
@@ -74,8 +75,8 @@ pub struct FSTApplicator<B = Box<GrammarApplicator>> {
 impl FSTApplicator<Box<GrammarApplicator>> {
     // [spec:cg3:def:fst-applicator.cg3.fst-applicator.fst-applicator-fn]
     // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.fst-applicator-fn]
-    /// C++ `FSTApplicator::FSTApplicator(std::ostream& ux_err)`. Delegates to the
-    /// base `GrammarApplicator(ux_err)` ctor with an empty body; the FST members
+    /// C++ `FSTApplicator::FSTApplicator`, given the error stream. Delegates to
+    /// the base `GrammarApplicator` ctor with an empty body; the FST members
     /// take their in-class defaults (`did_warn_statictags = false`,
     /// `wfactor = 1.0`, `wtag = "W"`, `sub_delims = "#"`). No other side effects.
     pub fn new(base: GrammarApplicator) -> Self {
@@ -161,11 +162,10 @@ where
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        // ux_stdin = &input; ux_stdout = &output; (elided: Option<()> placeholders)
         // good()/eof()/output/grammar validity checks (each CG3Quit(1) with a
-        // u_fprintf diagnostic) elided — the grammar is assumed present.
+        // stderr diagnostic) elided — the grammar is assumed present.
 
-        // No-hard/soft-delimiter warnings (emitted to the discard sink).
+        // No-hard/soft-delimiter warnings.
         let no_hard = self.base.grammar.delimiters.is_none();
         let no_soft = self.base.grammar.soft_delimiters.is_none();
         if no_hard {
@@ -182,15 +182,14 @@ where
             }
         }
 
-        // UString line(1024, 0); UString cleaned(line.size(), 0);
         let mut line: Vec<char> = vec!['\0'; 1024];
         let mut cleaned: Vec<char> = vec!['\0'; line.len()];
         let ignoreinput = false;
 
         self.base.index();
 
-        // C++ `uint32_t lines` feeds only the verbose Progress line, whose
-        // emission goes to the discard sink; no counter is kept here.
+        // C++ `uint32_t lines` feeds only the verbose Progress line, which is
+        // deferred; no counter is kept here.
         let mut st = FstStreamState {
             reset_after: (self.base.cfg.num_windows + 4) * 2 + 1,
             did_soft_lookback: false,
@@ -282,8 +281,8 @@ where
 
                     // ++space; while (space && *space && (space[0]!='+' ||
                     //   space[1]!='?' || space[2]!=0)) { ... }
-                    // In C++ the inner `(space = u_strchr(space, '+')) != 0` scan
-                    // sets `space` to nullptr when no '+' remains, which is what
+                    // In C++ the inner search for the next '+' sets `space` to
+                    // nullptr when no '+' remains, which is what
                     // terminates THIS loop after the reading is finished; an index
                     // can't go null, so the nullptr state is a flag here.
                     space += 1;
@@ -295,8 +294,9 @@ where
                             && cleaned[space + 1] == '?'
                             && cleaned[space + 2] == '\0')
                     {
-                        // tab = u_strchr(space, '\t'). FSTs sometimes echo the input
-                        // twice for non-matches, so a `\t+?` tail ends the cohort.
+                        // tab = first '\t' at/after space. FSTs sometimes echo
+                        // the input twice for non-matches, so a `\t+?` tail
+                        // ends the cohort.
                         let mut tab: Option<usize> = None;
                         {
                             let mut i = space;
@@ -327,7 +327,7 @@ where
                         let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                         self.base.engine().add_tag_to_reading(c_reading, wf)?;
 
-                        // const UChar* base = space; (index into cleaned). A quoted
+                        // base = space; (index into cleaned). A quoted
                         // baseform reassignment (base = tag.data()) is tracked with
                         // `base_str = Some(...)`.
                         let mut base_idx = space;
@@ -380,7 +380,7 @@ where
                         }
 
                         // Initial baseform, because it may end on '+'.
-                        // plus = u_strchr(space, '+');
+                        // plus = first '+' at/after space;
                         {
                             let mut plus: Option<usize> = None;
                             let mut i = space;
@@ -393,7 +393,7 @@ where
                             }
                             if let Some(p0) = plus {
                                 let mut p = p0 + 1; // ++plus
-                                // int32_t p = u_strspn(plus, "+"); span of '+'.
+                                // p = length of the run of '+' at plus.
                                 let mut f = 0usize;
                                 while p + f < cleaned.len() && cleaned[p + f] == '+' {
                                     f += 1;
@@ -403,9 +403,9 @@ where
                             }
                         }
 
-                        // while (space && *space && (space = u_strchr(space,'+')))
+                        // while (space && *space && space advances to the next '+')
                         loop {
-                            // Advance space to the next '+' (u_strchr).
+                            // Advance space to the next '+'.
                             let mut found: Option<usize> = None;
                             {
                                 let mut i = space;
@@ -417,8 +417,8 @@ where
                                     i += 1;
                                 }
                             }
-                            // C++ `(space = u_strchr(space, '+')) != 0`: a miss
-                            // nulls `space` (exiting the enclosing reading loop too).
+                            // In the C++ a miss nulls `space` (exiting the
+                            // enclosing reading loop too).
                             let Some(sp) = found else {
                                 space_null = true;
                                 break;
@@ -431,7 +431,7 @@ where
                                 None => cleaned.get(base_idx).copied().unwrap_or('\0'),
                             };
                             if base_first != '\0' {
-                                // int32_t f = u_strcspn(base, sub_delims.data());
+                                // f = length of base's leading run not in sub_delims.
                                 // (base is always a cleaned index at the top of the
                                 // loop body — a reassignment to `tag` happens later).
                                 let sub: Vec<char> = self.sub_delims.chars().collect();
@@ -782,7 +782,7 @@ where
                         if let Some(cc) = st.c_cohort {
                             self.base.doc.store.cohorts.get_mut(cc.0).parent = st.c_swindow;
                         }
-                        // verbose soft-limit warning: discard sink.
+                        // verbose soft-limit warning: deferred.
                         break;
                     }
                 }
@@ -919,7 +919,7 @@ where
             if self.base.doc.num_windows.is_multiple_of(st.reset_after) {
                 self.base.engine().reset_indexes();
             }
-            // verbose progress: discard sink.
+            // verbose progress: deferred.
         }
 
         st.c_cohort = None;
@@ -1110,9 +1110,9 @@ impl FstFormat {
             }
 
             if e.doc.store.cohorts.get(cohort.0).wread.is_some() && !self.did_warn_statictags {
-                // u_fprintf(ux_stderr, "Warning: FST CG format cannot output
-                // static tags! You are losing information!\n"); ux_stderr is a
-                // placeholder — emission deferred; the one-shot flag is set.
+                // The C++ warns once on stderr: "Warning: FST CG format cannot
+                // output static tags! You are losing information!". Emission is
+                // deferred here; the one-shot flag is set.
                 self.did_warn_statictags = true;
             }
 
@@ -1169,7 +1169,7 @@ impl FstFormat {
         }
     }
 
-    /// C++ `UString::find_first_not_of(ws)` membership over the base's `ws`
+    /// C++ `find_first_not_of(ws)` membership over the base's `ws`
     /// whitespace set (space, tab, [newline], NUL). Mirrors the base's private
     /// `is_ws`.
     fn is_ws_e(&self, e: &Engine<'_>, c: char) -> bool {
@@ -1257,7 +1257,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for FstFormat {
     }
 }
 
-/// Read a NUL-terminated `UChar*` string starting at `start` out of the `cleaned`
+/// Read a NUL-terminated string starting at `start` out of the `cleaned`
 /// scratch buffer as an owned `String` (the C++ `base`/`&cleaned[i]` reads).
 fn cleaned_cstr(cleaned: &[char], start: usize) -> String {
     let mut s = String::new();

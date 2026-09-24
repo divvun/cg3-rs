@@ -76,8 +76,8 @@ pub enum StreamFormatKind {
 }
 
 // [spec:cg3:def:grammar-applicator.cg3.regexgrps-t]
-/// C++ `typedef std::vector<UnicodeString> regexgrps_t` — the captured regex
-/// groups for one context frame (`UnicodeString` → UTF-8 `String`).
+/// C++ `regexgrps_t`, a vector of UTF-16 strings — the captured regex groups
+/// for one context frame (here UTF-8 `String`s).
 pub type RegexGroups = Vec<String>;
 
 // [spec:cg3:def:grammar-applicator.cg3.unif-key]
@@ -323,7 +323,7 @@ pub struct EngineConfig {
 
     pub span_pattern_latin: String,
     pub span_pattern_utf: String,
-    /// C++ `UChar ws[4]{ ' ', '\t', 0, 0 }` — the whitespace set.
+    /// C++ `ws[4]{ ' ', '\t', 0, 0 }` — the whitespace set.
     pub ws: [char; 4],
 
     pub did_index: bool,
@@ -338,9 +338,8 @@ pub struct EngineConfig {
     pub mprefix_key: TagHash,
     pub mprefix_value: TagHash,
 
-    /// C++ `std::vector<URegularExpression*> text_delimiters` — owned compiled
-    /// regexes (ICU `URegularExpression*` → `fancy_regex::Regex`, compiled
-    /// through `crate::tag_regex`).
+    /// C++ `text_delimiters`, a vector of compiled-regex pointers — owned
+    /// compiled regexes here, compiled through `crate::tag_regex`.
     pub text_delimiters: Vec<crate::tag_regex::TagRegex>,
 
     // [spec:cg3:req:diagnostics.runtime-input-named]

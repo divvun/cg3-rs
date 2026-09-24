@@ -5,22 +5,22 @@
 //! reproduced rather than fixed.
 //!
 //! ## Naming
-//! Control flow follows the original; the names do not. C++ prefixes these
-//! helpers `ux_` and the stream wrappers `u_` — ICU's marker for "operates on
-//! Unicode text", a real distinction in a codebase where the other half of the
-//! string functions take `char*`. Every string here is UTF-8 `&str`, so the
-//! prefix marks nothing; each function is named for what it does, with the C++
-//! symbol kept on its doc line and in the `[spec:...]` id above it. The FILE
-//! keeps the C++ name: module paths in this crate map 1:1 onto the translation
-//! unit they port and key the spec ids (`uextras.*`), so renaming it would cost
-//! that mapping to fix a prefix no signature shows.
+//! Control flow follows the original; the names do not. The C++ prefixes these
+//! helpers and stream wrappers to mark "operates on Unicode text", a real
+//! distinction in a codebase where the other half of the string functions take
+//! `char*`. Every string here is UTF-8 `&str`, so the prefix marks nothing;
+//! each function is named for what it does, with the C++ symbol kept in the
+//! `[spec:...]` id above it. The FILE keeps the C++ name: module paths in this
+//! crate map 1:1 onto the translation unit they port and key the spec ids
+//! (`uextras.*`), so renaming it would cost that mapping to fix a prefix no
+//! signature shows.
 //!
 //! ## Representation decisions (parity notes)
 //!
 //! * **UTF-8 / `char` model.** Text is `String` / `&str` (UTF-8) and a
 //!   character is a `char` (a full Unicode scalar).
-//!   The C++ code operates on UTF-16 `UChar` code units. Where the algorithm
-//!   scans a NUL-terminated `UChar*` buffer, the port uses `&[char]` / `&str`;
+//!   The C++ code operates on UTF-16 code units. Where the algorithm
+//!   scans a NUL-terminated UTF-16 buffer, the port uses `&[char]` / `&str`;
 //!   the trailing NUL is represented by the slice/string length.
 //!
 //! * **Streams → `std::io`.** The C++ `std::istream&` / `std::ostream&`
@@ -29,26 +29,27 @@
 //!   `Seek` because it "puts back" up to three bytes and `std::io::Read` has no
 //!   `putback`; the C++ `istream::putback` calls map to `Seek::seek(Current(-n))`.
 //!
-//! * **No UTF-16 surrogates.** `u_fgetc`'s C++ body caches a pending *low
+//! * **No UTF-16 surrogates.** The C++ character reader caches a pending *low
 //!   surrogate* per stream (`cps[4]`) so callers see non-BMP code points one
 //!   UTF-16 unit at a time. A Rust `char` is a full scalar and cannot hold a
 //!   lone surrogate, so this port decodes each UTF-8 sequence to a single
 //!   `char` and the surrogate-cache machinery is elided. Observable divergence:
-//!   a non-BMP code point occupies ONE `char` slot here vs TWO `UChar` units in
-//!   C++. `U_EOF` (0xFFFF) is preserved as the sentinel `'\u{FFFF}'`.
+//!   a non-BMP code point occupies ONE `char` slot here vs TWO UTF-16 code
+//!   units in C++. The 0xFFFF end-of-stream sentinel is preserved as
+//!   `'\u{FFFF}'`.
 //!
-//! * **`u_fprintf` family.** Rust has no C `va_list`, and ICU's
-//!   `u_vsnprintf`/`u_vsnprintf_u` printf engine (plus the 500-UChar / 1500-byte
-//!   two-pass stack-buffer resize dance) has no std equivalent. The wrappers
-//!   instead take `std::fmt::Arguments` (produced by `format_args!` at the call
-//!   site); observable behavior — formatted UTF-8 written to the sink, and the
-//!   UTF-16 code-unit count returned — is preserved. The `char*`- vs
-//!   `UChar*`-format overloads collapse (all format strings are Rust/UTF-8).
+//! * **Formatted output.** Rust has no C `va_list`, and the C++ printf engine
+//!   (plus its 500-unit / 1500-byte two-pass stack-buffer resize dance) has no
+//!   std equivalent. The wrappers are dissolved into `write!` at each call
+//!   site; the observable behavior — formatted UTF-8 written to the sink — is
+//!   preserved. The narrow- vs UTF-16-format overloads collapse (all format
+//!   strings are Rust/UTF-8).
 //!
 //! * **`throw` → `panic!`.** Every C++ `throw std::runtime_error(...)` becomes a
-//!   `panic!` with the same message. `ux_strCaseCompare`'s error path (which in
-//!   C++ `throw`s a *pointer*, uncatchable by `catch(const std::exception&)`) is
-//!   unreachable in the std approximation and documented at the site.
+//!   `panic!` with the same message. The case-insensitive compare's error path
+//!   (which in C++ `throw`s a *pointer*, uncatchable by
+//!   `catch(const std::exception&)`) is unreachable in the std approximation
+//!   and documented at the site.
 
 use std::io::{Read, Seek, SeekFrom, Write};
 
@@ -61,7 +62,7 @@ use crate::inlines::{isdelim, isnl, isspace};
 // `Strings.hpp`. Their canonical home is `crate::strings`, but that module only
 // ported the `KEYWORDS` enum so far; `crate::grammar` already carries a private
 // `S_OR`/`S_MINUS` (as `u32`). They are (re)defined here as the `int` that
-// `ux_isSetOp` returns. NOTE for the lead: consolidate these into `strings.rs`
+// `set_op_code` returns. NOTE for the lead: consolidate these into `strings.rs`
 // and have `grammar.rs` + `uextras.rs` share one definition.
 // ---------------------------------------------------------------------------
 pub const S_IGNORE: i32 = 0;
@@ -73,9 +74,9 @@ pub const S_SET_DIFF: i32 = 9;
 pub const S_SET_ISECT_U: i32 = 10;
 pub const S_SET_SYMDIFF_U: i32 = 11;
 
-/// ICU `U_EOF` end sentinel (0xFFFF). U+FFFF is a noncharacter, so it never
+/// End-of-stream sentinel (0xFFFF). U+FFFF is a noncharacter, so it never
 /// appears in valid text — matching how C++ overloads it as the EOF marker.
-pub const U_EOF: char = '\u{FFFF}';
+pub const EOF_CHAR: char = '\u{FFFF}';
 
 /// `Str::npos` (`SIZE_MAX`).
 pub const NPOS: usize = usize::MAX;
@@ -183,26 +184,25 @@ pub fn strip_bom<S: Read + Seek>(stream: &mut S) -> bool {
 }
 
 // ===========================================================================
-// ICU std::istream input wrappers (uextras.cpp)
+// std::istream input wrappers (uextras.cpp)
 // ===========================================================================
 
 // [spec:cg3:def:uextras.u-fgets-fn]
 // [spec:cg3:sem:uextras.u-fgets-fn]
 //
-// `UChar* s` → `&mut [char]`; returns `bool` (`true` ≈ the non-null `s`,
-// `false` ≈ `nullptr`). QUIRKS reproduced: (1) the terminator is written at
-// `s[i+1]`, not `s[i]`; (2) a line that is just a newline stores `s[0]` then
-// returns `false` (`i == 0`) — indistinguishable from EOF, so callers treat an
-// empty line as "read nothing"; (3) an exactly-full buffer writes no
-// terminator. The caller must provide `s.len() >= n + 1` (so the `s[i+1]`
-// write stays in bounds), as `get_line_clean` does.
-/// C++ `u_fgets`.
+// Returns `bool` (`true` ≈ the C++'s non-null `s`, `false` ≈ `nullptr`).
+// QUIRKS reproduced: (1) the terminator is written at `s[i+1]`, not `s[i]`;
+// (2) a line that is just a newline stores `s[0]` then returns `false`
+// (`i == 0`) — indistinguishable from EOF, so callers treat an empty line as
+// "read nothing"; (3) an exactly-full buffer writes no terminator. The caller
+// must provide `s.len() >= n + 1` (so the `s[i+1]` write stays in bounds), as
+// `get_line_clean` does.
 pub fn read_line_chars<R: Read>(s: &mut [char], n: i32, input: &mut R) -> bool {
     s[0] = '\0';
     let mut i: i32 = 0;
     while i < n {
         let c = read_char(input);
-        if c == U_EOF {
+        if c == EOF_CHAR {
             break; // EOF: nothing stored at s[i]
         }
         s[i as usize] = c;
@@ -226,14 +226,13 @@ pub fn read_line_chars<R: Read>(s: &mut [char], n: i32, input: &mut R) -> bool {
 //
 // Reads one UTF-8 sequence and returns it as a single `char`. See the module
 // note: the UTF-16 surrogate-pair cache (`cps[4]`) is elided because a `char`
-// is a full scalar (no lone surrogates). Returns `U_EOF` on end-of-stream and
+// is a full scalar (no lone surrogates). Returns `EOF_CHAR` on end-of-stream and
 // `'\0'` when the first byte read is a NUL. The lead-byte masks (0xF0/0xE0/0xC0,
 // widest first) and the short-read `panic!`s mirror the source.
-/// C++ `u_fgetc`.
 pub fn read_char<R: Read>(input: &mut R) -> char {
     let c = match read_byte(input) {
         Some(v) => v,
-        None => return U_EOF, // i == 0 && c == EOF
+        None => return EOF_CHAR, // i == 0 && c == EOF
     };
 
     let mut buf = [0u8; 4];
@@ -337,16 +336,16 @@ pub fn read_utf8<R: Read>(input: &mut R, buf_size: usize) -> Vec<u8> {
 }
 
 // ===========================================================================
-// ICU std::ostream output wrappers (uextras.cpp)
+// std::ostream output wrappers (uextras.cpp)
 // ===========================================================================
 
 // [spec:cg3:def:uextras.u-fflush-fn]
 // [spec:cg3:sem:uextras.u-fflush-fn]
 //
-// DISSOLVED: the C++ `u_fflush(ostream&)` / `u_fflush(ostream*)` overload pair
-// exists so a `std::ostream` can be flushed through the same `u_`-prefixed
-// facade as the rest of the ICU stdio family. Its whole body is `output.flush()`
-// with the result discarded, which in Rust is `let _ = output.flush();` — a
+// DISSOLVED: the C++ flush overload pair (`ostream&` / `ostream*`) exists so a
+// `std::ostream` can be flushed through the same prefixed facade as the rest
+// of the stdio wrapper family. Its whole body is `output.flush()` with the
+// result discarded, which in Rust is `let _ = output.flush();` — a
 // method call on the `Write` the caller already holds. Every former call site
 // now writes that directly. `dissolved_printf_shims_are_plain_write` (tests
 // below) pins the observable contract.
@@ -358,13 +357,13 @@ pub fn read_utf8<R: Read>(input: &mut R, buf_size: usize) -> Vec<u8> {
 // [spec:cg3:def:uextras.u-fprintf-u-fn]
 // [spec:cg3:sem:uextras.u-fprintf-u-fn]
 //
-// DISSOLVED (wave 4, printf-removal): the C++ `u_fprintf`/`u_fprintf_u`
-// overload family and its `_u_vsnprintf` formatting core are printf-vararg
-// C-isms with no Rust analog to preserve. Their observable contract — format
+// DISSOLVED: the C++ formatted-print overload family
+// and its `vsnprintf`-style formatting core are printf-vararg C-isms with no
+// Rust analog to preserve. Their observable contract — format
 // the arguments and write the result to the output stream as UTF-8 bytes,
 // ignoring I/O errors — is exactly `let _ = write!(out, ...)`, which is what
 // every former call site now does directly. The C++-internal mechanics the sem
-// rules describe (two-pass 500-UChar/1500-byte stack buffers, the UTF-16
+// rules describe (two-pass 500-unit/1500-byte stack buffers, the UTF-16
 // code-unit return count) had no observable effect in the port: the buffers
 // were a resize strategy and NO caller in the entire tree consumed the return
 // value. `dissolved_printf_shims_are_plain_write` (tests below) pins the
@@ -373,10 +372,9 @@ pub fn read_utf8<R: Read>(input: &mut R, buf_size: usize) -> Vec<u8> {
 // [spec:cg3:def:uextras.u-fputc-fn]
 // [spec:cg3:sem:uextras.u-fputc-fn]
 //
-// `UChar32 c` → `char`. BUG/LIMITATION reproduced faithfully: the second branch
-// cuts off at 0x7FFF, so every code point at or above 0x8000 `panic!`s ("can't
-// handle >= 0x7FFF"), even though 0x7FFF itself is handled.
-/// C++ `u_fputc`.
+// BUG/LIMITATION reproduced faithfully: the second branch cuts off at 0x7FFF,
+// so every code point at or above 0x8000 `panic!`s ("can't handle >= 0x7FFF"),
+// even though 0x7FFF itself is handled.
 pub fn write_char<W: Write>(c32: char, output: &mut W) -> char {
     let v = c32 as u32;
     if v <= 0x7F {
@@ -413,7 +411,7 @@ pub fn dir_prefix(input: &str) -> String {
     tmp
 }
 
-/// POSIX `dirname(3)` reimplementation (ICU/libc unavailable). Mirrors
+/// POSIX `dirname(3)` reimplementation (not in std). Mirrors
 /// glibc/musl behavior: strips trailing slashes, drops the last component, and
 /// returns "." when there is no directory part and "/" for the root. NOTE:
 /// parity with the platform `dirname(3)` on unusual inputs is a known risk.
@@ -456,11 +454,11 @@ fn dirname_posix(path: &str) -> String {
 // [spec:cg3:def:uextras.cg3.find-and-replace-fn]
 // [spec:cg3:sem:uextras.cg3.find-and-replace-fn]
 //
-// The C++ `UnicodeString&` (ICU UTF-16, mutable) → `&mut UString` (owned UTF-8
-// `String`); the port has no separate ICU `UnicodeString` type. `offset` and
-// the `from`/`to` sizes are byte offsets into the UTF-8 buffer (the direct
-// analog of C++'s code-unit offsets). Advancing `offset` past the inserted `to`
-// prevents re-scanning replacements, so a `to` containing `from` cannot loop.
+// The C++ mutates a UTF-16 string in place; here it is a `&mut String`.
+// `offset` and the `from`/`to` sizes are byte offsets into the UTF-8 buffer
+// (the direct analog of C++'s code-unit offsets). Advancing `offset` past the
+// inserted `to` prevents re-scanning replacements, so a `to` containing `from`
+// cannot loop.
 pub fn find_and_replace(str: &mut String, from: &str, to: &str) -> usize {
     let mut rv = 0usize;
     let mut offset = 0usize;
@@ -482,7 +480,7 @@ pub fn find_and_replace(str: &mut String, from: &str, to: &str) -> usize {
 // becomes one `' '`, or the run's last `'\t'` when `keep_tabs`), stopping at
 // the newline (which is NOT copied) or an embedded NUL. Returns `cleaned`'s
 // byte length. A BLANK line yields `line == "\n"` with an empty `cleaned`
-// (the C++ u_fgets nullptr-on-lone-newline quirk); true EOF yields an empty
+// (the C++ line reader's nullptr-on-lone-newline quirk); true EOF yields an empty
 // `line` — callers distinguish the two exactly as the C++ did via `line[0]`.
 // The C++ fixed-buffer doubling and NUL terminators are buffer management with
 // no observable effect and are not reproduced.
@@ -495,10 +493,10 @@ pub fn get_line_clean<R: Read>(
     line.clear();
     cleaned.clear();
 
-    // C++ u_fgets: read chars (UTF-8-decoded) until a stored newline or EOF.
+    // As the C++ line reader: read chars (UTF-8-decoded) until a stored newline or EOF.
     loop {
         let c = read_char(input);
-        if c == U_EOF {
+        if c == EOF_CHAR {
             break;
         }
         line.push(c);
@@ -506,7 +504,7 @@ pub fn get_line_clean<R: Read>(
             break;
         }
     }
-    // The C++ u_fgets lone-newline quirk: a blank line reports "read nothing", so
+    // The C++ line reader's lone-newline quirk: a blank line reports "read nothing", so
     // nothing is copied to `cleaned` (the C++ broke before the copy loop).
     if line == "\n" || (line.chars().count() == 1 && line.chars().next().map(isnl).unwrap_or(false))
     {
@@ -622,8 +620,8 @@ pub fn get_line_clean_chars<R: Read>(
 // [spec:cg3:def:uextras.cg3.ux-is-set-op-fn]
 // [spec:cg3:sem:uextras.cg3.ux-is-set-op-fn]
 //
-// `const UChar* it` (NUL-terminated) → `&str`. `it[1] == 0` (a one-code-unit
-// token) is "the string has exactly one char" (`c1 == None`). Returns the `S_*`
+// The C++ `it[1] == 0` (a one-code-unit token) is "the string has exactly one
+// char" (`c1 == None`). Returns the `S_*`
 // code, or `S_IGNORE`.
 pub fn set_op_code(it: &str) -> i32 {
     let mut chars = it.chars();
@@ -659,9 +657,7 @@ pub fn set_op_code(it: &str) -> i32 {
 // [spec:cg3:def:uextras.cg3.ux-is-empty-fn]
 // [spec:cg3:sem:uextras.cg3.ux-is-empty-fn]
 //
-// `const UChar* text` (NUL-terminated) → `&str`; `u_strlen` (length to NUL) is
-// the string's char count. Returns true when empty or all-whitespace per
-// `ISSPACE`.
+// Returns true when empty or all-whitespace per `ISSPACE`.
 pub fn is_blank(text: &str) -> bool {
     for c in text.chars() {
         if !isspace(c) {
@@ -680,7 +676,7 @@ pub fn is_blank(text: &str) -> bool {
 // (only when `a` is the lowercase form), and `+ 32` is applied blindly (false
 // "case" matches outside A-Z). Reading past `a` is UB in C++; safe Rust treats
 // a missing `a[i]` as a mismatch and a missing `a[n]` as end-of-string
-// (`a[n] == 0`). `u_getCombiningClass` is unavailable and approximated as 0.
+// (`a[n] == 0`). The combining-class lookup is approximated as 0.
 //
 // The walk is driven by `a` up to the caller-supplied count `n` (the C++
 // `for (i=0; i<n; ++i)` pointer walk): `a` running out inside the prefix is a
@@ -704,9 +700,9 @@ pub fn matches_keyword_chars(a: &[char], b: &[char], n: usize) -> bool {
     }
 }
 
-/// `&str` form collapsing the C++ overloads
-/// `ux_simplecasecmp(a, b.data(), b.size())` — for `b` being `UString`,
-/// `UStringView`, and `(UStringView, UStringView)`. `n` is `b`'s char count.
+/// `&str` form collapsing the C++ overloads that pass `b`'s data and size —
+/// for `b` being an owned string, a string view, and a pair of views. `n` is
+/// `b`'s char count.
 /// `a` is the text being scanned and `b` the keyword it must start with; the
 /// comparison is not symmetric (see [`matches_keyword_chars`]).
 pub fn matches_keyword(a: &str, b: &str) -> bool {
@@ -716,7 +712,7 @@ pub fn matches_keyword(a: &str, b: &str) -> bool {
     matches_keyword_chars(&ac, &bc, n)
 }
 
-/// ICU `u_getCombiningClass` is unavailable in std; combining class is 0 for
+/// Canonical combining class lookup, not in std; combining class is 0 for
 /// every ASCII char, which is all that reaches this branch in practice. NOTE:
 /// parity risk for real combining marks (Wave 4 may wire a Unicode-data crate).
 fn combining_class(_c: char) -> u8 {
@@ -726,14 +722,13 @@ fn combining_class(_c: char) -> u8 {
 // [spec:cg3:def:uextras.cg3.ux-str-case-compare-fn]
 // [spec:cg3:sem:uextras.cg3.ux-str-case-compare-fn]
 //
-// Proper full-Unicode case-insensitive equality. ICU
-// `u_strCaseCompare(U_FOLD_CASE_DEFAULT)` is approximated with Rust's
-// Unicode-aware lowercase folding (parity risk: ICU `foldCase` and Rust
+// Proper full-Unicode case-insensitive equality. The C++ compares with full
+// Unicode default case folding; this approximates it with Rust's
+// Unicode-aware lowercase folding (parity risk: full case folding and Rust
 // `to_lowercase` tables differ for some scripts). BUG note: the C++ error path
 // `throw new std::runtime_error(...)` (a raw POINTER, uncatchable by
-// `catch(const std::exception&)`) has no analog — the std folding path has no
-// `UErrorCode`, so it is simply unreachable here.
-/// C++ `ux_strCaseCompare`.
+// `catch(const std::exception&)`) has no analog — the std folding path cannot
+// fail, so it is simply unreachable here.
 pub fn eq_ignore_case(a: &str, b: &str) -> bool {
     a.chars()
         .flat_map(char::to_lowercase)
@@ -741,7 +736,7 @@ pub fn eq_ignore_case(a: &str, b: &str) -> bool {
 }
 
 // [spec:cg3:def:uextras.cg3.substr-t.value-type]
-// value_type = char (UChar) — the element type of the underlying UTF-8 string.
+// value_type = char — the element type of the underlying UTF-8 string.
 
 // [spec:cg3:def:uextras.cg3.substr-t]
 /// C++ `struct substr_t` — in-place substring proxy. In C++ this temporarily NUL-terminates the backing
@@ -863,7 +858,7 @@ mod tests {
         assert_eq!(basename(None), "."); // null path
     }
 
-    // find_and_replace mutates the UString in place and returns the count; a `to`
+    // find_and_replace mutates the string in place and returns the count; a `to`
     // containing `from` must not loop forever (offset advances past the insert).
     // [spec:cg3:sem:uextras.cg3.find-and-replace-fn/test]
     #[test]
@@ -959,7 +954,7 @@ mod tests {
         assert_eq!(partial.position(), 0);
     }
 
-    // Output helpers. The u_fprintf/u_fprintf_u/_u_vsnprintf/u_fflush shims are
+    // Output helpers. The formatted-print and flush shims are
     // DISSOLVED: formatted stream output is plain `write!` and flushing is plain
     // `Write::flush` at every former call site. This pins their observable
     // contract — the formatted arguments land on the stream as UTF-8 bytes, I/O
@@ -971,7 +966,6 @@ mod tests {
     // [spec:cg3:sem:uextras.u-fflush-fn/test]
     #[test]
     fn dissolved_printf_shims_are_plain_write() {
-        // Former u_fprintf(out, format_args!("hi {}", 42)) call shape.
         let mut out: Vec<u8> = Vec::new();
         let _ = write!(out, "hi {}", 42);
         assert_eq!(String::from_utf8(out).unwrap(), "hi 42");

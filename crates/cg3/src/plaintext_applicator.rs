@@ -22,10 +22,10 @@
 //! effectively dead).
 //!
 //! ## Engine / core mismatches (noted)
-//! * ICU `u_ispunct` → `char::is_ascii_punctuation` (ASCII-only approximation —
-//!   NON-ASCII punctuation like `«»¡¿` will NOT be peeled, a known parity gap
-//!   vs. ICU's full Unicode punctuation classification).
-//! * ICU `u_isupper` → `char::is_uppercase`; `UnicodeString::toLower()` →
+//! * The C++ punctuation test → `char::is_ascii_punctuation` (ASCII-only
+//!   approximation — NON-ASCII punctuation like `«»¡¿` will NOT be peeled, a
+//!   known parity gap vs. the C++'s full Unicode punctuation classification).
+//! * The C++ uppercase test → `char::is_uppercase`; its string lowering →
 //!   `str::to_lowercase` (locale-independent full Unicode lowering).
 //! * `does_set_match_cohort_normal` gained a 4th `context` param (pass `None`);
 //!   `add_tag` is `add_tag(&str, type)`.
@@ -64,8 +64,8 @@ pub struct PlaintextApplicator<B = Box<GrammarApplicator>> {
 impl PlaintextApplicator<Box<GrammarApplicator>> {
     // [spec:cg3:def:plaintext-applicator.cg3.plaintext-applicator.plaintext-applicator-fn]
     // [spec:cg3:sem:plaintext-applicator.cg3.plaintext-applicator.plaintext-applicator-fn]
-    /// C++ `PlaintextApplicator::PlaintextApplicator(std::ostream& ux_err)` —
-    /// forwards `ux_err` to the base and sets `allow_magic_readings = true`.
+    /// C++ `PlaintextApplicator::PlaintextApplicator` — forwards the error
+    /// stream to the base and sets `allow_magic_readings = true`.
     /// `add_tags` keeps its `false` default.
     pub fn new(base: GrammarApplicator) -> Self {
         Self::with_base(Box::new(base))
@@ -142,7 +142,7 @@ where
         R: Read + Seek,
         W: Write,
     {
-        // ux_stdin/ux_stdout, validity guards, no-delimiter warnings: deferred I/O.
+        // Validity guards and no-delimiter warnings: deferred I/O.
 
         let mut line = String::new();
         let mut cleaned = String::new();

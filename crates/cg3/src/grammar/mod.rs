@@ -94,7 +94,7 @@ use crate::tag_trie::{
 // These live in `src/Strings.hpp` (annotated there) but are out of scope for
 // the `crate::strings` port (which covers only `KEYWORDS`). Because this pass
 // may edit ONLY `grammar.rs`, they are reproduced here verbatim as local
-// stand-ins (same precedent as the local ICU/scanf stand-ins in `tag.rs` /
+// stand-ins (same precedent as the local scanf stand-ins in `tag.rs` /
 // `set.rs`). To reconcile: move to `crate::strings` when that module grows.
 const STR_DELIMITSET: &str = "_S_DELIMITERS_";
 const STR_SOFTDELIMITSET: &str = "_S_SOFT_DELIMITERS_";
@@ -119,22 +119,20 @@ const S_MINUS: u32 = 5;
 pub type Contexts = BTreeMap<u32, CtxId>;
 
 // [spec:cg3:def:grammar.cg3.grammar.set-name-seeds-t]
-/// C++ `typedef std::unordered_map<UString, uint32_t, hash_ustring> set_name_seeds_t`.
-/// UTF-8 `String` keys; `hash_ustring` collapses into the std hasher.
+/// C++ `set_name_seeds_t`: an unordered map from set name to seed.
+/// `String` keys; the C++ custom string hasher collapses into the std hasher.
 pub type SetNameSeeds = HashMap<String, u32>;
 
 // [spec:cg3:def:grammar.cg3.grammar.static-sets-t]
-/// C++ `typedef std::vector<UString> static_sets_t`.
+/// C++ `static_sets_t`: a vector of set names.
 pub type StaticSets = Vec<String>;
 
 // [spec:cg3:def:grammar.cg3.grammar.regex-tags-t]
-/// C++ `typedef std::set<URegularExpression*> regex_tags_t`.
+/// C++ `regex_tags_t`: a set of compiled-regex pointers.
 ///
-/// NOTE: each `URegularExpression*` is owned by exactly one `Tag` (`tag->regexp`,
-/// inserted in `reindex`). No standalone regex type exists in the port yet
-/// (`regex`-crate wiring is a later concern), so the set is keyed by the owning
-/// tag's `TagId`; the compiled regex is reached via that tag. To reconcile once
-/// `Tag::regexp` is defined.
+/// NOTE: each compiled regex is owned by exactly one `Tag` (`tag->regexp`,
+/// inserted in `reindex`), so the set is keyed by the owning tag's `TagId`; the
+/// compiled regex is reached via that tag.
 pub type RegexTags = BTreeSet<TagId>;
 
 // [spec:cg3:def:grammar.cg3.grammar.icase-tags-t]
@@ -667,7 +665,7 @@ impl Grammar {
     // [spec:cg3:def:grammar.cg3.grammar.allocate-tag-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.allocate-tag-fn]
     /// Interns a tag from raw text. Empty / leading-`(` texts are hard errors
-    /// (`CG3Quit(1)`; the `u_fprintf` diagnostic is deferred I/O); anything
+    /// (`CG3Quit(1)`; the stderr diagnostic is deferred I/O); anything
     /// else goes to [`intern_text`](Self::intern_text).
     pub fn allocate_tag(&mut self, txt: &str) -> Result<TagId, crate::error::ParseError> {
         let first = txt.chars().next().unwrap_or('\0');
@@ -1668,7 +1666,7 @@ impl Grammar {
     // [spec:cg3:sem:grammar.cg3.grammar.reindex-fn]
     /// Core finalization pass (21 steps). Marks used sets/tags/contexts, numbers
     /// the sets, builds every runtime index, and rewrites hash-based refs into
-    /// number-based ones. All `u_fprintf` diagnostics are deferred I/O. See the
+    /// number-based ones. All printed diagnostics are deferred I/O. See the
     /// SET-NUMBER RECONCILIATION note for the `sets_list`/`number` handling.
     ///
     /// `used_tags` asks for the tag dump, after which the C++ `exit(0)`s. That
@@ -1785,7 +1783,7 @@ impl Grammar {
             let mut textual = false;
             for rid in &regex_tag_ids {
                 if let Some(re) = &self.single_tags_list[rid.0].regexp {
-                    // uregex_find(-1) == unanchored search == Regex::is_match.
+                    // Unanchored search, as in the C++.
                     if re.is_match(&ttext) {
                         textual = true;
                     }
@@ -1929,7 +1927,7 @@ impl Grammar {
             self.contexts = tosave2;
         }
 
-        // (9) Unused-sets diagnostic (ux_stdout): deferred I/O; no state change.
+        // (9) Unused-sets diagnostic (stdout): deferred I/O; no state change.
         if unused_sets {
             // "Unused sets:" ... "End of unused sets." — deferred I/O.
         }
@@ -2289,8 +2287,8 @@ impl Grammar {
         // (22) used_tags dump → the C++ exit(0)s here. The caller stops, and
         // stops successfully.
         if used_tags {
-            // for tag in single_tags with T_USED: print toUString(true) to
-            // ux_stdout — deferred I/O.
+            // for tag in single_tags with T_USED: print its escaped text to
+            // stdout — deferred I/O.
             return Ok(Reindexed::DumpedTags);
         }
 

@@ -10,7 +10,7 @@
 //! ARENA MODEL. Pointers become arena ids resolved through `self.base.doc.store`
 //! (`Cohort*`→`CohortId`, `Reading*`→`ReadingId`, `SingleWindow*`→`SwId`) and
 //! `self.base.grammar.single_tags_list` (`Tag*`→`TagId`). Char-by-char C++ walks
-//! (UTF-16 `UChar`) become UTF-8 char reads via `uextras::read_char`.
+//! (UTF-16 code units) become UTF-8 char reads via `uextras::read_char`.
 //!
 //! OUTPUT SINK. C++ `std::ostream& output` → generic `output: &mut W`
 //! (`W: std::io::Write`).
@@ -37,14 +37,15 @@ use crate::single_window::append_cohort;
 use crate::store::RuntimeStore;
 use crate::tag::{T_BASEFORM, T_MAPPING, T_WORDFORM, TagVector};
 use crate::types::TagHash;
-use crate::uextras::{U_EOF, read_char, strip_bom, write_char};
+use crate::uextras::{EOF_CHAR, read_char, strip_bom, write_char};
 
 // C++ `Strings.hpp` string constants.
 const STR_BEGINTAG: &str = ">>>";
 const STR_ENDTAG: &str = "<<<";
 
 // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.node]
-/// C++ nested `struct Node { int self; UString lemma; form; pos; mi; si; }`.
+/// C++ nested `struct Node`: `int self` plus the string fields `lemma`, `form`,
+/// `pos`, `mi`, `si`.
 #[derive(Default, Clone)]
 pub struct Node {
     pub self_: i32,
@@ -103,8 +104,8 @@ fn reverse_reading(store: &mut RuntimeStore, head: ReadingId) -> ReadingId {
 impl MatxinApplicator {
     // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.matxin-applicator-fn]
     // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.matxin-applicator-fn]
-    /// C++ `MatxinApplicator::MatxinApplicator(std::ostream& ux_err)` — forwards
-    /// `ux_err` to the base ctor (body empty); members keep in-class defaults.
+    /// C++ `MatxinApplicator::MatxinApplicator` — forwards the error stream to
+    /// the base ctor (body empty); members keep in-class defaults.
     pub fn new(base: GrammarApplicator) -> Self {
         MatxinApplicator {
             base,
@@ -194,8 +195,8 @@ impl MatxinApplicator {
 
     // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.process-reading-fn]
     // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.process-reading-fn]
-    /// C++ `void MatxinApplicator::processReading(Reading* cReading, const UChar*
-    /// reading_string)`. Parses one Matxin/Apertium-style analysis string.
+    /// C++ `MatxinApplicator::processReading`. Parses one Matxin/Apertium-style
+    /// analysis string.
     pub fn process_reading(
         &mut self,
         c_reading: ReadingId,
@@ -735,7 +736,6 @@ impl MatxinApplicator {
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        // ux_stdin/ux_stdout are Option<()> placeholders.
         if self.get_null_flush() {
             self.run_grammar_on_text_wrapper_null_flush(input, output)?;
             return Ok(());
@@ -758,8 +758,8 @@ impl MatxinApplicator {
             }
         }
 
-        // C++ `UChar inchar = 0;` — the `while ((inchar = u_fgetc(input)) …)`
-        // head assigns it before every read, so no initializer is needed here.
+        // The C++ zero-initializes `inchar`, but the read-loop head assigns it
+        // before every read, so no initializer is needed here.
         let mut inchar: char;
         let mut superblank = false;
         let mut incohort = false;
@@ -794,11 +794,11 @@ impl MatxinApplicator {
         strip_bom(input);
 
         loop {
-            // C++ `while ((inchar = u_fgetc(input)) != 0)` then `if (input.eof())
+            // C++: loop while the char read is not 0, then `if (input.eof())
             // break;`. A read of '\0' terminates the loop (the `!= 0` guard); an
-            // EOF (U_EOF) also terminates it (the `input.eof()` break).
+            // EOF (EOF_CHAR) also terminates it (the `input.eof()` break).
             inchar = read_char(input);
-            if inchar == '\0' || inchar == U_EOF {
+            if inchar == '\0' || inchar == EOF_CHAR {
                 break;
             }
 

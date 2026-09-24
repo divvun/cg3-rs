@@ -5,21 +5,21 @@
 //! Literal, bug-for-bug 1:1 translation (Wave 2, translate pass).
 //!
 //! ## Representation decisions
-//! * **Cursor model.** The C++ walks a NUL-terminated `UChar*& p`. Ported over a
-//!   decoupled `buf: &[char]` slice plus a `pos: &mut usize` cursor (the same
-//!   convention as `crate::inlines`). The buffer is the whole grammar source
-//!   (4 leading NULs + text + trailing NUL padding); `pos` starts at 4 (C++
-//!   `&data[4]`). Each `grammarbufs` entry is a shared, immutable
-//!   [`SrcBuf`](crate::ast::SrcBuf) (`Rc<[char]>`); `parse_source` clones
-//!   the handle (a refcount bump) into an owned local, so `buf` does NOT borrow
-//!   `self` — letting every parse method take `&mut self` + `buf` + `pos`
-//!   without a borrow conflict (and letting `#include` push new buffers while a
-//!   parse is in flight). The char data is never mutated after creation, so the
-//!   shared handle is faithful to the C++ raw pointers into stable
-//!   `unique_ptr<UString>` buffers.
+//! * **Cursor model.** The C++ walks a NUL-terminated buffer by pointer `p`.
+//!   Ported over a decoupled `buf: &[char]` slice plus a `pos: &mut usize`
+//!   cursor (the same convention as `crate::inlines`). The buffer is the whole
+//!   grammar source (4 leading NULs + text + trailing NUL padding); `pos`
+//!   starts at 4 (C++ `&data[4]`). Each `grammarbufs` entry is a shared,
+//!   immutable [`SrcBuf`](crate::ast::SrcBuf) (`Rc<[char]>`); `parse_source`
+//!   clones the handle (a refcount bump) into an owned local, so `buf` does NOT
+//!   borrow `self` — letting every parse method take `&mut self` + `buf` +
+//!   `pos` without a borrow conflict (and letting `#include` push new buffers
+//!   while a parse is in flight). The char data is never mutated after
+//!   creation, so the shared handle is faithful to the C++ raw pointers into
+//!   stable `unique_ptr` string buffers.
 //! * **Errors.** The C++ `error(...)` is `[[noreturn]]` and throws an `int`
-//!   caught per statement by `parseFromUChar`, which recovers by skipping to the
-//!   next line. Here [`TextualParser::error_near`] RETURNS the error and every
+//!   caught per statement by the directive loop, which recovers by skipping to
+//!   the next line. Here [`TextualParser::error_near`] RETURNS the error and every
 //!   call site propagates it with `?` — see `[dec:cg3:results-not-unwinding]`.
 //!   The one frame that cannot use `?` is `parse_source`'s directive loop,
 //!   which records the error and carries on, because a recoverable parse error
@@ -35,7 +35,7 @@
 //!   deviation; `print_ast` itself is ported.
 //! * **Profiler.** The C++ `Profiler* profiler` is always null in the port (no
 //!   Profiler module); every `if (profiler)` block is skipped.
-//! * **`gbuffers[0]` scratch.** The shared UString token scratch becomes a local
+//! * **`gbuffers[0]` scratch.** The shared string token scratch becomes a local
 //!   `String` per extraction.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -286,7 +286,7 @@ struct DynBitset {
 /// `incErrorCount` bailed at the same count with `CG3Quit(1)`.
 pub(crate) const MAX_PARSE_ERRORS: usize = 10;
 
-/// How many characters of source an error quotes. C++ `ux_bufcpy(nearbuf, p, 20)`.
+/// How many characters of source an error quotes. The C++ copies 20 into `nearbuf`.
 const NEAR_CONTEXT_CHARS: usize = 20;
 
 /// Where the author's text starts in a parse buffer. Each buffer is 4 leading
@@ -317,7 +317,7 @@ fn slen(s: &str) -> usize {
     s.chars().count()
 }
 
-/// C++ `ux_simplecasecmp(p, STR.data(), STR.size())`.
+/// Keyword match at `pos`, via [`crate::uextras::matches_keyword_chars`].
 fn simplecasecmp(buf: &[char], pos: usize, s: &str) -> bool {
     let bc: Vec<char> = s.chars().collect();
     crate::uextras::matches_keyword_chars(&buf[pos..], &bc, bc.len())
@@ -330,7 +330,7 @@ fn is_icase_kw(buf: &[char], pos: usize, uc: &str, lc: &str) -> usize {
     crate::inlines::is_icase_chars(buf, pos, &ucv, &lcv)
 }
 
-/// `u_sscanf(s, "%d", &out)`: leading optional sign + decimal digits.
+/// scanf `"%d"`: leading optional sign + decimal digits.
 fn scan_d(s: &str) -> i32 {
     let chars: Vec<char> = s.chars().collect();
     let mut i = 0usize;
@@ -477,10 +477,9 @@ fn merge_difference(g: &Grammar, a: &[TagVector], b: &[TagVector]) -> Vec<TagVec
 }
 
 // [spec:cg3:def:textual-parser.cg3.textual-parser.deferred-t]
-/// `typedef std::unordered_map<ContextualTest*, std::pair<size_t, UString>>
-/// deferred_t` (TextualParser.hpp:86). The `ContextualTest*` key becomes the arena
-/// `CtxId`, `UString` becomes `String`; maps a deferred template context to its
-/// `(line, name)` for late resolution.
+/// C++ `deferred_t` (TextualParser.hpp:86), an unordered map keyed by
+/// `ContextualTest*`, which becomes the arena `CtxId`; maps a deferred template
+/// context to its `(line, name)` for late resolution.
 type DeferredTests = HashMap<CtxId, (usize, String)>;
 
 // [spec:cg3:req:diagnostics.source-identity]
@@ -574,10 +573,10 @@ pub struct TextualParser {
     /// `[spec:cg3:req:errors.parse-reports-all]`. Replaces the C++
     /// `error_counter`, which was thrown and never read.
     errors: Vec<crate::error::ParseError>,
-    /// Signals the `END` directive breaking the `parseFromUChar` loop.
+    /// Signals the `END` directive breaking the `parse_source` loop.
     parse_end_break: bool,
-    /// C++ base `URegularExpression* nrules` — the `--nrules` name filter,
-    /// compiled through the ICU seam like every other user-authored pattern
+    /// C++ base `nrules` — the `--nrules` name filter, compiled through the
+    /// tag-regex seam like every other user-authored pattern
     /// (`[spec:cg3:req:tag-regex.single-seam]`).
     pub nrules: Option<TagRegex>,
     pub nrules_inv: Option<TagRegex>,
@@ -592,7 +591,7 @@ pub struct TextualParser {
 impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.textual-parser-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.textual-parser-fn]
-    /// C++ `TextualParser(Grammar& res, std::ostream& ux_err, bool _dump_ast)`.
+    /// C++ `TextualParser` ctor.
     /// The port OWNS its `Grammar`; the C++ error-stream arg becomes stderr.
     pub fn new(grammar: Grammar, dump_ast: bool) -> TextualParser {
         TextualParser {
@@ -732,7 +731,7 @@ impl TextualParser {
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.error-fn+1]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn+1]
-    /// The `(str, const UChar* p)` error overload (the near-context form the
+    /// The `(str, p)` error overload (the near-context form the
     /// vast majority of sites use). `at` is the offset of `p` into the buffer
     /// being parsed.
     ///

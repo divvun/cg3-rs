@@ -853,7 +853,7 @@ fn set_name_hash_reindex_markused_drop() {
 // ===========================================================================
 
 // Rule() defaults (K_IGNORE type, zeroed/null members), setName (nullable
-// UChar*), addContextualTest (push_front onto the passed head list),
+// string), addContextualTest (push_front onto the passed head list),
 // reverseContextualTests (tests + dep_tests), init_flag_excls / FLAGS_EXCLS
 // (mutual-exclusion masks per flag bit).
 // [spec:cg3:sem:rule.cg3.rule.rule-fn/test]
@@ -985,7 +985,7 @@ fn tag_parse_raw_and_numeric() {
 
 // Tag copy ctor (Clone: tag_raw NOT copied — quirk; vs_names copied), rehash
 // (plain hash + flag markers + seed fold), markUsed, allocateVsSets/VsNames
-// (lazy, idempotent), toUString (prefix/suffix reconstruction + escaping +
+// (lazy, idempotent), string conversion (prefix/suffix reconstruction + escaping +
 // tag_raw passthrough).
 // [spec:cg3:sem:tag.cg3.tag.tag-fn/test]
 // [spec:cg3:sem:tag.cg3.tag.rehash-fn/test]
@@ -1069,22 +1069,22 @@ fn tag_ctor_rehash_markused_vs_tostring() {
     t.allocate_vs_sets();
     assert!(t.vs_sets.is_some());
 
-    // toUString: regex tag gets /…/r wrapping; escape mode backslashes specials;
-    // a non-empty tag_raw short-circuits everything.
+    // String conversion: regex tag gets /…/r wrapping; escape mode backslashes
+    // specials; a non-empty tag_raw short-circuits everything.
     let rt = Tag {
         tag: "x".into(),
         r#type: T_REGEXP,
         ..Default::default()
     };
-    assert_eq!(rt.to_u_string(false), "/x/r");
+    assert_eq!(rt.to_text(false), "/x/r");
     let mut et = Tag {
         tag: "a b(c)".into(),
         ..Default::default()
     };
-    assert_eq!(et.to_u_string(true), "a\\ b\\(c\\)");
-    assert_eq!(et.to_u_string(false), "a b(c)");
+    assert_eq!(et.to_text(true), "a\\ b\\(c\\)");
+    assert_eq!(et.to_text(false), "a b(c)");
     et.tag_raw = "RAW".into();
-    assert_eq!(et.to_u_string(true), "RAW");
+    assert_eq!(et.to_text(true), "RAW");
 
     // Copy ctor: everything copied except tag_raw (quirk), vs_names cloned.
     t.tag_raw = "orig-raw".into();

@@ -21,7 +21,7 @@
 //! sorts by BTreeMap when `preserve_order` is off; see the DIVERGENCE note on
 //! [`JsonlApplicator::print_cohort`]).
 //!
-//! ## UChar / NUL DIVERGENCE (faithful-with-a-flag)
+//! ## NUL DIVERGENCE (faithful-with-a-flag)
 //! RapidJSON `json::Value(cstr, allocator)` builds each string from a C string,
 //! so a tag/text containing an embedded NUL (`\0`) is TRUNCATED at the NUL. This
 //! port stores full Rust `String`s into `serde_json::Value::String`, which keep
@@ -67,7 +67,7 @@ const CT_REMOVED: crate::cohort::CohortType = crate::cohort::CT_REMOVED;
 
 // [spec:cg3:def:jsonl-applicator.cg3.json-to-ustring-fn]
 // [spec:cg3:sem:jsonl-applicator.cg3.json-to-ustring-fn]
-/// C++ free fn `UString json_to_string(const json::Value& val)`. If `val` is a
+/// C++ free fn `json_to_ustring`. If `val` is a
 /// JSON string, decode its UTF-8 bytes to the internal (UTF-8) representation;
 /// for any non-string value (null / number / bool / array / object / missing),
 /// return an empty string.
@@ -90,8 +90,8 @@ pub struct JsonlApplicator<'a> {
 impl<'a> JsonlApplicator<'a> {
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.jsonl-applicator-fn]
     // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.jsonl-applicator-fn]
-    /// C++ `JsonlApplicator::JsonlApplicator(std::ostream& ux_err)` — delegates to
-    /// the base `GrammarApplicator(ux_err)` with an empty body and no subclass
+    /// C++ `JsonlApplicator::JsonlApplicator` — delegates to the base
+    /// `GrammarApplicator` ctor with an empty body and no subclass
     /// data. Here the caller constructs the base applicator (which owns the
     /// grammar); `new` just wraps it. (The C++ explicit empty destructor exists
     /// only to anchor the vtable and has no Rust analog.)
@@ -408,11 +408,10 @@ impl<'a> JsonlApplicator<'a> {
     ///
     /// PORT NOTES:
     /// * `input` is `Read + Seek` (needs `Seek` for [`crate::uextras::strip_bom`]); line
-    ///   reading uses a [`BufReader`](std::io::BufReader). The C++ `ux_stdin` /
-    ///   `ux_stdout` assignments are elided (`Option<()>` placeholders). Output
-    ///   validity checks (`!output`) have no analog.
+    ///   reading uses a [`BufReader`](std::io::BufReader). Output validity
+    ///   checks (`!output`) have no analog.
     /// * The `good()`/`eof()`-guard `CG3Quit(1)` branches and the delimiter
-    ///   warnings write to `ux_stderr` — deferred (placeholder); the fatal quits
+    ///   warnings write to stderr — deferred; the fatal quits
     ///   are not triggered here.
     /// * `variables.clear()` (the member map) is reproduced; the LOCAL
     ///   `variables_set/rem/output` are NOT cleared on FLUSH (faithful).
@@ -442,7 +441,6 @@ impl<'a> JsonlApplicator<'a> {
         R: Read + Seek,
         W: Write,
     {
-        // ux_stdin/ux_stdout assignments elided (Option<()> placeholders).
         // good()/eof()/output/grammar validity CG3Quit(1) checks: deferred I/O.
         // No-delimiter warnings: deferred I/O.
 
@@ -519,9 +517,9 @@ impl<'a> JsonlApplicator<'a> {
 
             // Command handling.
             if let Some(cmd_v) = obj.get("cmd") {
-                let cmd_ustr = json_to_string(cmd_v);
-                if !cmd_ustr.is_empty() {
-                    if cmd_ustr == STR_CMD_FLUSH {
+                let cmd = json_to_string(cmd_v);
+                if !cmd.is_empty() {
+                    if cmd == STR_CMD_FLUSH {
                         // verbose Info line: deferred.
                         let back_swindow = self.base.doc.stream.back();
                         if let Some(bsw) = back_swindow {
@@ -573,25 +571,24 @@ impl<'a> JsonlApplicator<'a> {
                         }
 
                         if back_swindow.is_none() {
-                            fmt.print_stream_command(&mut self.base.engine(), &cmd_ustr, output);
+                            fmt.print_stream_command(&mut self.base.engine(), &cmd, output);
                         }
 
                         self.base.doc.variables.clear(0);
                         let _ = output.flush();
-                        // u_fflush(*ux_stderr): deferred.
-                    } else if cmd_ustr == STR_CMD_IGNORE {
+                    } else if cmd == STR_CMD_IGNORE {
                         ignoreinput = true;
-                        fmt.print_stream_command(&mut self.base.engine(), &cmd_ustr, output);
-                    } else if cmd_ustr == STR_CMD_RESUME {
+                        fmt.print_stream_command(&mut self.base.engine(), &cmd, output);
+                    } else if cmd == STR_CMD_RESUME {
                         ignoreinput = false;
-                        fmt.print_stream_command(&mut self.base.engine(), &cmd_ustr, output);
-                    } else if cmd_ustr == STR_CMD_EXIT {
-                        fmt.print_stream_command(&mut self.base.engine(), &cmd_ustr, output);
+                        fmt.print_stream_command(&mut self.base.engine(), &cmd, output);
+                    } else if cmd == STR_CMD_EXIT {
+                        fmt.print_stream_command(&mut self.base.engine(), &cmd, output);
                         exit_requested = true;
                         break 'mainloop; // goto CGCMD_EXIT_JSONL
-                    } else if cmd_ustr.starts_with(STR_CMD_SETVAR) {
-                        // payload = cmd_ustr.substr(SETVAR.size(), size - SETVAR.size() - 1)
-                        let payload = substr_strip_prefix_and_last(&cmd_ustr, STR_CMD_SETVAR);
+                    } else if cmd.starts_with(STR_CMD_SETVAR) {
+                        // payload = cmd.substr(SETVAR.size(), size - SETVAR.size() - 1)
+                        let payload = substr_strip_prefix_and_last(&cmd, STR_CMD_SETVAR);
                         let key_tag: TagId;
                         let value_hash: u32;
                         if let Some(eq) = payload.find('=') {
@@ -609,8 +606,8 @@ impl<'a> JsonlApplicator<'a> {
                         *variables_set.index_or_insert(key_hash) = value_hash;
                         variables_rem.erase(key_hash);
                         variables_output.insert(key_hash);
-                    } else if cmd_ustr.starts_with(STR_CMD_REMVAR) {
-                        let payload = substr_strip_prefix_and_last(&cmd_ustr, STR_CMD_REMVAR);
+                    } else if cmd.starts_with(STR_CMD_REMVAR) {
+                        let payload = substr_strip_prefix_and_last(&cmd, STR_CMD_REMVAR);
                         let key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty())?;
                         let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash.get();
                         variables_set.erase(key_hash);
@@ -629,9 +626,9 @@ impl<'a> JsonlApplicator<'a> {
             // Ignore mode.
             if ignoreinput {
                 if let Some(t_v) = obj.get("t") {
-                    let t_ustr = json_to_string(t_v);
-                    if !t_ustr.is_empty() {
-                        fmt.print_plain_text_line(&mut self.base.engine(), &t_ustr, output);
+                    let text = json_to_string(t_v);
+                    if !text.is_empty() {
+                        fmt.print_plain_text_line(&mut self.base.engine(), &text, output);
                     }
                 }
                 continue;
@@ -639,8 +636,8 @@ impl<'a> JsonlApplicator<'a> {
 
             // Plain text: has "t" and NOT "w".
             if obj.contains_key("t") && !obj.contains_key("w") {
-                let t_ustr = json_to_string(obj.get("t").unwrap());
-                if !t_ustr.is_empty() {
+                let text = json_to_string(obj.get("t").unwrap());
+                if !text.is_empty() {
                     // verbose Info: deferred.
                     if let Some(lc) = l_cohort {
                         self.base
@@ -649,7 +646,7 @@ impl<'a> JsonlApplicator<'a> {
                             .cohorts
                             .get_mut(lc.0)
                             .text
-                            .push_str(&t_ustr);
+                            .push_str(&text);
                     } else if let Some(lsw) = l_swindow {
                         self.base
                             .doc
@@ -657,9 +654,9 @@ impl<'a> JsonlApplicator<'a> {
                             .single_windows
                             .get_mut(lsw.0)
                             .text
-                            .push_str(&t_ustr);
+                            .push_str(&text);
                     } else {
-                        fmt.print_plain_text_line(&mut self.base.engine(), &t_ustr, output);
+                        fmt.print_plain_text_line(&mut self.base.engine(), &text, output);
                     }
                 } else {
                     tracing::warn!(
@@ -992,7 +989,7 @@ impl JsonlFormat {
 
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
     // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
-    /// C++ `void printStreamCommand(UStringView cmd, std::ostream& output)`. Emits
+    /// C++ `printStreamCommand`. Emits
     /// `{"cmd": <cmd>}` + `"\n"`. Does NOT flush.
     pub(crate) fn print_stream_command_e<W: Write>(&self, cmd: &str, output: &mut W) {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
@@ -1003,7 +1000,7 @@ impl JsonlFormat {
 
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
     // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
-    /// C++ `void printPlainTextLine(UStringView line, std::ostream& output)`.
+    /// C++ `printPlainTextLine`.
     /// Emits `{"t": <line>}` + `"\n"`. Does NOT flush. Newlines embedded in
     /// `line` are JSON-escaped by the writer, so the output stays one physical
     /// line.
@@ -1315,7 +1312,7 @@ fn as_uint(v: &Value) -> Option<u32> {
     v.as_u64().and_then(|u| u32::try_from(u).ok())
 }
 
-/// C++ `cmd_ustr.substr(prefix.size(), cmd_ustr.size() - prefix.size() - 1)` —
+/// C++ `cmd.substr(prefix.size(), cmd.size() - prefix.size() - 1)` —
 /// strip the leading `prefix` and the single final char (the assumed `>`).
 fn substr_strip_prefix_and_last(cmd: &str, prefix: &str) -> String {
     // Work in chars to mirror the UTF-16-length arithmetic faithfully enough for

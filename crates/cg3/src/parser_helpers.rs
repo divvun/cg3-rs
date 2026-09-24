@@ -21,17 +21,17 @@
 //! way for both — see `[dec:cg3:parse-tag-aborts-on-invalid]`.
 //!
 //! ## Pointer / near-context model
-//! The C++ `const UChar* p` argument is *only* near-context for error messages,
+//! The C++ pointer argument `p` is *only* near-context for error messages,
 //! and the port reproduced that as a `&[char]` tail of the source buffer. It is
 //! now a [`Near`], which is the same information plus the one thing a slice
 //! throws away: WHERE in the buffer the tail started. `to` / `name` are the
 //! token being parsed (a UTF-8 `&str`), decoupled from `near`.
 //!
 //! ## Regex (`\uXXXX` expansion + regex compile)
-//! ICU `RegexMatcher rx_u` → a `regex::Regex` compiled once via [`LazyLock`];
+//! The C++ `rx_u` matcher → a `regex::Regex` compiled once via [`LazyLock`];
 //! that one is a fixed internal pattern, not grammar-authored, so it stays on
-//! the `regex` crate. ICU `uregex_open` for a `T_REGEXP` tag goes through
-//! [`crate::tag_regex::compile_tag_regex`], which owns the ICU-compatibility
+//! the `regex` crate. A `T_REGEXP` tag's pattern is compiled through
+//! [`crate::tag_regex::compile_tag_regex`], which owns the ICU-dialect
 //! translation and the engine choice. An unanchored `/.../` pattern is used
 //! verbatim and a bare pattern is wrapped `^…$`, both per the C++;
 //! `T_CASE_INSENSITIVE` is passed as a builder flag rather than injected into
@@ -78,14 +78,14 @@ const STR_RXTEXT_ANY: &str = "<.*>";
 const STR_RXBASE_ANY: &str = "\".*\"";
 const STR_RXWORD_ANY: &str = "\"<.*>\"";
 
-/// C++ `thread_local RegexMatcher rx_u(...)`. Matches a literal `\u` followed by
+/// C++ `thread_local` matcher `rx_u`. Matches a literal `\u` followed by
 /// EITHER exactly four hex digits OR `{` one-or-more hex digits `}`; group 1
 /// captures that alternative (braces included). Compiled once.
 static RX_U: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\\u((?:[0-9a-fA-F]{4})|\{(?:[0-9a-fA-F]+)\})").unwrap());
 
 /// NUL-terminator-aware char access: index `>= len` reads as `'\0'`, matching the
-/// C++ `UChar*` reads at/after the terminator that the short-circuits guard.
+/// C++ buffer reads at/after the terminator that the short-circuits guard.
 #[inline]
 fn cat(chars: &[char], i: usize) -> char {
     if i < chars.len() { chars[i] } else { '\0' }
@@ -94,7 +94,7 @@ fn cat(chars: &[char], i: usize) -> char {
 // [spec:cg3:req:diagnostics.span]
 /// Where a tag or set failure should point.
 ///
-/// The C++ passed a bare `const UChar* p` and the port passed the equivalent
+/// The C++ passed a bare pointer `p` and the port passed the equivalent
 /// `&[char]` tail, which is enough to quote 20 characters and nothing else. The
 /// parser always knows the OFFSET that tail started at, so [`Near::At`] carries
 /// it and the error gets a span; [`Near::Text`] is for the callers that have no
@@ -113,7 +113,7 @@ pub enum Near<'a> {
 /// `state.get_grammar()` (reads only), `state.addTag(Tag*)` (interning entry —
 /// `Grammar::addTag` for the parser, `GrammarApplicator::addTag(Tag*)`'s
 /// seed-probe for the applicator), `state.error(...)` and `state.filebase` /
-/// `state.ux_stderr` for diagnostics.
+/// the state's error stream for diagnostics.
 pub trait ParseTagState {
     fn grammar(&self) -> &Grammar;
     /// `state.filebase` — diagnostics prefix (`nullptr` on the applicator → "").
@@ -232,7 +232,7 @@ pub fn parse_tag<S: ParseTagState>(
             tag.r#type |= T_FAILFAST;
             tmp_off += 1;
         }
-        // length = u_strlen(tmp)
+        // length = length of tmp
         let mut length: usize = to_chars.len().saturating_sub(tmp_off);
         debug_assert!(length != 0, "parseTag() will not work with empty strings.");
 
@@ -542,7 +542,7 @@ pub fn parse_tag<S: ParseTagState>(
                     // injected into the pattern text: the binary writer
                     // serialises `Regex::as_str()`, so an injected flag would
                     // leak into every `.cg3b` we emit and break the
-                    // `uregex_pattern` round-trip the C++ has.
+                    // bare-pattern round-trip the C++ has.
                     let icase = tag.r#type.intersects(T_CASE_INSENSITIVE);
                     match crate::tag_regex::compile_tag_regex(&rt, icase) {
                         Ok(re) => tag.regexp = Some(re),
@@ -659,7 +659,7 @@ pub fn parse_set(
     Err(state.error_at(near)) // "Attempted to reference undefined set"
 }
 
-/// `u_sscanf(wname, "%*u:%S", &out) == 1`: skip an unsigned int, require `:`,
+/// scanf `"%*u:%S"` == 1: skip an unsigned int, require `:`,
 /// return the remaining (whitespace-delimited) string. `%*u` is suppressed, so
 /// the return count is 0 or 1 — `Some(rest)` iff a uint, then `:`, then a
 /// non-empty non-whitespace `%S` followed.

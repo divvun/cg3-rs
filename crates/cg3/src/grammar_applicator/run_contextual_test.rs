@@ -575,7 +575,7 @@ impl Matcher<'_> {
 
         let test_pos = test.pos(&self.grammar.contexts_arena);
         if test_pos.intersects(POS_UNKNOWN) {
-            // u_fprintf(...); CG3Quit(1);
+            // C++: print the error, then CG3Quit(1).
             panic!(
                 "Error: Contextual tests with position '?' cannot be used directly. Provide an override position."
             );

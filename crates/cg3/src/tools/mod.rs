@@ -14,10 +14,10 @@
 //!   exposes them as constructor functions — see the module NOTE in
 //!   [`crate::options`]), so each tool owns its `options` / `options_conv` /
 //!   `*_default` / `*_override` arrays and mutates them in place.
-//! * **`parse_args` argv.** The ICU parser consumes `&mut [Vec<char>]`; each
-//!   tool converts its incoming `&[String]` argv into that shape and reads the
-//!   returned "remaining" count (negative on error), exactly as C++'s
-//!   `argc = u_parseArgs(...)`.
+//! * **`parse_args` argv.** The argument parser consumes `&mut [Vec<char>]`;
+//!   each tool converts its incoming `&[String]` argv into that shape and reads
+//!   the returned "remaining" count (negative on error), exactly as the C++
+//!   reassigns `argc` from it.
 //! * **Library init / codepage / locale.** The C++ tools initialise their
 //!   Unicode library and default codepage and locale; a UTF-8 port has none of
 //!   that, so those calls are dropped. Where the C++ returns its status as the
@@ -64,7 +64,7 @@ static LEVEL_HANDLE: std::sync::OnceLock<
 > = std::sync::OnceLock::new();
 
 /// Install the process-wide tracing subscriber for the CLI binaries: every
-/// diagnostic the engine emits (the C++ `ux_stderr`/`std::cerr` messages, now
+/// diagnostic the engine emits (the C++ stderr messages, now
 /// `tracing::{error,warn,info,debug}!` events) is written to stderr, message-
 /// first and timestamp-free so the output stays close to the classic CG-3 stderr
 /// text. The level starts at INFO and is reloadable (see [`enable_debug_logging`]).
@@ -195,7 +195,7 @@ pub const CG3_COPYRIGHT_STRING: &str =
 
 /// Build the `parse_args`-shaped argv (`Vec<Vec<char>>`, NUL-free tokens) from a
 /// process `&[String]` argv. Element `0` (the program name) is preserved so the
-/// ICU parser's `i = 1` start and its non-option compaction behave exactly as in
+/// argument parser's `i = 1` start and its non-option compaction behave exactly as in
 /// C++.
 pub(crate) fn to_argv(args: &[String]) -> Vec<Vec<char>> {
     args.iter().map(|s| s.chars().collect()).collect()

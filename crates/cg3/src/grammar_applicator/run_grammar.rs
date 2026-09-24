@@ -10,15 +10,14 @@
 //! ## I/O model
 //! C++ `std::istream& input` / `std::ostream& output` become generic Rust handles
 //! passed as PARAMS: `input: &mut R` where `R: Read + Seek` (Seek is needed by
-//! `strip_bom`) and `output: &mut W` where `W: Write`. The `ux_stdin`/
-//! `ux_stdout`/`ux_stderr` struct fields are `Option<()>` placeholders, so the
-//! streams are NOT stored into them; the good()/eof()/output/grammar validity
-//! guards (each a `CG3Quit(1)` + `ux_stderr` diagnostic) and every verbose
-//! `u_fprintf(ux_stderr,…)` are deferred with the I/O layer, but their
-//! control-flow effects are reproduced faithfully.
+//! `strip_bom`) and `output: &mut W` where `W: Write`. The C++ also stores the
+//! streams in applicator members; here they are only passed down. The
+//! good()/eof()/output/grammar validity guards (each a `CG3Quit(1)` + stderr
+//! diagnostic) and every verbose stderr trace are deferred with the I/O layer,
+//! but their control-flow effects are reproduced faithfully.
 //!
 //! `line`/`cleaned` are `Vec<char>` scratch buffers (what `get_line_clean_chars`
-//! fills); the C++ `UChar*` pointer walks over `cleaned`/`line` are translated
+//! fills); the C++ pointer walks over `cleaned`/`line` are translated
 //! to `usize` indices over those buffers using the ported `skip*_chars` helpers.
 //! This reading lexer stays on the scalar-buffer cursor model — the wave-4
 //! "symbols later rebuilt into a string" carve-out (see `inlines::scan`); the
@@ -26,15 +25,14 @@
 
 // [spec:cg3:def:grammar-applicator-run-grammar.cg3.test-string-against-fn]
 // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.test-string-against-fn]
-/// C++ free fn `inline bool testStringAgainst(const UString& str,
-/// std::vector<URegularExpression*>& rxs)`.
+/// C++ free fn `testStringAgainst`.
 ///
-/// Tests whether `str` matches any of the pre-compiled regexes in `rxs`. The ICU
-/// `uregex_find(rx, -1, &status)` (start index -1 = "whole region", UNANCHORED)
-/// maps to the `regex` crate's [`Regex::is_match`], which is likewise unanchored.
-/// The ICU `CG3Quit(1)`-on-error branches have no analog (`is_match` is
-/// infallible), so they are dropped. Used by `run_grammar_on_text` to detect
-/// text-delimiter lines via `text_delimiters`.
+/// Tests whether `str` matches any of the pre-compiled regexes in `rxs`. The
+/// C++ searches the whole region UNANCHORED, as
+/// [`TagRegex::is_match`](crate::tag_regex::TagRegex::is_match) does. The C++
+/// `CG3Quit(1)`-on-error branches have no analog (`is_match` reports a failed
+/// match as no match), so they are dropped. Used by `run_grammar_on_text` to
+/// detect text-delimiter lines via `text_delimiters`.
 ///
 /// DECOMP DIVERGENCE (peel.drivers): the C++ `testStringAgainst` has a
 /// move-to-front (MRU) side effect — on the first hit it swaps the matching
@@ -46,7 +44,6 @@
 /// dropped and the parameter is `&[Regex]`. See the peel.drivers report.
 pub fn test_string_against(str: &str, rxs: &[crate::tag_regex::TagRegex]) -> bool {
     for rx in rxs {
-        // uregex_setText + uregex_find(-1) — unanchored whole-string search.
         if rx.is_match(str) {
             return true;
         }
@@ -54,7 +51,7 @@ pub fn test_string_against(str: &str, rxs: &[crate::tag_regex::TagRegex]) -> boo
     false
 }
 
-/// C++ `u_strchr(s, needle)` over a `Vec<char>` scratch buffer: return the index
+/// C++ `strchr`-style search over a `Vec<char>` scratch buffer: return the index
 /// of the first `needle` at or after `from`, scanning up to (not past) the NUL
 /// terminator, or `None`. Used by the inline SETVAR/REMVAR pointer walks.
 fn find_char_before_nul(buf: &[char], from: usize, needle: char) -> Option<usize> {
@@ -108,7 +105,7 @@ enum GotReading {
 /// buffers, the sub-reading indent stack, the pending mapping-tag lists, the
 /// pending SETVAR/REMVAR variable deltas, and the current/last-window cursors.
 struct GotReadingScope<'a> {
-    /// C++ `UChar* cleaned` / `line` — the scratch line buffers.
+    /// C++ `cleaned` / `line` — the scratch line buffers.
     cleaned: &'a mut Vec<char>,
     line: &'a mut Vec<char>,
     /// C++ `std::vector<std::pair<size_t, Reading*>> indents`.
@@ -285,7 +282,7 @@ impl super::Engine<'_> {
         let wordform = self.doc.store.cohorts.get(c_cohort.0).wordform.unwrap();
         self.add_tag_to_reading(c_reading, wordform)?;
 
-        // UChar* space = &cleaned[1]; UChar* base = space;
+        // space = &cleaned[1]; base = space;
         let mut space = 1usize;
         let mut base = space;
         if cleaned[space] == '"' {
@@ -334,7 +331,6 @@ impl super::Engine<'_> {
 
         self.doc.store.readings.get_mut(c_reading.0).deleted = is_deleted;
 
-        // while (space && (space = u_strchr(space, ' ')) != 0) { … }
         // Loop over each space-delimited [base .. space) tag region.
         loop {
             match find_char_before_nul(cleaned, space, ' ') {
@@ -553,9 +549,8 @@ impl super::Engine<'_> {
         R: std::io::Read + std::io::Seek,
         W: std::io::Write,
     {
-        // ux_stdin = &input; ux_stdout = &output;  (elided: Option<()> placeholders)
         // The good()/eof()/output/grammar validity checks (each CG3Quit(1) with a
-        // u_fprintf diagnostic) are deferred with the I/O layer.
+        // stderr diagnostic) are deferred with the I/O layer.
         // No-hard/soft-delimiter warnings: deferred I/O (grammar->delimiters etc.).
 
         let mut line: Vec<char> = vec!['\0'; 1024];
@@ -1003,7 +998,7 @@ impl super::Engine<'_> {
                         cleaned[packoff - 1] = '\0';
                         line[0] = '\0';
 
-                        // UChar* s = &cleaned[STR_CMD_SETVAR.size()];
+                        // s = &cleaned[STR_CMD_SETVAR.size()];
                         let mut s: Option<usize> =
                             Some(crate::strings::STR_CMD_SETVAR.chars().count());
                         let mut c = find_char_before_nul(&cleaned, s.unwrap(), ',');
@@ -1108,7 +1103,7 @@ impl super::Engine<'_> {
                         cleaned[packoff - 1] = '\0';
                         line[0] = '\0';
 
-                        // UChar* s = &cleaned[STR_CMD_REMVAR.size()];
+                        // s = &cleaned[STR_CMD_REMVAR.size()];
                         let mut s: usize = crate::strings::STR_CMD_REMVAR.chars().count();
                         let mut c = find_char_before_nul(&cleaned, s, ',');
                         while let Some(ci) = c {
@@ -1329,9 +1324,9 @@ impl super::Engine<'_> {
 
     /// The retire loop at the head of C++ `runGrammarOnWindow()`
     /// (`label_runGrammarOnWindow_begin:`): while `gWindow->previous` holds more
-    /// than `num_windows` windows, `printSingleWindow(front, *ux_stdout)`,
+    /// than `num_windows` windows, `printSingleWindow(front)` to the output,
     /// `free_swindow(front)`, pop front. The Rust `run_grammar_on_window` cannot
-    /// reach the driver's output stream (the `ux_stdout` placeholder) and renders
+    /// reach the driver's output stream and renders
     /// retiring windows into a discarded sink, so the driver performs the
     /// identical retire-print here immediately before entering it — same bytes,
     /// same order, and the inner sink loop is left a no-op (`previous.len() <=

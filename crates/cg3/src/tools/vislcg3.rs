@@ -10,7 +10,7 @@
 //!
 //! Remaining NOTEd elision: `--stderr` creates the redirect file (same
 //! truncation side effect as the C++) but diagnostics still go to process
-//! stderr — the engine has no wired `ux_stderr` sink.
+//! stderr — the engine has no redirectable error sink.
 
 use std::io::{Read, Write};
 
@@ -36,10 +36,10 @@ use super::{
 
 /// A `--nrules` / `--nrules-v` pattern that would not compile.
 ///
-/// The C++ `uregex_open` wording is kept verbatim for parity, and the cause is
-/// reachable underneath it rather than only as text. Only the failure `kind` is
-/// spliced into the message: `TagRegexError`'s own `Display` opens with "cannot
-/// compile regex for tag", which a rule-name filter is not.
+/// The message keeps the C++ layout (cause, then flag and pattern), and the
+/// cause is reachable underneath it rather than only as text. Only the failure
+/// `kind` is spliced into the message: `TagRegexError`'s own `Display` opens
+/// with "cannot compile regex for tag", which a rule-name filter is not.
 #[derive(Debug, thiserror::Error)]
 #[error("Error: invalid regex ({}) in {flag} {pattern}", .source.kind)]
 struct NrulesError {
@@ -52,8 +52,8 @@ struct NrulesError {
 /// Compile the `--nrules` / `--nrules-v` pattern held in `options`, or `None`
 /// when the flag was not given.
 ///
-/// Through the ICU seam, not `regex::Regex::new`. The C++ compiled these with
-/// `uregex_open` — the same ICU engine as every tag pattern — so a filter and a
+/// Through the tag-regex seam, not `regex::Regex::new`. The C++ compiled these
+/// with the same ICU regex engine as every tag pattern, so a filter and a
 /// grammar tag spelled identically meant identically. Compiling the filter with
 /// a different engine reintroduces exactly the divergences the seam exists to
 /// close, on a pattern the same person authored: no `\Q...\E`, ICU's `\Z`/`$`
@@ -70,7 +70,7 @@ fn nrules_pattern(
         return Ok(None);
     }
     let pattern = &options[opt as usize].value;
-    // Case-sensitive: the C++ passes flags 0 to uregex_open.
+    // Case-sensitive: the C++ compiles it with no flags.
     compile_tag_regex(pattern, false)
         .map(Some)
         .map_err(|source| NrulesError {
@@ -88,7 +88,6 @@ pub fn main_run(args: &[String]) -> i32 {
     // clock_t main_timer = clock(); — timers dropped (verbose timing lines below
     // are ported without the actual durations).
 
-    // UErrorCode status = EXIT_SUCCESS;
     let status: i32 = 0;
     // srand(...) dropped (no rand() dependency in the ported paths).
 
@@ -101,7 +100,6 @@ pub fn main_run(args: &[String]) -> i32 {
     let mut grammar_options_default = grammar_options_default();
     let mut grammar_options_override = grammar_options_override();
 
-    // argc = u_parseArgs(argc, argv, options.size(), options.data());
     let mut argv = to_argv(args);
     let mut argc = parse_args(
         argv.len() as i32,
@@ -176,7 +174,6 @@ pub fn main_run(args: &[String]) -> i32 {
         options[Opt::Verbose as usize].does_occur = false;
     }
 
-    // ICU init / codepage / locale dropped (UTF-8 port).
     if occ(&options, Opt::CodepageGlobal)
         || occ(&options, Opt::CodepageInput)
         || occ(&options, Opt::CodepageOutput)
@@ -203,8 +200,8 @@ pub fn main_run(args: &[String]) -> i32 {
     };
     if occ(&options, Opt::Stderr) {
         // std::ofstream(options[STDERR].value) — created (same truncation side
-        // effect as C++), but NOTE: the engine's `ux_stderr` is an elided
-        // placeholder in this port, so diagnostics still go to process stderr.
+        // effect as C++), but NOTE: the engine has no redirectable error
+        // stream, so diagnostics still go to process stderr.
         let _ = std::fs::File::create(&options[Opt::Stderr as usize].value);
     }
     let stdin_file: Option<std::fs::File> = if occ(&options, Opt::Stdin) {
@@ -282,10 +279,9 @@ pub fn main_run(args: &[String]) -> i32 {
         0
     };
 
-    // if (options[NRULES].doesOccur) { parser->nrules = uregex_open(...); }
-    // (ICU converter dance dropped in the UTF-8 port.) C++ main.cpp wires both
-    // onto the IGrammarParser base whichever parser it builds, so they compile
-    // once here and move into the one that gets built.
+    // --nrules / --nrules-v: C++ main.cpp wires both onto the IGrammarParser
+    // base whichever parser it builds, so they compile once here and move into
+    // the one that gets built.
     let nrules = match nrules_pattern(&options, Opt::Nrules, "--nrules") {
         Ok(re) => re,
         Err(e) => {
@@ -348,7 +344,7 @@ pub fn main_run(args: &[String]) -> i32 {
         }
         profiler = parser.profiler.take();
 
-        // --dump-ast prints the parse tree to *ux_stdout.
+        // --dump-ast prints the parse tree to the output stream.
         if occ(&options, Opt::DumpAst) {
             parser.print_ast(&mut out_stream);
         }
@@ -483,7 +479,6 @@ pub fn main_run(args: &[String]) -> i32 {
         if let Err(e) = applicator.base_mut().set_grammar() {
             return fail(&e);
         }
-        // applicator.setOptions(conv); (UConverter dropped in the UTF-8 port).
         if let Err(e) = applicator.base_mut().set_options(&options) {
             return fail(&e);
         }
@@ -512,8 +507,8 @@ pub fn main_run(args: &[String]) -> i32 {
             applicator.base_mut().diag.profiler = profiler.take();
         }
 
-        // applicator.runGrammarOnText(*ux_stdin, *ux_stdout); — the ported
-        // driver needs `R: Read + Seek`; buffer the input stream into a Cursor.
+        // The ported driver needs `R: Read + Seek`; buffer the input stream
+        // into a Cursor.
         let mut input_bytes = Vec::new();
         match stdin_file {
             Some(mut f) => {
@@ -571,7 +566,6 @@ pub fn main_run(args: &[String]) -> i32 {
         let _ = p.write(&options[Opt::Profiling as usize].value);
     }
 
-    // u_cleanup dropped.
     status
 }
 

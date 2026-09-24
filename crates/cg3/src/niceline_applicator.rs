@@ -23,10 +23,10 @@
 //!   1-arg overload maps to `add_tag(text, 0)`.
 //! * The `Reading*` deep copy `alloc_reading(*sub)` is
 //!   [`crate::reading::alloc_reading_copy`] (copies the whole `->next` chain).
-//! * `ux_stderr`/`ux_stdin`/`ux_stdout` are `Option<()>` placeholders in the
-//!   base, so the diagnostic emissions (`u_fprintf(ux_stderr, …)`) and the
-//!   `input.good()/eof()` guards are elided — but the one-shot `did_warn_*`
-//!   latch STATE is reproduced verbatim (the observable quirk).
+//! * The C++ standard-stream members have no counterpart in the base, so the
+//!   stderr diagnostic emissions and the `input.good()/eof()` guards are elided
+//!   — but the one-shot `did_warn_*` latch STATE is reproduced verbatim (the
+//!   observable quirk).
 
 use std::io::{Read, Seek, Write};
 
@@ -69,13 +69,12 @@ pub struct NicelineApplicator<'a> {
 impl<'a> NicelineApplicator<'a> {
     // [spec:cg3:def:niceline-applicator.cg3.niceline-applicator.niceline-applicator-fn]
     // [spec:cg3:sem:niceline-applicator.cg3.niceline-applicator.niceline-applicator-fn]
-    /// C++ `NicelineApplicator::NicelineApplicator(std::ostream& ux_err)` —
-    /// forwards `ux_err` to `GrammarApplicator(ux_err)`; no body of its own. The
+    /// C++ `NicelineApplicator::NicelineApplicator` — forwards the error stream
+    /// to `GrammarApplicator`; no body of its own. The
     /// two latches keep their `false` in-class defaults.
     ///
     /// DIVERGENCE: the base ctor takes the owned `Grammar` (the port owns it by
-    /// value at construction); the `ux_err` stream is an `Option<()>`
-    /// placeholder, so it is not stored.
+    /// value at construction); the error stream is not stored.
     pub fn new(base: &'a mut GrammarApplicator) -> Self {
         NicelineApplicator {
             base,
@@ -91,13 +90,13 @@ impl<'a> NicelineApplicator<'a> {
     /// per line, TABs separating readings, `[base]` baseforms.
     ///
     /// PORT NOTES: `input`/`output` are generic Rust handles (C++ `std::istream&`
-    /// / `std::ostream&`). Storing them into `ux_stdin`/`ux_stdout` is elided
-    /// (`Option<()>` placeholders). The `input.good()/eof()/output/grammar`
-    /// validity guards and every `u_fprintf(ux_stderr,…)` diagnostic (including
+    /// / `std::ostream&`), passed down rather than stored in applicator
+    /// members. The `input.good()/eof()/output/grammar` validity guards and
+    /// every stderr diagnostic (including
     /// the "looked like a cohort but wasn't" and "no valid baseform" warnings)
     /// are deferred with the I/O layer, but their control-flow effects
     /// (`goto istext`, baseform fallback) are preserved. `line`/`cleaned` are
-    /// native `String`s filled by `get_line_clean`; the C++ `UChar*` pointer
+    /// native `String`s filled by `get_line_clean`; the C++ pointer
     /// walks become BYTE-offset `usize` cursors read via `inlines::char_at`
     /// (which yields `'\0'` past the end, matching the NUL-terminated buffer).
     pub fn run_grammar_on_text<F, R, W>(
@@ -126,9 +125,8 @@ impl<'a> NicelineApplicator<'a> {
         R: Read + Seek,
         W: Write,
     {
-        // ux_stdin = &input; ux_stdout = &output; (elided: Option<()> placeholders)
         // The good()/eof()/output/grammar validity checks (each CG3Quit(1) with a
-        // u_fprintf diagnostic) are deferred with the I/O layer.
+        // stderr diagnostic) are deferred with the I/O layer.
         // No-hard/soft-delimiter warnings: deferred I/O.
 
         let mut line = String::new();
@@ -377,7 +375,7 @@ impl<'a> NicelineApplicator<'a> {
 
                         let mut mappings: crate::tag::TagList = Vec::new();
 
-                        // tab = u_strchr(space, '\t'); the C++ NUL-cuts there —
+                        // tab = first '\t' at/after space; the C++ NUL-cuts there —
                         // natively the reading segment is cleaned[..seg_end].
                         let tab: Option<usize> = cleaned[space..].find('\t').map(|i| space + i);
                         let seg_end = tab.unwrap_or(cleaned.len());
@@ -860,7 +858,7 @@ impl NicelineFormat {
     }
 }
 
-/// C++ `UString::find_first_not_of(ws)` membership: is `c` in the (NUL-
+/// C++ `find_first_not_of(ws)` membership: is `c` in the (NUL-
 /// terminated) whitespace set `ws`?
 fn is_ws(ws: &[char; 4], c: char) -> bool {
     for &w in ws {

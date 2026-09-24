@@ -28,8 +28,8 @@
 //! / `read_text` and the three writers ([`print_single_window`](BinaryApplicator::print_single_window),
 //! [`print_stream_command`](BinaryApplicator::print_stream_command),
 //! [`print_plain_text_line`](BinaryApplicator::print_plain_text_line)) each take
-//! the `input`/`output` handle as a generic `Read`/`Write` param (the base
-//! `ux_stdin`/`ux_stdout` `Option<()>` fields are elided).
+//! the `input`/`output` handle as a generic `Read`/`Write` param rather than
+//! reading the C++ base's stream members.
 //!
 //! [`run_grammar_on_text`](BinaryApplicator::run_grammar_on_text) is a genuine
 //! port: it wraps `input` in a [`std::io::BufReader`] so it can peek for
@@ -123,7 +123,7 @@ pub const BFC_RESUME: u8 = 4;
 ///
 /// The C++ `void* payload` is overloaded: a `SingleWindow*` for a WINDOW packet,
 /// a command byte stuffed INTO the pointer for a COMMAND packet, and a
-/// `UString*` (→ the `text` member) for a TEXT packet. In the arena model those
+/// string pointer (→ the `text` member) for a TEXT packet. In the arena model those
 /// become explicit variants, tracked here as the parsed [`SwId`], the raw
 /// command byte, or a `text`-is-set marker.
 #[derive(Default)]
@@ -148,14 +148,14 @@ pub struct BinaryPacket {
 pub struct BinaryApplicator<'a> {
     /// The `GrammarApplicator` base (C++ `public virtual` inheritance).
     pub base: &'a mut GrammarApplicator,
-    /// C++ reusable `UString text` reused across TEXT packets.
+    /// C++ `text` string, reused across TEXT packets.
     pub text: String,
 }
 
 impl<'a> BinaryApplicator<'a> {
     // [spec:cg3:def:binary-applicator.cg3.binary-applicator.binary-applicator-fn]
     // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.binary-applicator-fn]
-    /// C++ `BinaryApplicator::BinaryApplicator(std::ostream& ux_err)`. Delegates
+    /// C++ `BinaryApplicator::BinaryApplicator`. Delegates
     /// to the base ctor with an empty body; `header_done = false`, `text` empty.
     pub fn new(base: &'a mut GrammarApplicator) -> Self {
         BinaryApplicator {
@@ -172,8 +172,8 @@ impl<'a> BinaryApplicator<'a> {
     // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.read-packet-fn]
     /// C++ `BinaryPacket BinaryApplicator::readPacket()`. Reads one wire packet.
     /// Reads the type byte, dispatches WINDOW/COMMAND, then in a SEPARATE `if`
-    /// (not chained, faithful) dispatches TEXT. `ux_stdin` is threaded as an
-    /// explicit `input` param (the base field is a placeholder).
+    /// (not chained, faithful) dispatches TEXT. The C++ input stream member is
+    /// threaded as an explicit `input` param.
     pub fn read_packet<R: Read>(
         &mut self,
         input: &mut R,
@@ -222,7 +222,7 @@ impl<'a> BinaryApplicator<'a> {
     ) -> Result<Option<SwId>, crate::error::RunError> {
         let cs: u32 = read_le(input);
 
-        // if (ux_stdin->eof()) { payload = nullptr; return Ok(()); } — modelled as a
+        // if (input eof) { payload = nullptr; return; } — modelled as a
         // short read of the body (read_exact fails → EOF).
         let mut buf = vec![0u8; cs as usize];
         if input.read_exact(&mut buf).is_err() && cs != 0 {
@@ -1022,7 +1022,6 @@ impl<'x> BinaryApplicator<'x> {
         W: std::io::Write,
     {
         use std::io::BufRead;
-        // ux_stdin = &input; ux_stdout = &output; (Option<()> placeholders).
         // good()/eof()/output/grammar validity checks: deferred I/O.
 
         let mut input = std::io::BufReader::new(input);

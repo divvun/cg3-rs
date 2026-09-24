@@ -129,8 +129,8 @@ pub fn hash_value_sz(value: usize, seed: usize) -> usize {
     h
 }
 
-// C++ `hash_value(const UChar*, hash, len)` / `hash_value(const UString&, h)`:
-// routes to the UTF-16 code-unit SuperFastHash overload, NOT the byte one.
+// C++ `hash_value` string overloads (pointer + length, and string): route to
+// the UTF-16 code-unit SuperFastHash overload, NOT the byte one.
 // Tag/text hashes feed hash-ordered containers (tries, sorted output order),
 // so UTF-16 unit hashing is required for output parity with the C++ — verified
 // against T_Append/T_Substitute/T_Unification/T_Variables golden diffs.
@@ -143,10 +143,10 @@ pub fn hash_value_str(str: &str, hash: u32) -> u32 {
     super_fast_hash_u16(&units, h)
 }
 
-/// C++ `SuperFastHash(const UChar* data, size_t len, uint32_t hash)` — the
-/// UTF-16 code-unit overload (src/inlines.hpp:174). Two 16-bit units per main
-/// loop iteration; `rem = len & 1` single-unit tail; same avalanche + reserved
-/// remap as the byte overload. `hash == 0` degenerates to `len` (as in C++).
+/// C++ `SuperFastHash` — the UTF-16 code-unit overload (src/inlines.hpp:174).
+/// Two 16-bit units per main loop iteration; `rem = len & 1` single-unit tail;
+/// same avalanche + reserved remap as the byte overload. `hash == 0`
+/// degenerates to `len` (as in C++).
 pub fn super_fast_hash_u16(data: &[u16], hash: u32) -> u32 {
     let len = data.len();
     let mut hash = if hash == 0 { len as u32 } else { hash };
@@ -182,8 +182,8 @@ pub fn super_fast_hash_u16(data: &[u16], hash: u32) -> u32 {
 }
 
 // [spec:cg3:def:inlines.cg3.hash-ustring]
-/// C++ `struct hash_ustring` (inlines.hpp) — the string hash functor used as
-/// the `Hash` type for containers keyed on a tag's text.
+/// The C++ string hash functor (inlines.hpp), used as the `Hash` type for
+/// containers keyed on a tag's text.
 pub struct StringHasher;
 
 impl StringHasher {
@@ -191,11 +191,13 @@ impl StringHasher {
     // [spec:cg3:sem:inlines.cg3.hash-ustring.operator-fn]
     // C++ `operator()` -> ported to a `call` method (Rust has no call operator
     // overloading for arbitrary self). Forces the seed to CG3_HASH_SEED and
-    // hashes the string's bytes; return type widened to usize (size_t).
+    // hashes the string's UTF-16 code units, as `hash_value_str` does; return
+    // type widened to usize (size_t).
     //
-    // The C++ has a second, unspecced `operator()(const UStringView&)` overload.
-    // It exists because `const UString&` will not bind a view; `&str` binds both
-    // an owned `String` and a borrowed slice, so the pair is one method here.
+    // The C++ has a second, unspecced `operator()` overload taking a string
+    // view. It exists because the owned-string reference will not bind a view;
+    // `&str` binds both an owned `String` and a borrowed slice, so the pair is
+    // one method here.
     pub fn call(&self, str: &str) -> usize {
         hash_value_str(str, 0) as usize
     }

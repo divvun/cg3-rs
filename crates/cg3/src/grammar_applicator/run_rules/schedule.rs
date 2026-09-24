@@ -294,7 +294,7 @@ impl crate::grammar_applicator::Engine<'_> {
     ) -> Result<TagId, crate::error::RunError> {
         let base = self.grammar.single_tags_list.get(tag.0).tag.clone();
         let tmp: String = format!("R:{}:{}", base, id);
-        // C++ `addTag(tmp)` is the `addTag(const UChar*)` convenience overload →
+        // C++ `addTag(tmp)` is the text-only convenience overload →
         // `addTag(str, 0)`.
         self.add_tag(&tmp, crate::tag::TagType::empty())
     }

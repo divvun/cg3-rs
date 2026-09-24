@@ -995,7 +995,7 @@ impl crate::grammar_applicator::Engine<'_> {
             && self.doc.stream.previous.len() as u32 > self.cfg.num_windows
         {
             let tmp = self.doc.stream.previous[0];
-            // C++ `printSingleWindow(tmp, *ux_stdout)` — print to the live
+            // C++ `printSingleWindow(tmp)` to stdout — print to the live
             // output writer threaded in by the driver, in the most-derived
             // applicator's format.
             fmt.print_single_window(self, tmp, output, false)?;
@@ -1111,8 +1111,9 @@ impl crate::grammar_applicator::Engine<'_> {
     // [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn]
-    /// C++ `void runGrammarOnWindow()`. The retired-window flush prints to
-    /// `*ux_stdout` in C++; the port threads the live output writer in.
+    /// C++ `void runGrammarOnWindow()`. The retired-window flush prints to the
+    /// applicator's stdout member in C++; the port threads the live output
+    /// writer in.
     pub fn run_grammar_on_window<W: std::io::Write>(
         &mut self,
         output: &mut W,

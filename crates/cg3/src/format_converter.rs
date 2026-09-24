@@ -19,7 +19,7 @@
 //! branch (`CG3Quit()`): upstream declares Matxin inheritance but supplies no
 //! converter switch arm for it.
 //!
-//! ## detectFormat regex mapping (ICU uregex → `regex` crate)
+//! ## detectFormat regex mapping (C++ regex flags → `regex` crate)
 //! See [`detect_format`]; every pattern's flag set and anchoring is reproduced
 //! per the spec's parity notes.
 
@@ -54,17 +54,16 @@ fn unsupported_output(kind: StreamFormatKind) -> crate::error::RunError {
 /// C++ free fn `cg3_sformat detectFormat(std::string_view buf8)`. Sniffs the
 /// stream format of a UTF-8 buffer; the FIRST matching rule wins.
 ///
-/// REGEX-CRITICAL mapping (ICU `uregex` → `regex` crate):
-/// * ICU `uregex_find(rx, -1, &status)` with `startIndex == -1` is an UNANCHORED
-///   whole-text search → [`Regex::is_match`] (also unanchored). Never a
-///   fully-anchored match.
-/// * `UREGEX_MULTILINE` → inline flag `(?m)` (so `^`/`$` match at line
-///   boundaries); `UREGEX_DOTALL` → `(?s)` (so `.` spans newlines).
-/// * `\S`/`\s` are Unicode-aware in both ICU and the `regex` crate.
+/// REGEX-CRITICAL mapping (C++ → `regex` crate):
+/// * The C++ find with start index -1 is an UNANCHORED whole-text search →
+///   [`Regex::is_match`] (also unanchored). Never a fully-anchored match.
+/// * The C++ multiline flag → inline flag `(?m)` (so `^`/`$` match at line
+///   boundaries); its dot-all flag → `(?s)` (so `.` spans newlines).
+/// * `\S`/`\s` are Unicode-aware in both the C++ engine and the `regex` crate.
 /// * `\^`/`\$` are literal `^`/`$`.
-///   The C++ converts to UTF-16 and caps the scan at [`BUF_SIZE`] (1000) UChars;
-///   this port scans the (already UTF-8) prefix directly — equivalent for the
-///   anchoring the patterns rely on. NEVER returns `CG3SF_MATXIN`.
+///   The C++ converts to UTF-16 and caps the scan at [`BUF_SIZE`] (1000) code
+///   units; this port scans the (already UTF-8) prefix directly — equivalent
+///   for the anchoring the patterns rely on. NEVER returns `CG3SF_MATXIN`.
 pub fn detect_format(buf8: &str) -> StreamFormatKind {
     use StreamFormatKind::*;
 
@@ -90,8 +89,8 @@ pub fn detect_format(buf8: &str) -> StreamFormatKind {
 /// The `detectFormat` sniff patterns and the format each one identifies, in
 /// priority order, compiled once.
 ///
-/// The C++ calls `uregex_open` per pattern per call and never resets `status`
-/// between them, so a pattern that failed to build simply yielded no match. The
+/// The C++ compiles every pattern on every call and never resets the error
+/// status between them, so a pattern that failed to build simply yielded no match. The
 /// port reproduced that with `if let Ok(rx) = Regex::new(pat)`, which made a
 /// pattern that would not compile indistinguishable from one that did not match:
 /// the stream fell through to `Plain` and nothing said why. These are crate
@@ -149,7 +148,7 @@ pub struct FormatConverter {
 impl FormatConverter {
     // [spec:cg3:def:format-converter.cg3.format-converter.format-converter-fn]
     // [spec:cg3:sem:format-converter.cg3.format-converter.format-converter-fn]
-    /// C++ `FormatConverter::FormatConverter(std::ostream& ux_err)`. Builds a
+    /// C++ `FormatConverter::FormatConverter`. Builds a
     /// minimal working grammar in `conv_grammar` (dummy set, one delimiter set
     /// holding the dummy tag, reindex) and installs it as the active grammar via
     /// `setGrammar`.
@@ -180,7 +179,6 @@ impl FormatConverter {
         // The base's incoming grammar is discarded (the ctor replaces it wholesale,
         // matching the C++ where the freshly-built conv_grammar is installed).
         base.grammar = Grammar::default();
-        // conv_grammar.ux_stderr = &ux_err; — Option<()> placeholder, elided.
         base.grammar.allocate_dummy_set();
         let delim = base.grammar.allocate_set();
         base.grammar.delimiters = Some(delim);
@@ -283,7 +281,6 @@ impl FormatConverter {
         R: Read + Seek,
         W: Write,
     {
-        // ux_stdin = &input; ux_stdout = &output; (Option<()> placeholders, elided).
         let (fmt_input, fmt_output) = {
             let b = self.base();
             (b.cfg.fmt_input, b.cfg.fmt_output)
@@ -380,9 +377,9 @@ impl FormatConverter {
 
     // [spec:cg3:def:format-converter.cg3.format-converter.print-stream-command-fn]
     // [spec:cg3:sem:format-converter.cg3.format-converter.print-stream-command-fn]
-    /// C++ `void FormatConverter::printStreamCommand(UStringView cmd, std::ostream&
-    /// output)`. JSONL/BINARY need special encoding; every other format (CG,
-    /// APERTIUM, FST, NICELINE, PLAIN, default) uses the base implementation.
+    /// C++ `FormatConverter::printStreamCommand`. JSONL/BINARY need special
+    /// encoding; every other format (CG, APERTIUM, FST, NICELINE, PLAIN,
+    /// default) uses the base implementation.
     pub fn print_stream_command<W: Write>(&mut self, cmd: &str, output: &mut W) {
         self.fmt
             .print_stream_command(&mut self.base.engine(), cmd, output);
@@ -390,9 +387,8 @@ impl FormatConverter {
 
     // [spec:cg3:def:format-converter.cg3.format-converter.print-plain-text-line-fn]
     // [spec:cg3:sem:format-converter.cg3.format-converter.print-plain-text-line-fn]
-    /// C++ `void FormatConverter::printPlainTextLine(UStringView line, std::ostream&
-    /// output)`. JSONL/BINARY need special handling; every other format uses the
-    /// base implementation.
+    /// C++ `FormatConverter::printPlainTextLine`. JSONL/BINARY need special
+    /// handling; every other format uses the base implementation.
     pub fn print_plain_text_line<W: Write>(&mut self, line: &str, output: &mut W) {
         self.fmt
             .print_plain_text_line(&mut self.base.engine(), line, output);

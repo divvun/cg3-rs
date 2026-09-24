@@ -39,15 +39,12 @@ fn end_program(name: Option<&str>) -> i32 {
 // [spec:cg3:sem:cg-comp.main-fn]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_comp(args: &[String]) -> i32 {
-    // UErrorCode status = EXIT_SUCCESS;
     let status: i32 = 0;
 
     // if (argc != 3) endProgram(argv[0]);
     if args.len() != 3 {
         return end_program(args.first().map(|s| s.as_str()));
     }
-
-    // ICU init / codepage / locale dropped (UTF-8 port).
 
     // Grammar grammar; — owned by the parser in this port (moved out after parse).
     let grammar = Grammar::default();
@@ -74,7 +71,6 @@ pub fn main_comp(args: &[String]) -> i32 {
 
     // parser.reset(new TextualParser(grammar, std::cerr));
     let mut parser = TextualParser::new(grammar, false);
-    // grammar.ux_stderr = &std::cerr; (Option<()> placeholder, elided.)
 
     // if (parser->parse_grammar(argv[1])) { ... CG3Quit(1); }
     //
@@ -157,6 +153,5 @@ pub fn main_comp(args: &[String]) -> i32 {
         }
     }
 
-    // u_cleanup dropped.
     status
 }

@@ -1,6 +1,6 @@
 //! Tag regex compilation — the single ICU-compatibility seam.
 //!
-//! PORT DIVERGENCE. The C++ compiles every tag pattern with ICU's `uregex_open`.
+//! PORT DIVERGENCE. The C++ compiles every tag pattern with ICU's regex engine.
 //! Grammars in the wild are authored against ICU, so their patterns use ICU
 //! syntax; the port must accept that syntax or quietly stop matching.
 //!
@@ -162,8 +162,8 @@ impl std::error::Error for TagRegexError {}
 /// Compile a tag pattern, translating ICU-only syntax first.
 ///
 /// `case_insensitive` is applied via [`RegexBuilder`] rather than by injecting
-/// `(?i)` into the pattern text, so `Regex::as_str()` still round-trips the bare
-/// pattern the way C++ `uregex_pattern` does — the binary writer serialises
+/// `(?i)` into the pattern text, so `Regex::as_str()` still returns the bare
+/// pattern, as the C++ pattern getter does — the binary writer serialises
 /// `as_str()`, so an injected `(?i)` would leak into every `.cg3b` we emit. The
 /// flag itself survives a `.cg3b` round-trip in `Tag::type`'s
 /// `T_CASE_INSENSITIVE` bit, which the reader re-derives.
@@ -197,7 +197,7 @@ pub fn compile_tag_regex(
 /// binary grammar writer serialises the pattern back out, and what belongs in a
 /// `.cg3b` is what the grammar author wrote — `\Q...\E`, `$`, ICU's `\Z` — not
 /// this engine's translation of it. Serialising the translation would make
-/// every `.cg3b` we emit diverge from the C++ `uregex_pattern` round-trip and
+/// every `.cg3b` we emit diverge from the C++, which writes the source back, and
 /// stop being readable as ICU. So [`TagRegex::as_str`] returns the SOURCE,
 /// while matching uses the compiled form.
 // [spec:cg3:req:tag-regex.single-seam+1]
@@ -241,7 +241,7 @@ impl TagRegex {
     }
 
     /// Capture-group count INCLUDING the whole-match group 0, matching the
-    /// `uregex_groupCount() + 1` convention the capture loops assume.
+    /// group-count-plus-one convention the capture loops assume.
     pub fn captures_len(&self) -> usize {
         self.inner.compiled.captures_len()
     }
@@ -251,7 +251,7 @@ impl TagRegex {
     /// The match sites are predicates returning `u32`/`bool` with no error
     /// channel — threading `Result` through the matcher cluster would change
     /// signatures all the way up for a case that only fires on a pathological
-    /// pattern. The C++ `uregex_find` error path was `CG3Quit(1)`, so degrading
+    /// pattern. A failed match in the C++ was `CG3Quit(1)`, so degrading
     /// to "no match" is a divergence; it is logged rather than swallowed so a
     /// grammar that trips [`BACKTRACK_LIMIT`] is diagnosable rather than merely
     /// mysterious.

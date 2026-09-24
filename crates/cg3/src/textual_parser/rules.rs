@@ -565,7 +565,7 @@ impl TextualParser {
 }
 
 impl TextualParser {
-    /// One iteration of the `parseFromUChar` main loop (the C++ `try { ... }`
+    /// One iteration of the `parse_source` main loop (the C++ `try { ... }`
     /// body): progress print, leading `SKIPWS`, and the keyword dispatch chain.
     pub(crate) fn parse_directive(
         &mut self,

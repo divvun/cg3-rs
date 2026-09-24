@@ -11,7 +11,7 @@
 //!   Callers (e.g. `Tag.cpp`) wrap `eval` in `try/catch`, which maps to a
 //!   `match`/`if let Err` — so a `Result` return is the faithful shape.
 //! * The C++ `char num[128]` stack buffer, out-of-bounds `vars[]` indexing, and
-//!   the read-past-end inside `ux_simplecasecmp` are Undefined Behaviour in
+//!   the read-past-end inside the keyword matcher are Undefined Behaviour in
 //!   C++. Safe Rust cannot reproduce UB; the closest safe behaviour is used and
 //!   annotated inline.
 //! * `ISSPACE`, `ISDELIM`, `ISALPHA_C`, `ISDIGIT_C` (inlines.hpp) come from
