@@ -43,7 +43,7 @@ use regex::Regex;
 
 use crate::arena::{SetId, TagId};
 use crate::grammar::Grammar;
-use crate::inlines::hash_value_ustring;
+use crate::inlines::hash_value_str;
 use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY};
 use crate::tag::{
     COps, MASK_TAG_SPECIAL, T_ANY, T_ATTACHTO, T_BASEFORM, T_CASE_INSENSITIVE, T_CONTEXT, T_ENCL,
@@ -207,7 +207,7 @@ pub fn parse_tag<S: ParseTagState>(
     }
 
     // Dedup: `single_tags[thash]->tag == to` → return existing.
-    let thash = hash_value_ustring(&to_owned, 0);
+    let thash = hash_value_str(&to_owned, 0);
     {
         let g = state.grammar();
         let it = g.single_tags().find(thash);
@@ -457,7 +457,7 @@ pub fn parse_tag<S: ParseTagState>(
                     tag.comparison_hash = ch.get();
                 }
             } else {
-                tag.comparison_hash = hash_value_ustring(&tag.tag, 0);
+                tag.comparison_hash = hash_value_str(&tag.tag, 0);
             }
 
             // Numeric `<...>`.
@@ -598,7 +598,7 @@ pub fn parse_set(
     near: Near<'_>,
     state: &mut TextualParser,
 ) -> Result<SetId, crate::error::ParseError> {
-    let mut sh = hash_value_ustring(name, 0);
+    let mut sh = hash_value_str(name, 0);
 
     if set_op_code(name) != S_IGNORE {
         return Err(state.error_at(near)); // "Found set operator where set name expected"
@@ -612,7 +612,7 @@ pub fn parse_set(
         // wname = &name[2]; if it matches `%*u:%S`, wname = the remainder.
         let tail: String = nchars[2..].iter().collect();
         let wname: String = scan_star_u_colon_s(&tail).unwrap_or(tail);
-        let wrap = hash_value_ustring(&wname, 0);
+        let wrap = hash_value_str(&wname, 0);
         let wtmp = match state.grammar.get_set(wrap) {
             Some(s) => s,
             None => return Err(state.error_at(near)), // "reference undefined set"

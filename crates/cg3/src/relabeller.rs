@@ -78,15 +78,15 @@ const S_PLUS: u32 = 4;
 pub type RelabellerTagVector = Vec<TagId>;
 
 // [spec:cg3:def:relabeller.cg3.relabeller.u-string-map]
-/// C++ `typedef std::unordered_map<UString, UString, hash_ustring> UStringMap`.
+/// C++ `typedef std::unordered_map<UString, UString, hash_ustring> StringMap`.
 /// Declared in the header but unused by any ported method; reproduced for
 /// fidelity.
-pub type UStringMap = HashMap<String, String>;
+pub type StringMap = HashMap<String, String>;
 
 // [spec:cg3:def:relabeller.cg3.relabeller.u-string-set-map]
-/// C++ `typedef std::unordered_map<UString, Set*, hash_ustring> UStringSetMap`.
+/// C++ `typedef std::unordered_map<UString, Set*, hash_ustring> StringSetMap`.
 /// The `Set*` value is a relabel-target set in the RELABELS grammar → [`SetId`].
-pub type UStringSetMap = HashMap<String, SetId>;
+pub type StringSetMap = HashMap<String, SetId>;
 
 // [spec:cg3:def:relabeller.cg3.freq-sorter]
 /// C++ `struct freq_sorter` — a comparator that sorts tags by DESCENDING
@@ -211,10 +211,10 @@ pub struct Relabeller<'g, 'r> {
     grammar: &'g mut Grammar,
     /// C++ `const Grammar* relabels` — the relabel-rules grammar (read-only).
     relabels: &'r Grammar,
-    /// C++ `std::unique_ptr<const UStringSetMap> relabel_as_list`.
-    relabel_as_list: UStringSetMap,
-    /// C++ `std::unique_ptr<const UStringSetMap> relabel_as_set`.
-    relabel_as_set: UStringSetMap,
+    /// C++ `std::unique_ptr<const StringSetMap> relabel_as_list`.
+    relabel_as_list: StringSetMap,
+    /// C++ `std::unique_ptr<const StringSetMap> relabel_as_set`.
+    relabel_as_set: StringSetMap,
 }
 
 impl<'g, 'r> Relabeller<'g, 'r> {
@@ -228,8 +228,8 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     /// unordered_map does not overwrite → a duplicate fromTag string keeps its
     /// FIRST target.
     pub fn new(res: &'g mut Grammar, relabels: &'r Grammar, _ux_err: ()) -> Self {
-        let mut as_list: UStringSetMap = UStringSetMap::new();
-        let mut as_set: UStringSetMap = UStringSetMap::new();
+        let mut as_list: StringSetMap = StringSetMap::new();
+        let mut as_set: StringSetMap = StringSetMap::new();
 
         // for (auto rule : relabels.rule_by_number)
         let rule_ids: Vec<u32> = (0..relabels.rule_by_number.capacity())

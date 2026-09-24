@@ -65,23 +65,13 @@ const STR_CMD_REMVAR: &str = "<STREAMCMD:REMVAR:";
 
 const CT_REMOVED: crate::cohort::CohortType = crate::cohort::CT_REMOVED;
 
-// [spec:cg3:def:jsonl-applicator.cg3.ustring-to-utf8-fn]
-// [spec:cg3:sem:jsonl-applicator.cg3.ustring-to-utf8-fn]
-/// C++ free fn `std::string ustring_to_utf8(UStringView ustr)`. In this UTF-8
-/// port the internal representation is already UTF-8, so this is the identity on
-/// the string content (the ICU two-pass `u_strToUTF8` preflight collapses to a
-/// plain copy). Returns an owned `String`.
-pub fn ustring_to_utf8(ustr: &str) -> String {
-    ustr.to_string()
-}
-
 // [spec:cg3:def:jsonl-applicator.cg3.json-to-ustring-fn]
 // [spec:cg3:sem:jsonl-applicator.cg3.json-to-ustring-fn]
-/// C++ free fn `UString json_to_ustring(const json::Value& val)`. If `val` is a
+/// C++ free fn `UString json_to_string(const json::Value& val)`. If `val` is a
 /// JSON string, decode its UTF-8 bytes to the internal (UTF-8) representation;
 /// for any non-string value (null / number / bool / array / object / missing),
 /// return an empty string.
-pub fn json_to_ustring(val: &Value) -> String {
+pub fn json_to_string(val: &Value) -> String {
     match val {
         Value::String(s) => s.clone(),
         _ => String::new(),
@@ -149,7 +139,7 @@ impl<'a> JsonlApplicator<'a> {
 
         // Baseform ("l").
         if let Some(l_val) = obj.get("l") {
-            let base_str = json_to_ustring(l_val);
+            let base_str = json_to_string(l_val);
             if !base_str.is_empty() {
                 let mut base_tag = String::new();
                 base_tag.push('"');
@@ -175,7 +165,7 @@ impl<'a> JsonlApplicator<'a> {
             let mut mappings: TagList = TagList::new();
             let mapping_prefix = self.base.grammar.mapping_prefix;
             for tag_val in tags_arr {
-                let tag_str = json_to_ustring(tag_val);
+                let tag_str = json_to_string(tag_val);
                 if !tag_str.is_empty() {
                     let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty())?;
                     let ttype = self.base.grammar.tag_type(tag);
@@ -259,7 +249,7 @@ impl<'a> JsonlApplicator<'a> {
 
         // Wordform ("w").
         let wform_str = if let Some(w) = obj.get("w") {
-            json_to_ustring(w)
+            json_to_string(w)
         } else {
             tracing::warn!(
                 "Warning: JSON cohort on line {} missing 'w' (wordform). Using empty.",
@@ -285,7 +275,7 @@ impl<'a> JsonlApplicator<'a> {
             .wblank
             .clear();
         if let Some(z) = obj.get("z") {
-            self.base.doc.store.cohorts.get_mut(c_cohort.0).text = json_to_ustring(z);
+            self.base.doc.store.cohorts.get_mut(c_cohort.0).text = json_to_string(z);
         }
 
         // Static tags ("sts").
@@ -299,7 +289,7 @@ impl<'a> JsonlApplicator<'a> {
             }
             let wread = self.base.doc.store.cohorts.get(c_cohort.0).wread.unwrap();
             for tag_val in sts {
-                let tag_str = json_to_ustring(tag_val);
+                let tag_str = json_to_string(tag_val);
                 if !tag_str.is_empty() {
                     let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty())?;
                     let hash = self.base.grammar.single_tags_list.get(tag.0).hash;
@@ -529,7 +519,7 @@ impl<'a> JsonlApplicator<'a> {
 
             // Command handling.
             if let Some(cmd_v) = obj.get("cmd") {
-                let cmd_ustr = json_to_ustring(cmd_v);
+                let cmd_ustr = json_to_string(cmd_v);
                 if !cmd_ustr.is_empty() {
                     if cmd_ustr == STR_CMD_FLUSH {
                         // verbose Info line: deferred.
@@ -639,7 +629,7 @@ impl<'a> JsonlApplicator<'a> {
             // Ignore mode.
             if ignoreinput {
                 if let Some(t_v) = obj.get("t") {
-                    let t_ustr = json_to_ustring(t_v);
+                    let t_ustr = json_to_string(t_v);
                     if !t_ustr.is_empty() {
                         fmt.print_plain_text_line(&mut self.base.engine(), &t_ustr, output);
                     }
@@ -649,7 +639,7 @@ impl<'a> JsonlApplicator<'a> {
 
             // Plain text: has "t" and NOT "w".
             if obj.contains_key("t") && !obj.contains_key("w") {
-                let t_ustr = json_to_ustring(obj.get("t").unwrap());
+                let t_ustr = json_to_string(obj.get("t").unwrap());
                 if !t_ustr.is_empty() {
                     // verbose Info: deferred.
                     if let Some(lc) = l_cohort {
@@ -935,7 +925,7 @@ impl JsonlFormat {
 
             // DIVERGENCE(NUL): RapidJSON truncates `tag->tag` at an embedded NUL;
             // this keeps the whole string.
-            tags_json.push(Value::String(ustring_to_utf8(&ttag)));
+            tags_json.push(Value::String(ttag.to_string()));
         }
         tags_json
     }
@@ -969,9 +959,9 @@ impl JsonlFormat {
                 let chars: Vec<char> = tag.chars().collect();
                 if chars.len() >= 2 && chars[0] == '"' && chars[chars.len() - 1] == '"' {
                     let inner: String = chars[1..chars.len() - 1].iter().collect();
-                    baseform_utf8 = ustring_to_utf8(&inner);
+                    baseform_utf8 = inner.to_string();
                 } else {
-                    baseform_utf8 = ustring_to_utf8(tag);
+                    baseform_utf8 = tag.to_string();
                 }
             }
         }
@@ -1006,7 +996,7 @@ impl JsonlFormat {
     /// `{"cmd": <cmd>}` + `"\n"`. Does NOT flush.
     pub(crate) fn print_stream_command_e<W: Write>(&self, cmd: &str, output: &mut W) {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
-        let doc = json!({ "cmd": ustring_to_utf8(cmd) });
+        let doc = json!({ "cmd": cmd.to_string() });
         let s = serde_json::to_string(&doc).unwrap();
         let _ = writeln!(output, "{s}");
     }
@@ -1019,7 +1009,7 @@ impl JsonlFormat {
     /// line.
     pub(crate) fn print_plain_text_line_e<W: Write>(&self, line: &str, output: &mut W) {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
-        let doc = json!({ "t": ustring_to_utf8(line) });
+        let doc = json!({ "t": line.to_string() });
         let s = serde_json::to_string(&doc).unwrap();
         let _ = writeln!(output, "{s}");
     }
@@ -1078,9 +1068,9 @@ impl JsonlFormat {
                 && chars[chars.len() - 1] == '"'
             {
                 let inner: String = chars[2..chars.len() - 2].iter().collect();
-                ustring_to_utf8(&inner)
+                inner.to_string()
             } else {
-                ustring_to_utf8(&wform_tag)
+                wform_tag.to_string()
             }
         };
         // DIVERGENCE(NUL).
@@ -1118,7 +1108,7 @@ impl JsonlFormat {
                         let tid = it.get().1;
                         let ttag = e.grammar.single_tags_list.get(tid.0).tag.clone();
                         // DIVERGENCE(NUL).
-                        static_tags_json.push(Value::String(ustring_to_utf8(&ttag)));
+                        static_tags_json.push(Value::String(ttag.to_string()));
                     }
                 }
                 if !static_tags_json.is_empty() {
@@ -1136,7 +1126,7 @@ impl JsonlFormat {
             }
             if !z_text.is_empty() {
                 // DIVERGENCE(NUL).
-                doc.insert("z".to_string(), Value::String(ustring_to_utf8(&z_text)));
+                doc.insert("z".to_string(), Value::String(z_text.to_string()));
             }
         }
 

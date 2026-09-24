@@ -72,7 +72,7 @@ use crate::tag::Tag;
 // --- Method-pass imports (added with the fn bodies) ---
 use std::io::Read;
 
-use crate::inlines::{hash_value_ustring, is_internal, is_textual, ui32};
+use crate::inlines::{hash_value_str, is_internal, is_textual, ui32};
 use crate::rule::{RF_CAPTURE_UNIF, RF_KEEPORDER};
 use crate::set::{
     MASK_ST_UNIFY, ST_ANY, ST_CHILD_UNIFY, ST_SET_UNIFY, ST_SPECIAL, ST_STATIC, ST_TAG_UNIFY,
@@ -544,7 +544,7 @@ impl Grammar {
         let pfxs = ["$$", "&&", ""];
         for pfx in pfxs {
             let name = format!("{pfx}{name_}");
-            let mut nhash = hash_value_ustring(&name, 0);
+            let mut nhash = hash_value_str(&name, 0);
             tset = self.get_set(nhash);
             if let Some(t) = tset {
                 let to = ui32(self.sets_by_contents.len());
@@ -698,7 +698,7 @@ impl Grammar {
     /// have parked the same text at a seeded slot, which
     /// [`add_tag`](Self::add_tag)'s probe finds.
     pub(crate) fn find_unseeded(&self, txt: &str) -> Option<TagId> {
-        let it = self.single_tags().find(hash_value_ustring(txt, 0));
+        let it = self.single_tags().find(hash_value_str(txt, 0));
         if it == self.single_tags().end() {
             return None;
         }
@@ -891,7 +891,7 @@ impl Grammar {
         test: CtxId,
         name: &str,
     ) -> Result<(), crate::error::ParseError> {
-        let cn = hash_value_ustring(name, 0);
+        let cn = hash_value_str(name, 0);
         if self.templates.contains_key(&cn) {
             return Err(self.error(crate::error::ParseErrorKind::TemplateRedefined {
                 name: name.to_string(),
@@ -1102,7 +1102,7 @@ impl Grammar {
         // and is skipped entirely for internal names (quirk reproduced).
         let chash = Set::rehash(self, to);
         if !is_internal(&name) {
-            let mut nhash = hash_value_ustring(&name, 0);
+            let mut nhash = hash_value_str(&name, 0);
             let mut skip = false;
             {
                 let sb = self.sets_by_name.find(nhash);
@@ -1696,7 +1696,7 @@ impl Grammar {
         // (2) Static sets.
         let static_sets = self.static_sets.clone();
         for sset in &static_sets {
-            let sh = hash_value_ustring(sset, 0);
+            let sh = hash_value_str(sset, 0);
             if self.set_alias.contains(sh) {
                 return Err(crate::error::GrammarError::StaticSetAlias {
                     name: sset.clone(),
@@ -2085,7 +2085,7 @@ impl Grammar {
         for &to in &sl_ids {
             if self.sets_list[to.0].r#type.intersects(ST_STATIC) {
                 let nm = self.sets_list[to.0].name.clone();
-                let nhash = hash_value_ustring(&nm, 0);
+                let nhash = hash_value_str(&nm, 0);
                 let cnum = self.sets_list[to.0].number;
                 if !self.sets_by_name.contains(nhash) {
                     self.sets_by_name.insert((nhash, cnum.get()));

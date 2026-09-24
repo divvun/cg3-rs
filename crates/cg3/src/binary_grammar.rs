@@ -703,14 +703,6 @@ impl BinaryGrammar {
                 ) {
                     Ok(re) => t.regexp = Some(re),
                     Err(e) => {
-                        // The C++-shaped line, kept for parity but demoted:
-                        // an embedder should not have to show its users the
-                        // name of an ICU C function.
-                        tracing::debug!(
-                            "Error: uregex_open returned {} trying to parse tag {} - cannot continue!",
-                            e.kind,
-                            t.tag
-                        );
                         // Collect and keep reading: the stream position is
                         // already past this record, so every remaining bad
                         // tag can be reported in the same pass.

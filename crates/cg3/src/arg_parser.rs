@@ -5,7 +5,7 @@
 //! The C++ translation unit `src/icu_uoptions.cpp` is **not** in the CMake
 //! build. It `#include`s a non-existent `icu_uoptions.hpp`, and it reads
 //! `option->optionFn` / `option->context` — members that do **not** exist on
-//! the live `UOption` struct — so it would not even compile against the real
+//! the live `ArgOption` struct — so it would not even compile against the real
 //! header. The parser actually linked into every binary is the *identical*
 //! inline `u_parseArgs` in the vendored `include/uoptions.hpp` (out of scope),
 //! which is byte-for-byte the same algorithm MINUS the `optionFn` callback
@@ -13,8 +13,8 @@
 //!
 //! Per the spec sem note ("Port the live (header) behavior; the callback path
 //! here is dead"), this port reproduces the shared algorithm operating on the
-//! live [`crate::options::UOption`], and **omits** the dead `optionFn` callback
-//! block (it cannot be expressed — `UOption` has no `optionFn`/`context`). The
+//! live [`crate::options::ArgOption`], and **omits** the dead `optionFn` callback
+//! block (it cannot be expressed — `ArgOption` has no `optionFn`/`context`). The
 //! one place it would have run is marked below.
 //!
 //! Faithful-to-`icu_uoptions.cpp` residue that survives: the signature keeps
@@ -34,7 +34,7 @@
 //! see [`at`]). `option->value = argv[i]` / `= arg` (which copy the C string
 //! into the live `std::string value`) become `String` collects.
 
-use crate::options::{UOPT_NO_ARG, UOPT_REQUIRES_ARG, UOption};
+use crate::options::{ArgOption, HasArg};
 
 /// Reads the `k`-th `char` of a NUL-free token, returning `'\0'` for any index
 /// at or past the end. This is the `arg[k]` / `*arg`-style access from the C
@@ -54,7 +54,7 @@ pub fn parse_args(
     argc: i32,
     argv: &mut [Vec<char>],
     option_count: i32,
-    options: &mut [UOption],
+    options: &mut [ArgOption],
 ) -> i32 {
     let mut i: i32 = 1;
     let mut remaining: i32 = 1;
@@ -89,7 +89,7 @@ pub fn parse_args(
                     };
                     options[opt].does_occur = true;
 
-                    if options[opt].has_arg != UOPT_NO_ARG {
+                    if options[opt].has_arg != HasArg::No {
                         // parse the argument for the option, if any
                         if i + 1 < argc
                             && !(at(&argv[(i + 1) as usize], 0) == '-'
@@ -98,7 +98,7 @@ pub fn parse_args(
                             // argument in the next argv[], and there is not an option in there
                             i += 1;
                             options[opt].value = argv[i as usize].iter().collect();
-                        } else if options[opt].has_arg == UOPT_REQUIRES_ARG {
+                        } else if options[opt].has_arg == HasArg::Required {
                             // there is no argument, but one is required: return with error
                             return -i;
                         }
@@ -119,7 +119,7 @@ pub fn parse_args(
                     };
                     options[opt].does_occur = true;
 
-                    if options[opt].has_arg != UOPT_NO_ARG {
+                    if options[opt].has_arg != HasArg::No {
                         // parse the argument for the option, if any
                         if at(&argv[iu], arg_off) != '\0' {
                             // argument following in the same argv[]
@@ -135,7 +135,7 @@ pub fn parse_args(
                             options[opt].value = argv[i as usize].iter().collect();
                             // this break is redundant because we know that *arg==0
                             break;
-                        } else if options[opt].has_arg == UOPT_REQUIRES_ARG {
+                        } else if options[opt].has_arg == HasArg::Required {
                             // there is no argument, but one is required: return with error
                             return -i;
                         }
@@ -153,7 +153,7 @@ pub fn parse_args(
             // DEAD optionFn callback block (icu_uoptions.cpp only):
             //   if (option != 0 && option->optionFn != 0 &&
             //       option->optionFn(option->context, option) < 0) return -i;
-            // Omitted: the live `UOption` has no `optionFn`/`context` members, so
+            // Omitted: the live `ArgOption` has no `optionFn`/`context` members, so
             // this path never existed in any built binary (see module NOTE).
 
             // go to next argv[]
@@ -173,15 +173,8 @@ pub fn parse_args(
 mod tests {
     use super::*;
 
-    fn opt(long: &'static str, short: char, has_arg: u8) -> UOption {
-        UOption {
-            long_name: Some(long),
-            short_name: short,
-            has_arg,
-            description: String::new(),
-            does_occur: false,
-            value: String::new(),
-        }
+    fn opt(long: &'static str, short: char, has_arg: HasArg) -> ArgOption {
+        ArgOption::hidden(long, short, has_arg)
     }
 
     fn tok(s: &str) -> Vec<char> {
@@ -196,9 +189,9 @@ mod tests {
     #[test]
     fn parses_long_short_and_compacts() {
         let mut options = [
-            opt("verbose", 'v', UOPT_NO_ARG),
-            opt("grammar", 'g', UOPT_REQUIRES_ARG),
-            opt("file", 'f', UOPT_REQUIRES_ARG),
+            opt("verbose", 'v', HasArg::No),
+            opt("grammar", 'g', HasArg::Required),
+            opt("file", 'f', HasArg::Required),
         ];
 
         // argv[0] is the program name (skipped). Layout:
@@ -240,20 +233,20 @@ mod tests {
     #[test]
     fn missing_required_arg_errors_and_dashdash_stops() {
         // Missing required argument: -g at end with nothing after it.
-        let mut options = [opt("grammar", 'g', UOPT_REQUIRES_ARG)];
+        let mut options = [opt("grammar", 'g', HasArg::Required)];
         let mut argv = vec![tok("prog"), tok("-g")];
         let rv = parse_args(argv.len() as i32, &mut argv, 1, &mut options);
         assert_eq!(rv, -1, "required arg missing -> -i (i==1)");
 
         // Unknown option -> negated index too.
-        let mut options2 = [opt("verbose", 'v', UOPT_NO_ARG)];
+        let mut options2 = [opt("verbose", 'v', HasArg::No)];
         let mut argv2 = vec![tok("prog"), tok("--nope")];
         let rv2 = parse_args(argv2.len() as i32, &mut argv2, 1, &mut options2);
         assert_eq!(rv2, -1);
 
         // `--` stops option processing: "-v" after it is kept as a plain
         // non-option and compacted, and `verbose` is NOT marked.
-        let mut options3 = [opt("verbose", 'v', UOPT_NO_ARG)];
+        let mut options3 = [opt("verbose", 'v', HasArg::No)];
         let mut argv3 = vec![tok("prog"), tok("--"), tok("-v")];
         let remaining = parse_args(argv3.len() as i32, &mut argv3, 1, &mut options3);
         assert!(!options3[0].does_occur, "-v after -- is not an option");

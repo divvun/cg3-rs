@@ -10,7 +10,7 @@ use crate::contextual_test::{POS_CAREFUL, POS_NUMERIC_BRANCH, copy_cntx};
 use crate::grammar::Grammar;
 use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::{
-    hash_value_ustring, isspace, skipln_chars, skipto_chars, skiptows_chars, skipws_chars, ui32,
+    hash_value_str, isspace, skipln_chars, skipto_chars, skiptows_chars, skipws_chars, ui32,
 };
 use crate::set::{ST_TAG_UNIFY, Set};
 use crate::strings::Keywords;
@@ -88,7 +88,7 @@ impl TextualParser {
         self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
         let mut append = false;
         if buf[*pos] == '+' && buf[*pos + 1] == '=' {
-            let aset = self.grammar.get_set(hash_value_ustring(&name, 0));
+            let aset = self.grammar.get_set(hash_value_str(&name, 0));
             if aset.is_none() {
                 return Err(self.error_near(*pos));
             }
@@ -128,7 +128,7 @@ impl TextualParser {
         }
         let name: String = buf[*pos..n].iter().collect();
         self.grammar.sets_list[s0.0].name = name.clone();
-        let sh = hash_value_ustring(&name, 0);
+        let sh = hash_value_str(&name, 0);
         *pos = n;
         self.grammar.lines += skipws_chars(buf, pos, '=', '\0', false);
         if buf[*pos] != '=' {
@@ -400,7 +400,7 @@ impl TextualParser {
         // guarded was cosmetic; `cur_source` is not — leaving it pointing at the
         // included buffer would give the outer parse's next error a span into
         // the wrong file.
-        let rv = self.parse_from_u_char(gi2);
+        let rv = self.parse_source(gi2);
         self.parse_end_break = saved_end;
         self.only_sets = saved_only;
         self.cur_grammar_n = saved_cur_grammar_n;
@@ -568,7 +568,7 @@ impl TextualParser {
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
-    fn parse_from_u_char(&mut self, gi: usize) -> ParseResult {
+    fn parse_source(&mut self, gi: usize) -> ParseResult {
         // Clone the shared handle (a refcount bump) so `buf` is owned and does
         // NOT borrow `self`; the char data is immutable, so `#include` may push
         // new `grammarbufs` entries while this parse is in flight without
@@ -711,7 +711,7 @@ impl TextualParser {
         }
 
         // 5. Parse the grammar text.
-        self.parse_from_u_char(gi)?;
+        self.parse_source(gi)?;
 
         // 6. END anchor at the last rule number.
         let end_at = ui32(self.grammar.rule_by_number.capacity().wrapping_sub(1));
@@ -780,7 +780,7 @@ impl TextualParser {
             .map(|(&k, v)| (k, v.clone()))
             .collect();
         for (t, (line, name)) in deferred {
-            let cn = hash_value_ustring(&name, 0);
+            let cn = hash_value_str(&name, 0);
             if !self.grammar.templates.contains_key(&cn) {
                 // The line is the deferred reference's own, not `grammar.lines`:
                 // resolution happens after the whole buffer has been walked, so
@@ -847,7 +847,7 @@ impl TextualParser {
             .push(SourceBuf::new(self.filename.clone(), text.as_ref()));
         let gi = self.grammarbufs.len() - 1;
         // A recoverable error stops only its own directive: the loop inside
-        // `parse_from_u_char` records it and continues, so `Ok` here still means
+        // `parse_source` records it and continues, so `Ok` here still means
         // "found errors" if any were accumulated. What reaches this frame is an
         // error the parser could not resume from, and it joins the same list.
         if let Err(hard) = self.parse_grammar_data(gi) {

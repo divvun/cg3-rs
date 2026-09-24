@@ -3,13 +3,12 @@
 //!
 //! Tokenizes a command line embedded in text (an env var, or a grammar
 //! `CMDARGS` directive) into an `argv` vector and feeds it to `parse_args` to
-//! populate a `UOption` table.
+//! populate an [`ArgOption`] table.
 //!
 //! ## Genericity (NOTE)
-//! The C++ functions are `template<typename Opts>` so they work with both the
-//! vislcg3 (`Options`) and cg-conv (`OptionsConv`) tables. Both tables are
-//! `std::array<UOption, N>` over the *same* `UOption` type, so the port collapses
-//! the template into a plain `&mut [UOption]` slice (any `[UOption; N]` coerces).
+//! The C++ functions are templated over the vislcg3 and cg-conv tables. Both
+//! hold the same entry type, so the port takes a plain `&mut [ArgOption]`
+//! (any `[ArgOption; N]` coerces).
 //!
 //! ## Native-string tokenizer (wave 4)
 //! The C++ `parse_opts(char* p, ...)` mutates a NUL-terminated buffer in place
@@ -22,7 +21,7 @@
 
 use crate::arg_parser::parse_args;
 use crate::inlines::isspace;
-use crate::options::UOption;
+use crate::options::ArgOption;
 
 // [spec:cg3:def:options-parser.options.parse-opts-fn]
 // [spec:cg3:sem:options-parser.options.parse-opts-fn]
@@ -35,7 +34,7 @@ use crate::options::UOption;
 // * any other token runs to the next whitespace.
 // The C++ in-place NUL writes + the one-past-terminator guard-NUL quirk are
 // dissolved (see the module note); observable argv is unchanged.
-pub fn parse_opts(p: &str, where_: &mut [UOption]) {
+pub fn parse_opts(p: &str, where_: &mut [ArgOption]) {
     let mut argv: Vec<Vec<char>> = vec![Vec::new()]; // 0th element is the program name
     let chars: Vec<char> = p.chars().collect();
     let mut pos = 0usize;
@@ -76,7 +75,7 @@ pub fn parse_opts(p: &str, where_: &mut [UOption]) {
 // Reads env var `which`; if set, parses its value into `where_`. (The C++
 // copied the value and appended the guard NUL the old scanner needed; the
 // native-string scanner needs no terminators.)
-pub fn parse_opts_env(which: &str, where_: &mut [UOption]) {
+pub fn parse_opts_env(which: &str, where_: &mut [ArgOption]) {
     if let Ok(env) = std::env::var(which) {
         parse_opts(&env, where_);
     }
@@ -85,17 +84,10 @@ pub fn parse_opts_env(which: &str, where_: &mut [UOption]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::options::{UOPT_NO_ARG, UOPT_REQUIRES_ARG};
+    use crate::options::HasArg;
 
-    fn opt(long: &'static str, short: char, has_arg: u8) -> UOption {
-        UOption {
-            long_name: Some(long),
-            short_name: short,
-            has_arg,
-            description: String::new(),
-            does_occur: false,
-            value: String::new(),
-        }
+    fn opt(long: &'static str, short: char, has_arg: HasArg) -> ArgOption {
+        ArgOption::hidden(long, short, has_arg)
     }
 
     // `parse_opts` tokenizes an embedded command line (splitting on whitespace,
@@ -105,8 +97,8 @@ mod tests {
     #[test]
     fn tokenizes_and_populates_options() {
         let mut where_ = [
-            opt("verbose", 'v', UOPT_NO_ARG),
-            opt("grammar", 'g', UOPT_REQUIRES_ARG),
+            opt("verbose", 'v', HasArg::No),
+            opt("grammar", 'g', HasArg::Required),
         ];
         // A dash flag, a long option, and a quoted argument for -g.
         parse_opts("--verbose -g 'my grammar.cg3'", &mut where_);
@@ -124,7 +116,7 @@ mod tests {
     // value).
     #[test]
     fn double_quotes_and_trailing_bare_token() {
-        let mut where_ = [opt("grammar", 'g', UOPT_REQUIRES_ARG)];
+        let mut where_ = [opt("grammar", 'g', HasArg::Required)];
         parse_opts("-g \"a b\" leftover", &mut where_);
         assert!(where_[0].does_occur);
         assert_eq!(where_[0].value, "a b");
@@ -151,7 +143,7 @@ mod tests {
             std::env::var(absent).is_err(),
             "test precondition: {absent} must be unset"
         );
-        let mut where_ = [opt("verbose", 'v', UOPT_NO_ARG)];
+        let mut where_ = [opt("verbose", 'v', HasArg::No)];
         parse_opts_env(absent, &mut where_);
         assert!(!where_[0].does_occur, "unset env leaves options untouched");
 
@@ -160,10 +152,10 @@ mod tests {
         // since `PATH` contains no recognized options, the table stays untouched,
         // but the delegation is what we assert did not panic / mis-handle.
         if let Ok(path) = std::env::var("PATH") {
-            let mut where2 = [opt("verbose", 'v', UOPT_NO_ARG)];
+            let mut where2 = [opt("verbose", 'v', HasArg::No)];
             parse_opts_env("PATH", &mut where2);
             // Forwarding is equivalent to calling parse_opts on the raw value.
-            let mut where3 = [opt("verbose", 'v', UOPT_NO_ARG)];
+            let mut where3 = [opt("verbose", 'v', HasArg::No)];
             parse_opts(&path, &mut where3);
             assert_eq!(
                 where2[0].does_occur, where3[0].does_occur,

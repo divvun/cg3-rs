@@ -31,8 +31,7 @@ use crate::textual_parser::TextualParser;
 
 use super::{
     CG3_COPYRIGHT_STRING, CG3_TOO_OLD, DIVVUN_COPYRIGHT_STRING, DIVVUN_REPOSITORY, EXIT_FAILURE,
-    U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, fail, merge_options, print_divvun_version_line,
-    to_uargv,
+    EXIT_SUCCESS, fail, merge_options, print_divvun_version_line, to_argv,
 };
 
 /// A `--nrules` / `--nrules-v` pattern that would not compile.
@@ -42,7 +41,7 @@ use super::{
 /// spliced into the message: `TagRegexError`'s own `Display` opens with "cannot
 /// compile regex for tag", which a rule-name filter is not.
 #[derive(Debug, thiserror::Error)]
-#[error("Error: uregex_open returned {} trying to parse {flag} {pattern}", .source.kind)]
+#[error("Error: invalid regex ({}) in {flag} {pattern}", .source.kind)]
 struct NrulesError {
     flag: &'static str,
     pattern: String,
@@ -89,7 +88,7 @@ pub fn main_run(args: &[String]) -> i32 {
     // clock_t main_timer = clock(); — timers dropped (verbose timing lines below
     // are ported without the actual durations).
 
-    // UErrorCode status = U_ZERO_ERROR;
+    // UErrorCode status = EXIT_SUCCESS;
     let status: i32 = 0;
     // srand(...) dropped (no rand() dependency in the ported paths).
 
@@ -103,7 +102,7 @@ pub fn main_run(args: &[String]) -> i32 {
     let mut grammar_options_override = grammar_options_override();
 
     // argc = u_parseArgs(argc, argv, options.size(), options.data());
-    let mut argv = to_uargv(args);
+    let mut argv = to_argv(args);
     let mut argc = parse_args(
         argv.len() as i32,
         &mut argv,
@@ -143,7 +142,7 @@ pub fn main_run(args: &[String]) -> i32 {
         println!("{DIVVUN_COPYRIGHT_STRING}");
         println!("{CG3_COPYRIGHT_STRING}");
         println!("Source: {DIVVUN_REPOSITORY}");
-        return U_ZERO_ERROR;
+        return EXIT_SUCCESS;
     }
 
     if !occ(&options, Opt::Grammar) && !occ(&options, Opt::Help1) && !occ(&options, Opt::Help2) {
@@ -153,11 +152,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
     if argc < 0 || occ(&options, Opt::Help1) || occ(&options, Opt::Help2) {
         print_help(&options);
-        return if argc < 0 {
-            U_ILLEGAL_ARGUMENT_ERROR
-        } else {
-            U_ZERO_ERROR
-        };
+        return if argc < 0 { EXIT_FAILURE } else { EXIT_SUCCESS };
     }
 
     // --show-* / --dump-ast imply --grammar-only; --grammar-only implies --verbose;
@@ -413,7 +408,7 @@ pub fn main_run(args: &[String]) -> i32 {
     ) {
         // --show-tags: the dump is the whole job. The C++ exit(0)s inside
         // reindex; the exit code is decided here instead.
-        Ok(Reindexed::DumpedTags) => return U_ZERO_ERROR,
+        Ok(Reindexed::DumpedTags) => return EXIT_SUCCESS,
         Ok(Reindexed::Done) => {}
         Err(e) => return fail(&e),
     }

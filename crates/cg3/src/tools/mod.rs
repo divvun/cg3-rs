@@ -18,11 +18,10 @@
 //!   tool converts its incoming `&[String]` argv into that shape and reads the
 //!   returned "remaining" count (negative on error), exactly as C++'s
 //!   `argc = u_parseArgs(...)`.
-//! * **ICU init / codepage / locale.** The C++ `u_init` / `ucnv_setDefaultName`
-//!   / `uloc_setDefault` calls have no analogue in this UTF-8 port; they are
-//!   dropped (noted at each site). `UErrorCode status` starts at
-//!   `U_ZERO_ERROR == 0` and is returned as the exit code where the C++ returns
-//!   `status` (raw ICU `UErrorCode`, per the flagged-bug convention).
+//! * **Library init / codepage / locale.** The C++ tools initialise their
+//!   Unicode library and default codepage and locale; a UTF-8 port has none of
+//!   that, so those calls are dropped. Where the C++ returns its status as the
+//!   exit code, the port returns [`EXIT_SUCCESS`] or [`EXIT_FAILURE`].
 //! * **Grammar ownership.** The ported parsers OWN their `Grammar` (see
 //!   [`crate::textual_parser`] / [`crate::binary_grammar`]); the C++ passes an
 //!   externally-held `Grammar&` and later `parser.reset()`s. The port therefore
@@ -107,8 +106,11 @@ pub fn enable_debug_logging(enabled: bool) {
 
 // --- CLI failure mapping ---------------------------------------------------------
 
+/// A tool that did its job.
+pub(crate) const EXIT_SUCCESS: i32 = 0;
+
 /// The C `EXIT_FAILURE` every `endProgram` / `CG3Quit(1)` in the C++ tools
-/// terminates with.
+/// terminates with, and the code a bad command line exits with.
 pub(crate) const EXIT_FAILURE: i32 = 1;
 
 // [spec:cg3:req:errors.exit-codes-at-cli]
@@ -185,12 +187,6 @@ pub fn handle_divvun_version(args: &[String], product: &str, short_aliases: &[&s
 
 // --- Shared upstream version constants (C++ `version.hpp`) --------------------
 
-/// ICU `UErrorCode` values used as tool exit codes (per the flagged-bug
-/// convention "exit codes = raw ICU UErrorCode"). `U_ZERO_ERROR == 0`;
-/// `U_ILLEGAL_ARGUMENT_ERROR == 1` (from ICU's `utypes.h`).
-pub const U_ZERO_ERROR: i32 = 0;
-pub const U_ILLEGAL_ARGUMENT_ERROR: i32 = 1;
-
 pub const CG3_TOO_OLD: u32 = 10373;
 pub const CG3_COPYRIGHT_STRING: &str =
     "Copyright (C) 2007-2025 GrammarSoft ApS. Licensed under GPLv3+";
@@ -201,7 +197,7 @@ pub const CG3_COPYRIGHT_STRING: &str =
 /// process `&[String]` argv. Element `0` (the program name) is preserved so the
 /// ICU parser's `i = 1` start and its non-option compaction behave exactly as in
 /// C++.
-pub(crate) fn to_uargv(args: &[String]) -> Vec<Vec<char>> {
+pub(crate) fn to_argv(args: &[String]) -> Vec<Vec<char>> {
     args.iter().map(|s| s.chars().collect()).collect()
 }
 

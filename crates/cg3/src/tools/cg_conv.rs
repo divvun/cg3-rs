@@ -16,7 +16,7 @@ use crate::arg_parser::parse_args;
 use crate::options_conv::{Opt, options_conv, options_default, options_override};
 use crate::options_parser::parse_opts_env;
 
-use super::{U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, fail, to_uargv};
+use super::{EXIT_FAILURE, EXIT_SUCCESS, fail, to_argv};
 
 // [spec:cg3:def:cg-conv.main-fn]
 // [spec:cg3:sem:cg-conv.main-fn]
@@ -24,7 +24,7 @@ use super::{U_ILLEGAL_ARGUMENT_ERROR, U_ZERO_ERROR, fail, to_uargv};
 // faithful port: the C++ `for (i=0; i<NUM_OPTIONS_CONV; ++i)` scans cover the
 // whole table — its length IS the enum constant (`ConvOptionsTable`).
 pub fn main_conv(args: &[String]) -> i32 {
-    // UErrorCode status = U_ZERO_ERROR;
+    // UErrorCode status = EXIT_SUCCESS;
     // ICU init dropped (UTF-8 port).
 
     // Owned local option tables (the C++ globals are mutated in place).
@@ -33,7 +33,7 @@ pub fn main_conv(args: &[String]) -> i32 {
     let mut options_override = options_override();
 
     // argc = u_parseArgs(argc, argv, options_conv.size(), options_conv.data());
-    let mut argv = to_uargv(args);
+    let mut argv = to_argv(args);
     let argc = parse_args(
         argv.len() as i32,
         &mut argv,
@@ -115,10 +115,10 @@ pub fn main_conv(args: &[String]) -> i32 {
 
         if argc < 0 {
             eprint!("{}", out);
-            return U_ILLEGAL_ARGUMENT_ERROR;
+            return EXIT_FAILURE;
         } else {
             print!("{}", out);
-            return U_ZERO_ERROR;
+            return EXIT_SUCCESS;
         }
     }
 
@@ -284,5 +284,5 @@ pub fn main_conv(args: &[String]) -> i32 {
     }
 
     // u_cleanup dropped. C++ main returns nothing on this path (implicit 0).
-    U_ZERO_ERROR
+    EXIT_SUCCESS
 }

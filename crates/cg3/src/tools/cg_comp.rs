@@ -39,7 +39,7 @@ fn end_program(name: Option<&str>) -> i32 {
 // [spec:cg3:sem:cg-comp.main-fn]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_comp(args: &[String]) -> i32 {
-    // UErrorCode status = U_ZERO_ERROR;
+    // UErrorCode status = EXIT_SUCCESS;
     let status: i32 = 0;
 
     // if (argc != 3) endProgram(argv[0]);

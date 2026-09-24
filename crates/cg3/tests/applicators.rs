@@ -457,10 +457,9 @@ fn fst_applicator_in_process() {
 // ({"cmd"} → parse then printStreamCommand), a standalone leading text line
 // ({"t"} → printPlainTextLine, since no window exists yet to attach it to),
 // and a cohort with subreadings + static tags + trailing text (parseJsonCohort
-// → parseJsonReading → jsonToUString on every string; printing goes
-// printSingleWindow → printCohort → buildJsonReading → buildJsonTags →
-// ustringToUtf8). Assertions pin the exact JSONL lines coming back.
-// [spec:cg3:sem:jsonl-applicator.cg3.ustring-to-utf8-fn/test]
+// → parseJsonReading → json_to_string on every string; printing goes
+// printSingleWindow → printCohort → buildJsonReading → buildJsonTags).
+// Assertions pin the exact JSONL lines coming back.
 // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.jsonl-applicator-fn/test]
 // [spec:cg3:sem:jsonl-applicator.cg3.json-to-ustring-fn/test]
 // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn/test]

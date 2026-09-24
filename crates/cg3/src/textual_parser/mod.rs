@@ -10,7 +10,7 @@
 //!   convention as `crate::inlines`). The buffer is the whole grammar source
 //!   (4 leading NULs + text + trailing NUL padding); `pos` starts at 4 (C++
 //!   `&data[4]`). Each `grammarbufs` entry is a shared, immutable
-//!   [`SrcBuf`](crate::ast::SrcBuf) (`Rc<[char]>`); `parse_from_u_char` clones
+//!   [`SrcBuf`](crate::ast::SrcBuf) (`Rc<[char]>`); `parse_source` clones
 //!   the handle (a refcount bump) into an owned local, so `buf` does NOT borrow
 //!   `self` — letting every parse method take `&mut self` + `buf` + `pos`
 //!   without a borrow conflict (and letting `#include` push new buffers while a
@@ -21,7 +21,7 @@
 //!   caught per statement by `parseFromUChar`, which recovers by skipping to the
 //!   next line. Here [`TextualParser::error_near`] RETURNS the error and every
 //!   call site propagates it with `?` — see `[dec:cg3:results-not-unwinding]`.
-//!   The one frame that cannot use `?` is `parse_from_u_char`'s directive loop,
+//!   The one frame that cannot use `?` is `parse_source`'s directive loop,
 //!   which records the error and carries on, because a recoverable parse error
 //!   is resumable and a bad grammar must report all of them
 //!   (`[spec:cg3:req:errors.parse-reports-all]`). `incErrorCount`'s `>= 10` bail
@@ -53,7 +53,7 @@ use crate::contextual_test::{
     POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, PosJumpPos,
 };
 use crate::grammar::Grammar;
-use crate::inlines::{hash_value_ustring, isspace, skiptows_chars, skipws_chars, ui32};
+use crate::inlines::{hash_value_str, isspace, skiptows_chars, skipws_chars, ui32};
 use crate::parser_helpers::Near;
 use crate::rule::{
     FLAGS_COUNT, RF_AFTER, RF_ALLOWLOOP, RF_BEFORE, RF_DELAYED, RF_ENCL_ANY, RF_ENCL_FINAL,
@@ -1579,7 +1579,7 @@ impl TextualParser {
         let mut n = *pos;
         self.grammar.lines += skiptows_chars(buf, &mut n, ')', false, false);
         let name: String = buf[*pos..n].iter().collect();
-        let cn = hash_value_ustring(&name, 0);
+        let cn = hash_value_str(&name, 0);
         // Placeholder: hold the name-hash in `tmpl` (C++ reinterpret_cast<CT*>(cn)).
         self.grammar.contexts_arena[t_cur.0].tmpl = Some(CtxId(cn));
         let tmpl_data = (self.grammar.lines as usize, name);

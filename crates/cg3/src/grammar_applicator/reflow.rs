@@ -794,7 +794,7 @@ impl Engine<'_> {
                 r.tags_string.push(' ');
             }
             r.tags_string.push_str(&tag_text);
-            r.tags_string_hash = crate::inlines::hash_value_ustring(&r.tags_string, 0);
+            r.tags_string_hash = crate::inlines::hash_value_str(&r.tags_string, 0);
         }
 
         if self.grammar.parentheses.contains_key(&thash.get()) {

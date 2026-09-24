@@ -88,10 +88,10 @@ fn hashing_family() {
     assert_ne!(hash_value(1, 100), hash_value(2, 100));
 
     // hash_ustring facade forces the seed and widens to usize; UTF-16-unit
-    // hashing means it equals hash_value_ustring(_, 0) by construction.
+    // hashing means it equals hash_value_str(_, 0) by construction.
     let hu = StringHasher;
     let s: String = "kitten".to_string();
-    assert_eq!(hu.call(&s), hash_value_ustring(&s, 0) as usize);
+    assert_eq!(hu.call(&s), hash_value_str(&s, 0) as usize);
     assert_ne!(hu.call(&s), hu.call("sitting"));
 }
 

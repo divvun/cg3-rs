@@ -1,7 +1,7 @@
 //! Port of `src/cg-proc.cpp` — the Apertium/Matxin/Binary stream processor.
 //!
 //! Unlike the other tools, cg-proc parses its own options with POSIX `getopt`
-//! (NOT the ICU `u_parseArgs` / `UOption` tables), then loads a grammar and runs
+//! (NOT the ICU `u_parseArgs` / `ArgOption` tables), then loads a grammar and runs
 //! the applicator matching the `-f` stream format. This port reproduces the
 //! getopt loop faithfully — including the flagged UB bug (see below).
 //!
@@ -265,7 +265,7 @@ pub fn main_proc(args: &[String]) -> i32 {
     let mut stream_format: i32 = 1;
     let mut single_rule = String::new();
 
-    // UErrorCode status = U_ZERO_ERROR; (dropped ICU init below)
+    // UErrorCode status = EXIT_SUCCESS; (dropped ICU init below)
 
     let prog = args.first().map(|s| s.as_str()).unwrap_or("cg-proc");
 

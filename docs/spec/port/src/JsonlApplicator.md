@@ -291,15 +291,13 @@
 > Note: no regex is used; commands are matched by exact string equality or
 > `u_strncmp` prefix comparison.
 
-> [spec:cg3:def:jsonl-applicator.cg3.ustring-to-utf8-fn]
-> std::string ustring_to_utf8(UStringView ustr)
+`[spec:cg3:def:jsonl-applicator.cg3.ustring-to-utf8-fn]` and its `sem` rule
+stood here, naming `std::string ustring_to_utf8(UStringView ustr)`. They are
+obsolesced, not unmet: the function converts the C++'s UTF-16 strings to UTF-8
+for the JSON writer, and the port's strings are UTF-8 already, so the port
+item was the identity and its callers now pass their strings straight through.
 
-> [spec:cg3:sem:jsonl-applicator.cg3.ustring-to-utf8-fn]
-> Free function converting a UString (UTF-16 view) to a UTF-8 `std::string`. Uses
-> ICU's `u_strToUTF8` in two passes: first call with a null buffer and size 0 to
-> compute `required_length` (the preflight; `status` is expected to come back
-> U_BUFFER_OVERFLOW_ERROR and is ignored — it is reset to `U_ZERO_ERROR` before
-> the second pass). Resize the output string to `required_length`, then call
-> `u_strToUTF8` again to fill it. Returns the UTF-8 bytes. In Rust, this is simply
-> the UTF-8 encoding of the (UTF-16) string.
+The C++ behaviour, recorded for completeness: two `u_strToUTF8` passes, the
+first with a null buffer to measure the required length (its overflow status
+ignored), the second to fill a string resized to that length.
 

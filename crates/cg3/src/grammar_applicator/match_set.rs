@@ -72,7 +72,7 @@ use crate::contextual_test::{
     POS_LOOK_DELETED, POS_LOOK_IGNORED, POS_NO_PASS_ORIGIN, POS_NOT,
 };
 use crate::grammar::Grammar;
-use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value_ustring, make_64};
+use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value_str, make_64};
 use crate::math_parser::MathParser;
 use crate::rule::RF_CAPTURE_UNIF;
 use crate::set::{ST_ANY, ST_CHILD_UNIFY, ST_SET_UNIFY, ST_SPECIAL, ST_TAG_UNIFY};
@@ -354,7 +354,7 @@ impl Matcher<'_> {
             }
         } else if ttype.intersects(T_SET) {
             // (2) inline set reference
-            let sh0 = hash_value_ustring(&tag.tag, 0);
+            let sh0 = hash_value_str(&tag.tag, 0);
             let sh = {
                 let it = self.grammar.sets_by_name.find(sh0);
                 it.get().1

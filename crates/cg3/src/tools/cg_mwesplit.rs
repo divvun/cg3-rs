@@ -6,9 +6,9 @@
 //! dummy grammar in its constructor.
 
 use crate::arg_parser::parse_args;
-use crate::options::{UOPT_NO_ARG, UOption};
+use crate::options::{ArgOption, HasArg};
 
-use super::{fail, to_uargv};
+use super::{fail, to_argv};
 
 // [spec:cg3:def:cg-mwesplit.options-mwe.options]
 /// C++ `OptionsMWE::OPTIONS` — the tiny option enum for cg-mwesplit (help only).
@@ -19,26 +19,13 @@ pub enum Opt {
     NumOptionsMwe,
 }
 
-/// Local `UOption` aggregate-init helper (the crate's `UOption::new` is private
-/// to `crate::options`, and we may not edit that module).
-fn uo(long: &'static str, short: char, has_arg: u8, desc: &'static str) -> UOption {
-    UOption {
-        long_name: Some(long),
-        short_name: short,
-        has_arg,
-        description: desc.to_string(),
-        does_occur: false,
-        value: String::new(),
-    }
-}
-
 /// C++ `OptionsMWE::options_mwe[]` — the two help aliases. Built as owned local
 /// state (the C++ global array is mutated in place by `u_parseArgs`); indexed by
 /// [`Opt`].
-fn options_mwe() -> [UOption; Opt::NumOptionsMwe as usize] {
+fn options_mwe() -> [ArgOption; Opt::NumOptionsMwe as usize] {
     [
-        uo("help", 'h', UOPT_NO_ARG, "shows this help"),
-        uo("?", '?', UOPT_NO_ARG, "shows this help"),
+        ArgOption::new("help", 'h', HasArg::No, "shows this help"),
+        ArgOption::new("?", '?', HasArg::No, "shows this help"),
     ]
 }
 
@@ -46,15 +33,15 @@ fn options_mwe() -> [UOption; Opt::NumOptionsMwe as usize] {
 // [spec:cg3:sem:cg-mwesplit.main-fn]
 /// C++ `int main(int argc, char** argv)`.
 // faithful port: the C++ `for (i=0; i<NUM_OPTIONS_MWE; ++i)` scans cover the
-// whole table — its length IS the enum constant (`[UOption; NumOptionsMwe]`).
+// whole table — its length IS the enum constant (`[ArgOption; NumOptionsMwe]`).
 pub fn main_mwesplit(args: &[String]) -> i32 {
-    // UErrorCode status = U_ZERO_ERROR;
+    // UErrorCode status = EXIT_SUCCESS;
     let status: i32 = 0;
 
     // ICU init dropped (UTF-8 port); see tools/mod.rs.
 
     let mut options_mwe = options_mwe();
-    let mut argv = to_uargv(args);
+    let mut argv = to_argv(args);
     let argc = parse_args(
         argv.len() as i32,
         &mut argv,
@@ -98,11 +85,10 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
 
         if argc < 0 {
             eprint!("{}", out);
-            // U_ILLEGAL_ARGUMENT_ERROR
-            return crate::tools::U_ILLEGAL_ARGUMENT_ERROR;
+            return crate::tools::EXIT_FAILURE;
         } else {
             print!("{}", out);
-            return 0; // U_ZERO_ERROR
+            return crate::tools::EXIT_SUCCESS;
         }
     }
 

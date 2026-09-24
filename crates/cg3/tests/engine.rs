@@ -440,7 +440,7 @@ fn runtime_tag_flags_do_not_reach_the_grammar() {
 
     let dyn_id = grammar
         .single_tags()
-        .find(cg3::inlines::hash_value_ustring("@dyn", 0))
+        .find(cg3::inlines::hash_value_str("@dyn", 0))
         .get()
         .1;
     assert_eq!(
@@ -468,7 +468,7 @@ fn runtime_tag_flags_do_not_reach_the_grammar() {
 /// `hash + 0` free on the first step and mint a SECOND id for text the core
 /// already has, and two ids for one text silently changes what matches what.
 ///
-/// `"aac0c"` and `"aaepa"` hash to the same `hash_value_ustring`, so the
+/// `"aac0c"` and `"aaepa"` hash to the same `hash_value_str`, so the
 /// grammar parks the second at `hash + 1`: re-interning THAT one only comes
 /// back with the core's id if step 0 saw the core's `"aac0c"` sitting in the
 /// way and kept walking.
@@ -487,10 +487,10 @@ fn runtime_interning_dedups_against_the_frozen_core() {
     let mut grammar = parser.grammar;
     let _ = grammar.reindex(false, false).expect("reindex");
 
-    let collide_hash = cg3::inlines::hash_value_ustring("aac0c", 0);
+    let collide_hash = cg3::inlines::hash_value_str("aac0c", 0);
     assert_eq!(
         collide_hash,
-        cg3::inlines::hash_value_ustring("aaepa", 0),
+        cg3::inlines::hash_value_str("aaepa", 0),
         "the fixture's two texts must genuinely collide"
     );
     let seed0 = grammar.single_tags().find(collide_hash).get().1;
@@ -540,7 +540,7 @@ fn runtime_interning_dedups_against_the_frozen_core() {
     assert_eq!(
         app.grammar
             .single_tags()
-            .find(cg3::inlines::hash_value_ustring("aaqqz", 0))
+            .find(cg3::inlines::hash_value_str("aaqqz", 0))
             .get()
             .1,
         fresh,
@@ -598,7 +598,7 @@ fn two_pipelines_share_one_grammar_core() {
     use cg3::arena::TagId;
     use cg3::grammar::Grammar;
     use cg3::grammar_applicator::GrammarApplicator;
-    use cg3::inlines::hash_value_ustring;
+    use cg3::inlines::hash_value_str;
     use cg3::tag::T_MAPPING;
     use cg3::textual_parser::TextualParser;
     use std::sync::Arc;
@@ -663,10 +663,7 @@ fn two_pipelines_share_one_grammar_core() {
     assert_eq!(apply(&mut b, STREAM_B), want_b, "shared core, same output");
 
     // Neither run can see the other's tags.
-    let (ha, hb) = (
-        hash_value_ustring("@a-only", 0),
-        hash_value_ustring("@b-only", 0),
-    );
+    let (ha, hb) = (hash_value_str("@a-only", 0), hash_value_str("@b-only", 0));
     let ia = a.grammar.single_tags().find(ha);
     let ib = b.grammar.single_tags().find(hb);
     assert_ne!(ia, a.grammar.single_tags().end(), "a interned its own tag");

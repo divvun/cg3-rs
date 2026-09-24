@@ -2689,4 +2689,18 @@ children (
             }
         )
     }
+
+    {
+        id deicu-finish
+        title "Finish removing ICU vocabulary: the live identifiers the first pass kept (UOption, UOPT_*, hash_value_ustring, json_to_ustring, the identity ustring_to_utf8, parse_from_u_char, UString*Map, U_* exit codes) and every comment that still names an ICU type or function"
+        kind @refactor
+        log (
+            {
+                at 2026-09-24T23:04:39.959706Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+        )
+    }
 )

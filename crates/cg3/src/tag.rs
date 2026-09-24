@@ -9,7 +9,7 @@
 use crate::arena::{SetId, TagId};
 use crate::flat_unordered_map::FlatUnorderedMap;
 use crate::grammar::Grammar;
-use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_ustring, is_textual};
+use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_str, is_textual};
 use crate::math_parser::MathParser;
 use crate::sorted_vector::SortedVector;
 use crate::types::TagHash;
@@ -367,9 +367,9 @@ impl Tag {
     /// Recomputes and caches `hash`/`plain_hash` from `type`, `tag`, `seed`.
     ///
     /// HASHING PARITY: the ASCII marker strings (`"^"`, `"META:"`, `"i"`, ...)
-    /// are hashed by `hash_value_ustring`, whose UTF-8 bytes equal the C++
+    /// are hashed by `hash_value_str`, whose UTF-8 bytes equal the C++
     /// `hash_value(const char*)` bytes, so those fold identically. The `tag`
-    /// itself is hashed via `hash_value_ustring` over UTF-8 bytes, whereas the
+    /// itself is hashed via `hash_value_str` over UTF-8 bytes, whereas the
     /// C++ hashed UTF-16 `UChar` code units — so `plain_hash`/`hash` diverge
     /// from the C++ for the tag text (documented deviation of the UTF-8 port;
     /// internally consistent, so hash-dedup still works). The uint32 mixer and
@@ -379,23 +379,23 @@ impl Tag {
         let mut hash: u32 = 0;
 
         if self.r#type.intersects(T_FAILFAST) {
-            hash = hash_value_ustring("^", hash);
+            hash = hash_value_str("^", hash);
         }
 
         if self.r#type.intersects(T_META) {
-            hash = hash_value_ustring("META:", hash);
+            hash = hash_value_str("META:", hash);
         }
         if self.r#type.intersects(T_VARIABLE) {
-            hash = hash_value_ustring("VAR:", hash);
+            hash = hash_value_str("VAR:", hash);
         }
         if self.r#type.intersects(T_LOCAL_VARIABLE) {
-            hash = hash_value_ustring("LVAR:", hash);
+            hash = hash_value_str("LVAR:", hash);
         }
         if self.r#type.intersects(T_SET) {
-            hash = hash_value_ustring("SET:", hash);
+            hash = hash_value_str("SET:", hash);
         }
 
-        let plain_hash = hash_value_ustring(&self.tag, 0);
+        let plain_hash = hash_value_str(&self.tag, 0);
         if hash != 0 {
             hash = hash_value(plain_hash, hash);
         } else {
@@ -403,13 +403,13 @@ impl Tag {
         }
 
         if self.r#type.intersects(T_CASE_INSENSITIVE) {
-            hash = hash_value_ustring("i", hash);
+            hash = hash_value_str("i", hash);
         }
         if self.r#type.intersects(T_REGEXP) {
-            hash = hash_value_ustring("r", hash);
+            hash = hash_value_str("r", hash);
         }
         if self.r#type.intersects(T_VARSTRING) {
-            hash = hash_value_ustring("v", hash);
+            hash = hash_value_str("v", hash);
         }
 
         hash = hash.wrapping_add(self.seed);
@@ -584,7 +584,7 @@ impl Tag {
         }
         self.comparison_val = tval;
         let tkey_str: String = tkey.iter().collect();
-        self.comparison_hash = hash_value_ustring(&tkey_str, 0);
+        self.comparison_hash = hash_value_str(&tkey_str, 0);
         self.r#type |= T_NUMERICAL;
     }
 

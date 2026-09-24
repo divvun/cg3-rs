@@ -305,7 +305,7 @@ impl Ast {
     }
 
     /// C++ `parse_ast = true;` — profiling enables AST building after
-    /// construction (see `TextualParser::parse_from_u_char`).
+    /// construction (see `TextualParser::parse_source`).
     pub fn set_enabled(&mut self, on: bool) {
         self.enabled = on;
     }

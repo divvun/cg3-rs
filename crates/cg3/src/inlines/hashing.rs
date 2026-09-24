@@ -134,7 +134,7 @@ pub fn hash_value_sz(value: usize, seed: usize) -> usize {
 // Tag/text hashes feed hash-ordered containers (tries, sorted output order),
 // so UTF-16 unit hashing is required for output parity with the C++ — verified
 // against T_Append/T_Substitute/T_Unification/T_Variables golden diffs.
-pub fn hash_value_ustring(str: &str, hash: u32) -> u32 {
+pub fn hash_value_str(str: &str, hash: u32) -> u32 {
     let mut h = hash;
     if h == 0 {
         h = CG3_HASH_SEED;
@@ -197,6 +197,6 @@ impl StringHasher {
     // It exists because `const UString&` will not bind a view; `&str` binds both
     // an owned `String` and a borrowed slice, so the pair is one method here.
     pub fn call(&self, str: &str) -> usize {
-        hash_value_ustring(str, 0) as usize
+        hash_value_str(str, 0) as usize
     }
 }

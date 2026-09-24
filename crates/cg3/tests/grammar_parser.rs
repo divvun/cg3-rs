@@ -18,7 +18,7 @@ use cg3::binary_grammar::BinaryGrammar;
 use cg3::contextual_test::POS_NEGATE;
 use cg3::grammar::Grammar;
 use cg3::igrammar_parser::IGrammarParser;
-use cg3::inlines::hash_value_ustring;
+use cg3::inlines::hash_value_str;
 use cg3::rule::RF_SAFE;
 use cg3::strings::{Keywords, STR_DUMMY};
 use cg3::tag::TagVectorSet;
@@ -52,7 +52,7 @@ fn parse_fixture(rel: &str) -> TextualParser {
 
 /// Resolve a named set through `Grammar::getSet` (name-hash resolution).
 fn set_by_name(g: &Grammar, name: &str) -> SetId {
-    g.get_set(hash_value_ustring(name, 0))
+    g.get_set(hash_value_str(name, 0))
         .unwrap_or_else(|| panic!("set {name} not resolvable"))
 }
 
@@ -480,7 +480,7 @@ fn undef_sets_and_list_append() {
 
 // Error recovery: referencing an undefined set makes parse_set call
 // TextualParser::error_near, which returns a ParseError; the directive loop in
-// parse_from_u_char records it, skips the line, and the parse finishes reporting
+// parse_source records it, skips the line, and the parse finishes reporting
 // every error it found. The C++ `incErrorCount` throw this replaced is retired —
 // see `[dec:cg3:results-not-unwinding]` and the note in
 // `docs/spec/port/src/TextualParser.md`.

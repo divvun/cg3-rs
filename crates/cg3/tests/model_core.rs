@@ -31,7 +31,7 @@ use cg3::contextual_test::{
     ContextualTest, POS_RIGHTMOST, POS_SELF, POS_SPAN_BOTH, TestRef, copy_cntx,
 };
 use cg3::grammar::Grammar;
-use cg3::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_ustring};
+use cg3::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_str};
 use cg3::reading::{
     Reading, ReadingList, alloc_reading, alloc_reading_copy, free_reading, reading_clear,
     reading_copy, reading_rehash,
@@ -954,7 +954,7 @@ fn tag_parse_raw_and_numeric() {
     assert_eq!(t.comparison_op, COps::OpGreaterequals);
     assert_eq!(t.comparison_val, 12.0);
     assert!(t.r#type.intersects(T_NUMERICAL));
-    assert_eq!(t.comparison_hash, hash_value_ustring("w", 0));
+    assert_eq!(t.comparison_hash, hash_value_str("w", 0));
 
     let mut t = Tag {
         tag: "<w<3>".into(),
@@ -1044,7 +1044,7 @@ fn tag_ctor_rehash_markused_vs_tostring() {
         ..Default::default()
     };
     let base = t.rehash();
-    assert_eq!(t.plain_hash.get(), hash_value_ustring("x", 0));
+    assert_eq!(t.plain_hash.get(), hash_value_str("x", 0));
     assert_eq!(base, t.plain_hash, "no flags, no seed: hash == plain_hash");
     t.seed = 5;
     assert_eq!(t.rehash(), t.plain_hash.wrapping_add(5), "seed folded last");

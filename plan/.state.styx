@@ -164,6 +164,7 @@ assertions (
     {id grammar-phases.one-interner, kind @complete, author "brendan@necessary.nu", at 2026-09-24T22:47:58.6627Z}
     {id grammar-phases.core-type, kind @doing, author "brendan@necessary.nu", at 2026-09-24T22:50:03.226911Z}
     {id grammar-phases.parser-trait, kind @complete, author "brendan@necessary.nu", at 2026-09-24T22:59:14.946256Z}
+    {id deicu-finish, kind @doing, author "brendan@necessary.nu", at 2026-09-24T23:04:39.959706Z}
 )
 
 impl_evidence (
