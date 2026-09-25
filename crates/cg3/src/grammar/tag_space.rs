@@ -15,6 +15,10 @@ use crate::tag::Tag;
 
 use super::{IcaseTags, RegexTags};
 
+/// How many seeds [`TagSpace::add_tag`] tries past a tag's hash before giving
+/// up: C++ `addTag`'s `for (seed = 0; seed < 10000; ++seed)`.
+pub(crate) const SEED_PROBE_WIDTH: u32 = 10000;
+
 /// A tag arena and the hash index over it — a grammar being loaded, or one
 /// run's view of a loaded one.
 pub trait TagSpace {
@@ -50,7 +54,7 @@ pub trait TagSpace {
         let mut existing: Option<TagId> = None;
         let mut chosen_seed: Option<u32> = None;
         let mut seed = 0u32;
-        while seed < 10000 {
+        while seed < SEED_PROBE_WIDTH {
             match self.tag_at_hash(hash.wrapping_add(seed).get()) {
                 Some(t_id) => {
                     // C++ `t->tag == tag->tag`: duplicate parked at a seeded slot.

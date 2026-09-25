@@ -635,7 +635,7 @@ fn remove_numeric_tags_and_direct_destroyers() {
 // trie_unserialize (Grammar.hpp): compile a fixture grammar to .cg3b with the
 // real cg-comp binary, then load it in-process through BinaryGrammar — every
 // set's trie/trie_special in the binary image is rebuilt via trie_unserialize.
-// [spec:cg3:sem:grammar.cg3.trie-unserialize-fn/test]
+// [spec:cg3:sem:grammar.cg3.trie-unserialize-fn+1/test]
 #[test]
 fn binary_grammar_roundtrip_unserializes_tries() {
     let grammar = repo_root().join("test/T_SetOps/grammar.cg3");

@@ -69,6 +69,19 @@ pub struct TrieNode {
     pub trie: Option<Box<TagTrie>>,
 }
 
+/// Frees the levels below a node one at a time. The derived drop would
+/// recurse once per level, and a trie read from a `.cg3b` is as deep as the
+/// file makes it.
+impl Drop for TrieNode {
+    fn drop(&mut self) {
+        let mut pending: Vec<Box<TagTrie>> = self.trie.take().into_iter().collect();
+        while let Some(mut level) = pending.pop() {
+            let nodes = std::mem::take(&mut *level).into_values();
+            pending.extend(nodes.filter_map(|mut node| node.trie.take()));
+        }
+    }
+}
+
 // [spec:cg3:def:tag-trie.cg3.trie-t]
 /// C++ `typedef bc::flat_map<Tag*, trie_node_t, compare_Tag> trie_t`.
 ///
@@ -166,12 +179,13 @@ pub fn trie_copy(trie: &TagTrie) -> TagTrie {
 /// C++ `trie_delete` — depth-first frees every descendant sub-trie, leaving the
 /// passed-in map's own top-level keys and terminal flags intact (only child
 /// `.trie` pointers are freed/nulled). Order-independent, so no grammar needed.
+/// Walks with an explicit stack: a trie read from a `.cg3b` is as deep as the
+/// file makes it.
 pub fn trie_delete(trie: &mut TagTrie) {
-    for node in trie.values_mut() {
-        if node.trie.is_some() {
-            trie_delete(node.trie.as_deref_mut().unwrap());
-            node.trie = None; // p.second.trie.reset()
-        }
+    // p.second.trie.reset() on every node, top level first.
+    let mut pending: Vec<Box<TagTrie>> = trie.values_mut().filter_map(|n| n.trie.take()).collect();
+    while let Some(mut level) = pending.pop() {
+        pending.extend(level.values_mut().filter_map(|n| n.trie.take()));
     }
 }
 

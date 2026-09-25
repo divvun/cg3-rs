@@ -503,4 +503,9 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id no-panic.cg3b, covered_rules (
+        robustness.binary-grammar-validated
+    ), covered_claims (
+        {impl_name target-impl, rule robustness.binary-grammar-validated}
+    )}
 )

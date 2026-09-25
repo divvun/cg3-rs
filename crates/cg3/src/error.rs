@@ -325,6 +325,46 @@ pub enum GrammarError {
     #[error("grammar does not begin with the CG3B magic bytes - cannot load as binary")]
     NotBinary,
 
+    /// The byte stream a binary grammar was to be read from failed.
+    #[error("cannot read the binary grammar ({source})")]
+    BinaryUnreadable {
+        #[source]
+        source: std::io::Error,
+    },
+
+    // [spec:cg3:req:robustness.binary-grammar-validated]
+    /// A `.cg3b` that ends inside the field `what`, which starts at `offset`.
+    #[error(
+        "binary grammar ends early: {what} at byte {offset} needs {needed} byte(s), but {remaining} remain"
+    )]
+    Truncated {
+        what: &'static str,
+        offset: usize,
+        needed: u64,
+        remaining: usize,
+    },
+
+    // [spec:cg3:req:robustness.allocation-bounded]
+    /// A `.cg3b` count announcing more records than the bytes after it could
+    /// hold even at the smallest record size: `needed` is what `count` of
+    /// those would take. Refused before anything is sized by the count.
+    #[error(
+        "binary grammar ends early: {what} {count} at byte {offset} needs at least {needed} byte(s), but {remaining} remain"
+    )]
+    CountPastEnd {
+        what: &'static str,
+        count: u32,
+        offset: usize,
+        needed: u64,
+        remaining: usize,
+    },
+
+    // [spec:cg3:req:robustness.binary-grammar-validated]
+    /// A `.cg3b` whose bytes are all present but do not describe a grammar.
+    /// `offset` is where the offending field, or the record holding it, starts.
+    #[error("binary grammar is malformed at byte {offset}: {fault}")]
+    BinaryMalformed { offset: usize, fault: BinaryFault },
+
     /// A grammar was due to be written while a running pipeline still shared
     /// it. Both writers EDIT what they serialise, so they need the grammar to
     /// themselves, and there is nothing to do but refuse.
@@ -367,6 +407,78 @@ pub enum GrammarError {
         existing: u32,
         line: u32,
     },
+}
+
+/// What is wrong with a `.cg3b` whose bytes are all present: a number that
+/// indexes nothing, a hash that keys nothing, or a structure no grammar has.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum BinaryFault {
+    /// A number past the end of the table it indexes, or outside its range.
+    #[error("{what} {value} is out of range (must be below {limit})")]
+    OutOfRange {
+        what: &'static str,
+        value: u64,
+        limit: u64,
+    },
+    #[error("section {section} is out of range (must lie in -3..={max})")]
+    Section { section: i32, max: i32 },
+    #[error("{what} {value} is defined more than once")]
+    Duplicate { what: &'static str, value: u32 },
+    #[error("{what} {hash:#010x} names no tag")]
+    UnknownTag { what: &'static str, hash: u32 },
+    #[error("{what} {hash:#010x} names no contextual test")]
+    UnknownContext { what: &'static str, hash: u32 },
+    /// A hash equal to one of the flat hash containers' sentinel keys.
+    #[error("{what} {hash:#010x} is a value the hash tables reserve")]
+    ReservedHash { what: &'static str, hash: u32 },
+    #[error("a contextual test has no hash")]
+    ContextWithoutHash,
+    #[error("set {set} uses operator {op}, which is not one of OR, +, - or ^")]
+    SetOperator { set: u32, op: u32 },
+    #[error("set {set} combines {sets} sets with {ops} operator(s)")]
+    SetOperatorCount { set: u32, sets: usize, ops: usize },
+    #[error("set {set} unifies over its first member set but has none")]
+    EmptyUnifiedSet { set: u32 },
+    /// The value a tag carries for one role — a variable's value, a context
+    /// reference's position — does not fit the roles its type gives it.
+    #[error("tag {tag} (type {type_bits:#x}) {problem}")]
+    TagRole {
+        tag: u32,
+        type_bits: u32,
+        problem: &'static str,
+    },
+    /// A tag whose stored hash is not the one its text, type and seed give it.
+    #[error(
+        "tag {tag} stores {what} {stored:#010x}, but its text, type and seed give {computed:#010x}"
+    )]
+    TagHash {
+        tag: u32,
+        what: &'static str,
+        stored: u32,
+        computed: u32,
+    },
+    /// So many tags on consecutive hashes that interning another tag whose hash
+    /// falls among them would run out of seeds.
+    #[error(
+        "{len} tags hold consecutive hashes from {first:#010x}, as many as the tag interner probes"
+    )]
+    HashRun { first: u32, len: u32 },
+    #[error("set {set} contains itself, directly or through its member sets")]
+    SetCycle { set: u32 },
+    #[error(
+        "contextual test {hash:#010x} on line {line} reaches itself through its OR and LINK tests"
+    )]
+    ContextCycle { hash: u32, line: u32 },
+    #[error("rule {rule} is among its own WITH sub-rules")]
+    RuleCycle { rule: u32 },
+    #[error("rule {rule} substitutes or executes but has no tag list for it")]
+    MissingSublist { rule: u32 },
+    /// A `?` position a run would reach with no template override to stand
+    /// in for it.
+    #[error(
+        "contextual test {hash:#010x} on line {line} has position '?' where no template override supplies one"
+    )]
+    UnknownPosition { hash: u32, line: u32 },
 }
 
 impl GrammarError {

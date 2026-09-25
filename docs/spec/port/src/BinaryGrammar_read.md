@@ -3,7 +3,7 @@
 > [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn]
 > int BinaryGrammar::parse_grammar(std::istream& input)
 
-> [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn]
+> [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1]
 > Reads a whole `.cg3b` binary grammar from `input` into `grammar`. All
 > multi-byte integers are big-endian via `readBE<T>` (raw read + byte swap);
 > strings are UTF-8 decoded through an ICU `UConverter` opened for "UTF-8" into
@@ -102,11 +102,42 @@
 > `deferred_ors` entry reserve and push each `contexts.find(hash)->second` into
 > `test->ors`.
 > Finally `ucnv_close(conv)` and return 0.
+>
+> PORT DIVERGENCE: the C++ trusts the bytes it reads; the port treats a
+> `.cg3b` as untrusted input (`[spec:cg3:req:robustness.binary-grammar-validated]`).
+> The input is read whole and every read is bounds-checked: a short read is a
+> `GrammarError::Truncated` naming the field and its byte offset, and a count
+> that announces more records than the remaining bytes could hold is refused
+> before anything is sized by it. Every number is checked against what it
+> indexes before it is stored, and a failed check is a
+> `GrammarError::BinaryMalformed` carrying the offset: tag, set, rule, trie tag,
+> member set, sub-rule and delimiter numbers against their tables, each tag,
+> set and rule number claimed by one record only; tag hashes unique; the hashes
+> held by reopen-mappings, preferred targets, parentheses, anchors, variable
+> tags, relations and `EXTERNAL` rules against the tag table; context hashes
+> against the tests read, where the C++ `operator[]` / `find()->second` would
+> store a null or dereference `end()`; anchor positions against the rule count;
+> set operators against the four the matcher implements, with one between each
+> pair of member sets; rule types and comparison operators against their
+> enumerations, where the C++ `static_cast` stores any value; and sections
+> against -3..=1023, since a run passes over every section up to the highest.
+> Also refused: a hash equal to one of the flat hash containers' two sentinel
+> keys, a tag whose stored hash or plain hash is not the one `Tag::rehash`
+> gives its text, type and seed (a run interns by recomputing it), a tag
+> whose stored union value does not fit the role its type gives it,
+> a `$$`-unified set with no member set, a `SUBSTITUTE` or `EXECUTE` rule with
+> no tag list, a set that contains itself, a test that reaches itself through
+> its OR'd and LINKed tests (a cycle through a template reference is left to
+> run time, as the `T_Templates` fixture compiles one), a rule among its own
+> `WITH` sub-rules, a `?` position a run would reach with no template
+> override to replace it (the C++ quits when the run gets there), and a run
+> of consecutive tag hashes as long as `addTag`'s seed probe. A deferred
+> template or OR hash that names no test is an error.
 
 > [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn]
 > ContextualTest* BinaryGrammar::readContextualTest(std::istream& input)
 
-> [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn]
+> [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn+1]
 > Reads one ContextualTest record and returns a freshly `allocateContextualTest`
 > pointer owned by `grammar`. Read a u32 field mask, then conditionally (in this
 > exact source order): bit0 hash(u32); bit1 pos = read u32, and if `pos &
@@ -122,4 +153,14 @@
 > immediately via map `operator[]` (a missing hash would insert/return a null
 > pointer; the writer emits linked children first so it is normally present).
 > Return `t`.
+>
+> PORT DIVERGENCE: the record is read from bounds-checked bytes, so a record
+> cut short is an error rather than a test filled with zeros. What the C++
+> stores unchecked is checked before it is stored
+> (`[spec:cg3:req:robustness.binary-grammar-validated]`): the test MUST have a
+> nonzero hash that is not one of the flat hash containers' two sentinel keys;
+> target, barrier and cbarrier MUST name sets of the set table (0 included, the
+> dummy set); a relation, or a relation position, MUST name a tag; and a
+> `linked` hash that names no test read so far is an error where the C++
+> `operator[]` would store a null link.
 

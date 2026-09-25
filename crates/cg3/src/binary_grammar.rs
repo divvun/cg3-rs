@@ -6,9 +6,15 @@
 //! BYTE-COMPATIBLE with the CURRENT revision (`CG3_FEATURE_REV` = 13898); byte
 //! parity is the contract.
 //!
-//! ## Wire layout (big-endian ints via [`crate::inlines::read_be`] /
-//! [`crate::inlines::write_be`]; strings are a 4-byte length prefix + UTF-8 bytes
-//! — NOT the 16-bit-prefixed `writeUTF8` form):
+//! DIVERGENCE: reading is not bug-for-bug. The C++ trusts the bytes; the port
+//! reads them through a bounds-checked cursor and checks every number against
+//! what it indexes before storing it, so a truncated or crafted `.cg3b` is a
+//! load error rather than a grammar that panics later
+//! (`[spec:cg3:req:robustness.binary-grammar-validated]`).
+//!
+//! ## Wire layout (big-endian ints, read through the checked cursor and
+//! written with [`crate::inlines::write_be`]; strings are a 4-byte length
+//! prefix + UTF-8 bytes — NOT the 16-bit-prefixed `writeUTF8` form):
 //!   1. 4 raw magic bytes `"CG3B"`.
 //!   2. `u32` feature revision (`CG3_FEATURE_REV`).
 //!   3. `u32` top-level `BINF_*` feature bitset built from grammar state.
@@ -72,11 +78,12 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 
 use crate::arena::{CtxId, RuleId, SetId, TagId};
-use crate::contextual_test::POS_64BIT;
+use crate::contextual_test::{ContextualTest, POS_64BIT};
+use crate::error::GrammarError;
 use crate::flat_unordered_set::Uint32FlatHashSet;
 use crate::grammar::{GrammarCore, trie_unserialize};
 use crate::igrammar_parser::IGrammarParser;
-use crate::inlines::{is_cg3b, read_be, read_be_f64, ui16, ui32, write_be, write_be_f64};
+use crate::inlines::{is_cg3b, ui16, ui32, write_be, write_be_f64};
 use crate::rule::Rule;
 use crate::set::Set;
 use crate::strings::Keywords;
@@ -84,6 +91,14 @@ use crate::tag::{COps, T_CASE_INSENSITIVE, T_CONTEXT, T_LOCAL_VARIABLE, T_VARIAB
 use crate::tag_regex::TagRegex;
 use crate::tag_trie::trie_serialize;
 use crate::types::{SetNumber, TagHash};
+
+mod checks;
+mod cursor;
+mod read;
+
+pub(crate) use cursor::Cg3bCursor;
+use cursor::malformed;
+use read::Load;
 
 // C++ `BinaryGrammar.hpp` `enum : uint32_t { BINF_* }` — the top-level feature
 // bitset. Reproduced verbatim (no `[spec:cg3:def]` id: an unnamed header enum).
@@ -177,8 +192,8 @@ impl BinaryGrammar {
     /// C++ `int parse_grammar(const char* filename)` — the file-path entry point.
     /// `stat`s the file into `grammar->grammar_size`, then reads it and delegates
     /// to the istream overload. The C++ null-`grammar` guard is moot here (the
-    /// grammar is owned). The C++ ifstream exception mask (throw on short read) is
-    /// not modelled — `read_be` swallows short reads (see `crate::inlines`).
+    /// grammar is owned). The C++ ifstream exception mask makes a short read
+    /// throw; here it is a [`GrammarError::Truncated`](crate::error::GrammarError::Truncated).
     pub fn parse_grammar_filename(&mut self, filename: &str) -> Result<(), crate::error::Cg3Error> {
         let meta = std::fs::metadata(filename).map_err(|source| {
             crate::error::GrammarError::Unreadable {
@@ -193,8 +208,7 @@ impl BinaryGrammar {
                 path: filename.to_string(),
                 source,
             })?;
-        let mut cur = std::io::Cursor::new(data);
-        let rv = self.parse_grammar_reader(&mut cur);
+        let rv = self.parse_cg3b(&data);
         // [spec:cg3:req:diagnostics.source-lazy]
         // The path, not the text: it is what lets a runtime failure find the
         // companion source file, and it costs nothing until one happens. Only
@@ -206,31 +220,47 @@ impl BinaryGrammar {
 
     /// C++ `int parse_grammar(const char* buffer, size_t length)`: writes the
     /// bytes into a stringstream, seeks to 0, and calls the istream overload.
-    /// The port wraps the slice in a `Cursor`.
+    /// The port reads the slice in place.
     pub fn parse_grammar_buffer(&mut self, buffer: &[u8]) -> Result<(), crate::error::Cg3Error> {
-        let mut cur = std::io::Cursor::new(buffer);
-        self.parse_grammar_reader(&mut cur)
+        self.parse_cg3b(buffer)
     }
 
-    // [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn]
-    // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn]
+    // [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1]
+    // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1]
     /// C++ `int parse_grammar(std::istream& input)` (BinaryGrammar_read.cpp).
-    /// Reads a whole `.cg3b` blob into `grammar`. See the module docs for the
-    /// exhaustive wire layout.
+    /// Reads the stream to its end, then the `.cg3b` it held; see
+    /// `parse_cg3b`.
     pub fn parse_grammar_reader<R: Read>(
         &mut self,
         input: &mut R,
     ) -> Result<(), crate::error::Cg3Error> {
+        let mut data = Vec::new();
+        input
+            .read_to_end(&mut data)
+            .map_err(|source| GrammarError::BinaryUnreadable { source })?;
+        self.parse_cg3b(&data)
+    }
+
+    // [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1]
+    // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1]
+    // [spec:cg3:req:robustness.binary-grammar-validated]
+    /// Reads a whole `.cg3b` blob into `grammar`, one section at a time in the
+    /// wire order of the module docs. Every read is bounds-checked and every
+    /// number is checked against what it indexes as it is stored; what needs a
+    /// whole table — cycles, template references, crowded hashes — is checked
+    /// once that table is in. A grammar this accepts is one reindexing, both
+    /// writers and a run can take.
+    fn parse_cg3b(&mut self, data: &[u8]) -> Result<(), crate::error::Cg3Error> {
+        let mut cur = Cg3bCursor::new(data);
         // Header: 4 magic bytes.
-        let mut magic = [0u8; 4];
-        if input.read_exact(&mut magic).is_err() {
-            return Err(crate::error::GrammarError::TruncatedHeader.into());
-        }
+        let magic = cur
+            .bytes(4, "magic bytes")
+            .map_err(|_| GrammarError::TruncatedHeader)?;
         if !is_cg3b(magic) {
-            return Err(crate::error::GrammarError::NotBinary.into());
+            return Err(GrammarError::NotBinary.into());
         }
 
-        let bin_revision = read_be::<u32, _>(input);
+        let bin_revision: u32 = cur.be("grammar revision")?;
         if bin_revision <= BIN_REV_ANCIENT {
             if self.verbosity >= 1 {
                 tracing::warn!(
@@ -239,11 +269,14 @@ impl BinaryGrammar {
                     CG3_FEATURE_REV
                 );
             }
-            // input.seekg(0) — OMITTED: the 10043 path is an erroring stub.
-            return Err(self.read_binary_grammar_10043(input, bin_revision).into());
+            // Rewinding to the start is moot: the 10043 path is an erroring stub.
+            let mut input = data;
+            return Err(self
+                .read_binary_grammar_10043(&mut input, bin_revision)
+                .into());
         }
         if !(CG3_TOO_OLD..=CG3_FEATURE_REV).contains(&bin_revision) {
-            return Err(crate::error::GrammarError::Revision {
+            return Err(GrammarError::Revision {
                 found: bin_revision,
                 min: CG3_TOO_OLD,
                 max: CG3_FEATURE_REV,
@@ -253,7 +286,7 @@ impl BinaryGrammar {
 
         self.grammar.is_binary = true;
 
-        let fields = read_be::<u32, _>(input);
+        let fields: u32 = cur.be("feature bits")?;
 
         self.grammar.has_dep = (fields & BINF_DEP) != 0;
         self.grammar.sub_readings_ltr = (fields & BINF_SUB_LTR) != 0;
@@ -262,363 +295,15 @@ impl BinaryGrammar {
         self.grammar.ordered = (fields & BINF_ORDERED) != 0;
         self.grammar.addcohort_attach = (fields & BINF_ADDCOHORT_ATTACH) != 0;
 
-        if fields & BINF_PREFIX != 0 {
-            let len = read_be::<u32, _>(input);
-            let mut buf = vec![0u8; len as usize];
-            let _ = input.read_exact(&mut buf);
-            // Decode into a single char (mapping_prefix is one character).
-            self.grammar.mapping_prefix =
-                String::from_utf8_lossy(&buf).chars().next().unwrap_or('\0');
-        }
-
-        if bin_revision >= BIN_REV_CMDARGS {
-            let len = read_be::<u32, _>(input);
-            if len != 0 {
-                let mut buf = vec![0u8; len as usize];
-                let _ = input.read_exact(&mut buf);
-                self.grammar.cmdargs = String::from_utf8_lossy(&buf).into_owned();
-            }
-            let len = read_be::<u32, _>(input);
-            if len != 0 {
-                let mut buf = vec![0u8; len as usize];
-                let _ = input.read_exact(&mut buf);
-                self.grammar.cmdargs_override = String::from_utf8_lossy(&buf).into_owned();
-            }
-        }
-
-        // Deferred varstring-tag → set-number map (sets load AFTER tags).
-        // C++ `std::map<uint32_t, uint32Vector> tag_varsets` keyed by tag number.
-        let mut tag_varsets: HashMap<u32, Vec<u32>> = HashMap::new();
-
-        // Every tag whose pattern would not compile. Accumulated across the
-        // whole tag section so one load reports them all.
-        let mut bad_regexes: Vec<crate::tag_regex::TagRegexError> = Vec::new();
-
-        // --- Tags ---
-        let num_single_tags = if fields & BINF_TAGS != 0 {
-            read_be::<u32, _>(input)
-        } else {
-            0
-        };
-        self.grammar.num_tags = num_single_tags as usize;
-        // single_tags_list.resize(num): pre-allocate `num` slots so a tag can be
-        // placed at its `number` (== arena slot).
-        for _ in 0..num_single_tags {
-            self.grammar.single_tags_list.alloc(Tag::default());
-        }
-        for _ in 0..num_single_tags {
-            let t = Self::read_tag_record(input, &mut tag_varsets, &mut bad_regexes);
-            let hash = t.hash;
-            let number = t.number;
-            let is_star = &*t.tag == "*";
-            // single_tags[t->hash] = t (id == arena slot `number`).
-            self.grammar
-                .tags_by_hash
-                .insert((hash.get(), TagId(number)));
-            if is_star {
-                self.grammar.tag_any = hash.get();
-            }
-            // single_tags_list[t->number] = t.
-            self.grammar.single_tags_list[number] = t;
-        }
-
-        if !bad_regexes.is_empty() {
-            return Err(crate::error::GrammarError::TagRegex(bad_regexes).into());
-        }
-
-        // --- reopen_mappings ---
-        let num_remaps = if fields & BINF_REOPEN_MAP != 0 {
-            read_be::<u32, _>(input)
-        } else {
-            0
-        };
-        for _ in 0..num_remaps {
-            let v = read_be::<u32, _>(input);
-            self.grammar.reopen_mappings.insert(v);
-        }
-
-        // --- preferred_targets ---
-        let num_pref = if fields & BINF_PREF_TARGETS != 0 {
-            read_be::<u32, _>(input)
-        } else {
-            0
-        };
-        for _ in 0..num_pref {
-            let v = read_be::<u32, _>(input);
-            self.grammar.preferred_targets.push(v);
-        }
-
-        // --- parentheses ---
-        let num_par = if fields & BINF_ENCLS != 0 {
-            read_be::<u32, _>(input)
-        } else {
-            0
-        };
-        for _ in 0..num_par {
-            let left = read_be::<u32, _>(input);
-            let right = read_be::<u32, _>(input);
-            self.grammar.parentheses.insert(left, right);
-            self.grammar.parentheses_reverse.insert(right, left);
-        }
-
-        // --- anchors ---
-        let num_anchors = if fields & BINF_ANCHORS != 0 {
-            read_be::<u32, _>(input)
-        } else {
-            0
-        };
-        for _ in 0..num_anchors {
-            let left = read_be::<u32, _>(input);
-            let right = read_be::<u32, _>(input);
-            self.grammar.anchors.insert((left, right));
-        }
-
-        // --- Sets ---
-        let num_sets = if fields & BINF_SETS != 0 {
-            read_be::<u32, _>(input)
-        } else {
-            0
-        };
-        // sets_list.resize(num_sets): pre-allocate `num_sets` slots (each
-        // registered in sets_all, like the loop's allocateSet()).
-        for _ in 0..num_sets {
-            self.grammar.allocate_set();
-        }
-        for _ in 0..num_sets {
-            let mut s = Set::default(); // allocateSet()
-            let sfields = read_be::<u32, _>(input);
-
-            if sfields & (1 << 0) != 0 {
-                s.number = SetNumber(read_be(input));
-            }
-            if sfields & (1 << 1) != 0 {
-                s.r#type = crate::set::SetType::from_bits_retain(ui16(read_be::<u32, _>(input)));
-            }
-            if sfields & (1 << 2) != 0 {
-                s.r#type = crate::set::SetType::from_bits_retain(read_be::<u8, _>(input) as u16);
-            }
-            if sfields & (1 << 3) != 0 {
-                let n1 = read_be::<u32, _>(input);
-                if n1 != 0 {
-                    trie_unserialize(&mut s.trie, input, &self.grammar, n1);
-                }
-                let n2 = read_be::<u32, _>(input);
-                if n2 != 0 {
-                    trie_unserialize(&mut s.trie_special, input, &self.grammar, n2);
-                }
-            }
-            if sfields & (1 << 4) != 0 {
-                let n = read_be::<u32, _>(input);
-                for _ in 0..n {
-                    s.set_ops.push(read_be(input));
-                }
-            }
-            if sfields & (1 << 5) != 0 {
-                let n = read_be::<u32, _>(input);
-                for _ in 0..n {
-                    s.sets.push(read_be(input));
-                }
-            }
-            if sfields & (1 << 6) != 0 {
-                let len = read_be::<u32, _>(input);
-                if len != 0 {
-                    let mut buf = vec![0u8; len as usize];
-                    let _ = input.read_exact(&mut buf);
-                    // C++ s->setName(text) (assign directly); the port's Set has
-                    // only the u32 setName overload, so inline the assignment.
-                    s.name = String::from_utf8_lossy(&buf).into_owned();
-                }
-            }
-            let number = s.number.get();
-            self.grammar.sets_list[number] = s; // sets_list[s->number] = s
-        }
-        // The dense sets_list vector: the reader stores each set at its own
-        // (dense) number, so slot == number and the order is the identity.
-        self.grammar.sets_list_order = (0..num_sets).map(SetId).collect();
-
-        // Resolve deferred varstring-tag sets now that sets are loaded.
-        for (tagnum, setnums) in tag_varsets {
-            for num in setnums {
-                self.grammar
-                    .single_tags_list
-                    .get_mut(tagnum)
-                    .vs_sets
-                    .as_mut()
-                    .unwrap()
-                    .push(SetId(num));
-            }
-        }
-
-        if fields & BINF_DELIMS != 0 {
-            let n = read_be::<u32, _>(input);
-            self.grammar.delimiters = Some(SetId(n));
-        }
-        if fields & BINF_SOFT_DELIMS != 0 {
-            let n = read_be::<u32, _>(input);
-            self.grammar.soft_delimiters = Some(SetId(n));
-        }
-        if fields & BINF_TEXT_DELIMS != 0 {
-            let n = read_be::<u32, _>(input);
-            self.grammar.text_delimiters = Some(SetId(n));
-        }
-
-        // --- Contexts ---
-        let num_contexts = if fields & BINF_CONTEXTS != 0 {
-            read_be::<u32, _>(input)
-        } else {
-            0
-        };
-        for _ in 0..num_contexts {
-            let t = self.read_contextual_test(input);
-            let hash = self.grammar.contexts_arena[t.0].hash;
-            self.grammar.contexts.insert(hash, t);
-        }
-
-        // --- Rules ---
-        let num_rules = if fields & BINF_RULES != 0 {
-            read_be::<u32, _>(input)
-        } else {
-            0
-        };
-        // rule_by_number.resize(num_rules): pre-allocate `num_rules` slots.
-        for _ in 0..num_rules {
-            self.grammar.rule_by_number.alloc(Rule::default());
-        }
-        for _ in 0..num_rules {
-            let mut r = Rule::default(); // allocateRule()
-            let rfields = read_be::<u32, _>(input);
-
-            if rfields & (1 << 0) != 0 {
-                r.section = read_be(input);
-            }
-            if rfields & (1 << 1) != 0 {
-                r.r#type = keywords_from_u32(read_be::<u32, _>(input));
-            }
-            if rfields & (1 << 2) != 0 {
-                r.line = read_be(input);
-            }
-            if rfields & (1 << 3) != 0 {
-                if rfields & (1 << 16) != 0 {
-                    r.flags = crate::rule::RuleFlags::from_bits_retain(read_be::<u64, _>(input));
-                } else {
-                    r.flags =
-                        crate::rule::RuleFlags::from_bits_retain(read_be::<u32, _>(input) as u64);
-                }
-            }
-            if rfields & (1 << 4) != 0 {
-                let len = read_be::<u32, _>(input);
-                if len != 0 {
-                    let mut buf = vec![0u8; len as usize];
-                    let _ = input.read_exact(&mut buf);
-                    let nm = String::from_utf8_lossy(&buf).into_owned();
-                    r.set_name(Some(nm.as_str()));
-                }
-            }
-            if rfields & (1 << 5) != 0 {
-                r.target = SetNumber(read_be(input));
-            }
-            if rfields & (1 << 6) != 0 {
-                let n = read_be::<u32, _>(input);
-                r.wordform = Some(TagId(n)); // single_tags_list[u32]
-            }
-            if rfields & (1 << 7) != 0 {
-                r.varname = read_be(input);
-            }
-            if rfields & (1 << 8) != 0 {
-                r.varvalue = read_be(input);
-            }
-            if rfields & (1 << 9) != 0 {
-                let mut u = read_be::<u32, _>(input);
-                let mut v = u as i32;
-                if u & (1 << 31) != 0 {
-                    u &= !(1u32 << 31);
-                    v = -(u as i32);
-                }
-                r.sub_reading = v;
-            }
-            if rfields & (1 << 10) != 0 {
-                r.childset1 = SetNumber(read_be(input));
-            }
-            if rfields & (1 << 11) != 0 {
-                r.childset2 = SetNumber(read_be(input));
-            }
-            if rfields & (1 << 12) != 0 {
-                let n = read_be::<u32, _>(input);
-                r.maplist = Some(SetId(n)); // sets_list[u32]
-            }
-            if rfields & (1 << 13) != 0 {
-                let n = read_be::<u32, _>(input);
-                r.sublist = Some(SetId(n));
-            }
-            if rfields & (1 << 14) != 0 {
-                r.number = read_be(input);
-            }
-
-            // dep_target: contexts[hash] (inline; only when nonzero).
-            let dep = read_be::<u32, _>(input);
-            if dep != 0 {
-                r.dep_target = self.grammar.contexts.get(&dep).copied();
-            }
-
-            let num_dep_tests = read_be::<u32, _>(input);
-            for _ in 0..num_dep_tests {
-                let h = read_be::<u32, _>(input);
-                let ctx = self.grammar.contexts[&h]; // operator[]: missing → panic
-                Rule::add_contextual_test(ctx, &mut r.dep_tests);
-            }
-
-            let num_tests = read_be::<u32, _>(input);
-            for _ in 0..num_tests {
-                let h = read_be::<u32, _>(input);
-                let ctx = self.grammar.contexts[&h];
-                Rule::add_contextual_test(ctx, &mut r.tests);
-            }
-
-            if rfields & (1 << 15) != 0 {
-                let n = read_be::<u32, _>(input);
-                for _ in 0..n {
-                    let num = read_be::<u32, _>(input);
-                    r.sub_rules.push(RuleId(num)); // rule_by_number[u32]
-                }
-            }
-
-            // --nrules / --nrules-inv name filters (K_IGNORE the rule).
-            if let Some(re) = &self.nrules
-                && !re.is_match(&r.name)
-            {
-                r.r#type = Keywords::KIgnore;
-            }
-            if let Some(re) = &self.nrules_inv
-                && re.is_match(&r.name)
-            {
-                r.r#type = Keywords::KIgnore;
-            }
-
-            let number = r.number;
-            self.grammar.rule_by_number[number] = r; // rule_by_number[r->number] = r
-        }
-
-        // Bind deferred template refs.
-        let tmpls: Vec<(CtxId, u32)> = self.deferred_tmpls.iter().map(|(&k, &v)| (k, v)).collect();
-        for (t, hash) in tmpls {
-            let ctx = self.grammar.contexts[&hash]; // find(hash)->second (no end-check)
-            self.grammar.contexts_arena[t.0].tmpl = Some(ctx);
-        }
-
-        // Bind deferred OR'ed contexts.
-        let ors_list: Vec<(CtxId, Vec<u32>)> = self
-            .deferred_ors
-            .iter()
-            .map(|(&k, v)| (k, v.clone()))
-            .collect();
-        for (t, hashes) in ors_list {
-            let mut resolved = Vec::with_capacity(hashes.len());
-            for h in hashes {
-                resolved.push(self.grammar.contexts[&h]);
-            }
-            self.grammar.contexts_arena[t.0].ors.extend(resolved);
-        }
-
+        self.read_prefix_and_cmdargs(&mut cur, fields, bin_revision)?;
+        let mut load = Load::default();
+        self.read_tags(&mut cur, fields, &mut load)?;
+        self.read_tag_tables(&mut cur, fields, &mut load)?;
+        self.read_sets(&mut cur, fields, &mut load)?;
+        self.read_delimiters(&mut cur, fields, &load)?;
+        self.read_contexts(&mut cur, fields, &mut load)?;
+        self.read_rules(&mut cur, fields, &mut load)?;
+        self.bind_deferred_tests(&load)?;
         Ok(())
     }
 
@@ -626,196 +311,64 @@ impl BinaryGrammar {
     /// Read one tag record: the `tfields` bitmap followed by whatever
     /// fields it advertises, in the exact C++ order.
     ///
-    /// Split out of `parse_grammar_reader` so the stream driver stays a
-    /// driver. A tag whose pattern will not compile is pushed to
-    /// `bad_regexes` rather than aborting: the stream position is already
-    /// past the record, so the read can continue and report every bad tag
-    /// in one pass.
-    fn read_tag_record<R: Read>(
-        input: &mut R,
+    /// A tag whose pattern will not compile is pushed to `bad_regexes` rather
+    /// than aborting: the record has been read whole, so the read can continue
+    /// and report every bad tag in one pass. A short record, or a number that
+    /// fits nothing, ends the read.
+    fn read_tag_record(
+        cur: &mut Cg3bCursor<'_>,
+        num_tags: u32,
         tag_varsets: &mut HashMap<u32, Vec<u32>>,
         bad_regexes: &mut Vec<crate::tag_regex::TagRegexError>,
-    ) -> Tag {
+    ) -> Result<Tag, GrammarError> {
+        let at = cur.offset();
         let mut t = Tag::default(); // allocateTag()
-        let tfields = read_be::<u32, _>(input);
-
-        if tfields & (1 << 0) != 0 {
-            t.number = read_be(input);
-        }
-        if tfields & (1 << 1) != 0 {
-            t.hash = TagHash(read_be(input));
-        }
-        if tfields & (1 << 2) != 0 {
-            t.plain_hash = TagHash(read_be(input));
-        }
-        if tfields & (1 << 3) != 0 {
-            t.seed = read_be(input);
-        }
-        if tfields & (1 << 4) != 0 {
-            t.r#type = crate::tag::TagType::from_bits_retain(read_be(input));
-        }
-        if tfields & (1 << 5) != 0 {
-            t.comparison_hash = read_be(input);
-        }
-        if tfields & (1 << 6) != 0 {
-            t.comparison_op = c_ops_from_u32(read_be::<u32, _>(input));
-        }
-        if tfields & (1 << 7) != 0 {
-            // Legacy integer comparison_val, never emitted by the current
-            // writer. Clamp at the int32 extremes to NUMERIC_MIN/MAX.
-            let v = read_be::<i32, _>(input);
-            t.comparison_val = v as f64;
-            // C++ compares the double `comparison_val` (just assigned from
-            // this int32) with `<= numeric_limits<int32_t>::min()` / `>=
-            // ...max()`; for an int32-valued double those only hit AT the
-            // extremes, i.e. equality.
-            if v == i32::MIN {
-                t.comparison_val = crate::inlines::NUMERIC_MIN;
-            }
-            if v == i32::MAX {
-                t.comparison_val = crate::inlines::NUMERIC_MAX;
-            }
-        }
-        if tfields & (1 << 12) != 0 {
-            // 12-byte double: u64 BE mantissa + i32 BE exponent.
-            t.comparison_val = read_be_f64(input);
-        }
-        if tfields & (1 << 8) != 0 {
-            let len = read_be::<u32, _>(input);
-            if len != 0 {
-                let mut buf = vec![0u8; len as usize];
-                let _ = input.read_exact(&mut buf);
-                t.tag = String::from_utf8_lossy(&buf).into();
-            }
-        }
-        if tfields & (1 << 9) != 0 {
-            let len = read_be::<u32, _>(input);
-            if len != 0 {
-                let mut buf = vec![0u8; len as usize];
-                let _ = input.read_exact(&mut buf);
-                let pattern = String::from_utf8_lossy(&buf).into_owned();
-                // Flags re-derived from type (NOT stored): case-insensitive iff
-                // T_CASE_INSENSITIVE. RegexBuilder keeps `as_str()` == the bare
-                // pattern, as the C++ round-trips it.
-                match crate::tag_regex::compile_tag_regex(
-                    &pattern,
-                    t.r#type.intersects(T_CASE_INSENSITIVE),
-                ) {
-                    Ok(re) => t.regexp = Some(re),
-                    Err(e) => {
-                        // Collect and keep reading: the stream position is
-                        // already past this record, so every remaining bad
-                        // tag can be reported in the same pass.
-                        bad_regexes.push(e.with_tag(t.tag.clone()));
-                    }
-                }
-            }
-        }
-        if tfields & (1 << 10) != 0 {
-            let num = read_be::<u32, _>(input);
-            t.allocate_vs_sets();
-            let entry = tag_varsets.entry(t.number).or_default();
-            for _ in 0..num {
-                entry.push(read_be(input));
-            }
-        }
-        if tfields & (1 << 11) != 0 {
-            let num = read_be::<u32, _>(input);
-            t.allocate_vs_names();
-            for _ in 0..num {
-                let len = read_be::<u32, _>(input);
-                if len != 0 {
-                    let mut buf = vec![0u8; len as usize];
-                    let _ = input.read_exact(&mut buf);
-                    t.vs_names
-                        .as_mut()
-                        .unwrap()
-                        .push(String::from_utf8_lossy(&buf).into_owned());
-                }
-            }
-        }
-        // 1 << 12 used above.
-        if tfields & (1 << 13) != 0 {
-            // variable_hash (the C++ union member).
-            let v = read_be(input);
-            t.set_variable_member(v);
-        }
-        if tfields & (1 << 14) != 0 {
-            // context_ref_pos (the C++ union member).
-            let v = read_be(input);
-            t.set_context_ref_pos(v);
-        }
-
-        t
+        let tfields: u32 = cur.be("tag field mask")?;
+        read::tag_scalars(cur, tfields, num_tags, &mut t)?;
+        read::tag_text(cur, tfields, &mut t, bad_regexes)?;
+        read::tag_varstring(cur, tfields, &mut t, tag_varsets)?;
+        read::tag_role(cur, tfields, &mut t, at)?;
+        Ok(t)
     }
 
-    // [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-contextual-test-fn]
-    // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-contextual-test-fn]
-    // [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn]
-    // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn]
+    // [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-contextual-test-fn+1]
+    // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-contextual-test-fn+1]
+    // [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn+1]
+    // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn+1]
     /// C++ `ContextualTest* readContextualTest(std::istream& input)`. Reads one
     /// test record (a fresh `allocateContextualTest`) in the exact source field
     /// order: bit12 (jump_pos) is read BEFORE bit10 (ors) / bit11 (linked).
     /// `tmpl`/`ors` refs are DEFERRED; `linked` resolves inline via
     /// `contexts[hash]` (present because the writer emits linked children first).
-    fn read_contextual_test<R: Read>(&mut self, input: &mut R) -> CtxId {
+    /// DIVERGENCE: a `linked` hash naming no test read so far, a missing hash,
+    /// a set number past the set table and a relation naming no tag are
+    /// refused; the C++ stores a null link or the unchecked number.
+    fn read_contextual_test(
+        &mut self,
+        cur: &mut Cg3bCursor<'_>,
+        num_sets: u32,
+    ) -> Result<CtxId, GrammarError> {
+        let at = cur.offset();
         let t = self.grammar.allocate_contextual_test();
-        let fields = read_be::<u32, _>(input);
-
-        if fields & (1 << 0) != 0 {
-            self.grammar.contexts_arena[t.0].hash = read_be(input);
-        }
-        if fields & (1 << 1) != 0 {
-            let mut pos = read_be::<u32, _>(input) as u64;
-            if pos & POS_64BIT.bits() != 0 {
-                let hi = read_be::<u32, _>(input);
-                pos |= (hi as u64) << 32;
-            }
-            self.grammar.contexts_arena[t.0].pos =
-                crate::contextual_test::PosFlags::from_bits_retain(pos);
-        }
-        if fields & (1 << 2) != 0 {
-            self.grammar.contexts_arena[t.0].offset = read_be(input);
-        }
-        if fields & (1 << 3) != 0 {
-            let h = read_be::<u32, _>(input);
+        let fields: u32 = cur.be("contextual test field mask")?;
+        let mut ct = ContextualTest::default();
+        if let Some(h) = read::context_fields(cur, fields, &mut ct)? {
             self.deferred_tmpls.insert(t, h);
         }
-        if fields & (1 << 4) != 0 {
-            self.grammar.contexts_arena[t.0].target = SetNumber(read_be(input));
-        }
-        if fields & (1 << 5) != 0 {
-            self.grammar.contexts_arena[t.0].line = read_be(input);
-        }
-        if fields & (1 << 6) != 0 {
-            self.grammar.contexts_arena[t.0].relation = read_be(input);
-        }
-        if fields & (1 << 7) != 0 {
-            self.grammar.contexts_arena[t.0].barrier = SetNumber(read_be(input));
-        }
-        if fields & (1 << 8) != 0 {
-            self.grammar.contexts_arena[t.0].cbarrier = SetNumber(read_be(input));
-        }
-        if fields & (1 << 9) != 0 {
-            self.grammar.contexts_arena[t.0].offset_sub = read_be(input);
-        }
-        if fields & (1 << 12) != 0 {
-            self.grammar.contexts_arena[t.0].jump_pos = read_be::<i8, _>(input);
-        }
         if fields & (1 << 10) != 0 {
-            let num_ors = read_be::<u32, _>(input);
+            let num_ors = cur.count("OR'd test count", 4)?;
             let entry = self.deferred_ors.entry(t).or_default();
             for _ in 0..num_ors {
-                entry.push(read_be(input));
+                entry.push(cur.be("OR'd test hash")?);
             }
         }
         if fields & (1 << 11) != 0 {
-            let h = read_be::<u32, _>(input);
-            // grammar->contexts[u32]: operator[] (missing → null; here None).
-            self.grammar.contexts_arena[t.0].linked = self.grammar.contexts.get(&h).copied();
+            ct.linked = Some(self.context_by_hash(cur, "linked test")?);
         }
-
-        t
+        self.check_context(&ct, num_sets)
+            .map_err(|fault| malformed(at, fault))?;
+        self.grammar.contexts_arena[t.0] = ct;
+        Ok(t)
     }
 
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-binary-grammar-10043-fn]
@@ -1491,37 +1044,6 @@ impl BinaryGrammar {
         }
         Ok(())
     }
-}
-
-// C++ `static_cast<C_OPS>(uint32_t)` — map a serialized operator id back to the
-// enum. Out-of-range ids (never emitted by a valid writer) fall to OP_NOP.
-fn c_ops_from_u32(v: u32) -> COps {
-    match v {
-        0 => COps::OpNop,
-        1 => COps::OpEquals,
-        2 => COps::OpLessthan,
-        3 => COps::OpGreaterthan,
-        4 => COps::OpLessequals,
-        5 => COps::OpGreaterequals,
-        6 => COps::OpNotequals,
-        7 => COps::NumOps,
-        _ => COps::OpNop,
-    }
-}
-
-// C++ `static_cast<KEYWORDS>(uint32_t)`. `KEYWORDS` is `#[repr(u32)]` with
-// contiguous discriminants `0..=KEYWORD_COUNT`; the transmute is sound for that
-// range (out-of-range ids — never emitted by a valid writer — fall to K_IGNORE).
-fn keywords_from_u32(v: u32) -> Keywords {
-    // Safe table lookup (wave 4; was a transmute). Out-of-range ids — never
-    // emitted by a valid writer — fall to K_IGNORE, as before. NOTE: the old
-    // bound was `v <= KEYWORD_COUNT` inclusive; `v == KEYWORD_COUNT` would have
-    // transmuted to the sentinel variant itself, which the table cannot
-    // produce — it now falls to K_IGNORE (unreachable from any valid stream).
-    crate::strings::KEYWORDS_BY_ID
-        .get(v as usize)
-        .copied()
-        .unwrap_or(Keywords::KIgnore)
 }
 
 impl IGrammarParser for BinaryGrammar {

@@ -116,7 +116,7 @@ fn binary_roundtrip_dependency() {
     let _ = std::fs::remove_file(&bin);
 }
 
-// [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-contextual-test-fn/test]
+// [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-contextual-test-fn+1/test]
 // runall.pl sub-test "bin": vislcg3 --grammar-only --grammar-bin writes the
 // .cg3b, then a second vislcg3 reads it back — T_ContextTest's NOT/careful/
 // LINK-chained contexts land in readContextualTest's linked/pos/offset fields
@@ -145,8 +145,8 @@ fn grammar_bin_flag_roundtrip_contexttest() {
 // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.binary-grammar-fn/test]
 // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.set-compatible-fn/test]
 // [spec:cg3:sem:binary-grammar-write.cg3.binary-grammar.write-binary-grammar-fn/test]
-// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn/test]
-// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn/test]
+// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1/test]
+// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn+1/test]
 // In-process round-trip: TextualParser parses T_Templates, the BinaryGrammar
 // ctor wraps it (set_compatible is the documented no-op), write_binary_grammar
 // serializes to a byte buffer, and a FRESH BinaryGrammar's istream-style

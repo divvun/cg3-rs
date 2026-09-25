@@ -110,7 +110,7 @@ indices, unlike the modern hash-keyed scheme.
 > [spec:cg3:def:binary-grammar.cg3.binary-grammar.read-contextual-test-fn]
 > ContextualTest* readContextualTest(std::istream& input)
 
-> [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-contextual-test-fn]
+> [spec:cg3:sem:binary-grammar.cg3.binary-grammar.read-contextual-test-fn+1]
 > Private helper declared here, IMPLEMENTED in BinaryGrammar_read.cpp. Reads one
 > ContextualTest record and returns a fresh `grammar->allocateContextualTest`
 > pointer. Read a u32 field mask, then conditionally in this exact source order:
@@ -124,6 +124,16 @@ indices, unlike the modern hash-keyed scheme.
 > grammar->contexts[u32]` (inline map lookup — resolves because the writer emits
 > linked children first). Return `t`. (See the detailed spec under
 > BinaryGrammar_read.md for the same function.)
+>
+> PORT DIVERGENCE: the record is read from bounds-checked bytes, so a record
+> cut short is an error rather than a test filled with zeros. What the C++
+> stores unchecked is checked before it is stored
+> (`[spec:cg3:req:robustness.binary-grammar-validated]`): the test MUST have a
+> nonzero hash that is not one of the flat hash containers' two sentinel keys;
+> target, barrier and cbarrier MUST name sets of the set table (0 included, the
+> dummy set); a relation, or a relation position, MUST name a tag; and a
+> `linked` hash that names no test read so far is an error where the C++
+> `operator[]` would store a null link.
 
 > [spec:cg3:def:binary-grammar.cg3.binary-grammar.set-compatible-fn]
 > void BinaryGrammar::setCompatible(bool)

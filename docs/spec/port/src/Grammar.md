@@ -661,7 +661,7 @@
 > [spec:cg3:def:grammar.cg3.trie-unserialize-fn]
 > inline void trie_unserialize(trie_t& trie, std::istream& input, Grammar& grammar, uint32_t num_tags)
 
-> [spec:cg3:sem:grammar.cg3.trie-unserialize-fn]
+> [spec:cg3:sem:grammar.cg3.trie-unserialize-fn+1]
 > Free function. Deserializes a tag-trie from a binary-grammar input stream,
 > mirroring trie_serialize. Loops `num_tags` times; each iteration: read a
 > big-endian uint32 tag index and obtain the Tag* via
@@ -672,4 +672,12 @@
 > trie_unserialize(*node.trie, input, grammar, childCount). Assumes
 > single_tags_list is already fully populated (tags are read before tries in the
 > binary format) and performs no bounds-checking on the tag index.
+>
+> PORT DIVERGENCE: the tag index MUST be checked against the tag count and a
+> short read MUST be an error (`[spec:cg3:req:robustness.binary-grammar-validated]`),
+> where the C++ indexes past `single_tags_list` and throws from the stream;
+> a child count is also checked against the bytes left before its level is
+> read. A child level is read by setting its parent aside on an explicit stack
+> rather than by recursing, so a trie nested as deep as the file allows cannot
+> exhaust the call stack (`[spec:cg3:req:robustness.depth-bounded]`).
 

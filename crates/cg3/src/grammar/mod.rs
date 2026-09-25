@@ -68,8 +68,6 @@ use crate::set::Set;
 use crate::tag::Tag;
 
 // --- Method-pass imports (added with the fn bodies) ---
-use std::io::Read;
-
 use crate::inlines::{hash_value_str, is_internal, is_textual, ui32};
 use crate::rule::{RF_CAPTURE_UNIF, RF_KEEPORDER};
 use crate::set::{
@@ -437,6 +435,7 @@ mod overlay;
 mod tag_space;
 
 pub use overlay::{Grammar, TagHashRef, TagIndex, TagStore};
+pub(crate) use tag_space::SEED_PROBE_WIDTH;
 pub use tag_space::TagSpace;
 
 impl GrammarCore {
@@ -2259,41 +2258,66 @@ pub fn trie_index_to_set(trie: &TagTrie, grammar: &mut GrammarCore, r: u32) {
     }
 }
 
-// [spec:cg3:def:grammar.cg3.trie-unserialize-fn]
-// [spec:cg3:sem:grammar.cg3.trie-unserialize-fn]
+/// The smallest trie entry in a `.cg3b`: a `u32` tag index, a `u8` terminal
+/// flag and a `u32` child count.
+pub(crate) const TRIE_ENTRY_SIZE: usize = 9;
+
+// [spec:cg3:def:grammar.cg3.trie-unserialize-fn+1]
+// [spec:cg3:sem:grammar.cg3.trie-unserialize-fn+1]
+// [spec:cg3:req:robustness.binary-grammar-validated]
 /// Free fn. Deserializes a tag-trie from a binary-grammar stream (mirrors
 /// `trie_serialize`). Per entry: BE `u32` tag index → key `TagId(index)` (the
 /// arena index IS the tag number; C++ dereferenced `single_tags_list[index]` to
 /// obtain the `Tag*` used as the flat_map key), BE `u8` terminal flag, BE `u32`
-/// child count (recurse if non-zero). No bounds check on the tag index (arena
-/// index panics on OOB, matching the C++ UB).
-pub fn trie_unserialize<R: Read>(
+/// child count, then that many entries of the child level.
+///
+/// DIVERGENCE: the tag index is checked against `tag_limit` (the C++ indexes
+/// past the list), a short read is an error, and a child level is read by
+/// setting the parent aside on a stack rather than by recursing, so a trie as
+/// deep as the file allows cannot exhaust the call stack.
+pub(crate) fn trie_unserialize(
     trie: &mut TagTrie,
-    input: &mut R,
-    grammar: &GrammarCore,
+    input: &mut crate::binary_grammar::Cg3bCursor<'_>,
     num_tags: u32,
-) {
-    for _ in 0..num_tags {
-        let u32tmp: u32 = crate::inlines::read_be(input);
-        // Parity: C++ indexes single_tags_list[u32tmp] (OOB → UB); the key IS
-        // TagId(u32tmp) since arena index == tag number.
-        let _tag = &grammar.single_tags_list[u32tmp];
-        let node = trie.entry(TagId(u32tmp)).or_default();
+    tag_limit: u32,
+) -> Result<(), crate::error::GrammarError> {
+    *trie = read_trie_levels(std::mem::take(trie), input, num_tags, tag_limit)?;
+    Ok(())
+}
 
-        let u8tmp: u8 = crate::inlines::read_be(input);
-        node.terminal = u8tmp != 0;
-
-        let child_count: u32 = crate::inlines::read_be(input);
+/// The loop behind [`trie_unserialize`]: reads `num_tags` entries into
+/// `level`, setting a level aside whenever an entry opens a child level and
+/// hanging the child back under its key once the child's entries are read.
+fn read_trie_levels(
+    mut level: TagTrie,
+    input: &mut crate::binary_grammar::Cg3bCursor<'_>,
+    num_tags: u32,
+    tag_limit: u32,
+) -> Result<TagTrie, crate::error::GrammarError> {
+    // Each level set aside: its trie, the key its open child hangs from, and
+    // how many of its own entries are still to read.
+    let mut parents: Vec<(TagTrie, TagId, u32)> = Vec::new();
+    let mut left = num_tags;
+    loop {
+        if left == 0 {
+            let Some((parent, key, parent_left)) = parents.pop() else {
+                return Ok(level);
+            };
+            let child = std::mem::replace(&mut level, parent);
+            level.entry(key).or_default().trie = Some(Box::new(child));
+            left = parent_left;
+            continue;
+        }
+        left -= 1;
+        let tag = TagId(input.index("trie tag", tag_limit)?);
+        let terminal: u8 = input.be("trie terminal flag")?;
+        let child_count = input.count("trie child count", TRIE_ENTRY_SIZE)?;
+        let node = level.entry(tag).or_default();
+        node.terminal = terminal != 0;
         if child_count != 0 {
-            if node.trie.is_none() {
-                node.trie = Some(Box::new(TagTrie::new()));
-            }
-            trie_unserialize(
-                node.trie.as_deref_mut().unwrap(),
-                input,
-                grammar,
-                child_count,
-            );
+            let child = node.trie.take().map(|b| *b).unwrap_or_default();
+            parents.push((std::mem::replace(&mut level, child), tag, left));
+            left = child_count;
         }
     }
 }
