@@ -2695,6 +2695,53 @@ children (
                     }
                 )
             }
+
+            {
+                id grammar-phases.split-reindex
+                title "reindex is two passes, resolve (drafts only) and index (every origin), each step its own helper in grammar/finish.rs; indexing clears what it builds, so indexing twice leaves nothing stale, with the same grammar out"
+                kind @refactor
+                implements {
+                    target-impl ([spec:cg3:req:grammar-phases.same-output])
+                }
+                log (
+                    {
+                        at 2026-09-25T17:41:13.567739Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Step split (from the design survey, 2026-09-25). RESOLVE (text only, not idempotent): steps 1, 2, step 3's truncate of sets_list_order to the dummy, step 4's vs_sets marks, step 7's marks, 8, 9, 10, 11 (T_MAPPING must precede Set::reindex: trie_reindex reads it, set.rs:414-425), 12a/b (Set::reindex, set_adjust_sets), 13's rewrites + context_adjust_target, 16. Resolve must clear set_alias/sets_by_name/set_name_seeds at step 3's point so step 7's get_set resolves by content hash only. INDEX (both origins): step 3's clears, 4's regex/icase, 5, 6, 7's wf_rules/has_protect, 11 again (idempotent), 12c index_sets, 13's index work, 14, 15, 17-20. Equivalence: resolve never reads index output (regex_tags, T_TEXTUAL, wf_rules, has_protect, index maps; T_USED writes are ORs); after resolve sets_list_order[rule.target] == sets_by_contents[old hash] (add_set_to_list numbers by position, mod.rs:638), so step 13's binary branch picks the same set; step 2 errors still precede step 17's. Index clears first: wf_rules, sets_by_tag, rules_by_tag, rules_by_set (none serialised). Remove relabeller.rs:880's manual sets_by_tag.clear(). New file grammar/finish.rs (mod.rs is at 48/50 fns); every helper under cyclomatic 30; reindex becomes a ~15-line driver."
+                    }
+                )
+            }
+
+            {
+                id grammar-phases.load-types
+                title "Draft, Numbered and Indexed are types: loaders return their phase, finish consumes it, only an indexed grammar is written or run, and the relabeller gives its indexes up and finishes again, replacing reindex"
+                kind @refactor
+                implements {
+                    target-impl (
+                        [spec:cg3:req:grammar-phases.loaders]
+                        [spec:cg3:req:grammar-phases.finish]
+                        [spec:cg3:req:grammar-phases.indexed-only]
+                        [spec:cg3:req:grammar-phases.index-rebuilds]
+                    )
+                }
+                deps (grammar-phases.split-reindex)
+                log (
+                    {
+                        at 2026-09-25T17:41:13.605166Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Shape: `pub struct GrammarCore<P = Indexed>` with `phase: PhantomData<P>`, sealed `Phase` for empty enums Draft/Numbered/Indexed, `Numbering: Phase` for Numbered+Indexed; aliases GrammarDraft/GrammarNumbered. impl<P: Phase>: allocate_set, add_tag_to_set, allocate_tag(_new), allocate_contextual_test, single_tags, error, TagSpace, generic Default. Draft-only: get_set, undef_set, add_set, append_to_set, get_tags, remove_numeric_tags, allocate_dummy_set, allocate_rule/add_rule, destroy_*, add_contextual_test, intern_contextual_test, add_template, add_anchor, add_set_to_list, set_adjust_sets, context_adjust_target, walks.rs hash walks, Set::rehash/reindex/mark_used. Numbering: set_id_by_number, set_by_number, get_tag_list_any(_ret), members_by_number. Indexed only: From<GrammarCore> for Grammar, GrammarWriter, write_binary_grammar. `GrammarDraft::finish(self)` = resolve+index; `GrammarNumbered::finish(self)` = index; `GrammarCore::into_numbered(self)` clears the indexes. Parser holds GrammarCore<Draft>; BinaryGrammar<P = Indexed> (reader impl on Numbered, writer on Indexed; IGrammarParser for BinaryGrammar<Numbered>). Relabeller::new(target: GrammarCore, relabels: &GrammarCore) → into_numbered; relabel(self) -> Result<GrammarCore> ends in finish. `into_phase` moves fields (delete the no-op `impl Drop for GrammarCore`, mod.rs:519). Reindexed and reindex go; vislcg3 returns EXIT_SUCCESS after finish for --show-tags; unused_sets dropped (prints nothing today). Tools: finish exactly where reindex was, so error order is unchanged. Tests: 31 reindex sites → finish; some GrammarCore::default() sites need an explicit phase."
+                    }
+                )
+            }
+
+            {
+                id grammar-phases.load-hardening
+                title "The load order is checked where it can break: compile_fail doctests for running, writing and re-finishing the wrong phase, the reindex-once justifications restated as type facts, and a relabel of a text-origin grammar"
+                kind @test
+                deps (grammar-phases.load-types)
+            }
         )
     }
 

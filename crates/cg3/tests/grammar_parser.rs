@@ -531,7 +531,7 @@ fn print_ast_dumps_xml() {
 // tries), the set->rule and tag->rule indexes (indexSetToRule ->
 // indexTagToRule + trie_indexSetToRule), and retargets every rule's contexts
 // (contextAdjustTarget over tests, dep_tests and dep_target).
-// [spec:cg3:sem:grammar.cg3.grammar.reindex-fn/test]
+// [spec:cg3:sem:grammar.cg3.grammar.reindex-fn+1/test]
 // [spec:cg3:sem:grammar.cg3.grammar.add-set-to-list-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.set-adjust-sets-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.index-sets-fn/test]

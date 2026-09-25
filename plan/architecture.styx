@@ -140,6 +140,28 @@ elements (
     }
 
     {
+        id [arch:cg3:grammar-model]
+        name "Grammar model and its load phases"
+        kind @module
+        lifecycle @active
+        owns (
+            [spec:cg3:req:grammar-phases.loaders]
+            [spec:cg3:req:grammar-phases.finish]
+            [spec:cg3:req:grammar-phases.indexed-only]
+            [spec:cg3:req:grammar-phases.index-rebuilds]
+            [spec:cg3:req:grammar-phases.same-output]
+        )
+        exposes (
+            "crates/cg3/src/grammar/**"
+        )
+        depends_on ([arch:cg3:error-model])
+        decisions ([dec:cg3:grammar-load-phases])
+        log (
+            {at "2026-09-25T00:00:00Z", kind @established, by "[dec:cg3:grammar-load-phases]"}
+        )
+    }
+
+    {
         id [arch:cg3:cli-boundary]
         name "CLI boundary"
         kind @boundary

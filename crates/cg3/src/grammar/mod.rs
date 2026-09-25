@@ -1541,8 +1541,8 @@ impl GrammarCore {
         }
     }
 
-    // [spec:cg3:def:grammar.cg3.grammar.reindex-fn]
-    // [spec:cg3:sem:grammar.cg3.grammar.reindex-fn]
+    // [spec:cg3:def:grammar.cg3.grammar.reindex-fn+1]
+    // [spec:cg3:sem:grammar.cg3.grammar.reindex-fn+1]
     /// Core finalization pass (21 steps). Marks used sets/tags/contexts, numbers
     /// the sets, builds every runtime index, and rewrites hash-based refs into
     /// number-based ones. All printed diagnostics are deferred I/O. See the

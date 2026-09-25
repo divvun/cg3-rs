@@ -470,7 +470,7 @@
 > [spec:cg3:def:grammar.cg3.grammar.reindex-fn]
 > void Grammar::reindex(bool unused_sets, bool used_tags)
 
-> [spec:cg3:sem:grammar.cg3.grammar.reindex-fn]
+> [spec:cg3:sem:grammar.cg3.grammar.reindex-fn+1]
 > The core finalization pass: after parsing (or binary load), it marks used
 > sets/tags/contexts, numbers the sets, builds all runtime indexes, and rewrites
 > hash-based references into number-based ones. Two optional flags trigger
@@ -569,6 +569,22 @@
 > (21) If the `used_tags` flag is set: for each tag in single_tags with T_USED,
 > print tag->toUString(true) to ux_stdout, then call exit(0) — terminating the
 > whole process (diagnostic dump mode).
+>
+> PORT DIVERGENCE (`[spec:cg3:req:grammar-phases.finish]`): the port splits this
+> pass by the input each step needs, and finishing a grammar runs it.
+> *Resolving* runs only when a draft is finished: steps 1 and 2, step 3's cut of
+> sets_list to the dummy, step 4's vs_sets marks, step 7's marks, steps 8 to
+> 10, step 11 (which Set::reindex reads), step 12's Set::reindex and
+> setAdjustSets, step 13's rewrites of targets, child sets and tests, and step
+> 16. *Indexing* — the rest — runs when either a draft or a numbered grammar is
+> finished, after resolving. Neither reads what the other writes out of this
+> order, so the grammar that comes out is the one the C++ builds. Indexing
+> clears everything it builds before building it, where the C++ appends to
+> wf_rules, rules_by_set, rules_by_tag and sets_by_tag when reindex runs a
+> second time (`[spec:cg3:req:grammar-phases.index-rebuilds]`). Neither flag is
+> taken: the unused-set report of step 9 and the tag dump of step 21 print
+> nothing in the port, and the dump's successful stop is the caller's, once
+> the grammar is finished.
 
 > [spec:cg3:def:grammar.cg3.grammar.remove-numeric-tags-fn]
 > uint32_t Grammar::removeNumericTags(uint32_t s)
