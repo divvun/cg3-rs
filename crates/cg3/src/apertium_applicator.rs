@@ -677,7 +677,7 @@ where
 
         self.base.index();
 
-        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = self.base.cfg.reset_after();
 
         self.base.cfg.begintag = {
             let t = self

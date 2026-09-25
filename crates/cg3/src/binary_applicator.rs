@@ -1025,7 +1025,7 @@ impl<'x> BinaryApplicator<'x> {
         }
 
         self.base.index();
-        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = self.base.cfg.reset_after();
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
         // flush(flush_after) lambda: drain the pipeline + print buffered windows.

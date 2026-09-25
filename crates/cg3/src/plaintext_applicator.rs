@@ -151,7 +151,7 @@ where
 
         self.base.index();
 
-        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = self.base.cfg.reset_after();
         // C++ `uint32_t lines` feeds only the verbose Progress line, whose
         // emission is deferred with the I/O layer; no counter is kept here.
 
@@ -267,7 +267,7 @@ where
                         l_cohort = Some(cc);
                         c_swindow = None;
                         c_cohort = None;
-                        self.base.doc.num_cohorts += 1;
+                        self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
                         did_soft_lookback = false;
                     }
                 }
@@ -309,7 +309,7 @@ where
                         l_cohort = Some(cc);
                         c_swindow = None;
                         c_cohort = None;
-                        self.base.doc.num_cohorts += 1;
+                        self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
                         did_soft_lookback = false;
                     }
                 }
@@ -328,7 +328,7 @@ where
                     l_cohort = Some(self.base.doc.store.single_windows.get(sw.0).cohorts[0]);
                     c_swindow = Some(sw);
                     c_cohort = None;
-                    self.base.doc.num_windows += 1;
+                    self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
                     did_soft_lookback = false;
                 }
 
@@ -405,7 +405,7 @@ where
                     // port works through `cc` and `c_cohort` stays None
                     // throughout (see the module DEAD-code note).
                     l_cohort = Some(cc);
-                    self.base.doc.num_cohorts += 1;
+                    self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
                     let cr = self.base.engine().init_empty_cohort(cc)?;
                     self.base.doc.store.readings.get_mut(cr.0).noprint = !self.add_tags;
                     if self.add_tags {
@@ -488,7 +488,7 @@ where
                 }
             }
 
-            self.base.doc.num_lines += 1;
+            self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
             line.clear();
             cleaned.clear();
 

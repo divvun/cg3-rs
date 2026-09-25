@@ -407,34 +407,55 @@ fn insert_if_exists_ors_bits() {
 
 // g_app_set_opts_ranged: comma-separated numbers and inclusive ranges, plus
 // the single-value `fill` expansion and the reversed-range (empty) case.
-// [spec:cg3:sem:inlines.cg3.g-app-set-opts-ranged-fn/test]
+// [spec:cg3:sem:inlines.cg3.g-app-set-opts-ranged-fn+1/test]
 #[test]
 fn opts_ranged() {
     let mut c: Vec<u32> = Vec::new();
 
     // Plain list.
-    g_app_set_opts_ranged("1,3,5", &mut c, false);
+    g_app_set_opts_ranged("1,3,5", &mut c, false, u32::MAX);
     assert_eq!(c, vec![1, 3, 5]);
 
     // Inclusive range.
-    g_app_set_opts_ranged("2-5", &mut c, false);
+    g_app_set_opts_ranged("2-5", &mut c, false, u32::MAX);
     assert_eq!(c, vec![2, 3, 4, 5]);
 
     // Mixed list + range.
-    g_app_set_opts_ranged("1,4-6,9", &mut c, false);
+    g_app_set_opts_ranged("1,4-6,9", &mut c, false, u32::MAX);
     assert_eq!(c, vec![1, 4, 5, 6, 9]);
 
     // Reversed range "3-1" yields nothing (high < low -> empty).
-    g_app_set_opts_ranged("3-1", &mut c, false);
+    g_app_set_opts_ranged("3-1", &mut c, false, u32::MAX);
     assert!(c.is_empty());
 
     // Single value with fill -> expands to 1..=value.
-    g_app_set_opts_ranged("4", &mut c, true);
+    g_app_set_opts_ranged("4", &mut c, true, u32::MAX);
     assert_eq!(c, vec![1, 2, 3, 4]);
 
     // Single value without fill -> just that value.
-    g_app_set_opts_ranged("4", &mut c, false);
+    g_app_set_opts_ranged("4", &mut c, false, u32::MAX);
     assert_eq!(c, vec![4]);
+}
+
+// A range reaching past everything the grammar holds expands only as far as
+// that; one that starts past it keeps its first value, so the list still
+// selects nothing rather than falling back to "everything".
+// [spec:cg3:req:robustness.allocation-bounded/test]
+#[test]
+fn opts_ranged_stops_at_the_limit() {
+    let mut c: Vec<u32> = Vec::new();
+    g_app_set_opts_ranged("0-4000000000", &mut c, false, 5);
+    assert_eq!(c, vec![0, 1, 2, 3, 4, 5]);
+    g_app_set_opts_ranged("4000000000", &mut c, true, 3);
+    assert_eq!(c, vec![1, 2, 3]);
+    g_app_set_opts_ranged("9000-4000000000", &mut c, false, 5);
+    assert_eq!(c, vec![9000]);
+    g_app_set_opts_ranged("99999999999999999999", &mut c, false, 5);
+    assert_eq!(
+        c.len(),
+        1,
+        "an overlong number saturates instead of overflowing"
+    );
 }
 
 // swapper: conditional swap on construct AND on drop (net identity while

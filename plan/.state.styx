@@ -473,4 +473,11 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule robustness.terminates}
     )}
+    {id no-panic.arithmetic, covered_rules (
+        robustness.allocation-bounded
+        robustness.checked-arithmetic
+    ), covered_claims (
+        {impl_name target-impl, rule robustness.allocation-bounded}
+        {impl_name target-impl, rule robustness.checked-arithmetic}
+    )}
 )

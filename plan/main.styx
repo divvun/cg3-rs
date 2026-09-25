@@ -2940,6 +2940,13 @@ children (
                         kind @note
                         text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da). Debug builds trap these; release builds WRAP silently.\n\nOPTION VALUES (also from CG3_DEFAULT / CG3_OVERRIDE / grammar CMDARGS):\n- inlines/misc.rs:170 `n*10+d` i64: `vislcg3 -g g --rules 99999999999999999999` (also --trace, --sections, --debug-rules; `CMDARGS += --sections 99999999999999999999 ;`). VERIFIED.\n- run_grammar.rs:572 `(num_windows+4)*2+1`: `--num-windows 2147483644`. VERIFIED. Same expression: apertium_applicator.rs:629 (verified via cg-proc with `CMDARGS += --num-windows 4294967295`), fst:195, niceline:141, matxin:770, jsonl:461, binary_applicator:1049, plaintext:154 (reasoned). run_grammar.rs:807 `(num_windows+1)` becomes live once 572 is fixed alone.\n- OOM (allocation-bounded): inlines/misc.rs:132 `--rules 0-4000000000`, `--trace 1-4000000000`; :150 `--sections 4000000000`; tools/cg_proc.rs:452 `cg-proc -s 2147483647` — 0.5-1 GB RSS in 4 s; also O(numsections^2) in index(). Clamp to the grammar's rule/section count, or store intervals instead of expanding.\n\nGRAMMAR / STREAM NUMBERS:\n- textual_parser/mod.rs:1412 `(99999999999 A)`, :1492 `(1/99999999999 A)`, :349 scan_d `SELECT SUB:99999999999999999999 A` (VERIFIED).\n- run_contextual_test.rs:619 (also :1206) `si32(position)+test_offset`: `ADD (@x)(N)(2147483647 (*));` — the parser accepts up to i32::MAX (VERIFIED).\n- u32 input counters (num_lines, num_cohorts, num_readings, num_windows, lines) in run_grammar.rs:436/507/611/725/768/783/843/1183/1206, niceline:262/301/317/357/478/521, plaintext:267/309/328/405/488 overflow past 2^32 lines (reasoned) — `wrapping_add`, as the other readers already use.\n- cg_merge_annotations.rs:41/56/57 usize += with num_match -1 from the DB (profiler, reasoned).\n\nFIXED-WIDTH OUTPUT: binary_applicator.rs:651/731/767/818/857/906 u16 counters and the writer's ui16 casts (see no-panic.binary-stream) — the binary stream writer must refuse a window it cannot represent.\n\nUNTRUSTED ALLOCATION SIZES are listed on no-panic.cg3b (.cg3b lengths/counts), no-panic.binary-stream (CGBF, EXTERNAL); the fixes land there, this node owns the rule and the CLI/option cases."
                     }
+
+                    {
+                        at 2026-09-25T13:10:32.363195Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

@@ -429,7 +429,7 @@ impl super::Engine<'_> {
             }
         }
         indents.push((indent, c_reading));
-        self.doc.num_readings += 1;
+        self.doc.num_readings = self.doc.num_readings.wrapping_add(1);
 
         // Check whether the cohort still belongs to the window, as per --dep-delimit
         let dep_self = self
@@ -500,7 +500,7 @@ impl super::Engine<'_> {
             variables_output.clear();
 
             *l_swindow = Some(nsw);
-            self.doc.num_windows += 1;
+            self.doc.num_windows = self.doc.num_windows.wrapping_add(1);
             *did_soft_lookback = false;
             self.doc.deps.dep_highest_seen = crate::types::GlobalNumber(0);
 
@@ -594,7 +594,7 @@ impl super::Engine<'_> {
         // view holds read-only). It is idempotent (`did_index` guard) and has no
         // I/O, so running it just before the `engine()` split is identical.
 
-        let reset_after: u32 = (self.cfg.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = self.cfg.reset_after();
         let mut lines: u32 = 0;
 
         // C++ also keeps a driver-level `Reading* cReading`: every read of it
@@ -633,7 +633,7 @@ impl super::Engine<'_> {
         // C++ `while (!input.eof())`: the port loops until get_line_clean_chars
         // reports end of stream (the `hit_eof` check at the bottom).
         'mainloop: loop {
-            lines += 1;
+            lines = lines.wrapping_add(1);
             // [spec:cg3:req:robustness.stream-invalid-utf8]
             let read = crate::uextras::get_line_clean_chars(&mut line, &mut cleaned, input, false)
                 .map_err(|e| e.at(&self.cfg.input_name, lines))?;
@@ -747,7 +747,7 @@ impl super::Engine<'_> {
                             l_swindow = Some(sw);
                             c_swindow = None;
                             c_cohort = None;
-                            self.doc.num_cohorts += 1;
+                            self.doc.num_cohorts = self.doc.num_cohorts.wrapping_add(1);
                             did_soft_lookback = false;
                         }
                     }
@@ -790,7 +790,7 @@ impl super::Engine<'_> {
                             l_swindow = Some(sw);
                             c_swindow = None;
                             c_cohort = None;
-                            self.doc.num_cohorts += 1;
+                            self.doc.num_cohorts = self.doc.num_cohorts.wrapping_add(1);
                             did_soft_lookback = false;
                         }
                     }
@@ -805,7 +805,7 @@ impl super::Engine<'_> {
                         l_swindow = Some(sw);
                         c_swindow = Some(sw);
                         c_cohort = None;
-                        self.doc.num_windows += 1;
+                        self.doc.num_windows = self.doc.num_windows.wrapping_add(1);
                         did_soft_lookback = false;
                     }
 
@@ -829,7 +829,9 @@ impl super::Engine<'_> {
                     }
 
                     // Drain a window if enough have queued up.
-                    if self.doc.stream.next.len() > (self.cfg.num_windows + 1) as usize {
+                    if self.doc.stream.next.len()
+                        > (self.cfg.num_windows as usize).saturating_add(1)
+                    {
                         self.shuffle_windows_down();
 
                         self.run_grammar_on_window_with(fmt, output)?;
@@ -865,7 +867,7 @@ impl super::Engine<'_> {
                     l_cohort = Some(cc);
                     l_reading = None;
                     indents.clear();
-                    self.doc.num_cohorts += 1;
+                    self.doc.num_cohorts = self.doc.num_cohorts.wrapping_add(1);
                     self.doc.store.cohorts.get_mut(cc.0).line_number = self.doc.num_lines;
 
                     // Trailing word-level tags after the wordform → build `wread`.
@@ -1197,7 +1199,7 @@ impl super::Engine<'_> {
                             c_swindow = None;
                             c_cohort = None;
                             l_cohort = None;
-                            self.doc.num_cohorts += 1;
+                            self.doc.num_cohorts = self.doc.num_cohorts.wrapping_add(1);
                             did_soft_lookback = false;
                         } else if let Some(lc) = l_cohort {
                             self.doc
@@ -1220,7 +1222,7 @@ impl super::Engine<'_> {
                 }
             }
 
-            self.doc.num_lines += 1;
+            self.doc.num_lines = self.doc.num_lines.wrapping_add(1);
             line[0] = '\0';
             cleaned[0] = '\0';
 

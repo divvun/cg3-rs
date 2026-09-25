@@ -359,6 +359,17 @@ pub struct EngineConfig {
 pub const STDIN_SOURCE_NAME: &str = "<stdin>";
 
 impl EngineConfig {
+    // [spec:cg3:req:robustness.checked-arithmetic]
+    /// C++ `resetAfter = ((num_windows + 4) * 2 + 1)`: how many windows run
+    /// between index resets. DIVERGENCE: saturates where the C++ wraps a huge
+    /// `--num-windows` into a small (or zero) period.
+    pub fn reset_after(&self) -> u32 {
+        self.num_windows
+            .saturating_add(4)
+            .saturating_mul(2)
+            .saturating_add(1)
+    }
+
     /// Every field at its C++ default-member-initialiser value (the initialisers
     /// moved verbatim out of the former `GrammarApplicator::new`).
     pub fn new() -> Self {

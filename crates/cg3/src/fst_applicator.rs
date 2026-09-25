@@ -191,7 +191,7 @@ where
         // C++ `uint32_t lines` feeds only the verbose Progress line, which is
         // deferred; no counter is kept here.
         let mut st = FstStreamState {
-            reset_after: (self.base.cfg.num_windows + 4) * 2 + 1,
+            reset_after: self.base.cfg.reset_after(),
             did_soft_lookback: false,
             c_swindow: None,
             c_cohort: None,

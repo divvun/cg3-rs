@@ -91,10 +91,10 @@ rather than outstanding work.
 > removes ALL elements equal to `val` from `cont`. Mutates cont in place;
 > returns void.
 
-> [spec:cg3:def:inlines.cg3.g-app-set-opts-ranged-fn]
+> [spec:cg3:def:inlines.cg3.g-app-set-opts-ranged-fn+1]
 > inline void GAppSetOpts_ranged(const char* value, Cont& cont, bool fill = true)
 
-> [spec:cg3:sem:inlines.cg3.g-app-set-opts-ranged-fn]
+> [spec:cg3:sem:inlines.cg3.g-app-set-opts-ranged-fn+1]
 > Parses a comma-separated list of numbers and inclusive numeric ranges
 > from the C string `value` into `cont` (a container supporting `clear()`,
 > `push_back(uint32_t)`, `size()`, `front()`). Steps: clear `cont`; set
@@ -116,6 +116,14 @@ rather than outstanding work.
 > any explicit range or multiple entries suppresses that expansion. Note
 > `atoi` reads only the leading integer and ignores trailing junk, `abs`
 > discards the sign, and `nextc` is used only inside the range condition.
+>
+> PORT DIVERGENCE: the port takes a `limit`, the largest value that can select
+> anything, and stops expanding a range (or the `fill` range) there — though
+> never below its own first value, so a list that names only values past the
+> limit stays non-empty and still selects nothing, exactly as the C++'s does.
+> The C++ pushes every value of `--rules 0-4000000000`, which exhausts memory
+> before the run starts (`[spec:cg3:req:robustness.allocation-bounded]`).
+> `atoi`'s digit accumulation saturates instead of overflowing.
 
 > [spec:cg3:def:inlines.cg3.hash-ustring]
 > struct hash_ustring

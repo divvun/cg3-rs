@@ -136,7 +136,7 @@ impl<'a> NicelineApplicator<'a> {
 
         self.base.index();
 
-        let reset_after: u32 = (self.base.cfg.num_windows + 4) * 2 + 1;
+        let reset_after: u32 = self.base.cfg.reset_after();
         // C++ `uint32_t lines` feeds only the verbose Progress line, whose
         // emission is deferred with the I/O layer; no counter is kept here.
 
@@ -260,7 +260,7 @@ impl<'a> NicelineApplicator<'a> {
                             l_swindow = Some(sw);
                             c_swindow = None;
                             c_cohort = None;
-                            self.base.doc.num_cohorts += 1;
+                            self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
                             did_soft_lookback = false;
                         }
                     }
@@ -299,7 +299,7 @@ impl<'a> NicelineApplicator<'a> {
                             l_swindow = Some(sw);
                             c_swindow = None;
                             c_cohort = None;
-                            self.base.doc.num_cohorts += 1;
+                            self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
                             did_soft_lookback = false;
                         }
                     }
@@ -315,7 +315,7 @@ impl<'a> NicelineApplicator<'a> {
                         c_swindow = Some(sw);
                         l_swindow = Some(sw);
                         c_cohort = None;
-                        self.base.doc.num_windows += 1;
+                        self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
                         did_soft_lookback = false;
                     }
 
@@ -355,7 +355,7 @@ impl<'a> NicelineApplicator<'a> {
                     }
                     c_cohort = Some(cc);
                     l_cohort = Some(cc);
-                    self.base.doc.num_cohorts += 1;
+                    self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
 
                     // Reading loop: advance past the TAB.
                     space += 1;
@@ -477,7 +477,7 @@ impl<'a> NicelineApplicator<'a> {
                                 .split_mappings(&mut mappings, cc, cr, true)?;
                         }
                         crate::cohort::append_reading(&mut self.base.doc.store, cc, cr);
-                        self.base.doc.num_readings += 1;
+                        self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
 
                         if let Some(t) = tab {
                             space = t + 1;
@@ -520,7 +520,7 @@ impl<'a> NicelineApplicator<'a> {
                 }
             }
 
-            self.base.doc.num_lines += 1;
+            self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
             line.clear();
             cleaned.clear();
 

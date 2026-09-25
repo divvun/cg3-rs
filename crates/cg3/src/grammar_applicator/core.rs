@@ -1555,7 +1555,8 @@ impl super::GrammarApplicator {
             self.cfg.section_max_count = number(Opt::Maxruns)?;
         }
         if occ(Opt::Sections) {
-            g_app_set_opts_ranged(val(Opt::Sections), &mut self.cfg.sections, true);
+            let limit = ui32(self.grammar.sections.len());
+            g_app_set_opts_ranged(val(Opt::Sections), &mut self.cfg.sections, true, limit);
         }
         if occ(Opt::Rules) {
             self.set_opts_ranged_interval_valid(val(Opt::Rules), true);
@@ -1650,25 +1651,36 @@ impl super::GrammarApplicator {
         Ok(())
     }
 
+    /// The largest rule line or number in the grammar: `--rules`, `--trace` and
+    /// `--debug-rules` name rules by either, and a value past both selects
+    /// nothing, so their ranges need not expand beyond it.
+    fn rule_key_limit(&self) -> u32 {
+        (0..self.grammar.rule_by_number.capacity())
+            .filter_map(|i| self.grammar.rule_by_number.try_get(i))
+            .map(|r| r.line.max(r.number))
+            .max()
+            .unwrap_or(0)
+    }
+
     /// `GAppSetOpts_ranged(value, trace_rules, fill)` bridge: the ported helper
     /// fills a `Vec<u32>`, so expand there and insert into the interval vector.
     fn set_opts_ranged_interval(&mut self, value: &str, _default_true: bool, fill: bool) {
         let mut tmp: Vec<u32> = Vec::new();
-        g_app_set_opts_ranged(value, &mut tmp, fill);
+        g_app_set_opts_ranged(value, &mut tmp, fill, self.rule_key_limit());
         for v in tmp {
             self.cfg.trace_rules.insert(v);
         }
     }
     fn set_opts_ranged_interval_valid(&mut self, value: &str, fill: bool) {
         let mut tmp: Vec<u32> = Vec::new();
-        g_app_set_opts_ranged(value, &mut tmp, fill);
+        g_app_set_opts_ranged(value, &mut tmp, fill, self.rule_key_limit());
         for v in tmp {
             self.cfg.valid_rules.insert(v);
         }
     }
     fn set_opts_ranged_interval_debug(&mut self, value: &str, fill: bool) {
         let mut tmp: Vec<u32> = Vec::new();
-        g_app_set_opts_ranged(value, &mut tmp, fill);
+        g_app_set_opts_ranged(value, &mut tmp, fill, self.rule_key_limit());
         for v in tmp {
             self.cfg.debug_rules.insert(v);
         }

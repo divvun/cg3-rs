@@ -621,7 +621,10 @@ impl Matcher<'_> {
         let self_swin = sw;
 
         let test_offset = test.offset(&self.grammar.contexts_arena);
-        let mut pos = si32(position) + test_offset;
+        // [spec:cg3:req:robustness.checked-arithmetic]
+        // Saturates: an offset near i32::MAX lands outside every window, as
+        // it means to; the C++ overflows (undefined behaviour).
+        let mut pos = si32(position).saturating_add(test_offset);
 
         if !retval {
             // Jump failed because the position does not exist.
@@ -1228,7 +1231,7 @@ impl Matcher<'_> {
             let c = &self.grammar.contexts_arena;
             (test.pos(c), test.offset(c))
         };
-        *pos = si32(position) + test_offset;
+        *pos = si32(position).saturating_add(test_offset);
 
         let cur = sw.expect("getCohortInWindow: sWindow is null");
 

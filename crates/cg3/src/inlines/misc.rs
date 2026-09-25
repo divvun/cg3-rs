@@ -106,13 +106,17 @@ pub fn insert_if_exists(cont: &mut Vec<bool>, other: Option<&Vec<bool>>) {
     }
 }
 
-// [spec:cg3:def:inlines.cg3.g-app-set-opts-ranged-fn]
-// [spec:cg3:sem:inlines.cg3.g-app-set-opts-ranged-fn]
+// [spec:cg3:def:inlines.cg3.g-app-set-opts-ranged-fn+1]
+// [spec:cg3:sem:inlines.cg3.g-app-set-opts-ranged-fn+1]
+// [spec:cg3:req:robustness.allocation-bounded]
 // Parses comma-separated numbers/inclusive ranges. `value` (C++ `const char*`)
 // -> `&str`; scanning is over its bytes with hand-ported atoi/strchr. `cont` is
 // a Vec<u32>. Inclusive ranges use Rust's `low..=high` (empty when high < low,
 // matching the uint32 `low <= high` false case for e.g. "3-1").
-pub fn g_app_set_opts_ranged(value: &str, cont: &mut Vec<u32>, fill: bool) {
+//
+// DIVERGENCE: no range expands past `limit` (the largest value that can
+// select anything) or, when it starts beyond it, past its own first value.
+pub fn g_app_set_opts_ranged(value: &str, cont: &mut Vec<u32>, fill: bool, limit: u32) {
     let vb = value.as_bytes();
     cont.clear();
     let mut had_range = false;
@@ -129,7 +133,7 @@ pub fn g_app_set_opts_ranged(value: &str, cont: &mut Vec<u32>, fill: bool) {
             had_range = true;
             high = atoi(vb, d + 1).unsigned_abs();
         }
-        for v in low..=high {
+        for v in low..=high.min(low.max(limit)) {
             cont.push(v);
         }
 
@@ -147,7 +151,7 @@ pub fn g_app_set_opts_ranged(value: &str, cont: &mut Vec<u32>, fill: bool) {
     if cont.len() == 1 && !had_range && fill {
         let val = cont[0];
         cont.clear();
-        for i in 1..=val {
+        for i in 1..=val.min(limit.max(1)) {
             cont.push(i);
         }
     }
@@ -167,7 +171,7 @@ fn atoi(s: &[u8], mut i: usize) -> i32 {
     }
     let mut n: i64 = 0;
     while i < s.len() && s[i].is_ascii_digit() {
-        n = n * 10 + (s[i] - b'0') as i64;
+        n = n.saturating_mul(10).saturating_add((s[i] - b'0') as i64);
         i += 1;
     }
     (sign * n) as i32

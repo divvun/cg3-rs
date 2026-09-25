@@ -486,7 +486,11 @@ pub fn main_proc(args: &[String]) -> i32 {
     if let Err(e) = base.set_options(&options) {
         return fail(&e);
     }
-    for i in 1..=sections {
+    // [spec:cg3:req:robustness.allocation-bounded]
+    // DIVERGENCE: sections past the grammar's own select nothing, so `-s`
+    // expands only as far as the grammar goes; the C++ pushes every number.
+    let last = i32::try_from(base.grammar.sections.len()).unwrap_or(i32::MAX);
+    for i in 1..=sections.min(last.max(1)) {
         base.cfg.sections.push(i as u32);
     }
     base.cfg.trace = trace;
