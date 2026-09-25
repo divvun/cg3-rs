@@ -2719,4 +2719,217 @@ children (
             }
         )
     }
+
+    {
+        id no-panic
+        title "No input can panic, abort, overflow the stack, exhaust memory or hang the crate: every grammar, compiled grammar, input stream, command line and EXTERNAL reply is processed or refused with an error"
+        kind @fix
+        children (
+            {
+                id no-panic.stream-text
+                title "Stream readers take any text: invalid UTF-8 is a run error naming the line, fields are read whole whatever their length or script, the last line reads only itself, and no empty tag is ever interned"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.stream-invalid-utf8] [spec:cg3:req:robustness.stream-text] [spec:cg3:req:robustness.empty-tag])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:38:59.707642Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da, all VERIFIED with debug binaries unless marked reasoned).\n\nINVALID UTF-8 — the most likely real-world crash in the crate:\n- uextras.rs:244/249/254/265 read_char panics (\"Could not read 2 expected bytes from stream\" / \"Failed to convert from UTF-8 to UTF-16\") on ANY non-UTF-8 byte in CG, niceline, plain, fst, apertium or matxin input: `printf 'caf\\xe9\\n' | vislcg3 -g test/T_Select/grammar.cg3`; also `printf '\\x80\\n'`.\n- uextras.rs:305/313/321 panic! and 303/311/319 `n - k` underflow in read_utf8, used by cg-conv's format auto-detect (no --in-* flag): `printf 'caf\\xe9' | cg-conv`; `printf 'abc\\xe0\\x80\\x80\\x80' | cg-conv`. The buffer is already decoded lossily there, so the sequence-completion loop can go.\n- The uextras module doc states the policy behind these: every C++ `throw` became a `panic!` with the same message. That policy is what robustness.stream-invalid-utf8 replaces.\n\nTEXT BOUNDARIES:\n- niceline_applicator.rs:393 advances `sp += 1` by BYTE, then inlines/scan.rs:107 slices `s[pos..]` mid-character: any non-ASCII tag after the first token of a niceline reading panics — `printf 'ord\\t\"a\" N @\\xe2\\x86\\x92N\\n' | cg-conv` (autodetected as niceline). Fix: step by `len_utf8`.\n- fst_applicator.rs:187 sizes `cleaned` to `line.len()` not `+1` (run_grammar.rs:562 does +1), so uextras.rs:600 (and :595) indexes `cleaned[packoff+1]` out of bounds on any FST line of 1023+ chars: `python3 -c \"print('a'*1023)\" | cg-conv --in-fst`.\n- jsonl_applicator.rs:773 tests `did_delim || next.len() > num_windows` where apertium uses `&&`; with `--num-windows 0` any delimiter makes run_rules/window.rs:1139 unwrap `stream.current` on None: `printf '{\"w\":\"a\"}\\n{\"w\":\"$.\"}\\n{\"w\":\"b\"}\\n' | vislcg3 -g test/T_Select/grammar.cg3 --in-jsonl --num-windows 0`.\n- mwesplit_applicator.rs:308 slices `wf_chars[sp_beg..sp_end]` with start > end when a sub-reading's wordform tag is blank inside: `printf '\"<a b>\"\\n\\t\"b\" N \"< >\"\\n\\t\\t\"a\" N \"<a>\"\\n' | cg-mwesplit`.\n- NOT A PANIC, a correctness bug: read_line_chars / get_line_clean_chars leave stale characters when the last line has no trailing newline and is shorter than the line before it — `printf '\"<abcdefgh>\"\\n\\t\"x\" N' | cg-conv` prints tag `Ne`. Also U+FFFF mid-line is taken as EOF, and lines over 1023 chars that are mostly whitespace get split.\n\nEMPTY TAGS (tag.rs:717 debug_assert \"parseTagRaw() will not work with empty strings\"; release interns \"\" with hash 0): apertium `^a/b<>$`, `^a<>/b$`, `[<STREAMCMD:SETVAR:>]`; CG `<STREAMCMD:SETVAR:>`, `<STREAMCMD:SETVAR:,>`, a bare `<STREAMCMD:SETVAR:` line; JSONL `{\"cmd\":\"<STREAMCMD:SETVAR:>\"}`, `SETVAR:x=>`, `REMVAR:>`; an empty string in a binary-stream tag table; an EXTERNAL reply with an empty baseform, wordform or tag. `grammar_applicator/core.rs` add_tag_text is the unchecked caller.\n\nSweep reproducers (session scratchpad, may be gone): panic/stream/{fuzz.py,minimize.py,ext_bad.py,fuzz_out*/*.min}."
+                    }
+                )
+            }
+
+            {
+                id no-panic.cli
+                title "The tools refuse a malformed command line with a message and a nonzero exit, and end quietly when their output is closed, instead of panicking"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.cli-output] [spec:cg3:req:robustness.cli-arguments])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:38:59.750779Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da; VERIFIED unless marked reasoned).\n\nBROKEN PIPE — print!/println!/eprint! panic \"failed printing to stdout: Broken pipe\":\n- vislcg3 --help | head -1 (vislcg3.rs:681, tools/mod.rs:163, 168-170 — flaky, 13/30 runs); any tool --version into a closed pipe (tools/mod.rs:163); vislcg3 --min-binary-revision (vislcg3.rs:125); cg-proc usage/-h (cg_proc.rs:48-72, 307); cg-conv / cg-mwesplit --help (cg_conv.rs:120, cg_mwesplit.rs:104); cg-comp / cg-relabel usage (cg_comp.rs:28,32; cg_relabel.rs:25,29, reasoned); eprint! of the usage on a bad flag with stderr closed (cg_conv.rs:117, cg_mwesplit.rs:100, exit 101).\n- A broken pipe DURING a run is already swallowed (exit 0, output lost) — not a panic; the fix should make --help & co. behave the same way. Fix shape: writeln! to a locked handle, BrokenPipe -> quiet exit.\n\nARGUMENTS:\n- All 8 bins' `std::env::args()` (bin/*.rs:3) panic on any non-UTF-8 argv: `vislcg3 -g $'\\xff.cg3'`. Fix: args_os, error, exit 1.\n- cg_conv.rs:232 `-W abc` / `-Wabc` / `CG3_CONV_DEFAULT=\"-W x\"`: parse::<f64>().unwrap().\n- cg_conv.rs:270 `--dep-delimit abc` / `--dep-delimit 99999999999`: parse().unwrap() (InvalidDigit / PosOverflow). vislcg3 already has a stoul for this.\n- relabeller.rs:241 `rule.maplist.expect(\"relabel rule has no maplist\")` runs BEFORE the KMap type check: `cg-relabel g.cg3b test/T_Select/grammar.cg3 out.cg3b` (any non-MAP rule in the relabel file, e.g. `LIST A = a ; SELECT A ;`). Fix: check the type first, or `let Some(m) = … else continue`.\n- Profile tools (profiler feature, REASONED): cg_merge_annotations.rs:36 panic! \"Cannot merge database from different grammars!\"; cg_annotate.rs:88/91/51 panic! when the output folder is uncreatable, an existing file, or unwritable; `args[1]`/`args[2]` out of bounds with too few args (cg_annotate.rs:83,86; cg_merge_annotations.rs:16,70); unwraps and parse().unwrap() on a profile DB whose AST string is not well-formed (cg_annotate.rs:111-177) and a byte slice at a non-char boundary (113,116); usize += overflow on num_match -1 (cg_merge_annotations.rs:41,56,57).\n\nClean (checked): ariadne rendering edge cases; unwritable/missing/directory paths for -O/-E/-I/--grammar-out/--grammar-bin/cg-comp/cg-relabel/cg-proc; closed stdin/stdout (EBADF sink); non-UTF-8 env vars.\nNumeric option overflow/OOM (--rules, --sections, --num-windows) is on no-panic.arithmetic."
+                    }
+                )
+            }
+
+            {
+                id no-panic.grammar-text
+                title "Grammar authoring mistakes are ParseErrors at the source, not panics or hangs, and INCLUDE, template, set and context cycles are refused by name"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.grammar-text-errors] [spec:cg3:req:robustness.cycles])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:38:59.793153Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da; all VERIFIED through vislcg3 / cg-comp / cg-proc).\n\nAUTHORING MISTAKES THAT PANIC (plausible typos):\n- parser_helpers.rs:534 `tchars[1..length-1]` on `LIST X = /r ;` (also `/l`); :566 on `LIST X = /i ;` — \"slice index starts at 1 but ends at 0\". Fix: require length >= 2 before stripping.\n- textual_parser/mod.rs:1109 `buf[*pos..n]` after the `,`/`]` back-off loop lets n < pos: `SELECT A IF ([A,]) ;` (trailing comma; also `[A,,]`).\n- tag_trie.rs:115 `tv[0]` on an empty vector from parse_tag_list (textual_parser/mod.rs:1014): `LIST X = () ;`, `LIST X = a () ;`. parse_set_inline already rejects the empty case.\n- math_parser.rs:331 `vars[c-'A']` on a lowercase variable: `LIST X = <x=a+1> ;`; :176 `vars[slot]` on `LIST X = <x=b=1+1> ;`. Fix: only A-Z, else MathError.\n- grammar/mod.rs:1485 via driver.rs:744 (JUMP validation through get_tag_list_any): a content hash used as a set NUMBER because it runs before reindex — `LIST A = (a b) (c d) ; LIST B = e ; SET C = A OR B ; ANCHOR foo ; JUMP C A ;` (index 2771156067). Resolve children with get_set by hash before reindex.\n- grammar/mod.rs:1365 `get_set(0).unwrap()` in remove_numeric_tags (driver.rs numeric_branch_split): `TEMPLATE x = (1 A) ; SELECT A IF (f T:x) ;` — the `f` flag on a template ref leaves target 0.\n- inlines/scan.rs:392, rooted at textual_parser/mod.rs:1671-1672 (`*pos += 1` without checking for `)`): 41+ unclosed nested inline templates at EOF, `SELECT A IF ((((…(-1 A`.\n- run_contextual_test.rs:579 panics at RUN time on a `?` position used directly (`ADD (@x) (N) (? (*)) ;`, incl. via a template with no own position) — refuse at parse instead (grammar-text-errors names it).\n- parser_helpers.rs:237 debug_assert on `LIST X = ^ ;` (length 0 after the `^`).\n- DEBUG overflow on grammar numbers: textual_parser/mod.rs:1412 `(99999999999 A)`, :1492 `(1/99999999999 A)`, :349 scan_d `SELECT SUB:99999999999999999999 A` — these are no-panic.arithmetic's but surface here.\n\nHANG: driver.rs:429 resolve_varstring loops forever on an unmatched `{` in a varstring: `ADD (\"x{\"v) A ;` (also with --grammar-only). Plausible typo.\n\nCYCLES:\n- driver.rs:403 INCLUDE cycle, self or mutual: no depth or visited guard -> stack overflow (SIGABRT). Plausible real-world mistake.\n- `TEMPLATE ta = T:ta ;` (or mutually recursive) parses, then run_contextual_test_tmpl overflows the stack at run time.\n- `.cg3b` side (set containing itself, OR/tmpl cycles, self-linked contexts) is validated on no-panic.cg3b.\n\nFRAGILE (depends on this parser): `get_set().unwrap()` / `sets_by_contents[..]` across grammar/mod.rs and set.rs rely on the parser storing only registered content hashes AND on reindex running at most once — a second `reindex` on a textual grammar (embedder API) panics at grammar/mod.rs:1870. driver.rs:743 JUMP `maplist.unwrap()` relies on rules.rs always setting maplist for KJump."
+                    }
+                )
+            }
+
+            {
+                id no-panic.engine-matching
+                title "Every grammar that loads runs on every input: constructs the engine cannot apply are refused at load or become run errors naming the rule"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.accepted-grammars-run])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:38:59.834676Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da; VERIFIED with `vislcg3 -g g -I in`; engine repros were in scratchpad panic/engine/{,A,B,C,D}/).\n\n- dispatch.rs:432/452/1016 `get_apply_to().reading.unwrap()` (SELECT/REMOVE/COPY): `SELECT (V) (1CA (*)) ;` on `a(N) b(V,N) c(N) .` — the CAREFUL match path in match_set sets attach_to.cohort + .subreading but not .reading (only the normal path, ~1371, does).\n- run_grammar.rs:202 `expect(\"initEmptyCohort: cohort has no wordform\")`, reached from ADDCOHORT/MERGECOHORTS (dispatch.rs:202, restructure.rs:435/1002/1274): `ADDCOHORT (\"x\" X) AFTER (V) ;`, `MERGECOHORTS (\"m\" M) (N) WITH (1 (V)) ;`. The C++ reports and quits -> RunError. NOTE: nine printer `.expect(\"cohort wordform\")` sites (apertium:1588, binary:751, fst:1135, jsonl:1068, matxin:553, niceline:787, plaintext:582, core.rs:941/1199) and match_set.rs:441/442/1751/1752, dispatch.rs:878/945/1276 are only safe BECAUSE 202 panics first — fixing 202 by allowing wordform-less cohorts would unmask them.\n- match_set.rs:360 `sets_by_name.find(..).get()` for a `(SET:X)` tag, but the map is cleared at reindex: `ADD (@x) (SET:N) ;` (flat_unordered_map.rs:169). The stored value is a content hash, so index_reading_set_*[sh] is also out of bounds. Resolve SET: tags to SetId at reindex.\n- Tag union cross-role reads (tag.rs:356/334/345 \"Tag union read as … but holds …\"): match_set.rs:222 `ADD (@x) (VAR:<x=5>) ;`; :561 `ADD (@v)(VAR:<x=5+>);` + stream `<STREAMCMD:SETVAR:<x=y>`; single_rule.rs:132 `WITH N (1 V){ ADD (VAR:foo=bar);};`. Also `.cg3b` tags whose bits 13/14 disagree with their type reach the same panics (validated on no-panic.cg3b).\n- dispatch.rs:645 `child_dp.unwrap()` in SWITCHPARENT: `SETPARENT (\"a\") TO (1 (\"b\")); SWITCHPARENT (\"a\") (1A (\"b\"));` — the rule checks the target has a parent but acts on the attach-to cohort, which has none.\n- run_contextual_test.rs:940 `assert!(position < org_swin.cohorts.len())` checks a post-jump position against the pre-jump window: `ADD (@x)(A)(1*>X (E))(jMS (*));` over two windows.\n- reflow.rs:1685/1697 `tmp[m]` after draining a %u/%l case marker at the end of captured text: `ADD (VSTR:x$1%u) TARGET (\"<(.*)>\"r) ;`, or wordform `\"<a\\x01u>\"` with `ADD (VSTR:x$1)(\"<(.*)>\"r);` (escape \\x01 in captured text before the case-marker step).\n- reflow.rs:586 `current.cohorts[1]` on a window holding only `>>>`: relations on plus a -D / hard-limit cut leaving an empty window (`ADDRELATION (r)(N) TO (1 (*));` + a 500-cohort `#i->i-1` chain then `#1->0`, `vislcg3 -D`); also `printf '\\tR:s:7' | cg-conv --in-fst --out-binary`. Fix: `cohorts.get(1)` + early return; readers should not queue cohort-less windows.\n- The `?`-position runtime panic (run_contextual_test.rs:579) is refused at parse on no-panic.grammar-text.\n\nFRAGILE: match_set.rs:936/938 `context_stack.last().unwrap()` for `&&` sets with no emptiness check; unification frame indices set by single_rule.rs before matching (context.rs:143, match_set.rs:1048/1050/1193/1194/1258/1260/1277/1279); interned-hash `.find().get()` in match_set/reflow/run_contextual_test/run_rules/window.rs:26 assume every hash was interned; reflow.rs:1394 nwin.expect, :1081 mappings.pop().unwrap; every reading/cohort has a parent (dozens of sites in match_set/reflow/run_contextual_test/cohort_iterator/single_window.rs:361)."
+                    }
+                )
+            }
+
+            {
+                id no-panic.engine-actions
+                title "Rules that restructure cohorts act on the target cohort's own window and keep PARENTHESES enclosures consistent, instead of indexing the current window with another window's positions"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.cross-window-actions] [spec:cg3:req:robustness.enclosures])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:38:59.876099Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da; VERIFIED; repros were in scratchpad panic/engine/{C,D}/).\n\nCROSS-WINDOW ACTIONS — actions index/insert/remove in st.current instead of the anchor's window when a `…WA` context spans windows:\n- restructure.rs:464/455 (ADDCOHORT/MERGECOHORTS insert), 1287/1432 (SPLITCOHORT insert), 125/124 (SWITCH `cohorts[aln]`), 150-173 (MOVE orphan): e.g. `ADDCOHORT (\"<n>\" \"new\" N) AFTER (\"a\") (1*WA (\"w\")) ;` across two windows -> insert/remove/index out of bounds.\n- dispatch.rs:273 -> reflow.rs:1476: DELIMIT passes st.current but acts on the attach-to cohort in another window: `DELIMIT (\"a\") (1*WA (\"y\")) ;` — \"range start 5 out of range for len 4\".\n- dispatch.rs:370 -> single_rule.rs:1013: REMCOHORT IGNORED re-indexes only st.current, leaving another window's numbering stale (chained `REMCOHORT IGNORED (…)(1*WA …)`).\n- single_rule.rs:1091 `cohorts.get_mut(stale)` in rr_rem_cohort after a non-current window was emptied mid-rule: `REMCOHORT (a) IF (-1*A (>>>)) ; REMCOHORT (c) IF (-1*WA (b)) ; REMCOHORT (d) IF (-1*WA (PU)) ;` on two windows -> arena.rs:190 stale id. rr_rem_cohort DOES free an emptied window's `>>>` mid-rule, so run_contextual_test.rs:610 (arena get on a jump target held by a mark/attach/WITH frame) is reachable in principle too (reasoned).\n\nACTION EDGE CASES:\n- restructure.rs:790 `cohorts[len-2]` in the MERGECOHORTS `<<<` fixup when the merged span includes `>>>`: `MERGECOHORTS (\"<m>\" \"m\" N) (N) WITH (-1 (*)) ;` on a one-word sentence (subtract overflow).\n- restructure.rs:1150 `cohort_ids[i-1]` when a baseform precedes any wordform in a SPLITCOHORT tag list: `SPLITCOHORT (\"x\" N \"<a1>\" \"a1\" N) (\"a\") ;` (pass 2 lacks pass 1's `i==0` guard).\n\nENCLOSURES (PARENTHESES):\n- single_rule.rs:1013 / :918 `sw.cohorts.remove(ln)` with a stale local_number >= len: `PARENTHESES=(\"<(>\" \"<)>\"); REMCOHORT (xx) IF (pA (*)) ;` on `( e1..e4 ) x(xx#7->5) .`; the IGNORED variant hits :918.\n- window.rs:896 `c.enclosed -= 1` underflow in rr_unpack_enclosures: `PARENTHESES=(<pl> <pr>); REMCOHORT (rem);` with a `rem` cohort beside an enclosure, or MERGECOHORTS spanning `( … )`.\n- schedule.rs:57 `cohorts[0]` on an empty window when a PARENTHESES pair encloses the whole window including `>>>`: `PARENTHESES=(>>> <pr>); ADD (@x)(*);` on `a . <pr on .>`.\n\nFRAGILE: cohort_iterator.rs:335-393 topology iterators rely on window.rs rebuilding cohort links after restructuring; cohort_map[GlobalNumber(0)] alias may go stale if its window is freed and a live cohort gets dep_parent 0 without a reflow (reasoned, not reproduced)."
+                    }
+                )
+            }
+
+            {
+                id no-panic.hash-probe
+                title "The flat hash containers' insert and erase terminate and reclaim deleted slots, and input numbers equal to their sentinel keys are refused where they are parsed"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.hash-probe-bounded] [spec:cg3:req:robustness.reserved-keys])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:38:59.921446Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da).\n\nPROBE — a production hang risk for any long-running pipeline:\n- flat_unordered_map.rs insert (~322) / erase (~371) and flat_unordered_set.rs insert (~240) / erase (~287) have NO iteration cap (find caps at capacity*4). Once tombstones saturate the table they spin forever. VERIFIED via `<STREAMCMD:SETVAR:…>` / `<STREAMCMD:REMVAR:…>` churn (engine repro D/v1.txt). Fix: cap the probe like find, and compact/rehash when tombstones pass a threshold.\n\nSENTINEL KEYS (0xFFFFFFFF res_empty, 0xFFFFFFFE res_del) — debug_assert \"Key cannot be res_empty or res_del!\" at flat_unordered_map.rs:305 (insert) / :259 (find); in RELEASE the insert is a silent no-op or find returns an empty slot, i.e. silent corruption. VERIFIED reachable from:\n- CG dependency tags `\"a\" N #-1->2`, `#1->-2`, `#1->4294967294` (reflow_dependency_window; reflow.rs:479/482/514/522/615/884), relation tags `R:x:-2`, ids `ID:4294967294` / `ID:4294967295 R:x:1 | cg-conv --out-binary`;\n- binary-stream dep_self 0xFFFFFFFF (binary_applicator.rs:390/413) or relation head 0xFFFFFFFF;\n- a `.cg3b` tag hash of 0xFFFFFFFF (also anchors) at load.\nFix: refuse the two values where they are parsed (tag.rs scan_id / scan_hash, the binary readers).\nUnsure: a textual tag or context hash landing on a sentinel needs a hash preimage — reasoned only."
+                    }
+                )
+            }
+
+            {
+                id no-panic.cg3b
+                title "The .cg3b reader treats its input as untrusted bytes: truncation is an error, and every number is checked against what it indexes before it is stored"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.binary-grammar-validated])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:38:59.96311Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da; VERIFIED with crafted .cg3b unless marked reasoned; a python .cg3b encoder/decoder that round-trips every fixture was at scratchpad panic/cli/fuzz/cg3b.py). The reader validates nothing; one validating pass removes ~40 panic sites.\n\nTRUNCATION: inlines/io.rs:79 `read_be` swallows EOF (returns zeros), so a TRUNCATED .cg3b loads \"successfully\" and panics later — `head -c 32 T_Select.cg3b` (cut points 24/28/32/40/64/128/731 all panic) surfaces at run_grammar.rs:737 (delimiters index). Also via cg-proc. Fix: read_be -> Result, GrammarError::Truncated.\n\nUNCHECKED NUMBERS (reader): binary_grammar.rs:478 `vs_sets.as_mut().unwrap()` (two tag records with the same number, first with bit 10, second without); tag number >= count (via put_building — now a plain arena index after core-type); :464 set number >= count; :629 rule number >= count; :597/:604 `contexts[&h]` for rule dep_tests/tests hashes, :635/:648 for context tmpl/ors hashes (missing key); grammar/mod.rs:2349 trie entry tag index >= count; a tag with inconsistent bits 13/14 for its type (TagUnion role panics tag.rs:323/334/345/356, reasoned).\n\nSURFACES LATER (reindex / writers / run) because the reader stored it: grammar/mod.rs:1485 (index_sets :1557) and :2140 child set number; :1996 rule target; :2027/:2032 rule maplist/sublist; :1491 context target/barrier/cbarrier (reindex step 19); overlay.rs `TagHashRef::get` expect for a parentheses or preferred-target hash that matches no tag (reindex step 6, grammar/mod.rs ~1817-1835); binary_grammar.rs:1218/1222/1226 delimiter/soft/text set ids, :1323 rule wordform tag id, :1403 WITH sub_rules id, :1085 vs_sets id (writer); grammar_writer.rs:340 STRINGBITS[set_ops[i]] (set_ops 200) and set_ops shorter than sets-1, :612 SUBSTITUTE/EXECUTE with no sublist, :545/:866 find().get() on unknown anchor/relation hashes, :557, :649/:693/:607, :711; window.rs:397 (rule wordform), window.rs:457, match_set.rs:1028 \"Set operator not implemented!\" (unknown set_op code). FRAGILE today: the writer lines are only safe because reindex dereferences the same values first and panics — fixing reindex without validating in the reader exposes them.\n- grammar/mod.rs:765 `chosen_seed.expect(\"addTag: seed space exhausted\")`: a .cg3b with 10000 tags whose hashes are H..H+9999 (H = hash of \"foo\"), then input carrying `foo`. Now in grammar/tag_space.rs after core-type.\n- flat_unordered_map.rs:305 debug_assert on a stored hash 0xFFFFFFFF (no-panic.hash-probe refuses it).\n\nALLOCATION / COUNTS (overlap no-panic.arithmetic): binary_grammar.rs:300/310/316/456/542/716/724/766 `vec![0u8; len]` with an untrusted u32 len (prefix, cmdargs, cmdargs-override, set name, rule name, tag text, regex, vs_names) — a 16-byte file with PREFIX len 0xFFFFFFFF reached 3.5 GB; count loops :339/342/366/377/388/401/415/418/443/449/502/515/518/595/602/610/756/763/846 and grammar/mod.rs:2345 run up to 2^32 on zero reads; grammar/mod.rs:2066-2067 fills sections 0..=max_section from the file (section -4 -> 4.29e9 pushes; section 0x7fffffff hangs/OOMs).\n\nSTRUCTURE (overlap no-panic.depth): grammar/mod.rs:2355 trie nested 100k deep; :1557 a set whose `sets` contains itself (infinite recursion in index_sets); binary_grammar.rs:1445 a 200k LINK chain; grammar_writer.rs:887 an OR self-cycle, :914 a 20k LINK chain; tmpl/ors cycles and long `linked` chains are not rejected and recurse in the applicator (reasoned)."
+                    }
+                )
+            }
+
+            {
+                id no-panic.binary-stream
+                title "The binary input stream and EXTERNAL replies are read with a bounds-checked cursor, and every count, length and index in them is checked before it is used"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.binary-stream-validated] [spec:cg3:req:robustness.external-validated])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:39:00.004743Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da; VERIFIED unless marked reasoned).\n\nBINARY INPUT STREAM (CGBF, binary_applicator.rs read_window):\n- The read_u16!/read_u32!/read_str! macro bodies (244/251/260, every expansion 267-455) and `buf[pos]` at 294 index a short body: truncated body, cs=0, or a string length past the end — `CGBF` + u32 1 + `\\x01` + u32 0 -> `cg-conv --in-binary` (\"the len is 0 but the index is 0\" / \"range end index 206 out of range for slice of length 7\"). Fix: a bounds-checked cursor (`buf.get(pos..pos+n)`) -> RunError::MalformedBinary.\n- binary_applicator.rs:298/303/354/361/368/400/449/455 `window_tags[idx]` with a tag / variable / wordform / reading / relation index >= tag_count (e.g. wordform idx 7 with 1 tag).\n- binary_applicator.rs:227 `vec![0; cs]` with a u32 from the stream before any check (up to 4 GiB; reasoned, lazily zeroed on macOS).\n\nEXTERNAL PROTOCOL (core.rs; hostile child script was scratchpad panic/stream/ext_bad.py and engine D/ext_win.py):\n- core.rs:1390 `readings[i]` and :1425 `cohorts[i+1]` indexed by counts the child sends back — a child reporting more readings or cohorts than it was sent (`EXTERNAL ONCE \"<script>\" (*)`) -> index out of bounds; reached through dispatch.rs:342/343. The ExternalCohortMismatch RunError already exists for the fix.\n- core.rs:1263/1275 `vec![0u8; cs]` with a child-supplied u32 -> 4 GiB allocation + blocking read (verified hang); core.rs:1324 `for _ in 0..cs` with cs up to 2^32 -> ~4G add_tag+push in release (reasoned OOM).\n- An EXTERNAL reply with an empty baseform/wordform/tag reaches the empty-tag assert (no-panic.stream-text owns the rule).\n\nWRITER (overlap no-panic.arithmetic): binary_applicator.rs:651/731/767/818/857/906 u16 `+= 1` overflow past 65535 cohorts/readings/tags/variables/relations per window with --out-binary (verified 731/857 via `python3 -c \"print(' '.join('w%d'%i for i in range(66000)))\" | cg-conv --in-plain --out-binary`); the writer's `ui16(tags_to_write.len())` and write_str casts silently corrupt past 65535."
+                    }
+                )
+            }
+
+            {
+                id no-panic.depth
+                title "Nesting depth cannot exhaust the stack: data-shaped chains are traversed iteratively, authoring-shaped nesting is recursed to a stated limit and refused past it"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.depth-bounded])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:39:00.048678Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da; stack overflows are SIGABRT, rc 134; VERIFIED unless marked reasoned).\n\nDATA-SHAPED (must not recurse):\n- Sub-reading `next` chains: core.rs:882 print_reading (~2.8k deep in debug), apertium_applicator.rs:1340, fst_applicator.rs:1029, jsonl_applicator.rs:990; reading.rs:404 reading_rehash (~47k) and reading.rs:287<->326 free_reading/reading_clear (~20k). Trigger: apertium `^a/` + `x<n>+`x10000 + `$` (~50 KB) aborts in every output format; a binary-stream cohort with 30000 BFR_SUBREADING readings. (CG input is capped ~1k by the line buffer; FST chains become reachable once the 1023-char line bug is fixed; JSONL is capped by serde_json's depth limit of 128.)\n- Dependency chains: `c*`/`pp` recursion through run_contextual_test.rs:1451 — 3000-5000 `#i->i-1` cohorts + `(c* …)`; long chains are also O(n^2..n^3) (~1200 cohorts of dependency rules exceed 10 s).\n- Set chains: 5000 `SET Si = Si-1 - Z` overflow does_set_match_reading (match_set.rs:988).\n- .cg3b: trie nested 100k deep (grammar/mod.rs:2355); set containing itself (grammar/mod.rs:1557 index_sets, infinite recursion); 200k LINK chain (binary_grammar.rs:1445); writer OR self-cycle (grammar_writer.rs:887) and 20k LINK chain (:914) — cycles are refused on no-panic.cg3b / no-panic.grammar-text, depth is here.\n- matxin_applicator.rs:676 proc_node recurses the dependency tree (reasoned, low: the matxin reader does not parse dependencies).\n\nAUTHORING-SHAPED (may recurse to a stated limit):\n- Textual parser: LINK chains ~1000+ (textual_parser/mod.rs:1790, debug), ~1000 nested inline templates (:1671), ~2000 nested WITH blocks (rules.rs:494), a `VAR:a=VAR:a=…` chain ~5000 in one tag (parser_helpers parse_tag).\n- Run time: ~600-700 `LINK 0 (*)` overflow run_contextual_test <-> match_set; fuzzed input with test/T_Templates overflows at run_contextual_test.rs:805.\n- Varstring self-recursion: match_set.rs:367 <-> reflow.rs:1729 re-parses captured text as another varstring — `ADD (VSTR:$1)(\"<(.*)>\"r);` with wordform `\"<VSTR:$1>\"` -> stack overflow (the sibling while-loops are on no-panic.loops)."
+                    }
+                )
+            }
+
+            {
+                id no-panic.loops
+                title "Every implementation loop terminates on every input, stopping at end of input or a bound as well as at the shape it expects"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.terminates])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:39:00.089945Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da; VERIFIED hangs unless marked reasoned).\n\n- apertium_applicator.rs:426 `while !taglist.is_empty()` never pops when the reading has no baseform tag: `printf '^a/\\\\<x\\\\>$\\n' | cg-conv --in-apertium` (the escaped `<` makes the baseform `\"<x>\"`, which parses as a wordform). CPU spin.\n- matxin_applicator.rs:1000/1024/1051 read loops never check EOF: `printf '^abc$\\n' | cg-proc -f 2 g.cg3b` (also `^abc<n`, `^abc/x<n>`) — hang with unbounded memory.\n- driver.rs:429 resolve_varstring on an unmatched `{` — owned by no-panic.grammar-text (parse error), listed here for completeness.\n- Varstring expansion loops `while T_VARSTRING { generate }` at dispatch.rs:741/965/1582/1635 and reflow.rs:1054 never end when the generated tag is itself a varstring (rc 124) — strip T_VARSTRING/T_VSTR from generated tags. (The recursive sibling is on no-panic.depth.)\n- cohort_iterator.rs:669 DepAncestorIter::reset: a cross-window ancestor cycle without the span flag loops forever at constant memory — the seen-set must include every climbed node, not only span-passing ones.\n- test/T_JumpExecute grammar: ANY cohort carrying a mapping tag hangs (`\"<There>\"\\n\\t\"there\" ADV @x`) — found by the stream fuzzer; needs a root cause (a JUMP/EXECUTE loop the grammar did not ask for vs a grammar loop the C++ also has — check against the C++ before deciding which side of robustness.terminates it falls).\n- The flat-container probe hang is no-panic.hash-probe's.\n- OUT OF SCOPE by robustness.terminates (grammar-requested loops, the C++ loops too): `COPY/APPEND/ADDCOHORT REPEAT` growth (COPY REPEAT reached 475 MB), `SPLITCOHORT (…) (*)` re-splitting, `JUMP` back to an earlier anchor, `DELIMIT (…)(-1A (>>>))` per new window. Recorded so nobody rediscovers them as bugs.\n- Also noticed: uextras `find_and_replace(\"\", _)` loops forever (no production caller today)."
+                    }
+                )
+            }
+
+            {
+                id no-panic.arithmetic
+                title "Arithmetic and allocations sized by input are checked: no overflow in any build profile, fixed-width counts refused past their width, and no allocation larger than the input can supply"
+                implements {
+                    target-impl ([spec:cg3:req:robustness.checked-arithmetic] [spec:cg3:req:robustness.allocation-bounded])
+                }
+                log (
+                    {
+                        at 2026-09-25T11:39:00.133944Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da). Debug builds trap these; release builds WRAP silently.\n\nOPTION VALUES (also from CG3_DEFAULT / CG3_OVERRIDE / grammar CMDARGS):\n- inlines/misc.rs:170 `n*10+d` i64: `vislcg3 -g g --rules 99999999999999999999` (also --trace, --sections, --debug-rules; `CMDARGS += --sections 99999999999999999999 ;`). VERIFIED.\n- run_grammar.rs:572 `(num_windows+4)*2+1`: `--num-windows 2147483644`. VERIFIED. Same expression: apertium_applicator.rs:629 (verified via cg-proc with `CMDARGS += --num-windows 4294967295`), fst:195, niceline:141, matxin:770, jsonl:461, binary_applicator:1049, plaintext:154 (reasoned). run_grammar.rs:807 `(num_windows+1)` becomes live once 572 is fixed alone.\n- OOM (allocation-bounded): inlines/misc.rs:132 `--rules 0-4000000000`, `--trace 1-4000000000`; :150 `--sections 4000000000`; tools/cg_proc.rs:452 `cg-proc -s 2147483647` — 0.5-1 GB RSS in 4 s; also O(numsections^2) in index(). Clamp to the grammar's rule/section count, or store intervals instead of expanding.\n\nGRAMMAR / STREAM NUMBERS:\n- textual_parser/mod.rs:1412 `(99999999999 A)`, :1492 `(1/99999999999 A)`, :349 scan_d `SELECT SUB:99999999999999999999 A` (VERIFIED).\n- run_contextual_test.rs:619 (also :1206) `si32(position)+test_offset`: `ADD (@x)(N)(2147483647 (*));` — the parser accepts up to i32::MAX (VERIFIED).\n- u32 input counters (num_lines, num_cohorts, num_readings, num_windows, lines) in run_grammar.rs:436/507/611/725/768/783/843/1183/1206, niceline:262/301/317/357/478/521, plaintext:267/309/328/405/488 overflow past 2^32 lines (reasoned) — `wrapping_add`, as the other readers already use.\n- cg_merge_annotations.rs:41/56/57 usize += with num_match -1 from the DB (profiler, reasoned).\n\nFIXED-WIDTH OUTPUT: binary_applicator.rs:651/731/767/818/857/906 u16 counters and the writer's ui16 casts (see no-panic.binary-stream) — the binary stream writer must refuse a window it cannot represent.\n\nUNTRUSTED ALLOCATION SIZES are listed on no-panic.cg3b (.cg3b lengths/counts), no-panic.binary-stream (CGBF, EXTERNAL); the fixes land there, this node owns the rule and the CLI/option cases."
+                    }
+                )
+            }
+
+            {
+                id no-panic.lint-guard
+                title "Deny unwrap, expect, panic and friends outside tests, and allow each surviving site only with the invariant that makes it unreachable, so input-reachable panics cannot creep back"
+                kind @refactor
+                implements {
+                    target-impl ([spec:cg3:req:robustness.panic-sites-justified] [spec:cg3:req:robustness.no-input-panics])
+                }
+                deps (
+                    no-panic.stream-text
+                    no-panic.cli
+                    no-panic.grammar-text
+                    no-panic.engine-matching
+                    no-panic.engine-actions
+                    no-panic.hash-probe
+                    no-panic.cg3b
+                    no-panic.binary-stream
+                    no-panic.depth
+                    no-panic.loops
+                    no-panic.arithmetic
+                )
+                log (
+                    {
+                        at 2026-09-25T11:39:00.176227Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Scope and baseline from the 2026-09-25 assessment (pinned at fb3a6da, production code only): 25 panic!, 1 unreachable!, ~461 .unwrap(), 67 .expect(). Four sweeps classified roughly 230 engine, 111 stream, 56 loading and ~45 CLI explicit sites as INVARIANT, of which ~110 are FRAGILE — the invariant is established in a different module (\"the reader always gives a window a >>> cohort\", \"the parser only stores registered content hashes\", \"every reading has a parent\", \"every cohort has a wordform\", \"reindex runs at most once\", \"the careful matcher sets attach_to.reading\" — that last one is false, see no-panic.engine-matching). Those are the sites this node has to justify one by one or carry in types.\n\nPolicy to retire: the uextras module doc's \"throw -> panic!\" rule (every C++ throw became a panic! with the same message) is the origin of most explicit input-reachable panics; the doc must change with the lint.\n\nOrder: this node closes robustness.no-input-panics, so it runs last, after every class node; the lint going on is what makes the umbrella rule checkable rather than aspirational. Consider clippy::indexing_slicing too once the classes are fixed — it is the implicit majority of what the sweeps found, but likely too noisy to deny outright; a per-module deny on the readers (binary_grammar, binary_applicator, the stream readers) may be the right scope."
+                    }
+                )
+            }
+        )
+    }
 )
