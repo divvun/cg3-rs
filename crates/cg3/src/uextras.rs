@@ -423,6 +423,10 @@ pub fn read_utf8<R: Read>(input: &mut R, buf_size: usize) -> Vec<u8> {
 // BUG/LIMITATION reproduced faithfully: the second branch cuts off at 0x7FFF,
 // so every code point at or above 0x8000 `panic!`s ("can't handle >= 0x7FFF"),
 // even though 0x7FFF itself is handled.
+#[expect(
+    clippy::panic,
+    reason = "the C++ u_fputc throws past 0x7FFF (uextras.u-fputc-fn); every caller passes a literal '\\n' or '\\t'"
+)]
 pub fn write_char<W: Write>(c32: char, output: &mut W) -> char {
     let v = c32 as u32;
     if v <= 0x7F {
@@ -858,10 +862,11 @@ pub fn copy_with_visible_newlines(dst: &mut [char], src: Option<&[char]>, n: usi
     while i < n {
         match src.and_then(|s| s.get(i)).copied() {
             Some(ch) if ch != '\0' => {
-                dst[i] = ch;
-                if dst[i] == '\u{0A}' || dst[i] == '\u{0D}' {
-                    dst[i] = char::from_u32(dst[i] as u32 + 0x2400).unwrap();
-                }
+                dst[i] = match ch {
+                    '\u{0A}' => '\u{240A}',
+                    '\u{0D}' => '\u{240D}',
+                    other => other,
+                };
                 i += 1;
             }
             _ => break,

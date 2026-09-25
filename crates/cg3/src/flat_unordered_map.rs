@@ -131,6 +131,10 @@ impl<'a, K: Sentinel, V> ConstIterator<'a, K, V> {
 
     /// `operator++()`: advance to the next live slot, or become end()
     /// (`fus = None`, `i = 0`) once past the last live slot.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "advancing end() is UB in the C++ and a caller bug: Iterator::next advances only after checking fus, and no other caller advances an end() iterator"
+    )]
     pub fn pre_increment(&mut self) -> &mut Self {
         let fus = self.fus.unwrap();
         self.i += 1;
@@ -150,6 +154,10 @@ impl<'a, K: Sentinel, V> ConstIterator<'a, K, V> {
     /// `operator--()`: retreat to the previous live slot. QUIRK (faithful):
     /// the scan `for (--i; i > 0; --i)` never validates slot 0 — reaching
     /// `i == 0` in the loop stops without checking whether slot 0 is live.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "retreating from end() is UB in the C++ and a caller bug; nothing in the crate calls this operator"
+    )]
     pub fn pre_decrement(&mut self) -> &mut Self {
         let fus = self.fus.unwrap();
         if self.i == 0 {
@@ -168,6 +176,10 @@ impl<'a, K: Sentinel, V> ConstIterator<'a, K, V> {
     }
 
     /// `operator*()` — the referenced live `(key, value)` slot.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "dereferencing end() is UB in the C++ and a caller bug: callers compare the iterator with end() before dereferencing it"
+    )]
     pub fn get(&self) -> &'a (K, V) {
         &self.fus.unwrap().elements[self.i]
     }

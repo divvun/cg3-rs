@@ -121,14 +121,14 @@ impl crate::grammar_applicator::Engine<'_> {
             crate::grammar_applicator::CsRef::Window { sw, rule } => {
                 &self.doc.store.single_windows.get(sw.0).rule_to_cohorts[rule as usize]
             }
-            crate::grammar_applicator::CsRef::Nested { sw } => self
-                .doc
-                .store
-                .single_windows
-                .get(sw.0)
-                .nested_rule_to_cohorts
-                .as_deref()
-                .expect("CsRef::Nested resolved with no nested_rule_to_cohorts"),
+            crate::grammar_applicator::CsRef::Nested { sw } => {
+                &self
+                    .doc
+                    .store
+                    .single_windows
+                    .get(sw.0)
+                    .nested_rule_to_cohorts
+            }
         }
     }
 
@@ -138,14 +138,14 @@ impl crate::grammar_applicator::Engine<'_> {
             crate::grammar_applicator::CsRef::Window { sw, rule } => {
                 &mut self.doc.store.single_windows.get_mut(sw.0).rule_to_cohorts[rule as usize]
             }
-            crate::grammar_applicator::CsRef::Nested { sw } => self
-                .doc
-                .store
-                .single_windows
-                .get_mut(sw.0)
-                .nested_rule_to_cohorts
-                .as_deref_mut()
-                .expect("CsRef::Nested resolved with no nested_rule_to_cohorts"),
+            crate::grammar_applicator::CsRef::Nested { sw } => {
+                &mut self
+                    .doc
+                    .store
+                    .single_windows
+                    .get_mut(sw.0)
+                    .nested_rule_to_cohorts
+            }
         }
     }
 
@@ -154,6 +154,10 @@ impl crate::grammar_applicator::Engine<'_> {
         if !self.cfg.valid_rules.empty() && !self.cfg.valid_rules.contains(rsit) {
             return false;
         }
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+        )]
         let current = self.doc.store.cohorts.get(c.0).parent.unwrap();
         let r = RuleId(rsit); // grammar->rule_by_number[rsit]
         let cword = self.doc.store.cohorts.get(c.0).wordform;
@@ -359,6 +363,10 @@ impl crate::grammar_applicator::Engine<'_> {
         // grammar->rules_by_tag.find(hash)
         let rsits: Option<Vec<u32>> = self.grammar.rules_by_tag.get(&hash).map(iv_to_vec);
         if let Some(rsits) = rsits {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a reading or sub-reading belongs to a cohort: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was"
+            )]
             let c = self.doc.store.readings.get(reading.0).parent.unwrap();
             for rsit in rsits {
                 if self.update_rule_to_cohorts(c, rsit) && rules.contains(rsit) {
@@ -478,6 +486,10 @@ impl crate::grammar_applicator::Matcher<'_> {
     pub fn get_tag_list(&self, the_set: &Set, the_tags: &mut TagList, unif_mode: bool) {
         if the_set.r#type.intersects(ST_SET_UNIFY) {
             // usets = (*context_stack.back().unif_sets)[theSet.number]
+            #[expect(
+                clippy::unwrap_used,
+                reason = "tag lists are expanded only inside a rule (its actions, or a varstring tag it matches or adds), and run_single_rule_body gives the frame it pushes unif indices before matching a reading or running a tag-list action on it"
+            )]
             let unif_sets = self
                 .scratch
                 .context_stack
@@ -506,6 +518,10 @@ impl crate::grammar_applicator::Matcher<'_> {
                 );
             }
         } else if unif_mode {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "tag lists are expanded only inside a rule (its actions, or a varstring tag it matches or adds), and run_single_rule_body gives the frame it pushes unif indices before matching a reading or running a tag-list action on it"
+            )]
             let unif_tags = self
                 .scratch
                 .context_stack
@@ -652,8 +668,10 @@ impl crate::grammar_applicator::Matcher<'_> {
         if sub_reading > 0 {
             let mut cur = Some(tr);
             let mut i = 0;
-            while i < sub_reading && cur.is_some() {
-                cur = self.readings.get(cur.unwrap().0).next;
+            while i < sub_reading
+                && let Some(id) = cur
+            {
+                cur = self.readings.get(id.0).next;
                 i += 1;
             }
             return cur;
@@ -671,8 +689,10 @@ impl crate::grammar_applicator::Matcher<'_> {
             cur = None;
         }
         let mut i = ntr;
-        while i < sub_reading && cur.is_some() {
-            cur = self.readings.get(cur.unwrap().0).next;
+        while i < sub_reading
+            && let Some(id) = cur
+        {
+            cur = self.readings.get(id.0).next;
             i += 1;
         }
         cur
@@ -724,11 +744,12 @@ impl crate::grammar_applicator::Engine<'_> {
             // Iterate runsections (ordered by section key). Callbacks can change
             // window state but not the runsections map; a plain key cursor mirrors
             // the C++ `iter`/`++iter`.
-            let keys: Vec<i32> = self.cfg.runsections.keys().copied().collect();
+            let cfg = self.cfg;
+            let sections: Vec<(&i32, &Uint32IntervalVector)> = cfg.runsections.iter().collect();
             let mut idx = 0usize;
             let mut pass = 0usize;
-            while idx < keys.len() {
-                let key = keys[idx];
+            while idx < sections.len() {
+                let (&key, rules) = sections[idx];
                 if key < 0
                     || (self.cfg.section_max_count != 0
                         && *counter.get(&key).unwrap_or(&0) >= self.cfg.section_max_count)
@@ -737,8 +758,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     pass = 0;
                     continue;
                 }
-                let rules = self.cfg.runsections.get(&key).cloned().unwrap();
-                let rv = self.run_rules_on_single_window(current, &rules)?;
+                let rv = self.run_rules_on_single_window(current, rules)?;
                 *counter.entry(key).or_insert(0) += 1;
                 if rv & (RV_DELIMITED | RV_TRACERULE) != 0 {
                     return Ok(rv);
@@ -835,8 +855,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     // bumping `enclosed` on previously-wrapped cohorts
                     // sandwiched in the span; that encodes nesting depth.
                     {
-                        let front = encs[0];
-                        let back = *encs.last().unwrap();
+                        let (front, back) = (cur_cohorts[left], cur_cohorts[right]);
                         let start_ln = self.doc.store.cohorts.get(front.0).local_number as usize;
                         let all = self
                             .doc
@@ -845,6 +864,10 @@ impl crate::grammar_applicator::Engine<'_> {
                             .get(current.0)
                             .all_cohorts
                             .clone();
+                        #[expect(
+                            clippy::expect_used,
+                            reason = "front is in cohorts, whose members appear in all_cohorts in the same order, so its all_cohorts index is at least its local_number: append_cohort and restructure's rr_*_all_cohorts keep the two lists in step"
+                        )]
                         let mut ec = all[start_ln..]
                             .iter()
                             .position(|&x| x == front)
@@ -1015,6 +1038,7 @@ impl crate::grammar_applicator::Engine<'_> {
     /// 1000-pass endless-loop bail).
     fn rr_window_pass<F, W>(
         &mut self,
+        current: SwId,
         fmt: &mut F,
         output: &mut W,
         pass: &mut u32,
@@ -1042,7 +1066,6 @@ impl crate::grammar_applicator::Engine<'_> {
         }
 
         self.scratch.rule_hits.clear();
-        let current = self.doc.stream.current.unwrap();
         self.index_single_window(current);
         self.doc
             .store
@@ -1169,6 +1192,10 @@ impl crate::grammar_applicator::Engine<'_> {
         F: crate::grammar_applicator::stream_format::StreamFormat,
         W: std::io::Write,
     {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "every caller runs a window right after shuffle_windows_down on a non-empty next queue, or a rotate_next that returned one, and both make that window current"
+        )]
         let current = self.doc.stream.current.unwrap();
         self.scratch.did_final_enclosure = false;
 
@@ -1205,17 +1232,9 @@ impl crate::grammar_applicator::Engine<'_> {
         if self.doc.deps.has_dep {
             self.reflow_dependency_window(0);
             if !self.doc.input_eof
-                && !self.doc.stream.next.is_empty()
-                && self
-                    .doc
-                    .store
-                    .single_windows
-                    .get(self.doc.stream.next.last().unwrap().0)
-                    .cohorts
-                    .len()
-                    > 1
+                && let Some(&nb) = self.doc.stream.next.last()
+                && self.doc.store.single_windows.get(nb.0).cohorts.len() > 1
             {
-                let nb = *self.doc.stream.next.last().unwrap();
                 let cohorts = self.doc.store.single_windows.get(nb.0).cohorts.clone();
                 for cohort in cohorts {
                     let gn = self.doc.store.cohorts.get(cohort.0).global_number;
@@ -1239,7 +1258,10 @@ impl crate::grammar_applicator::Engine<'_> {
         self.scratch.par_right_pos = 0;
         let mut pass: u32 = 0;
         // C++ `runGrammarOnWindow_begin:` — loop until a pass runs to the end.
-        while self.rr_window_pass(fmt, output, &mut pass)?.is_continue() {}
+        while self
+            .rr_window_pass(current, fmt, output, &mut pass)?
+            .is_continue()
+        {}
         Ok(())
     }
 }

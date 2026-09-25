@@ -252,6 +252,10 @@ impl TagHashRef {
     /// `*it` — the entry. Dereferencing `end()` is the C++ null deref, and
     /// panics here rather than reading past the map.
     #[inline]
+    #[expect(
+        clippy::expect_used,
+        reason = "dereferencing end() is the C++ null deref and a caller bug: callers compare with end() before get(), and use tag() where a miss is expected"
+    )]
     pub fn get(self) -> (u32, TagId) {
         self.0
             .expect("single_tags: dereferenced a past-the-end iterator")

@@ -50,9 +50,11 @@ pub struct SingleWindow {
     /// C++ `std::vector<CohortSet> rule_to_cohorts`; each `CohortSet`
     /// (`sorted_vector<Cohort*, compare_Cohort>`).
     pub rule_to_cohorts: Vec<crate::cohort::CohortSet>,
-    /// C++ `std::unique_ptr<CohortSet> nested_rule_to_cohorts` — a nullable,
-    /// heap-owned `CohortSet`.
-    pub nested_rule_to_cohorts: Option<Box<crate::cohort::CohortSet>>,
+    /// C++ `std::unique_ptr<CohortSet> nested_rule_to_cohorts`. The C++
+    /// allocates it on first use and never releases it, and every use clears
+    /// it first, so the port holds the set inline: an empty set stands in for
+    /// the null pointer.
+    pub nested_rule_to_cohorts: crate::cohort::CohortSet,
     /// C++ `uint32FlatHashMap variables_set` (u32 → u32).
     pub variables_set: Uint32FlatHashMap,
     /// C++ `uint32FlatHashSet variables_rem`.
@@ -157,8 +159,7 @@ fn single_window_teardown(
     sw_id: SwId,
 ) {
     // (1) relation_map prune.
-    if store.single_windows.get(sw_id.0).cohorts.len() > 1 {
-        let back = *store.single_windows.get(sw_id.0).cohorts.last().unwrap();
+    if let [_, .., back] = store.single_windows.get(sw_id.0).cohorts[..] {
         let threshold = store.cohorts.get(back.0).global_number;
         let mut to_erase: Vec<u32> = Vec::new();
         {
@@ -301,19 +302,21 @@ pub fn append_cohort(
     // parent->parent is the GrammarApplicator placeholder — not threaded.
 
     // Backward link.
-    if single_windows.get(sw_id.0).cohorts.is_empty() {
-        // if (previous && !previous->cohorts.empty())
-        if let Some(prev_id) = single_windows.get(sw_id.0).previous
-            && let Some(pb) = single_windows.get(prev_id.0).cohorts.last().copied()
-        {
-            cohorts.get_mut(pb.0).next = Some(cohort_id);
-            cohorts.get_mut(cohort_id.0).prev = Some(pb);
+    match single_windows.get(sw_id.0).cohorts.last().copied() {
+        None => {
+            // if (previous && !previous->cohorts.empty())
+            if let Some(prev_id) = single_windows.get(sw_id.0).previous
+                && let Some(pb) = single_windows.get(prev_id.0).cohorts.last().copied()
+            {
+                cohorts.get_mut(pb.0).next = Some(cohort_id);
+                cohorts.get_mut(cohort_id.0).prev = Some(pb);
+            }
         }
-    } else {
-        // cohort->prev = cohorts.back(); cohorts.back()->next = cohort;
-        let back = *single_windows.get(sw_id.0).cohorts.last().unwrap();
-        cohorts.get_mut(cohort_id.0).prev = Some(back);
-        cohorts.get_mut(back.0).next = Some(cohort_id);
+        Some(back) => {
+            // cohort->prev = cohorts.back(); cohorts.back()->next = cohort;
+            cohorts.get_mut(cohort_id.0).prev = Some(back);
+            cohorts.get_mut(back.0).next = Some(cohort_id);
+        }
     }
 
     // Forward link: if (next && !next->cohorts.empty())
@@ -348,6 +351,10 @@ pub fn append_cohort(
 /// it dereferences both cohorts and their parent single-windows, and takes
 /// exactly those two arenas so callers holding `&mut` on the readings arena
 /// (the `Matcher` view) can still compare.
+#[expect(
+    clippy::unwrap_used,
+    reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+)]
 pub fn less_cohort(
     cohorts: &GenArena<Cohort>,
     windows: &GenArena<SingleWindow>,

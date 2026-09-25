@@ -565,11 +565,11 @@ pub struct RuleScratch {
     pub tmpl_cntx: TmplContext,
 
     pub regexgrps_store: Vec<RegexGroups>,
-    /// C++ `bc::flat_map<uint32_t, uint8_t> regexgrps_z`.
-    pub regexgrps_z: BTreeMap<u32, u8>,
-    /// C++ `bc::flat_map<uint32_t, regexgrps_t*> regexgrps_c` — values are
-    /// indices into `regexgrps_store`.
-    pub regexgrps_c: BTreeMap<u32, usize>,
+    /// C++ `bc::flat_map<uint32_t, regexgrps_t*> regexgrps_c` and
+    /// `bc::flat_map<uint32_t, uint8_t> regexgrps_z`, as one map: both are keyed
+    /// by reading number and always written together. Each value is an index
+    /// into `regexgrps_store` and the number of groups captured there.
+    pub regexgrps_cz: BTreeMap<u32, (usize, u8)>,
     pub same_basic: u32,
     pub rule_target: Option<CohortId>,
     pub merge_with: Option<CohortId>,
@@ -684,8 +684,7 @@ impl RuleScratch {
             tmpl_cntx: Default::default(),
 
             regexgrps_store: Default::default(),
-            regexgrps_z: Default::default(),
-            regexgrps_c: Default::default(),
+            regexgrps_cz: Default::default(),
             same_basic: 0,
             rule_target: None,
             merge_with: None,
@@ -1017,6 +1016,20 @@ impl Engine<'_> {
     ) -> Result<bool, crate::error::RunError> {
         self.matcher()
             .does_set_match_cohort_normal(cohort, set, context)
+    }
+
+    /// Whether `cohort` matches `set`, one of the grammar's optional
+    /// delimiter sets; `false` when the grammar has none.
+    pub(crate) fn matches_delimiter_set(
+        &mut self,
+        cohort: CohortId,
+        set: Option<SetId>,
+    ) -> Result<bool, crate::error::RunError> {
+        let Some(set) = set else {
+            return Ok(false);
+        };
+        let number = self.grammar.sets_list[set.0].number.get();
+        self.does_set_match_cohort_normal(cohort, number, None)
     }
 
     pub fn does_tag_match_reading(

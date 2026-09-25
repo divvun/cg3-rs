@@ -203,14 +203,11 @@ where
                     let over_soft = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                         >= self.base.cfg.soft_limit as usize;
                     if over_soft
-                        && self.base.grammar.soft_delimiters.is_some()
+                        && let Some(soft_delimiters) = self.base.grammar.soft_delimiters
                         && !did_soft_lookback
                     {
                         did_soft_lookback = true;
-                        let sd = self.base.grammar.sets_list
-                            [self.base.grammar.soft_delimiters.unwrap().0]
-                            .number
-                            .get();
+                        let sd = self.base.grammar.sets_list[soft_delimiters.0].number.get();
                         let cohorts = self.base.doc.store.single_windows.get(sw.0).cohorts.clone();
                         for &c in cohorts.iter().rev() {
                             if self
@@ -220,6 +217,10 @@ where
                             {
                                 did_soft_lookback = false;
                                 let cohort = self.base.engine().delimit_at(sw, c)?;
+                                #[expect(
+                                    clippy::unwrap_used,
+                                    reason = "delimit_at returns the new last cohort of sw, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
+                                )]
                                 let parent =
                                     self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
                                 c_swindow = self.base.doc.store.single_windows.get(parent.0).next;
@@ -237,15 +238,11 @@ where
                 if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                     let over_soft = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                         >= self.base.cfg.soft_limit as usize;
-                    let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
-                        let sd = self.base.grammar.sets_list
-                            [self.base.grammar.soft_delimiters.unwrap().0]
-                            .number
-                            .get();
-                        self.base
-                            .engine()
-                            .does_set_match_cohort_normal(cc, sd, None)?
-                    };
+                    let soft_delimiters = self.base.grammar.soft_delimiters;
+                    let sd_hit = self
+                        .base
+                        .engine()
+                        .matches_delimiter_set(cc, soft_delimiters)?;
                     if over_soft && sd_hit {
                         let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
@@ -273,21 +270,12 @@ where
                 }
 
                 // (c) Hard break (DEAD: cCohort is null here).
-                if let Some(cc) = c_cohort {
-                    let sw = c_swindow.unwrap();
+                if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                     let over_hard = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                         >= self.base.cfg.hard_limit as usize;
+                    let delimiters = self.base.grammar.delimiters;
                     let delim_hit = self.base.cfg.dep_delimit == 0
-                        && self.base.grammar.delimiters.is_some()
-                        && {
-                            let d = self.base.grammar.sets_list
-                                [self.base.grammar.delimiters.unwrap().0]
-                                .number
-                                .get();
-                            self.base
-                                .engine()
-                                .does_set_match_cohort_normal(cc, d, None)?
-                        };
+                        && self.base.engine().matches_delimiter_set(cc, delimiters)?;
                     if over_hard || delim_hit {
                         let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                         for r in rs {
@@ -315,22 +303,26 @@ where
                 }
 
                 // New window (fires only once, on the first token line).
-                if c_swindow.is_none() {
-                    let sw = {
-                        let base = &mut *self.base;
-                        base.doc
-                            .stream
-                            .alloc_append_single_window(&mut base.doc.store)
-                    };
-                    self.base.engine().init_empty_single_window(sw)?;
-                    l_swindow = Some(sw);
-                    // lCohort = cSWindow->cohorts[0] (the boundary cohort).
-                    l_cohort = Some(self.base.doc.store.single_windows.get(sw.0).cohorts[0]);
-                    c_swindow = Some(sw);
-                    c_cohort = None;
-                    self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
-                    did_soft_lookback = false;
-                }
+                let sw = match c_swindow {
+                    Some(sw) => sw,
+                    None => {
+                        let sw = {
+                            let base = &mut *self.base;
+                            base.doc
+                                .stream
+                                .alloc_append_single_window(&mut base.doc.store)
+                        };
+                        self.base.engine().init_empty_single_window(sw)?;
+                        l_swindow = Some(sw);
+                        // lCohort = cSWindow->cohorts[0] (the boundary cohort).
+                        l_cohort = Some(self.base.doc.store.single_windows.get(sw.0).cohorts[0]);
+                        c_swindow = Some(sw);
+                        c_cohort = None;
+                        self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
+                        did_soft_lookback = false;
+                        sw
+                    }
+                };
 
                 // Drain a window if enough queued (dead: next never grows here).
                 if self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize {
@@ -389,7 +381,6 @@ where
                         }
                     }
 
-                    let sw = c_swindow.unwrap();
                     let cc = crate::cohort::alloc_cohort(&mut self.base.doc.store, Some(sw));
                     let gn = self.base.doc.cohorts.next_cohort_number();
                     let token_str: String = token.iter().collect();
@@ -582,6 +573,10 @@ impl PlaintextFormat {
         }
         // "%.*S " of wordform.data()+2 for size()-4 → strip "\"<" and ">\"", plus a space.
         let inner = {
+            #[expect(
+                clippy::expect_used,
+                reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+            )]
             let tag = &e.grammar.single_tags_list[wf.expect("cohort wordform").0].tag;
             strip_wordform_brackets(tag)
         };

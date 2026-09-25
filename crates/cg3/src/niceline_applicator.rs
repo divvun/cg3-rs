@@ -195,14 +195,11 @@ impl<'a> NicelineApplicator<'a> {
                         let over_soft = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.base.cfg.soft_limit as usize;
                         if over_soft
-                            && self.base.grammar.soft_delimiters.is_some()
+                            && let Some(soft_delimiters) = self.base.grammar.soft_delimiters
                             && !did_soft_lookback
                         {
                             did_soft_lookback = true;
-                            let sd = self.base.grammar.sets_list
-                                [self.base.grammar.soft_delimiters.unwrap().0]
-                                .number
-                                .get();
+                            let sd = self.base.grammar.sets_list[soft_delimiters.0].number.get();
                             let cohorts =
                                 self.base.doc.store.single_windows.get(sw.0).cohorts.clone();
                             for &c in cohorts.iter().rev() {
@@ -214,6 +211,10 @@ impl<'a> NicelineApplicator<'a> {
                                     did_soft_lookback = false;
                                     let cohort = self.base.engine().delimit_at(sw, c)?;
                                     // cSWindow = cohort->parent->next;
+                                    #[expect(
+                                        clippy::unwrap_used,
+                                        reason = "delimit_at returns the new last cohort of sw, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
+                                    )]
                                     let parent =
                                         self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
                                     c_swindow =
@@ -233,15 +234,11 @@ impl<'a> NicelineApplicator<'a> {
                     if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                         let over_soft = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.base.cfg.soft_limit as usize;
-                        let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
-                            let sd = self.base.grammar.sets_list
-                                [self.base.grammar.soft_delimiters.unwrap().0]
-                                .number
-                                .get();
-                            self.base
-                                .engine()
-                                .does_set_match_cohort_normal(cc, sd, None)?
-                        };
+                        let soft_delimiters = self.base.grammar.soft_delimiters;
+                        let sd_hit = self
+                            .base
+                            .engine()
+                            .matches_delimiter_set(cc, soft_delimiters)?;
                         if over_soft && sd_hit {
                             // verbose soft-limit warning: deferred.
                             let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
@@ -266,21 +263,12 @@ impl<'a> NicelineApplicator<'a> {
                     }
 
                     // (c) Hard break.
-                    if let Some(cc) = c_cohort {
-                        let sw = c_swindow.unwrap();
+                    if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                         let over_hard = self.base.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.base.cfg.hard_limit as usize;
+                        let delimiters = self.base.grammar.delimiters;
                         let delim_hit = self.base.cfg.dep_delimit == 0
-                            && self.base.grammar.delimiters.is_some()
-                            && {
-                                let d = self.base.grammar.sets_list
-                                    [self.base.grammar.delimiters.unwrap().0]
-                                    .number
-                                    .get();
-                                self.base
-                                    .engine()
-                                    .does_set_match_cohort_normal(cc, d, None)?
-                            };
+                            && self.base.engine().matches_delimiter_set(cc, delimiters)?;
                         if over_hard || delim_hit {
                             // (!is_conv && over_hard) "Hard limit ... forcing break": deferred.
                             let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
@@ -305,22 +293,26 @@ impl<'a> NicelineApplicator<'a> {
                     }
 
                     // No current window: allocate + init a fresh one.
-                    if c_swindow.is_none() {
-                        let sw = self
-                            .base
-                            .doc
-                            .stream
-                            .alloc_append_single_window(&mut self.base.doc.store);
-                        self.base.engine().init_empty_single_window(sw)?;
-                        c_swindow = Some(sw);
-                        l_swindow = Some(sw);
-                        c_cohort = None;
-                        self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
-                        did_soft_lookback = false;
-                    }
+                    let sw = match c_swindow {
+                        Some(sw) => sw,
+                        None => {
+                            let sw = self
+                                .base
+                                .doc
+                                .stream
+                                .alloc_append_single_window(&mut self.base.doc.store);
+                            self.base.engine().init_empty_single_window(sw)?;
+                            c_swindow = Some(sw);
+                            l_swindow = Some(sw);
+                            c_cohort = None;
+                            self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
+                            did_soft_lookback = false;
+                            sw
+                        }
+                    };
 
                     // Pending cCohort: append it.
-                    if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
+                    if let Some(cc) = c_cohort {
                         crate::single_window::append_cohort(
                             &mut self.base.doc.store,
                             &mut self.base.doc.cohorts,
@@ -341,7 +333,6 @@ impl<'a> NicelineApplicator<'a> {
                     }
 
                     // Build wordform: "\"<" + text-before-TAB + ">\"".
-                    let sw = c_swindow.unwrap();
                     let inner: String = cleaned[0..space].to_string();
                     let wf_text = format!("\"<{inner}>\"");
 
@@ -457,17 +448,7 @@ impl<'a> NicelineApplicator<'a> {
                         }
 
                         if self.base.doc.store.readings.get(cr.0).baseform.is_none() {
-                            let h = {
-                                let wfid = self
-                                    .base
-                                    .doc
-                                    .store
-                                    .cohorts
-                                    .get(cc.0)
-                                    .wordform
-                                    .expect("cohort wordform");
-                                self.base.grammar.single_tags_list[wfid.0].hash
-                            };
+                            let h = self.base.grammar.single_tags_list[wf.0].hash;
                             self.base.doc.store.readings.get_mut(cr.0).baseform = Some(h);
                             // "Line %u had no valid baseform." warning: deferred.
                         }
@@ -631,6 +612,10 @@ impl NicelineFormat {
             let _ = write!(output, "[{inner}]");
         }
 
+        #[expect(
+            clippy::expect_used,
+            reason = "a printed reading or sub-reading belongs to a cohort: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was"
+        )]
         let parent_cid = parent_cid.expect("reading has no parent cohort");
         let wordform_hash = {
             let wf = e.doc.store.cohorts.get(parent_cid.0).wordform;
@@ -786,6 +771,10 @@ impl NicelineFormat {
             // "%.*S" of wordform.data()+2 for size()-4 → strip "\"<" and ">\"".
             let (wf_inner, has_wread) = {
                 let c = e.doc.store.cohorts.get(cohort.0);
+                #[expect(
+                    clippy::expect_used,
+                    reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+                )]
                 let wf = c.wordform.expect("cohort wordform");
                 let tag = &e.grammar.single_tags_list[wf.0].tag;
                 (strip_wordform_brackets(tag), c.wread.is_some())

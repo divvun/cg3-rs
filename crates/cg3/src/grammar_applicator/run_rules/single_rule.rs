@@ -3,7 +3,7 @@
 //! Split out of the wave-2 monolithic `run_rules.rs` (wave 4, w4-file-split-fmt).
 
 use crate::arena::{CohortId, CtxId, RuleId, SetId, SwId, TagId};
-use crate::cohort::{CT_ENCLOSED, CT_IGNORED, CT_REMOVED, CohortSet};
+use crate::cohort::{CT_ENCLOSED, CT_IGNORED, CT_REMOVED};
 use crate::contextual_test::{POS_NO_PASS_ORIGIN, POS_PASS_ORIGIN, TestRef};
 use crate::inlines::ui32;
 use crate::rule::{
@@ -112,9 +112,8 @@ impl crate::grammar_applicator::Engine<'_> {
     /// `T_CONTEXT` context cohort referenced by the rule's target set, and route
     /// the active cohortset to it. Returns `true` iff the nested set is now in use.
     ///
-    /// RECONCILIATION: `nested_rule_to_cohorts` must be `Option<Box<CohortSet>>`
-    /// (NOTED single_window.rs change). The context-tag scan uses the target set's
-    /// `trie_special` keys with `T_CONTEXT` + `context_ref_pos`.
+    /// The context-tag scan uses the target set's `trie_special` keys with
+    /// `T_CONTEXT` + `context_ref_pos`.
     fn rr_override_cohortset(&mut self, current: SwId, rule_number: u32) -> bool {
         if !self.scratch.in_nested {
             return false;
@@ -147,11 +146,12 @@ impl crate::grammar_applicator::Engine<'_> {
             }
         }
         let apply = self.get_apply_to().cohort;
-        let sw = self.doc.store.single_windows.get_mut(current.0);
-        if sw.nested_rule_to_cohorts.is_none() {
-            sw.nested_rule_to_cohorts = Some(Box::new(CohortSet::new()));
-        }
-        sw.nested_rule_to_cohorts.as_mut().unwrap().clear();
+        self.doc
+            .store
+            .single_windows
+            .get_mut(current.0)
+            .nested_rule_to_cohorts
+            .clear();
         if let Some(a) = apply {
             // insert apply-to + context cohorts with the store-aware comparator.
             let np = crate::grammar_applicator::CsRef::Nested { sw: current };
@@ -205,7 +205,12 @@ impl crate::grammar_applicator::Engine<'_> {
     ) -> crate::grammar_applicator::CsRef {
         let nested = self.rr_override_cohortset(current, rule_number);
         let cs = self.rr_cohortset_ref(current, rule_number, nested);
-        *self.scratch.cohortsets.last_mut().unwrap() = cs;
+        #[expect(
+            clippy::unwrap_used,
+            reason = "run_single_rule pushes this rule's cohortsets entry before running its body, the only caller, and pops it after"
+        )]
+        let top = self.scratch.cohortsets.last_mut().unwrap();
+        *top = cs;
         let idx = self.scratch.rocits.len() - 1;
         if let Some(gac) = self.get_apply_to().cohort {
             let anchor = self.rr_reset_anchor(current, gac, target);
@@ -281,6 +286,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// The body of [`Self::run_single_rule`] (everything inside the `popper`
     /// scope guard). Split out so the guard's `cohortsets`/`rocits` pop runs on
     /// every early-return path. See [`Self::run_single_rule`] for the markers.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "context_stack's top is the frame this fn pushes for each cohort and pops when done with it (nested rules pop what they push), and its reading loop sets the frame's regexgrps before reading it"
+    )]
     fn run_single_rule_body(
         &mut self,
         current: SwId,
@@ -448,8 +457,7 @@ impl crate::grammar_applicator::Engine<'_> {
             self.subs_any_clear();
 
             // Per-cohort regex/unif capture state.
-            self.scratch.regexgrps_z.clear();
-            self.scratch.regexgrps_c.clear();
+            self.scratch.regexgrps_cz.clear();
             self.scratch.unif_tags_rs.clear();
             self.scratch.unif_sets_rs.clear();
 
@@ -568,10 +576,8 @@ impl crate::grammar_applicator::Engine<'_> {
                         num_active += 1;
                     }
                     let cnum = self.doc.store.readings.get(cached.0).number;
-                    if let Some(&rgc) = self.scratch.regexgrps_c.get(&cnum) {
-                        self.scratch.regexgrps_c.insert(r_number, rgc);
-                        let z = *self.scratch.regexgrps_z.get(&cnum).unwrap();
-                        self.scratch.regexgrps_z.insert(r_number, z);
+                    if let Some(&(rgc, z)) = self.scratch.regexgrps_cz.get(&cnum) {
+                        self.scratch.regexgrps_cz.insert(r_number, (rgc, z));
                         let f = self.scratch.context_stack.last_mut().unwrap();
                         f.regexgrp_ct = z;
                         f.regexgrps = Some(rgc);
@@ -752,14 +758,13 @@ impl crate::grammar_applicator::Engine<'_> {
                         }
                         self.scratch.matched_tests.insert(reading);
                         num_active += 1;
-                        if self.diag.profiler.is_some() {
+                        if let Some(p) = self.diag.profiler.as_mut() {
                             // Profiler::Key k{ET_RULE, rule.number + 1}; ++entries[k].num_match
                             let rnum = self.grammar.rule_by_number.get(rule.0).number;
                             let k = crate::profiler::Key {
                                 r#type: crate::profiler::ET_RULE,
                                 id: rnum + 1,
                             };
-                            let p = self.diag.profiler.as_mut().unwrap();
                             let e = p.entries.entry(k).or_default();
                             e.num_match += 1;
                             if e.example_window == 0 {
@@ -770,15 +775,13 @@ impl crate::grammar_applicator::Engine<'_> {
                             self.rr_print_debug_rule(rule, true, true);
                         }
                         // Propagate regex captures from a prior reading.
-                        if regex_prop && i != 0 && !self.scratch.regexgrps_c.is_empty() {
+                        if regex_prop && i != 0 && !self.scratch.regexgrps_cz.is_empty() {
                             let mut z = i;
                             while z > 0 {
                                 let prev = self.doc.store.cohorts.get(cohort.0).readings[z - 1];
                                 let prev_num = self.doc.store.readings.get(prev.0).number;
-                                if let Some(&rgc) = self.scratch.regexgrps_c.get(&prev_num) {
-                                    self.scratch.regexgrps_c.insert(r_number, rgc);
-                                    let zz = *self.scratch.regexgrps_z.get(&prev_num).unwrap();
-                                    self.scratch.regexgrps_z.insert(r_number, zz);
+                                if let Some(&captured) = self.scratch.regexgrps_cz.get(&prev_num) {
+                                    self.scratch.regexgrps_cz.insert(r_number, captured);
                                     break;
                                 }
                                 z -= 1;
@@ -834,8 +837,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         .unwrap()
                         .regexgrps
                         .unwrap();
-                    self.scratch.regexgrps_c.insert(r_number, rgs);
-                    self.scratch.regexgrps_z.insert(r_number, rgc_ct);
+                    self.scratch.regexgrps_cz.insert(r_number, (rgs, rgc_ct));
                     self.scratch.used_regex += 1;
                 }
                 reading_contexts.push(self.scratch.context_stack.last().unwrap().clone());
@@ -887,6 +889,10 @@ impl crate::grammar_applicator::Engine<'_> {
             // Dispatch each matched reading.
             for ctx in reading_contexts.into_iter() {
                 let (mt, mtst) = {
+                    #[expect(
+                        clippy::unwrap_used,
+                        reason = "the reading loop above saves a frame to reading_contexts only after setting its target.subreading"
+                    )]
                     let sr = ctx.target.subreading.unwrap();
                     (
                         self.scratch.matched_target.contains(&sr),
@@ -933,6 +939,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// `CT_IGNORED`, hit_by its readings, erase it from every rule's cohortset,
     /// detach it, and remove it from the window's `cohorts` (kept in `all_cohorts`).
     pub(crate) fn rr_ignore_cohort(&mut self, rule_number: u32, cohort: CohortId) {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+        )]
         let current = self.doc.store.cohorts.get(cohort.0).parent.unwrap();
         let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in rs {
@@ -993,6 +1003,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// `cohort` must sit in its window at its local number and not be the
     /// window's `>>>`; callers check that with [`Self::rr_acting_window`].
     pub(crate) fn rr_rem_cohort(&mut self, st: &mut RRState, rule_number: u32, cohort: CohortId) {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "callers check with rr_acting_window that cohort sits in its window, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+        )]
         let current = self.doc.store.cohorts.get(cohort.0).parent.unwrap();
         let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in rs {
@@ -1038,9 +1052,7 @@ impl crate::grammar_applicator::Engine<'_> {
             .get(cohort.0)
             .dep_self
             .map_or(0, |g| g.get());
-        let keys: Vec<GlobalNumber> = self.doc.cohorts.cohort_map.keys().copied().collect();
-        for k in keys {
-            let cid = *self.doc.cohorts.cohort_map.get(&k).unwrap();
+        for &cid in self.doc.cohorts.cohort_map.values() {
             self.doc
                 .store
                 .cohorts
@@ -1089,9 +1101,7 @@ impl crate::grammar_applicator::Engine<'_> {
             .get(empty_cohort.0)
             .dep_self
             .map_or(0, |g| g.get());
-        let keys: Vec<GlobalNumber> = self.doc.cohorts.cohort_map.keys().copied().collect();
-        for k in keys {
-            let cid = *self.doc.cohorts.cohort_map.get(&k).unwrap();
+        for &cid in self.doc.cohorts.cohort_map.values() {
             self.doc.store.cohorts.get_mut(cid.0).dep_children.erase(ds);
         }
         let egn = self.doc.store.cohorts.get(empty_cohort.0).global_number;

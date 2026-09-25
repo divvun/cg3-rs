@@ -53,7 +53,7 @@ pub fn test_string_against(str: &str, rxs: &[crate::tag_regex::TagRegex]) -> boo
 
 /// C++ `strchr`-style search over a `Vec<char>` scratch buffer: return the index
 /// of the first `needle` at or after `from`, scanning up to (not past) the NUL
-/// terminator, or `None`. Used by the inline SETVAR/REMVAR pointer walks.
+/// terminator, or `None`. Used by the SETVAR/REMVAR pointer walks.
 fn find_char_before_nul(buf: &[char], from: usize, needle: char) -> Option<usize> {
     let mut i = from;
     while buf[i] != '\0' {
@@ -190,6 +190,10 @@ impl super::Engine<'_> {
     ) -> Result<crate::arena::ReadingId, crate::error::RunError> {
         let c_reading = crate::reading::alloc_reading(&mut self.doc.store, Some(c_cohort));
         // cCohort.wordform is dereferenced unconditionally (`->hash`).
+        #[expect(
+            clippy::expect_used,
+            reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+        )]
         let wordform = self
             .doc
             .store
@@ -250,12 +254,13 @@ impl super::Engine<'_> {
         while crate::inlines::isspace(line[indent]) {
             indent += 1;
         }
-        while !indents.is_empty() && indent <= indents.last().unwrap().0 {
+        while indents.last().is_some_and(|&(level, _)| indent <= level) {
             indents.pop();
         }
         let c_reading: crate::arena::ReadingId;
-        if !indents.is_empty() && indent > indents.last().unwrap().0 {
-            let back = indents.last().unwrap().1;
+        if let Some(&(level, back)) = indents.last()
+            && indent > level
+        {
             if self.doc.store.readings.get(back.0).next.is_some() {
                 // "Sub-reading … will be ignored and lost …": deferred emission.
                 return Ok(GotReading::Continue);
@@ -268,6 +273,10 @@ impl super::Engine<'_> {
             c_reading = crate::reading::alloc_reading(&mut self.doc.store, Some(c_cohort));
         }
         // insert_if_exists(cReading->parent->possible_sets, grammar->sets_any);
+        #[expect(
+            clippy::expect_used,
+            reason = "c_reading was allocated for c_cohort, or as a sub-reading of an indents entry, which is a reading of c_cohort: the driver clears indents at each cohort line"
+        )]
         let parent_cid = self
             .doc
             .store
@@ -279,6 +288,10 @@ impl super::Engine<'_> {
             &mut self.doc.store.cohorts.get_mut(parent_cid.0).possible_sets,
             self.grammar.sets_any.as_ref(),
         );
+        #[expect(
+            clippy::unwrap_used,
+            reason = "c_cohort is the driver's current cohort, which it makes from a cohort line with that line's wordform"
+        )]
         let wordform = self.doc.store.cohorts.get(c_cohort.0).wordform.unwrap();
         self.add_tag_to_reading(c_reading, wordform)?;
 
@@ -305,20 +318,10 @@ impl super::Engine<'_> {
         // CG-3 may produce such
         if cleaned[space] != '"' {
             // "looked like a reading but wasn't - treated as text": deferred.
-            if !indents.is_empty()
-                && self
-                    .doc
-                    .store
-                    .readings
-                    .get(indents.last().unwrap().1.0)
-                    .next
-                    == Some(c_reading)
+            if let Some(&(_, back)) = indents.last()
+                && self.doc.store.readings.get(back.0).next == Some(c_reading)
             {
-                self.doc
-                    .store
-                    .readings
-                    .get_mut(indents.last().unwrap().1.0)
-                    .next = None;
+                self.doc.store.readings.get_mut(back.0).next = None;
             }
             let cr = Some(c_reading);
             crate::reading::free_reading(&mut self.doc.store, cr);
@@ -387,7 +390,7 @@ impl super::Engine<'_> {
         if self.doc.store.readings.get(c_reading.0).baseform.is_none() {
             // "Line %u had no valid baseform.": deferred emission.
         }
-        if indents.is_empty() || indent <= indents.last().unwrap().0 {
+        if indents.last().is_none_or(|&(level, _)| indent <= level) {
             // cCohort->appendReading(cReading, *readings);
             if is_deleted {
                 self.append_reading_deleted(c_cohort, c_reading);
@@ -395,12 +398,9 @@ impl super::Engine<'_> {
                 crate::cohort::append_reading(&mut self.doc.store, c_cohort, c_reading);
             }
         } else {
-            if let Some(mlist) = all_mappings.get_mut(&c_reading) {
-                while mlist.len() > 1 {
-                    // "Sub-reading mapping … will be discarded.": deferred.
-                    mlist.pop();
-                }
-                let mut ml = all_mappings.remove(&c_reading).unwrap();
+            if let Some(mut ml) = all_mappings.remove(&c_reading) {
+                // "Sub-reading mapping … will be discarded.": deferred.
+                ml.truncate(1);
                 self.split_mappings(&mut ml, c_cohort, c_reading, true)?;
             }
             // readings->back()->rehash();
@@ -451,6 +451,10 @@ impl super::Engine<'_> {
 
             let cur = *c_swindow;
             if let Some(sw) = cur {
+                #[expect(
+                    clippy::unwrap_used,
+                    reason = "every window this reader makes (init_empty_single_window) or splits off (delimit_at) starts with a >>> cohort, and nothing removes a window's >>> cohort (robustness.enclosures)"
+                )]
                 let last_cohort = *self
                     .doc
                     .store
@@ -536,6 +540,96 @@ impl super::Engine<'_> {
             readings.get_mut(read.0).number =
                 crate::inlines::ui32(sz.wrapping_mul(1000).wrapping_add(1000));
         }
+    }
+
+    /// One `<STREAMCMD:SETVAR:...>` command, read from `cleaned` past the
+    /// command prefix up to its NUL: `name=value` items set a variable, bare
+    /// `name` items set it to `*` (in the global variables too when `global`),
+    /// and a missing name or value defaults to `*`. Items are `,`-separated.
+    fn setvar_command(
+        &mut self,
+        cleaned: &mut [char],
+        variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
+        variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
+        variables_output: &mut crate::sorted_vector::Uint32SortedVector,
+        global: bool,
+    ) -> Result<(), crate::error::RunError> {
+        // s = &cleaned[STR_CMD_SETVAR.size()];
+        let start = crate::strings::STR_CMD_SETVAR.chars().count();
+        let mut c = find_char_before_nul(cleaned, start, ',');
+        let mut d = find_char_before_nul(cleaned, start, '=');
+        if c.is_none() && d.is_none() {
+            return self.setvar_bare(
+                &cleaned[start..],
+                variables_set,
+                variables_rem,
+                variables_output,
+                global,
+            );
+        }
+        // `s` is `None` exactly when both `c` and `d` are, so the C++
+        // `while (c || d)` never reads a null `s`.
+        let mut s = Some(start);
+        while let Some(si) = s
+            && (c.is_some() || d.is_some())
+        {
+            if let Some(di) = d
+                && c.is_none_or(|ci| di < ci)
+            {
+                cleaned[di] = '\0';
+                // "no identifier before the =": default *.
+                let a = self.setvar_item_hash(&cleaned[si..])?;
+                if let Some(ci) = c {
+                    cleaned[ci] = '\0';
+                    s = Some(ci + 1);
+                }
+                // "no value after the =": default *.
+                let b = self.setvar_item_hash(&cleaned[di + 1..])?;
+                if c.is_none() {
+                    d = None;
+                    s = None;
+                }
+                *variables_set.index_or_insert(a) = b;
+                variables_rem.erase(a);
+                variables_output.insert(a);
+            } else if let Some(ci) = c
+                && d.is_none_or(|di| ci < di)
+            {
+                cleaned[ci] = '\0';
+                // "no identifier after the ,": default *.
+                let a = self.setvar_item_hash(&cleaned[si..])?;
+                s = Some(ci + 1);
+                *variables_set.index_or_insert(a) = self.grammar.tag_any;
+                variables_rem.erase(a);
+                variables_output.insert(a);
+            }
+            if let Some(si) = s {
+                c = find_char_before_nul(cleaned, si, ',');
+                d = find_char_before_nul(cleaned, si, '=');
+                if c.is_none() && d.is_none() {
+                    self.setvar_bare(
+                        &cleaned[si..],
+                        variables_set,
+                        variables_rem,
+                        variables_output,
+                        false,
+                    )?;
+                    s = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The hash of one SETVAR name or value, read up to its NUL, or `*`'s when
+    /// it is empty.
+    fn setvar_item_hash(&mut self, text: &[char]) -> Result<u32, crate::error::RunError> {
+        if text.first().is_none_or(|&ch| ch == '\0') {
+            return Ok(self.grammar.tag_any);
+        }
+        let text: String = text.iter().take_while(|&&ch| ch != '\0').collect();
+        let tag = self.add_tag(&text, crate::tag::TagType::empty())?;
+        Ok(self.grammar.single_tags_list[tag.0].hash.get())
     }
 
     // [spec:cg3:req:robustness.empty-tag]
@@ -684,19 +778,22 @@ impl super::Engine<'_> {
                     if let Some(sw) = c_swindow {
                         let over_soft = self.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.cfg.soft_limit as usize;
-                        if over_soft && self.grammar.soft_delimiters.is_some() && !did_soft_lookback
+                        if over_soft
+                            && let Some(soft_delimiters) = self.grammar.soft_delimiters
+                            && !did_soft_lookback
                         {
                             did_soft_lookback = true;
-                            let sd = self.grammar.sets_list
-                                [self.grammar.soft_delimiters.unwrap().0]
-                                .number
-                                .get();
+                            let sd = self.grammar.sets_list[soft_delimiters.0].number.get();
                             let cohorts = self.doc.store.single_windows.get(sw.0).cohorts.clone();
                             for &c in cohorts.iter().rev() {
                                 if self.does_set_match_cohort_normal(c, sd, None)? {
                                     did_soft_lookback = false;
                                     let cohort = self.delimit_at(sw, c)?;
                                     // cSWindow = cohort->parent->next;
+                                    #[expect(
+                                        clippy::unwrap_used,
+                                        reason = "delimit_at returns the new last cohort of sw, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
+                                    )]
                                     let parent =
                                         self.doc.store.cohorts.get(cohort.0).parent.unwrap();
                                     c_swindow = self.doc.store.single_windows.get(parent.0).next;
@@ -714,13 +811,9 @@ impl super::Engine<'_> {
                     if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                         let over_soft = self.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.cfg.soft_limit as usize;
-                        let sd_hit = over_soft && self.grammar.soft_delimiters.is_some() && {
-                            let sd = self.grammar.sets_list
-                                [self.grammar.soft_delimiters.unwrap().0]
-                                .number
-                                .get();
-                            self.does_set_match_cohort_normal(cc, sd, None)?
-                        };
+                        let soft_delimiters = self.grammar.soft_delimiters;
+                        let sd_hit =
+                            over_soft && self.matches_delimiter_set(cc, soft_delimiters)?;
                         if sd_hit {
                             // verbose soft-limit warning: deferred.
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
@@ -753,17 +846,12 @@ impl super::Engine<'_> {
                     }
 
                     // (c) Hard break.
-                    if let Some(cc) = c_cohort {
-                        let sw = c_swindow.unwrap();
+                    if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
                         let over_hard = self.doc.store.single_windows.get(sw.0).cohorts.len()
                             >= self.cfg.hard_limit as usize;
-                        let delim_hit =
-                            self.cfg.dep_delimit == 0 && self.grammar.delimiters.is_some() && {
-                                let d = self.grammar.sets_list[self.grammar.delimiters.unwrap().0]
-                                    .number
-                                    .get();
-                                self.does_set_match_cohort_normal(cc, d, None)?
-                            };
+                        let delimiters = self.grammar.delimiters;
+                        let delim_hit = self.cfg.dep_delimit == 0
+                            && self.matches_delimiter_set(cc, delimiters)?;
                         if over_hard || delim_hit {
                             // (!is_conv && over_hard) "Hard limit ... forcing break": deferred.
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
@@ -796,21 +884,25 @@ impl super::Engine<'_> {
                     }
 
                     // No current window: allocate + init a fresh one.
-                    if c_swindow.is_none() {
-                        let sw = self
-                            .doc
-                            .stream
-                            .alloc_append_single_window(&mut self.doc.store);
-                        self.init_empty_single_window(sw)?;
-                        l_swindow = Some(sw);
-                        c_swindow = Some(sw);
-                        c_cohort = None;
-                        self.doc.num_windows = self.doc.num_windows.wrapping_add(1);
-                        did_soft_lookback = false;
-                    }
+                    let sw = match c_swindow {
+                        Some(sw) => sw,
+                        None => {
+                            let sw = self
+                                .doc
+                                .stream
+                                .alloc_append_single_window(&mut self.doc.store);
+                            self.init_empty_single_window(sw)?;
+                            l_swindow = Some(sw);
+                            c_swindow = Some(sw);
+                            c_cohort = None;
+                            self.doc.num_windows = self.doc.num_windows.wrapping_add(1);
+                            did_soft_lookback = false;
+                            sw
+                        }
+                    };
 
                     // Pending cCohort: split mappings + append it.
-                    if let (Some(cc), Some(sw)) = (c_cohort, c_swindow) {
+                    if let Some(cc) = c_cohort {
                         self.split_all_mappings(&mut all_mappings, cc, true)?;
                         crate::single_window::append_cohort(
                             &mut self.doc.store,
@@ -842,7 +934,6 @@ impl super::Engine<'_> {
                     }
 
                     // First real cohort of this window → adopt the pending variables.
-                    let sw = c_swindow.unwrap();
                     if self.doc.store.single_windows.get(sw.0).all_cohorts.len() == 1 {
                         self.adopt_variables(
                             sw,
@@ -895,12 +986,12 @@ impl super::Engine<'_> {
                         }
                     }
                 }
-            } else if (cleaned[0] == ' ' && cleaned[1] == '"' && c_cohort.is_some())
-                || (self.cfg.pipe_deleted
-                    && cleaned[0] == ';'
-                    && cleaned[1] == ' '
-                    && cleaned[2] == '"'
-                    && c_cohort.is_some())
+            } else if let Some(cc) = c_cohort
+                && ((cleaned[0] == ' ' && cleaned[1] == '"')
+                    || (self.cfg.pipe_deleted
+                        && cleaned[0] == ';'
+                        && cleaned[1] == ' '
+                        && cleaned[2] == '"'))
             {
                 // (2)/(3) Reading line — a deleted-reading line (leading "; ")
                 // strips the ';' and FALLS INTO the reading handler (the C++
@@ -922,7 +1013,7 @@ impl super::Engine<'_> {
                     l_swindow: &mut l_swindow,
                     did_soft_lookback: &mut did_soft_lookback,
                 };
-                match self.got_reading(scope, c_cohort.unwrap(), is_deleted)? {
+                match self.got_reading(scope, cc, is_deleted)? {
                     GotReading::Continue => {
                         // C++ `cReading = nullptr; continue;` — the `continue`
                         // re-enters the read loop WITHOUT running the trailing
@@ -1025,102 +1116,17 @@ impl super::Engine<'_> {
                         fmt.print_stream_command(self, crate::strings::STR_CMD_EXIT, output);
                         break 'mainloop;
                     } else if cleaned_str.starts_with(crate::strings::STR_CMD_SETVAR) {
-                        // <STREAMCMD:SETVAR:...> — inline parse (no parseSetVar method).
+                        // <STREAMCMD:SETVAR:...> — the C++ parses inline (no parseSetVar method).
                         is_cmd = true;
                         cleaned[packoff - 1] = '\0';
                         line[0] = '\0';
-
-                        // s = &cleaned[STR_CMD_SETVAR.size()];
-                        let mut s: Option<usize> =
-                            Some(crate::strings::STR_CMD_SETVAR.chars().count());
-                        let mut c = find_char_before_nul(&cleaned, s.unwrap(), ',');
-                        let mut d = find_char_before_nul(&cleaned, s.unwrap(), '=');
-                        if c.is_none() && d.is_none() {
-                            self.setvar_bare(
-                                &cleaned[s.unwrap()..],
-                                &mut variables_set,
-                                &mut variables_rem,
-                                &mut variables_output,
-                                c_swindow.is_none(),
-                            )?;
-                        } else {
-                            let mut a: u32;
-                            let mut b: u32;
-                            while c.is_some() || d.is_some() {
-                                if d.is_some() && (c.is_none() || d.unwrap() < c.unwrap()) {
-                                    let di = d.unwrap();
-                                    cleaned[di] = '\0';
-                                    if cleaned[s.unwrap()] == '\0' {
-                                        // "no identifier before the =": default *.
-                                        a = self.grammar.tag_any;
-                                    } else {
-                                        let s_text: String = cleaned[s.unwrap()..]
-                                            .iter()
-                                            .take_while(|&&ch| ch != '\0')
-                                            .collect();
-                                        let atag =
-                                            self.add_tag(&s_text, crate::tag::TagType::empty())?;
-                                        a = self.grammar.single_tags_list[atag.0].hash.get();
-                                    }
-                                    if let Some(ci) = c {
-                                        cleaned[ci] = '\0';
-                                        s = Some(ci + 1);
-                                    }
-                                    if cleaned[di + 1] == '\0' {
-                                        // "no value after the =": default *.
-                                        b = self.grammar.tag_any;
-                                    } else {
-                                        let d_text: String = cleaned[di + 1..]
-                                            .iter()
-                                            .take_while(|&&ch| ch != '\0')
-                                            .collect();
-                                        let btag =
-                                            self.add_tag(&d_text, crate::tag::TagType::empty())?;
-                                        b = self.grammar.single_tags_list[btag.0].hash.get();
-                                    }
-                                    if c.is_none() {
-                                        d = None;
-                                        s = None;
-                                    }
-                                    *variables_set.index_or_insert(a) = b;
-                                    variables_rem.erase(a);
-                                    variables_output.insert(a);
-                                } else if c.is_some() && (d.is_none() || c.unwrap() < d.unwrap()) {
-                                    let ci = c.unwrap();
-                                    cleaned[ci] = '\0';
-                                    if cleaned[s.unwrap()] == '\0' {
-                                        // "no identifier after the ,": default *.
-                                        a = self.grammar.tag_any;
-                                    } else {
-                                        let s_text: String = cleaned[s.unwrap()..]
-                                            .iter()
-                                            .take_while(|&&ch| ch != '\0')
-                                            .collect();
-                                        let atag =
-                                            self.add_tag(&s_text, crate::tag::TagType::empty())?;
-                                        a = self.grammar.single_tags_list[atag.0].hash.get();
-                                    }
-                                    s = Some(ci + 1);
-                                    *variables_set.index_or_insert(a) = self.grammar.tag_any;
-                                    variables_rem.erase(a);
-                                    variables_output.insert(a);
-                                }
-                                if let Some(si) = s {
-                                    c = find_char_before_nul(&cleaned, si, ',');
-                                    d = find_char_before_nul(&cleaned, si, '=');
-                                    if c.is_none() && d.is_none() {
-                                        self.setvar_bare(
-                                            &cleaned[si..],
-                                            &mut variables_set,
-                                            &mut variables_rem,
-                                            &mut variables_output,
-                                            false,
-                                        )?;
-                                        s = None;
-                                    }
-                                }
-                            }
-                        }
+                        self.setvar_command(
+                            &mut cleaned,
+                            &mut variables_set,
+                            &mut variables_rem,
+                            &mut variables_output,
+                            c_swindow.is_none(),
+                        )?;
                     } else if cleaned_str.starts_with(crate::strings::STR_CMD_REMVAR) {
                         // <STREAMCMD:REMVAR:...> — inline parse (no parseRemVar method).
                         is_cmd = true;
@@ -1160,18 +1166,21 @@ impl super::Engine<'_> {
 
                     if line[0] != '\0' {
                         let line_str: String = line.iter().take_while(|&&c| c != '\0').collect();
-                        if l_swindow.is_some()
+                        if let Some(lsw) = l_swindow
                             && l_cohort.is_some()
                             && test_string_against(&line_str, &self.cfg.text_delimiters)
                         {
                             // Text-delimiter line.
-                            let lsw = l_swindow.unwrap();
                             self.doc
                                 .store
                                 .single_windows
                                 .get_mut(lsw.0)
                                 .text_post
                                 .push_str(&line_str);
+                            #[expect(
+                                clippy::unwrap_used,
+                                reason = "l_cohort and c_cohort are set together from a cohort line and cleared together (FLUSH, a text delimiter); a soft or hard break clears only c_cohort, but the cohort line making it then sets both"
+                            )]
                             let cc = c_cohort.unwrap();
                             let rs = self.doc.store.cohorts.get(cc.0).readings.clone();
                             for r in rs {
@@ -1179,6 +1188,10 @@ impl super::Engine<'_> {
                                 self.add_tag_to_reading(r, tid)?;
                             }
                             self.split_all_mappings(&mut all_mappings, cc, true)?;
+                            #[expect(
+                                clippy::unwrap_used,
+                                reason = "the driver gives c_cohort a window whenever it sets it, and every step that clears c_swindow clears c_cohort with it"
+                            )]
                             let sw = c_swindow.unwrap();
                             crate::single_window::append_cohort(
                                 &mut self.doc.store,

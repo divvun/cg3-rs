@@ -36,6 +36,10 @@ impl crate::grammar_applicator::Engine<'_> {
         // State hash before.
         let (phash, chash) = self.rr_window_state_hash(current);
 
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes for its cohort, whose target cohort it sets"
+        )]
         let cohort = self
             .scratch
             .context_stack
@@ -47,8 +51,12 @@ impl crate::grammar_applicator::Engine<'_> {
         let c = self.doc.store.cohorts.get(cohort.0).local_number;
         self.scratch.dep_deep_seen.clear();
         self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
-        self.scratch.context_stack.last_mut().unwrap().attach_to =
-            crate::grammar_applicator::ReadingSpec::default();
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes for its cohort, which it pops only after the actions"
+        )]
+        let frame = self.scratch.context_stack.last_mut().unwrap();
+        frame.attach_to = crate::grammar_applicator::ReadingSpec::default();
         let mut attach_out: Option<CohortId> = None;
         let res = self.run_contextual_test(
             Some(current),
@@ -64,10 +72,9 @@ impl crate::grammar_applicator::Engine<'_> {
                     == self.doc.store.cohorts.get(cohort.0).parent
             })
             .unwrap_or(false);
-        if !(res.is_some() && attach0.is_some() && same_parent) {
+        let (Some(_), Some(mut attach), true) = (res, attach0, same_parent) else {
             return Ok(());
-        }
-        let mut attach = attach0.unwrap();
+        };
         self.profile_rule_context(true, rule, dep_target);
         if let Some(at) = self.get_attach_to().cohort {
             attach = at;
@@ -372,12 +379,12 @@ impl crate::grammar_applicator::Engine<'_> {
                 wf = Some(tter);
                 continue;
             }
-            if wf.is_none() {
+            let Some(wf) = wf else {
                 // Unreachable: rr_cohort_maplist refuses this list.
                 continue;
-            }
+            };
             if ttype.intersects(T_BASEFORM) {
-                readings.push(vec![wf.unwrap()]);
+                readings.push(vec![wf]);
             }
             if let Some(last) = readings.last_mut() {
                 last.push(tter);
@@ -522,6 +529,10 @@ impl crate::grammar_applicator::Engine<'_> {
         ccohort: CohortId,
         withs: Option<&CohortSet>,
     ) {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes for its cohort, whose target cohort it sets"
+        )]
         let target = self
             .scratch
             .context_stack
@@ -531,8 +542,10 @@ impl crate::grammar_applicator::Engine<'_> {
             .cohort
             .unwrap();
         let dp = self.doc.store.cohorts.get(target.0).dep_parent;
-        let has_parent = dp.is_some() && self.doc.cohorts.cohort_map.contains_key(&dp.unwrap());
-        if !has_parent {
+        let parent = dp.and_then(|d| self.doc.cohorts.cohort_map.get(&d).copied());
+        if let Some(parent) = parent {
+            self.attach_parent_child(parent, ccohort, false, false);
+        } else {
             if self.doc.deps.has_dep {
                 let in_withs = withs.map(|w| w.contains(insertion)).unwrap_or(false);
                 if !in_withs {
@@ -573,9 +586,6 @@ impl crate::grammar_applicator::Engine<'_> {
                     }
                 }
             }
-        } else {
-            let parent = *self.doc.cohorts.cohort_map.get(&dp.unwrap()).unwrap();
-            self.attach_parent_child(parent, ccohort, false, false);
         }
 
         // Relation/child transfer across `withs` (C++ lines 1135-1158). `ps` is
@@ -626,6 +636,10 @@ impl crate::grammar_applicator::Engine<'_> {
         // Iterate `current.all_cohorts`: re-parent orphaned children and rewrite
         // relation targets that referenced any merged cohort.
         let ccohort_gn = self.doc.store.cohorts.get(ccohort.0).global_number.get();
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+        )]
         let current = self.doc.store.cohorts.get(insertion.0).parent.unwrap();
         let all_cohorts = self
             .doc
@@ -639,35 +653,18 @@ impl crate::grammar_applicator::Engine<'_> {
             if cdp.is_some_and(|v| ps.contains(&v.get())) {
                 self.attach_parent_child(ccohort, c, false, false);
             }
-            let keys: Vec<u32> = self
-                .doc
-                .store
-                .cohorts
-                .get(c.0)
-                .relations
-                .keys()
-                .copied()
-                .collect();
-            for key in keys {
-                let mut changed = false;
+            let mut changed = false;
+            for rels in self.doc.store.cohorts.get_mut(c.0).relations.values_mut() {
                 for &r in ps.iter() {
-                    let rels = self
-                        .doc
-                        .store
-                        .cohorts
-                        .get_mut(c.0)
-                        .relations
-                        .get_mut(&key)
-                        .unwrap();
                     if rels.count(r) != 0 {
                         rels.erase(r);
                         rels.insert(ccohort_gn);
                         changed = true;
                     }
                 }
-                if changed {
-                    self.doc.store.cohorts.get_mut(ccohort.0).r#type |= CT_RELATED;
-                }
+            }
+            if changed {
+                self.doc.store.cohorts.get_mut(ccohort.0).r#type |= CT_RELATED;
             }
         }
     }
@@ -705,6 +702,10 @@ impl crate::grammar_applicator::Engine<'_> {
         st: &mut RRState,
         rule: RuleId,
     ) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let apply = self.get_apply_to().cohort.unwrap();
         let (rtype, rnumber, rsub_reading) = {
             let r = self.grammar.rule_by_number.get(rule.0);
@@ -760,6 +761,10 @@ impl crate::grammar_applicator::Engine<'_> {
 
     /// K_MERGECOHORTS: resolve the `withs` set via the rule's dep tests, add the
     /// merged cohort, then remove every merged-in cohort. Fixes the `<<<` end tag.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set; it keeps that frame on top throughout"
+    )]
     pub(crate) fn rr_mergecohorts(
         &mut self,
         st: &mut RRState,
@@ -935,6 +940,10 @@ impl crate::grammar_applicator::Engine<'_> {
         rnumber: u32,
     ) -> Result<(), crate::error::RunError> {
         let current = st.current;
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes for its cohort, whose target cohort it sets"
+        )]
         let cohort = self
             .scratch
             .context_stack
@@ -947,6 +956,10 @@ impl crate::grammar_applicator::Engine<'_> {
         self.scratch.dep_deep_seen.clear();
         self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
         {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "an action runs under the frame run_single_rule_body pushes for its cohort, which it pops only after the actions"
+            )]
             let f = self.scratch.context_stack.last_mut().unwrap();
             f.attach_to = crate::grammar_applicator::ReadingSpec::default();
         }
@@ -962,10 +975,9 @@ impl crate::grammar_applicator::Engine<'_> {
             Some(&mut attach_out),
             None,
         )?;
-        if !(res.is_some() && attach_out.is_some()) {
+        let (Some(_), Some(mut attach)) = (res, attach_out) else {
             return Ok(());
-        }
-        let mut attach = attach_out.unwrap();
+        };
         self.profile_rule_context(true, rule, dep_target);
         if let Some(at) = self.get_attach_to().cohort {
             attach = at;
@@ -1011,6 +1023,10 @@ impl crate::grammar_applicator::Engine<'_> {
         let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
         if let Some(sl) = sublist {
             let tags = self.get_tag_list_of_set(sl, false);
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a reading action runs under the frame run_single_rule_body pushes, whose target sub-reading it sets; match_set sets attach_to's sub-reading with its cohort, and rr_dep_relation's bare attach_to cohort ends the reading loop"
+            )]
             let subreading = self.get_apply_to().subreading.unwrap();
             self.get_tags_matching(subreading, &tags, &mut excepts);
             excepts.extend(tags.iter().copied());
@@ -1186,6 +1202,10 @@ impl crate::grammar_applicator::Engine<'_> {
         st: &mut RRState,
         rule: RuleId,
     ) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let apply = self.get_apply_to().cohort.unwrap();
         let Some(current) = self.rr_removable_window(apply) else {
             return Ok(());
@@ -1233,47 +1253,39 @@ impl crate::grammar_applicator::Engine<'_> {
 
         // Second pass: fill each cohort's reading tag-lists and parse dep mappings.
         let mut groups: Vec<Vec<TagList>> = vec![Vec::new(); n];
-        let mut i: usize = 0;
-        let mut bf: Option<TagId> = None;
+        // The new cohort the tags now go to, as its index in `cohort_ids` and the
+        // wordform tag the first pass gave it.
+        let mut at: Option<(usize, TagId)> = None;
         for &tter in &the_tags {
             let ttype = self.grammar.tag_type(tter);
             if ttype.intersects(T_WORDFORM) {
-                i += 1;
-                bf = None;
+                at = Some((at.map_or(0, |(i, _)| i + 1), tter));
                 continue;
             }
-            if i == 0 {
+            let Some((i, wfid)) = at else {
                 // Before the first wordform: skipped, as in the first pass.
                 continue;
-            }
+            };
             if ttype.intersects(T_BASEFORM) {
-                let wfid = self
-                    .doc
-                    .store
-                    .cohorts
-                    .get(cohort_ids[i - 1].0)
-                    .wordform
-                    .unwrap();
-                groups[i - 1].push(vec![wfid]);
-                bf = Some(tter);
+                groups[i].push(vec![wfid]);
             }
-            if bf.is_none() {
-                // Unreachable: rr_cohort_maplist refuses this list.
+            let Some(reading) = groups[i].last_mut() else {
+                // No baseform yet. Unreachable: rr_cohort_maplist refuses this list.
                 continue;
-            }
+            };
 
             // C++ scanf("%[0-9cd]->%[0-9pm]", &dep_self, &dep_parent) == 2
             let tagstr = self.grammar.single_tags_list.get(tter.0).tag.clone();
             if let Some((dep_self, dep_parent)) = split_dep_mapping(&tagstr) {
-                apply_dep_mapping(&dep_self, &dep_parent, i - 1, &mut cohort_dep, &mut rel_trg);
+                apply_dep_mapping(&dep_self, &dep_parent, i, &mut cohort_dep, &mut rel_trg);
                 continue;
             }
             // R:* → relation transfer target.
             if tagstr.chars().count() == 3 && tagstr.starts_with("R:*") {
-                rel_trg = ui32(i - 1);
+                rel_trg = ui32(i);
                 continue;
             }
-            groups[i - 1].last_mut().unwrap().push(tter);
+            reading.push(tter);
         }
 
         if rel_trg == DEP_NO_PARENT {
@@ -1451,24 +1463,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 for sw in windows {
                     let chs = self.doc.store.single_windows.get(sw.0).cohorts.clone();
                     for ch in chs {
-                        let keys: Vec<u32> = self
-                            .doc
-                            .store
-                            .cohorts
-                            .get(ch.0)
-                            .relations
-                            .keys()
-                            .copied()
-                            .collect();
-                        for key in keys {
-                            let rels = self
-                                .doc
-                                .store
-                                .cohorts
-                                .get_mut(ch.0)
-                                .relations
-                                .get_mut(&key)
-                                .unwrap();
+                        for rels in self.doc.store.cohorts.get_mut(ch.0).relations.values_mut() {
                             if rels.count(apply_gn) != 0 {
                                 rels.erase(apply_gn);
                                 rels.insert(ccohort_gn);
@@ -1496,9 +1491,7 @@ impl crate::grammar_applicator::Engine<'_> {
             .get(apply.0)
             .dep_self
             .map_or(0, |g| g.get());
-        let keys: Vec<GlobalNumber> = self.doc.cohorts.cohort_map.keys().copied().collect();
-        for k in keys {
-            let cid = *self.doc.cohorts.cohort_map.get(&k).unwrap();
+        for &cid in self.doc.cohorts.cohort_map.values() {
             self.doc
                 .store
                 .cohorts

@@ -80,6 +80,10 @@ impl crate::grammar_applicator::Engine<'_> {
         let rsub_reading = self.grammar.rule_by_number.get(rule.0).sub_reading;
 
         if rtype == KSelect || (rtype == KIff && !st.selected.is_empty()) {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+            )]
             let target = self.get_apply_to().cohort.unwrap();
             let treadings = self.doc.store.cohorts.get(target.0).readings.len();
             if st.selected.len() < treadings && !st.selected.is_empty() {
@@ -143,6 +147,10 @@ impl crate::grammar_applicator::Engine<'_> {
             }
             st.selected.clear();
         } else if rtype == KRemove || rtype == KIff {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+            )]
             let target = self.get_apply_to().cohort.unwrap();
             let treadings = self.doc.store.cohorts.get(target.0).readings.len();
             let cond = !st.removed.is_empty()
@@ -287,9 +295,14 @@ impl crate::grammar_applicator::Engine<'_> {
             const CG3_EXTERNAL_PROTOCOL: u32 = 7226;
 
             // auto ei = externals.find(rule->varname); if miss, spawn the child
-            // and handshake the protocol revision.
+            // and handshake the protocol revision. C++ holds `Process&` into the
+            // map; the port lifts the Process out of self.doc.externals (and the
+            // store out of self) for the duration of the round-trip to satisfy
+            // the borrow checker, then restores both.
             let varname = self.grammar.rule_by_number.get(rule.0).varname;
-            if !self.doc.externals.contains_key(&varname) {
+            let mut es = if let Some(es) = self.doc.externals.remove(&varname) {
+                es
+            } else {
                 // Tag* ext = grammar->single_tags.find(rule->varname)->second;
                 // The C++ converts the tag text to UTF-8 into a fixed buffer,
                 // truncating at CG3_BUFFER_SIZE-1; the tag text is used directly
@@ -317,19 +330,10 @@ impl crate::grammar_applicator::Engine<'_> {
                         source,
                     });
                 }
-                self.doc.externals.insert(varname, es);
-            }
-
+                es
+            };
             // pipeOutSingleWindow(current, ei->second);
             // pipeInSingleWindow(current, ei->second);
-            // C++ holds `Process&` into the map; the port lifts the Process out
-            // of self.doc.externals (and the store out of self) for the duration of
-            // the round-trip to satisfy the borrow checker, then restores both.
-            let mut es = self
-                .doc
-                .externals
-                .remove(&varname)
-                .expect("external process");
             self.pipe_out_single_window(current, &mut es);
             self.pipe_in_single_window(current, &mut es)?;
             self.doc.externals.insert(varname, es);
@@ -366,6 +370,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// and does nothing for a `>>>` or a cohort that is not where its position
     /// says (removed, enclosed).
     fn rr_delimit(&mut self, st: &mut RRState) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let cohort = self.get_apply_to().cohort.unwrap();
         let Some(win) = self.rr_removable_window(cohort) else {
             return Ok(());
@@ -397,6 +405,10 @@ impl crate::grammar_applicator::Engine<'_> {
         rflags: crate::rule::RuleFlags,
         rnumber: u32,
     ) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let apply = self.get_apply_to().cohort.unwrap();
         let Some(win) = self.rr_removable_window(apply) else {
             return Ok(());
@@ -422,6 +434,10 @@ impl crate::grammar_applicator::Engine<'_> {
             r.tags.find(self.cfg.endtag.get()) != r.tags.end()
         };
         if has_endtag && self.rr_in_stream(win) {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a window in the stream keeps its >>> cohort (robustness.enclosures), so its cohort list is never empty"
+            )]
             let back = *self
                 .doc
                 .store
@@ -449,6 +465,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// The heavier window-restructuring types (ADDCOHORT, SPLITCOHORT, MERGECOHORTS,
     /// COPYCOHORT, MOVE/SWITCH, the dependency/relation family) are delegated to
     /// `rr_*` helper methods so this dispatcher stays a readable jump table.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "a reading action runs under the frame run_single_rule_body pushes, whose target sub-reading it sets; match_set sets attach_to's sub-reading with its cohort, and rr_dep_relation's bare attach_to cohort ends the reading loop"
+    )]
     pub(crate) fn reading_cb_dispatch(
         &mut self,
         st: &mut RRState,
@@ -509,6 +529,10 @@ impl crate::grammar_applicator::Engine<'_> {
         rnumber: u32,
         rsub_reading: i32,
     ) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let cohort_readings = self
             .doc
             .store
@@ -520,6 +544,10 @@ impl crate::grammar_applicator::Engine<'_> {
             && (rflags.intersects(RF_UNMAPLAST))
             && st.removed.len() + 1 == cohort_readings
         {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a reading action runs under the frame run_single_rule_body pushes, whose target sub-reading it sets; match_set sets attach_to's sub-reading with its cohort, and rr_dep_relation's bare attach_to cohort ends the reading loop"
+            )]
             let sr = self.get_apply_to().subreading.unwrap();
             if self.unmap_reading(sr, rnumber) {
                 st.readings_changed = true;
@@ -592,11 +620,12 @@ impl crate::grammar_applicator::Engine<'_> {
             KRemparent => {
                 self.scratch.finish_reading_loop = false;
                 self.trace(rnumber, rsub_reading);
-                self.doc
-                    .store
-                    .cohorts
-                    .get_mut(self.get_apply_to().cohort.unwrap().0)
-                    .dep_parent = None;
+                #[expect(
+                    clippy::unwrap_used,
+                    reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+                )]
+                let apply = self.get_apply_to().cohort.unwrap();
+                self.doc.store.cohorts.get_mut(apply.0).dep_parent = None;
             }
             KSwitchparent => {
                 self.scratch.finish_reading_loop = false;
@@ -730,6 +759,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// attaching context makes it act on another cohort, which may have none.
     /// That cohort is left alone; the C++ dereferenced a null parent.
     fn rr_switchparent(&mut self, rule: RuleId) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let child = self.get_apply_to().cohort.unwrap();
         let parent = self.doc.store.cohorts.get(child.0).dep_parent;
         match parent.and_then(|dp| self.doc.cohorts.cohort_map.get(&dp).copied()) {
@@ -749,6 +782,10 @@ impl crate::grammar_applicator::Engine<'_> {
         parent: CohortId,
     ) -> Result<(), crate::error::RunError> {
         let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+        )]
         let current = self.doc.store.cohorts.get(child.0).parent.unwrap();
         let parent_gn = self.doc.store.cohorts.get(parent.0).global_number;
         let grandparent_number = self.doc.store.cohorts.get(parent.0).dep_parent;
@@ -785,6 +822,10 @@ impl crate::grammar_applicator::Engine<'_> {
         rnumber: u32,
         rsub_reading: i32,
     ) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let cohort = self.get_apply_to().cohort.unwrap();
         let maplist_num = self
             .grammar
@@ -865,6 +906,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// in the apply-to reading, replacing `T_SPECIAL` ones with the concrete
     /// matched tag. Operates on the apply-to subreading.
     fn rr_fill_tag_list(&mut self, taglist: &mut TagList) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a reading action runs under the frame run_single_rule_body pushes, whose target sub-reading it sets; match_set sets attach_to's sub-reading with its cohort, and rr_dep_relation's bare attach_to cohort ends the reading loop"
+        )]
         let reading = self.get_apply_to().subreading.unwrap();
         let mut out: TagList = Vec::new();
         for &tt in taglist.iter() {
@@ -899,6 +944,10 @@ impl crate::grammar_applicator::Engine<'_> {
         rsub_reading: i32,
     ) -> Result<(), crate::error::RunError> {
         self.trace(rnumber, rsub_reading);
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a reading action runs under the frame run_single_rule_body pushes, whose target sub-reading it sets; match_set sets attach_to's sub-reading with its cohort, and rr_dep_relation's bare attach_to cohort ends the reading loop"
+        )]
         let reading = self.get_apply_to().subreading.unwrap();
         let state_hash = self.doc.store.readings.get(reading.0).hash;
         self.doc.store.readings.get_mut(reading.0).noprint = false;
@@ -944,6 +993,10 @@ impl crate::grammar_applicator::Engine<'_> {
             self.rr_append_taglist_to_reading(st, rnumber, &the_tags, reading, &mut mappings)?;
         }
         if !mappings.is_empty() {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+            )]
             let cohort = self.get_apply_to().cohort.unwrap();
             self.split_mappings(&mut mappings, cohort, reading, rtype == KMap)?;
         }
@@ -965,7 +1018,15 @@ impl crate::grammar_applicator::Engine<'_> {
         rnumber: u32,
         rsub_reading: i32,
     ) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a reading action runs under the frame run_single_rule_body pushes, whose target sub-reading it sets; match_set sets attach_to's sub-reading with its cohort, and rr_dep_relation's bare attach_to cohort ends the reading loop"
+        )]
         let reading = self.get_apply_to().subreading.unwrap();
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let cohort = self.get_apply_to().cohort.unwrap();
         let state_hash = self.doc.store.readings.get(reading.0).hash;
         self.trace(rnumber, rsub_reading);
@@ -979,6 +1040,10 @@ impl crate::grammar_applicator::Engine<'_> {
         }
 
         let wf_hash = {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+            )]
             let wf = self.doc.store.cohorts.get(cohort.0).wordform.unwrap();
             self.grammar.single_tags_list.get(wf.0).hash
         };
@@ -1030,23 +1095,29 @@ impl crate::grammar_applicator::Engine<'_> {
         rule: RuleId,
         rnumber: u32,
     ) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let cohort = self.get_apply_to().cohort.unwrap();
         let the_tags = self.rr_maplist_tags(rule)?;
         // Group tags into readings, each starting at a T_BASEFORM.
         let mut readings: Vec<TagList> = Vec::new();
-        let mut have_bf = false;
         for tter in the_tags {
             let ttype = self.grammar.tag_type(tter);
             if ttype.intersects(T_BASEFORM) {
-                have_bf = true;
                 readings.push(TagList::new());
             }
-            if !have_bf {
+            let Some(reading) = readings.last_mut() else {
                 let why = crate::error::RuleInapplicable::BaseformFirst { rule: "APPEND" };
                 return Err(self.matcher().rule_inapplicable(why));
-            }
-            readings.last_mut().unwrap().push(tter);
+            };
+            reading.push(tter);
         }
+        #[expect(
+            clippy::unwrap_used,
+            reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+        )]
         let wordform = self.doc.store.cohorts.get(cohort.0).wordform.unwrap();
         for rit in readings {
             let creading = crate::reading::alloc_reading(&mut self.doc.store, Some(cohort));
@@ -1116,6 +1187,10 @@ impl crate::grammar_applicator::Engine<'_> {
         rnumber: u32,
         _rsub_reading: i32,
     ) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let cohort = self.get_apply_to().cohort.unwrap();
         let creading = self.rr_copy_reading(rule, rnumber)?;
 
@@ -1181,6 +1256,10 @@ impl crate::grammar_applicator::Engine<'_> {
         rule: RuleId,
         rnumber: u32,
     ) -> Result<ReadingId, crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let cohort = self.get_apply_to().cohort.unwrap();
         let src = self.rr_apply_to_reading(rule)?;
         // C++ `allocateAppendReading(*get_apply_to().reading)` — exactly ONE
@@ -1252,7 +1331,15 @@ impl crate::grammar_applicator::Engine<'_> {
         rnumber: u32,
         rsub_reading: i32,
     ) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "an action runs under the frame run_single_rule_body pushes, whose target cohort it sets, and get_apply_to prefers attach_to only when attach_to's cohort is set"
+        )]
         let cohort = self.get_apply_to().cohort.unwrap();
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a reading action runs under the frame run_single_rule_body pushes, whose target sub-reading it sets; match_set sets attach_to's sub-reading with its cohort, and rr_dep_relation's bare attach_to cohort ends the reading loop"
+        )]
         let sr = self.get_apply_to().subreading.unwrap();
         let state_hash = self.doc.store.readings.get(sr.0).hash;
         let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
@@ -1403,11 +1490,19 @@ impl crate::grammar_applicator::Engine<'_> {
                 self.split_mappings(&mut mappings, cohort, sr, true)?;
             }
             // Wordform swap across the parent's readings (rare path).
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a reading or sub-reading belongs to a cohort: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was"
+            )]
             let parent = self.doc.store.readings.get(sr.0).parent.unwrap();
             let parent_wf = self.doc.store.cohorts.get(parent.0).wordform;
             if let Some(wf) = wf
                 && Some(wf) != parent_wf
             {
+                #[expect(
+                    clippy::unwrap_used,
+                    reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+                )]
                 let pwf = parent_wf.unwrap();
                 for list_kind in 0..3 {
                     let rs = match list_kind {
@@ -1490,6 +1585,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// off the rule and is shared by every application of it, so the port carries
     /// the clamped offset in the [`TestRef`] handed to `run_contextual_test`
     /// instead — which also removes the need for the restore.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "this runs under the frame run_single_rule_body pushes, whose target cohort it sets, and its loop only puts orgtarget or an attach_to whose cohort it set back in target"
+    )]
     fn rr_dep_relation(
         &mut self,
         st: &mut RRState,
@@ -1626,6 +1725,10 @@ impl crate::grammar_applicator::Engine<'_> {
 
     /// `dep_target_cb` lambda of the dependency/relation branch: perform the
     /// actual attach/relation edit on the resolved (target, attach) pair.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "only rr_dep_relation calls this, under the rule's frame, with target set back to orgtarget (cohort and sub-reading set) and attach_to's cohort set"
+    )]
     fn rr_dep_target_cb(
         &mut self,
         st: &mut RRState,

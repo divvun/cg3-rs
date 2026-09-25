@@ -219,8 +219,7 @@ impl WindowStream {
         let swindow = alloc_swindow(store, Some(0));
         self.window_counter = self.window_counter.wrapping_add(1);
         store.single_windows.get_mut(swindow.0).number = self.window_counter;
-        if !self.next.is_empty() {
-            let back = *self.next.last().unwrap();
+        if let Some(&back) = self.next.last() {
             store.single_windows.get_mut(swindow.0).previous = Some(back);
             store.single_windows.get_mut(back.0).next = Some(swindow);
         }
@@ -236,15 +235,11 @@ impl WindowStream {
     ///
     /// V-NOTE (Stage-B): receiver is [`WindowStream`], not `Window`.
     pub fn back(&self) -> Option<SwId> {
-        if !self.next.is_empty() {
-            Some(*self.next.last().unwrap())
-        } else if self.current.is_some() {
-            self.current
-        } else if !self.previous.is_empty() {
-            Some(*self.previous.last().unwrap())
-        } else {
-            None
-        }
+        self.next
+            .last()
+            .copied()
+            .or(self.current)
+            .or_else(|| self.previous.last().copied())
     }
 
     // [spec:cg3:def:window.cg3.window.shuffle-windows-down-fn]

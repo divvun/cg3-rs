@@ -128,7 +128,7 @@ pub fn g_app_set_opts_ranged(value: &str, cont: &mut Vec<u32>, fill: bool, limit
         let delim = strchr(vb, comma, b'-');
         let nextc = strchr(vb, comma, b',');
         if let Some(d) = delim
-            && (nextc.is_none() || nextc.unwrap() > d)
+            && nextc.is_none_or(|n| n > d)
         {
             had_range = true;
             high = atoi(vb, d + 1).unsigned_abs();

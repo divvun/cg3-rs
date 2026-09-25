@@ -13,7 +13,7 @@
 //!
 //! RECONCILIATION NOTES (see crate report): this file assumes the applicator
 //! grows a `store: RuntimeStore` field, that `SingleWindow::rule_to_cohorts`
-//! becomes `Vec<CohortSet>` (and `nested_rule_to_cohorts` `Option<Box<CohortSet>>`),
+//! becomes `Vec<CohortSet>` (and `nested_rule_to_cohorts` an inline `CohortSet`),
 //! that `CohortSet` sort/insert can resolve the store-aware `compare_Cohort`, and
 //! calls the sibling engine methods (matchSet / runContextualTest / reflow /
 //! context / core) by their C++-matching signatures — none of which exist yet.

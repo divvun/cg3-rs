@@ -166,6 +166,10 @@ pub struct ChildrenIterator {
 
 /// C++ `less_Cohort(a, b)` (SingleWindow.hpp): order by `local_number`, ties
 /// broken by the owning SingleWindow `number`.
+#[expect(
+    clippy::unwrap_used,
+    reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+)]
 fn less_cohort(
     cohorts: &GenArena<Cohort>,
     windows: &GenArena<SingleWindow>,
@@ -258,6 +262,10 @@ fn span_good(
 ) -> bool {
     let cur_parent = cohorts[current.0].parent;
     if cur_parent != cohort_parent {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+        )]
         let cur_win = windows[cur_parent.unwrap().0].number;
         if (!pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT) && cur_win < cohort_win)
             || (!pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT) && cur_win > cohort_win)
@@ -326,11 +334,9 @@ impl TopologyLeftIter {
     /// C++ `operator++`: walk LEFT along the sibling chain, stopping at a window
     /// boundary the test may not cross and skipping `CT_ENCLOSED` cohorts.
     pub fn advance(&mut self, cohorts: &GenArena<Cohort>, grammar: &Grammar) {
-        if self.base.m_cohort.is_none() || self.base.m_test.is_none() {
+        let (Some(cur_id), Some(test_id)) = (self.base.m_cohort, self.base.m_test) else {
             return;
-        }
-        let cur_id = self.base.m_cohort.unwrap();
-        let test_id = self.base.m_test.unwrap();
+        };
         let cur_parent = cohorts[cur_id.0].parent;
         let pos = test_id.pos(&grammar.contexts_arena);
         let boundary = match cohorts[cur_id.0].prev {
@@ -343,13 +349,11 @@ impl TopologyLeftIter {
         if boundary {
             self.base.m_cohort = None;
         } else {
-            let mut mc = self.base.m_cohort;
-            loop {
-                mc = cohorts[mc.unwrap().0].prev;
-                match mc {
-                    Some(id) if cohorts[id.0].r#type.intersects(CT_ENCLOSED) => continue,
-                    _ => break,
-                }
+            let mut mc = cohorts[cur_id.0].prev;
+            while let Some(id) = mc
+                && cohorts[id.0].r#type.intersects(CT_ENCLOSED)
+            {
+                mc = cohorts[id.0].prev;
             }
             self.base.m_cohort = mc;
         }
@@ -370,11 +374,9 @@ impl TopologyRightIter {
     /// C++ `operator++`: mirror of `TopologyLeftIter::advance`, walking RIGHT via
     /// `next` and using `POS_SPAN_RIGHT`.
     pub fn advance(&mut self, cohorts: &GenArena<Cohort>, grammar: &Grammar) {
-        if self.base.m_cohort.is_none() || self.base.m_test.is_none() {
+        let (Some(cur_id), Some(test_id)) = (self.base.m_cohort, self.base.m_test) else {
             return;
-        }
-        let cur_id = self.base.m_cohort.unwrap();
-        let test_id = self.base.m_test.unwrap();
+        };
         let cur_parent = cohorts[cur_id.0].parent;
         let pos = test_id.pos(&grammar.contexts_arena);
         let boundary = match cohorts[cur_id.0].next {
@@ -387,13 +389,11 @@ impl TopologyRightIter {
         if boundary {
             self.base.m_cohort = None;
         } else {
-            let mut mc = self.base.m_cohort;
-            loop {
-                mc = cohorts[mc.unwrap().0].next;
-                match mc {
-                    Some(id) if cohorts[id.0].r#type.intersects(CT_ENCLOSED) => continue,
-                    _ => break,
-                }
+            let mut mc = cohorts[cur_id.0].next;
+            while let Some(id) = mc
+                && cohorts[id.0].r#type.intersects(CT_ENCLOSED)
+            {
+                mc = cohorts[id.0].next;
             }
             self.base.m_cohort = mc;
         }
@@ -430,15 +430,12 @@ impl DepParentIter {
             grammar,
             registry,
         } = arenas;
-        if self.base.m_cohort.is_none() || self.base.m_test.is_none() {
+        let (Some(cur_id), Some(test_id)) = (self.base.m_cohort, self.base.m_test) else {
             return;
-        }
-        let cur_id = self.base.m_cohort.unwrap();
-        let test_id = self.base.m_test.unwrap();
+        };
         let pos = test_id.pos(&grammar.contexts_arena);
-        let dep_parent = cohorts[cur_id.0].dep_parent;
-        if dep_parent.is_some()
-            && let Some(&p_id) = registry.cohort_map.get(&dep_parent.unwrap())
+        if let Some(dep_parent) = cohorts[cur_id.0].dep_parent
+            && let Some(&p_id) = registry.cohort_map.get(&dep_parent)
         {
             if cohorts[p_id.0].r#type.intersects(CT_REMOVED) {
                 self.base.m_cohort = None;
@@ -451,8 +448,14 @@ impl DepParentIter {
                 if p_parent == cur_parent || pos.intersects(POS_SPAN_BOTH) || self.base.m_span {
                     self.base.m_cohort = Some(p_id);
                 } else {
-                    let cur_win = windows[cur_parent.unwrap().0].number;
-                    let p_win = windows[p_parent.unwrap().0].number;
+                    #[expect(
+                        clippy::unwrap_used,
+                        reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+                    )]
+                    let (cur_win, p_win) = (
+                        windows[cur_parent.unwrap().0].number,
+                        windows[p_parent.unwrap().0].number,
+                    );
                     if (p_win < cur_win && pos.intersects(POS_SPAN_LEFT))
                         || (p_win > cur_win && pos.intersects(POS_SPAN_RIGHT))
                     {
@@ -535,6 +538,10 @@ impl DepDescendentIter {
         if let (Some(cohort_id), Some(test_id)) = (cohort, test) {
             let pos = test_id.pos(&grammar.contexts_arena);
             let cohort_parent = cohorts[cohort_id.0].parent;
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+            )]
             let cohort_win = windows[cohort_parent.unwrap().0].number;
 
             // Seed with the direct children.
@@ -664,6 +671,10 @@ impl DepAncestorIter {
         if let (Some(cohort_id), Some(test_id)) = (cohort, test) {
             let pos = test_id.pos(&grammar.contexts_arena);
             let cohort_parent = cohorts[cohort_id.0].parent;
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+            )]
             let cohort_win = windows[cohort_parent.unwrap().0].number;
 
             let mut current = cohort_id;
@@ -742,6 +753,10 @@ impl CohortSetIter {
     /// breaks WITHOUT advancing `m_cohortsetiter`, so the cursor still points AT
     /// the matched element and a subsequent `advance` re-yields it. Harmless —
     /// the type is dead code.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "only the model tests build a CohortSetIter, from a cohort and a test as ChildrenIterator::advance does; its cohorts are window members, whose parent append_cohort set"
+    )]
     pub fn advance(
         &mut self,
         cohorts: &GenArena<Cohort>,
@@ -824,6 +839,10 @@ impl ChildrenIterator {
     /// `dep_children` is non-empty it installs a fresh `CohortSetIter` WITHOUT
     /// populating it via `add_cohort` and never advances `m_cohort` — so it does
     /// not actually walk children. Dead code.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "the C++ derefs m_cohort unchecked here; only the model tests advance a ChildrenIterator, always one built on a cohort"
+    )]
     pub fn advance(&mut self, cohorts: &GenArena<Cohort>) {
         self.base.m_cohortiter = None; // m_cohortiter.reset()
         self.m_depth += 1;

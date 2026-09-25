@@ -62,12 +62,20 @@ impl<T> Arena<T> {
         v
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "grammar ids name live objects: ids come from alloc, and the only frees (GrammarCore::destroy_set on a duplicate set the parser replaced, destroy_rule) drop objects nothing refers to"
+    )]
     pub fn get(&self, i: u32) -> &T {
         self.slots[i as usize]
             .as_ref()
             .expect("arena slot freed/empty")
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "grammar ids name live objects: ids come from alloc, and the only frees (GrammarCore::destroy_set on a duplicate set the parser replaced, destroy_rule) drop objects nothing refers to"
+    )]
     pub fn get_mut(&mut self, i: u32) -> &mut T {
         self.slots[i as usize]
             .as_mut()
@@ -197,11 +205,20 @@ impl<T> GenArena<T> {
         i
     }
 
+    // [spec:cg3:req:robustness.panic-sites-justified]
+    #[expect(
+        clippy::expect_used,
+        reason = "check passed, so the id's generation is the slot's: alloc fills a slot at its generation and free_slot empties it only while bumping it (an id 256 frees stale is the documented ABA window)"
+    )]
     pub fn get(&self, id: u32) -> &T {
         let i = self.check(id);
         self.slots[i].as_ref().expect("GenArena slot freed/empty")
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "check passed, so the id's generation is the slot's: alloc fills a slot at its generation and free_slot empties it only while bumping it (an id 256 frees stale is the documented ABA window)"
+    )]
     pub fn get_mut(&mut self, id: u32) -> &mut T {
         let i = self.check(id);
         self.slots[i].as_mut().expect("GenArena slot freed/empty")

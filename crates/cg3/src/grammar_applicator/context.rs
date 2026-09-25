@@ -35,11 +35,10 @@ impl Engine<'_> {
     /// dereferenced in C++ so it is a bare [`ReadingId`], while `subreading`
     /// (stored as-is, may be null) is `Option<ReadingId>`.
     pub fn set_attach_to(&mut self, reading: ReadingId, subreading: Option<ReadingId>) {
-        if !self.scratch.context_stack.is_empty() {
-            // spec.cohort = reading->parent (read before the mutable borrow below).
-            let parent = self.doc.store.readings.get(reading.0).parent;
-            let spec = &mut self.scratch.context_stack.last_mut().unwrap().attach_to;
-            spec.cohort = parent;
+        if let Some(frame) = self.scratch.context_stack.last_mut() {
+            // spec.cohort = reading->parent
+            let spec = &mut frame.attach_to;
+            spec.cohort = self.doc.store.readings.get(reading.0).parent;
             spec.reading = Some(reading);
             spec.subreading = subreading;
         }
@@ -54,20 +53,10 @@ impl Engine<'_> {
     /// non-null) over the matched `target`; an empty stack yields the default
     /// (all-null) `ReadingSpec`.
     pub fn get_apply_to(&self) -> ReadingSpec {
-        if self.scratch.context_stack.is_empty() {
-            ReadingSpec::default()
-        } else if self
-            .scratch
-            .context_stack
-            .last()
-            .unwrap()
-            .attach_to
-            .cohort
-            .is_some()
-        {
-            self.scratch.context_stack.last().unwrap().attach_to.clone()
-        } else {
-            self.scratch.context_stack.last().unwrap().target.clone()
+        match self.scratch.context_stack.last() {
+            None => ReadingSpec::default(),
+            Some(frame) if frame.attach_to.cohort.is_some() => frame.attach_to.clone(),
+            Some(frame) => frame.target.clone(),
         }
     }
 }
@@ -81,11 +70,11 @@ impl Matcher<'_> {
     /// context's explicit attach target (does NOT fall back to `target`); an
     /// empty stack yields a default-constructed (all-null) `ReadingSpec`.
     pub fn get_attach_to(&self) -> ReadingSpec {
-        if self.scratch.context_stack.is_empty() {
-            ReadingSpec::default()
-        } else {
-            self.scratch.context_stack.last().unwrap().attach_to.clone()
-        }
+        self.scratch
+            .context_stack
+            .last()
+            .map(|frame| frame.attach_to.clone())
+            .unwrap_or_default()
     }
 
     // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.get-mark-fn]
@@ -96,11 +85,10 @@ impl Matcher<'_> {
     /// mark cohort (`X`/MARK reference), `None` on an empty stack (the stored
     /// `mark` may itself be `None`).
     pub fn get_mark(&self) -> Option<CohortId> {
-        if self.scratch.context_stack.is_empty() {
-            None
-        } else {
-            self.scratch.context_stack.last().unwrap().mark
-        }
+        self.scratch
+            .context_stack
+            .last()
+            .and_then(|frame| frame.mark)
     }
 
     // [spec:cg3:def:grammar-applicator-context.cg3.grammar-applicator.set-mark-fn]
@@ -111,8 +99,8 @@ impl Matcher<'_> {
     /// context's mark cohort (silent no-op when the stack is empty). `cohort` is
     /// only stored, never dereferenced, so it is nullable → `Option<CohortId>`.
     pub fn set_mark(&mut self, cohort: Option<CohortId>) {
-        if !self.scratch.context_stack.is_empty() {
-            self.scratch.context_stack.last_mut().unwrap().mark = cohort;
+        if let Some(frame) = self.scratch.context_stack.last_mut() {
+            frame.mark = cohort;
         }
     }
 
@@ -128,17 +116,17 @@ impl Matcher<'_> {
     /// `trie_t` entry address) is the address-free [`UnifKey`]; identity is now
     /// value equality of that key.
     pub fn check_unif_tags(&mut self, set: u32, val: UnifKey) -> bool {
-        if self.scratch.context_stack.is_empty() {
+        let Some(frame) = self.scratch.context_stack.last() else {
             return false;
-        }
+        };
         // auto& unif_tags = *(context_stack.back().unif_tags);
         // The C++ dereferences the pointer unconditionally; a null here would be
         // UB there, so a `None` index faithfully panics ("crash").
-        let idx = self
-            .scratch
-            .context_stack
-            .last()
-            .unwrap()
+        #[expect(
+            clippy::expect_used,
+            reason = "check_unif_tags runs only while matching, and run_single_rule_body gives the frame it pushes its unif_tags index (fresh, or from the plain-signature cache) before it matches any reading"
+        )]
+        let idx = frame
             .unif_tags
             .expect("check_unif_tags: active context frame has a null unif_tags index");
         let unif_tags: &mut UnifTags = &mut self.scratch.unif_tags_store[idx];

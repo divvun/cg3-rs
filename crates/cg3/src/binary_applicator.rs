@@ -799,6 +799,10 @@ impl PacketWriter {
         };
         buffer.extend_from_slice(&cflags.to_le_bytes());
 
+        #[expect(
+            clippy::expect_used,
+            reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+        )]
         let wf = c.wordform.expect("cohort wordform");
         let wf_hash = e.grammar.single_tags_list[wf.0].hash;
         self.tag(buffer, wf)?;
@@ -898,6 +902,10 @@ impl PacketWriter {
         self.tag(buffer, tag_by_hash(e.grammar, baseform))?;
 
         let parent_wf_hash = {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a written reading or sub-reading belongs to a cohort: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was"
+            )]
             let w = e.doc.store.cohorts.get(r.parent.unwrap().0).wordform;
             w.map(|t| e.grammar.single_tags_list[t.0].hash)
                 .unwrap_or(TagHash(0))

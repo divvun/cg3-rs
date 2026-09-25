@@ -101,11 +101,7 @@ pub fn isdigit_c(p: char) -> bool {
 /// `pos` must be a char boundary.
 #[inline]
 pub fn char_at(s: &str, pos: usize) -> char {
-    if pos >= s.len() {
-        '\0'
-    } else {
-        s[pos..].chars().next().unwrap()
-    }
+    s[pos.min(s.len())..].chars().next().unwrap_or('\0')
 }
 
 /// The char ENDING at byte offset `pos` (`p[-1]`), or `'\0'` at the start.

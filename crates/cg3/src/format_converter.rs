@@ -104,6 +104,10 @@ static SNIFF_PATTERNS: std::sync::LazyLock<Vec<(regex::Regex, StreamFormatKind)>
         SNIFF_SOURCES
             .iter()
             .map(|&(pat, fmt)| {
+                #[expect(
+                    clippy::panic,
+                    reason = "SNIFF_SOURCES are crate literals, each compiled by the format_sniff_patterns_compile test"
+                )]
                 let rx = regex::Regex::new(pat)
                     .unwrap_or_else(|e| panic!("detectFormat pattern `{pat}` must compile: {e}"));
                 (rx, fmt)
@@ -154,6 +158,10 @@ pub(crate) fn conv_grammar() -> Result<GrammarCore, crate::error::Cg3Error> {
     grammar.allocate_dummy_set();
     let delim = grammar.allocate_set();
     grammar.delimiters = Some(delim);
+    #[expect(
+        clippy::expect_used,
+        reason = "intern_text refuses only a reserved dependency or relation number (ReservedNumber::check), and the STR_DUMMY literal carries neither"
+    )]
     let dummy_tag = grammar
         .intern_text(STR_DUMMY)
         .expect("the dummy tag is a literal and cannot fail");

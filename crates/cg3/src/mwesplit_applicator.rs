@@ -176,6 +176,10 @@ impl Engine<'_> {
         let rr = self.doc.store.readings.get(r.0);
         let baseform = rr.baseform.unwrap_or(TagHash(0));
         let wordform_hash = {
+            #[expect(
+                clippy::expect_used,
+                reason = "the readings split here come from a cohort's reading list, which the stream readers fill with alloc_reading(Some(cohort))"
+            )]
             let p = rr.parent.expect("reading parent");
             self.doc
                 .store
@@ -270,6 +274,10 @@ impl Engine<'_> {
             return Ok(cos);
         }
 
+        #[expect(
+            clippy::expect_used,
+            reason = "the cohort is split while its window is printed, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
+        )]
         let parent = self
             .doc
             .store
@@ -362,6 +370,10 @@ impl Engine<'_> {
                     let new_parent_wf_hash = {
                         // rNew->parent is still `sub`'s parent (the original cohort)
                         // until reparented below; the C++ reads it before reparenting.
+                        #[expect(
+                            clippy::expect_used,
+                            reason = "alloc_reading_copy keeps sub's parent, and sub is on the chain of a reading of this cohort (see mwe_maybe_wf_tag)"
+                        )]
                         let p = self
                             .doc
                             .store
@@ -402,6 +414,10 @@ impl Engine<'_> {
                     prev = Some(r_new);
                 } else {
                     // prev = prev->next (prev is guaranteed non-null by eligibility).
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "mwe_splittable, checked at the top of this fn, found a wordform tag on every head reading, so the chain's first pass set prev; later passes keep it on the copy of the current sub-reading"
+                    )]
                     let prev_id = prev.expect("splitMwe: null prev on wf-less sub-reading");
                     prev = self.doc.store.readings.get(prev_id.0).next;
                 }

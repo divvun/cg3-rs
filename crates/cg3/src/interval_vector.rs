@@ -86,8 +86,9 @@ impl<T: IntervalScalar> Interval<T> {
 /// integers. Ported from the nested C++ `interval_vector<T>::const_iterator`.
 #[derive(Clone, Copy)]
 pub struct ConstIterator<'a, T: IntervalScalar> {
-    // `nullptr` in the default C++ ctor → `None` here.
-    elements: Option<&'a Vec<Interval<T>>>,
+    // The walked container. The C++ default ctor's `nullptr` state has no
+    // caller, so the port's iterator is always over a container.
+    elements: &'a Vec<Interval<T>>,
     // C++ `ContConstIter it`; `it == elements.len()` is the end sentinel.
     it: usize,
     // C++ current scalar value `T t`.
@@ -104,27 +105,19 @@ impl<'a, T: IntervalScalar> ConstIterator<'a, T> {
         if it != elements.len() {
             t = elements[it].lb;
         }
-        ConstIterator {
-            elements: Some(elements),
-            it,
-            t,
-        }
+        ConstIterator { elements, it, t }
     }
 
     /// Three-arg ctor `const_iterator(elements, it, t)`: sets `t` directly
     /// (used by `find`/`lower_bound` to point at an exact value).
     fn with_value(elements: &'a Vec<Interval<T>>, it: usize, t: T) -> Self {
-        ConstIterator {
-            elements: Some(elements),
-            it,
-            t,
-        }
+        ConstIterator { elements, it, t }
     }
 
     /// `operator++`: walk integers within the interval up to `ub`, then step to
     /// the next interval's `lb` (or the end sentinel with `t = T()`).
     pub fn advance(&mut self) {
-        let els = self.elements.expect("null const_iterator");
+        let els = self.elements;
         if self.it == els.len() {
             self.t = T::default();
             return;
@@ -144,7 +137,7 @@ impl<'a, T: IntervalScalar> ConstIterator<'a, T> {
     /// `operator--`: reverse of [`advance`]; from an interval's `lb` step to the
     /// previous interval's `ub`, or from `begin` to the end sentinel.
     pub fn retreat(&mut self) {
-        let els = self.elements.expect("null const_iterator");
+        let els = self.elements;
         if self.it == els.len() || self.t == els[self.it].lb {
             if self.it == 0 {
                 self.t = T::default();
@@ -181,8 +174,7 @@ impl<'a, T: IntervalScalar> PartialEq for ConstIterator<'a, T> {
 impl<'a, T: IntervalScalar> Iterator for ConstIterator<'a, T> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
-        let els = self.elements?;
-        if self.it >= els.len() {
+        if self.it >= self.elements.len() {
             return None;
         }
         let cur = self.t;
