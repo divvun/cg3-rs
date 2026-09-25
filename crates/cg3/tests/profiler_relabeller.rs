@@ -91,7 +91,7 @@ fn apply_relabelled(fixture: &Path, grammar: &Path, stem: &str) -> String {
     got
 }
 
-// [spec:cg3:sem:relabeller.cg3.relabeller.relabeller-fn/test]
+// [spec:cg3:sem:relabeller.cg3.relabeller.relabeller-fn+1/test]
 // [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn/test]
 // [spec:cg3:sem:relabeller.cg3.relabeller.relabel-as-list-fn/test]
 // [spec:cg3:sem:relabeller.cg3.relabeller.transfer-tags-fn/test]

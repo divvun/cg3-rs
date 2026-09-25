@@ -199,6 +199,58 @@ pub fn trie_copy_helper_reintern(trie: &TagTrie, grammar: &mut GrammarCore) -> B
     nt
 }
 
+/// A relabel rule the relabeller has no way to apply.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "Error: Relabel rule on line {line} is a {keyword} rule, which has no tag list to relabel from; only MAP rules relabel"
+)]
+pub struct RelabelRuleError {
+    /// The line of the relabel file the rule is on.
+    pub line: u32,
+    /// The rule's keyword.
+    pub keyword: &'static str,
+}
+
+impl RelabelRuleError {
+    fn for_rule(rule: &crate::rule::Rule) -> Self {
+        RelabelRuleError {
+            line: rule.line,
+            keyword: crate::strings::KEYWORDS_STR
+                .get(rule.r#type as usize)
+                .copied()
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// The C++ constructor's guards: whether `rule` is one the relabeller skips
+/// (with a warning, deferred I/O) rather than records.
+fn is_skipped(
+    relabels: &GrammarCore,
+    rule: &crate::rule::Rule,
+    maplist: SetId,
+    target: SetId,
+    from_tags: usize,
+) -> bool {
+    // if (!(maplist->trie_special.empty() && target->trie_special.empty()))
+    let maplist_special_empty = relabels.sets_list[maplist.0].trie_special.is_empty();
+    let target_special_empty = relabels.sets_list[target.0].trie_special.is_empty();
+    if !(maplist_special_empty && target_special_empty) {
+        // "Warning: Relabel rule '%S' on line %d has %d special tags,
+        // skipping!\n" — BUG: three conversions (%S, %d, %d), only two
+        // args (rule->name, rule->line); the third %d reads garbage.
+        // Diagnostic deferred; the arg-count mismatch is preserved here.
+        return true;
+    }
+    // In order, each skipping with a warning: "... had context tests",
+    // "... had a wordform", "... has unexpected keyword (expected MAP)",
+    // "... has %d tags in the maplist (expected 1)".
+    !rule.tests.is_empty()
+        || rule.wordform.is_some()
+        || rule.r#type != Keywords::KMap
+        || from_tags != 1
+}
+
 // [spec:cg3:def:relabeller.cg3.relabeller]
 /// C++ `class Relabeller`. Owns pointers to the target `grammar` (mutated) and the
 /// read-only `relabels` grammar, plus the two partitioned relabel-rule maps.
@@ -218,8 +270,9 @@ pub struct Relabeller<'g, 'r> {
 }
 
 impl<'g, 'r> Relabeller<'g, 'r> {
-    // [spec:cg3:def:relabeller.cg3.relabeller.relabeller-fn]
-    // [spec:cg3:sem:relabeller.cg3.relabeller.relabeller-fn]
+    // [spec:cg3:def:relabeller.cg3.relabeller.relabeller-fn+1]
+    // [spec:cg3:sem:relabeller.cg3.relabeller.relabeller-fn+1]
+    // [spec:cg3:req:robustness.cli-arguments]
     /// Constructor. Stores the target/relabels grammars and partitions the relabel
     /// rules into `relabel_as_list` (target set has literal tags in its main trie)
     /// and `relabel_as_set` (target set has none). Each rule is guarded (special
@@ -227,7 +280,15 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     /// rule is skipped); guard diagnostics are deferred I/O. `emplace` on an
     /// unordered_map does not overwrite → a duplicate fromTag string keeps its
     /// FIRST target.
-    pub fn new(res: &'g mut GrammarCore, relabels: &'r GrammarCore, _ux_err: ()) -> Self {
+    ///
+    /// DIVERGENCE: the C++ reads `rule->maplist->trie` before any guard, so a
+    /// rule with no maplist — `SELECT`, `REMOVE`, any keyword that takes no tag
+    /// list — dereferences null. It is refused here instead.
+    pub fn new(
+        res: &'g mut GrammarCore,
+        relabels: &'r GrammarCore,
+        _ux_err: (),
+    ) -> Result<Self, RelabelRuleError> {
         let mut as_list: StringSetMap = StringSetMap::new();
         let mut as_set: StringSetMap = StringSetMap::new();
 
@@ -238,7 +299,9 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         for rid in rule_ids {
             let rule = &relabels.rule_by_number[rid];
             // fromTags = trie_getTagList(rule->maplist->trie)
-            let maplist = rule.maplist.expect("relabel rule has no maplist");
+            let Some(maplist) = rule.maplist else {
+                return Err(RelabelRuleError::for_rule(rule));
+            };
             let from_trie = relabels.sets_list[maplist.0].trie.clone();
             let from_tags = trie_get_tag_list(&from_trie, relabels);
             // target = relabels.sets_list[rule->target] — rule->target is a NUMBER.
@@ -246,31 +309,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
             let to_trie = relabels.sets_list[target.0].trie.clone();
             let to_tags = trie_get_tag_list(&to_trie, relabels);
 
-            // if (!(maplist->trie_special.empty() && target->trie_special.empty()))
-            let maplist_special_empty = relabels.sets_list[maplist.0].trie_special.is_empty();
-            let target_special_empty = relabels.sets_list[target.0].trie_special.is_empty();
-            if !(maplist_special_empty && target_special_empty) {
-                // "Warning: Relabel rule '%S' on line %d has %d special tags,
-                // skipping!\n" — BUG: three conversions (%S, %d, %d), only two
-                // args (rule->name, rule->line); the third %d reads garbage.
-                // Diagnostic deferred; the arg-count mismatch is preserved here.
-                continue;
-            }
-            if !rule.tests.is_empty() {
-                // "... had context tests, skipping!\n" (args: name, line)
-                continue;
-            }
-            if rule.wordform.is_some() {
-                // "... had a wordform, skipping!\n" (args: name, line)
-                continue;
-            }
-            if rule.r#type != Keywords::KMap {
-                // "... has unexpected keyword (expected MAP), skipping!\n"
-                continue;
-            }
-            if from_tags.len() != 1 {
-                // "... has %d tags in the maplist (expected 1), skipping!\n"
-                // (args: name, line, fromTags.size())
+            if is_skipped(relabels, rule, maplist, target, from_tags.len()) {
                 continue;
             }
 
@@ -294,12 +333,12 @@ impl<'g, 'r> Relabeller<'g, 'r> {
             }
         }
 
-        Relabeller {
+        Ok(Relabeller {
             grammar: res,
             relabels,
             relabel_as_list: as_list,
             relabel_as_set: as_set,
-        }
+        })
     }
 
     // [spec:cg3:def:relabeller.cg3.relabeller.transfer-tags-fn]

@@ -11,25 +11,23 @@ use std::io::{Read, Write};
 use crate::binary_grammar::BinaryGrammar;
 use crate::grammar::GrammarCore;
 use crate::inlines::is_cg3b;
-use crate::relabeller::Relabeller;
+use crate::relabeller::{RelabelRuleError, Relabeller};
 use crate::textual_parser::TextualParser;
 
-use super::{EXIT_FAILURE, basename, fail, print_divvun_version_line};
+use super::{EXIT_FAILURE, basename, divvun_version_line, emit, fail};
 
 // [spec:cg3:def:cg-relabel.end-program-fn+3]
 // [spec:cg3:sem:cg-relabel.end-program-fn+3]
 /// C++ `void endProgram(char* name)`.
 fn end_program(name: Option<&str>) -> i32 {
     if let Some(name) = name {
-        print_divvun_version_line("Relabeller");
-        println!(
-            "{}: relabel a binary grammar using a relabelling file",
-            basename(name)
+        let name = basename(name);
+        let usage = format!(
+            "{}{name}: relabel a binary grammar using a relabelling file\n\
+             USAGE: {name} input_grammar_file relabel_rule_file output_grammar_file\n",
+            divvun_version_line("Relabeller"),
         );
-        println!(
-            "USAGE: {} input_grammar_file relabel_rule_file output_grammar_file",
-            basename(name)
-        );
+        emit(std::io::stdout(), &usage);
     }
     EXIT_FAILURE
 }
@@ -162,6 +160,49 @@ fn report_load(e: &GrammarLoadError) -> i32 {
     EXIT_FAILURE
 }
 
+/// Why [`main_relabel`] has no relabelled grammar to write.
+#[derive(Debug, thiserror::Error)]
+enum RelabelFailure {
+    #[error(transparent)]
+    Load(#[from] GrammarLoadError),
+    #[error(transparent)]
+    Rule(#[from] RelabelRuleError),
+    #[error(transparent)]
+    Relabel(#[from] crate::error::Cg3Error),
+}
+
+/// Report a [`RelabelFailure`] on the way out of [`main_relabel`], and derive
+/// the exit code it maps to.
+fn report_failure(e: &RelabelFailure) -> i32 {
+    match e {
+        RelabelFailure::Load(e) => report_load(e),
+        RelabelFailure::Rule(e) => {
+            tracing::error!("{e}");
+            EXIT_FAILURE
+        }
+        RelabelFailure::Relabel(e) => fail(e),
+    }
+}
+
+/// Load the grammar at `grammar_path` and relabel it by the rules at
+/// `relabel_path`.
+fn relabel_grammar(grammar_path: &str, relabel_path: &str) -> Result<GrammarCore, RelabelFailure> {
+    // std::unique_ptr<Grammar> grammar{ cg3_grammar_load(argv[1], ..., true) };
+    // std::unique_ptr<Grammar> relabel_grammar{ cg3_grammar_load(argv[2], ...) };
+    //
+    // DIVERGENCE (was: BUG, null-check-missing, reproduced): the C++ checks
+    // neither result before dereferencing it, so a grammar that fails to load
+    // crashes the process. The loader hands the failure back as a value now, so
+    // the boundary that owns the exit code reports it and returns.
+    let mut grammar = cg3_grammar_load(grammar_path, true)?;
+    let relabel_grammar = cg3_grammar_load(relabel_path, false)?;
+
+    // Relabeller relabeller(*grammar, *relabel_grammar, std::cerr);
+    // relabeller.relabel();
+    Relabeller::new(&mut grammar, &relabel_grammar, ())?.relabel()?;
+    Ok(grammar)
+}
+
 // [spec:cg3:def:cg-relabel.main-fn+1]
 // [spec:cg3:sem:cg-relabel.main-fn+1]
 /// C++ `int main(int argc, char* argv[])`.
@@ -173,30 +214,10 @@ pub fn main_relabel(args: &[String]) -> i32 {
         return end_program(args.first().map(|s| s.as_str()));
     }
 
-    // std::unique_ptr<Grammar> grammar{ cg3_grammar_load(argv[1], ..., true) };
-    // std::unique_ptr<Grammar> relabel_grammar{ cg3_grammar_load(argv[2], ...) };
-    //
-    // DIVERGENCE (was: BUG, null-check-missing, reproduced): the C++ checks
-    // neither result before dereferencing it, so a grammar that fails to load
-    // crashes the process. The loader hands the failure back as a value now, so
-    // the boundary that owns the exit code reports it and returns.
-    let mut grammar = match cg3_grammar_load(&args[1], true) {
+    let grammar = match relabel_grammar(&args[1], &args[2]) {
         Ok(g) => g,
-        Err(e) => return report_load(&e),
+        Err(e) => return report_failure(&e),
     };
-    let relabel_grammar = match cg3_grammar_load(&args[2], false) {
-        Ok(g) => g,
-        Err(e) => return report_load(&e),
-    };
-
-    // Relabeller relabeller(*grammar, *relabel_grammar, std::cerr);
-    // relabeller.relabel();
-    {
-        let mut relabeller = Relabeller::new(&mut grammar, &relabel_grammar, ());
-        if let Err(e) = relabeller.relabel() {
-            return fail(&e);
-        }
-    }
 
     // std::ofstream gout(argv[3], ...); if (gout) { BinaryGrammar writer; writer.writeBinaryGrammar(gout); }
     match File::create(&args[3]) {

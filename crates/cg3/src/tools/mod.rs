@@ -39,6 +39,8 @@
 //!   `base_mut()` accessors — the composition analogue of the C++ public
 //!   inheritance.
 
+use std::io::Write;
+
 #[cfg(feature = "profiler")]
 pub mod cg_annotate;
 pub mod cg_comp;
@@ -126,6 +128,34 @@ pub(crate) fn fail(e: &crate::error::Cg3Error) -> i32 {
     EXIT_FAILURE
 }
 
+// --- Profile databases -----------------------------------------------------------
+
+/// A profile database the profile tools could not read.
+#[cfg(feature = "profiler")]
+#[derive(Debug, thiserror::Error)]
+#[error("Error: cannot read profile database {path}: {source}")]
+pub(crate) struct ProfileReadError {
+    path: String,
+    #[source]
+    source: rusqlite::Error,
+}
+
+// [spec:cg3:req:robustness.cli-arguments]
+/// C++ `Profiler p; p.read(path)` for the profile tools, whose read failure
+/// throws. The tools refuse the database rather than go on with an empty
+/// profile.
+#[cfg(feature = "profiler")]
+pub(crate) fn read_profile(path: &str) -> Result<crate::profiler::Profiler, ProfileReadError> {
+    let mut profiler = crate::profiler::Profiler::default();
+    match profiler.read(path) {
+        Ok(()) => Ok(profiler),
+        Err(source) => Err(ProfileReadError {
+            path: path.to_string(),
+            source,
+        }),
+    }
+}
+
 // --- Option-table merging --------------------------------------------------------
 
 /// Merge one pair of option tables onto `options`: `defaults` fill only what is
@@ -161,15 +191,19 @@ pub const DIVVUN_BUILD_DATE: &str = env!("CG3_BUILD_DATE");
 pub const DIVVUN_GIT_HASH: &str = env!("CG3_GIT_HASH");
 pub const DIVVUN_COPYRIGHT_STRING: &str = "Copyright (C) 2026 UiT The Arctic University of Norway";
 
-pub(crate) fn print_divvun_version_line(product: &str) {
-    println!("Divvun CG-3 {product} v{DIVVUN_VERSION} ({DIVVUN_BUILD_DATE} {DIVVUN_GIT_HASH})");
+/// The first line of every tool's banner.
+pub(crate) fn divvun_version_line(product: &str) -> String {
+    format!("Divvun CG-3 {product} v{DIVVUN_VERSION} ({DIVVUN_BUILD_DATE} {DIVVUN_GIT_HASH})\n")
 }
 
-pub(crate) fn print_divvun_version(product: &str) {
-    print_divvun_version_line(product);
-    println!("{DIVVUN_COPYRIGHT_STRING}");
-    println!("{CG3_COPYRIGHT_STRING}");
-    println!("Source: {DIVVUN_REPOSITORY}");
+/// Everything the `--version` banner says below its first line.
+pub(crate) fn divvun_copyright() -> String {
+    format!("{DIVVUN_COPYRIGHT_STRING}\n{CG3_COPYRIGHT_STRING}\nSource: {DIVVUN_REPOSITORY}\n")
+}
+
+/// The complete `--version` banner.
+pub(crate) fn divvun_version(product: &str) -> String {
+    divvun_version_line(product) + &divvun_copyright()
 }
 
 // [spec:cg3:req:tools.divvun-version-banner+2]
@@ -180,9 +214,131 @@ pub fn handle_divvun_version(args: &[String], product: &str, short_aliases: &[&s
     let requested =
         args.len() == 2 && (args[1] == "--version" || short_aliases.contains(&args[1].as_str()));
     if requested {
-        print_divvun_version(product);
+        emit(std::io::stdout(), &divvun_version(product));
     }
     requested
+}
+
+// --- Standard streams ------------------------------------------------------------
+
+// [spec:cg3:req:robustness.cli-output]
+/// Write `text` to `stream` and flush it; a stream that has closed ends the
+/// output there, quietly.
+///
+/// The `print!` family panics once the reader has gone — `vislcg3 --help | head
+/// -1` — where the C++ tools are killed by `SIGPIPE` without a word. This stops
+/// the same way and leaves the tool to return the exit code it already had.
+/// Nothing is reported: the reader that would see it is the one that left.
+pub(crate) fn emit(mut stream: impl Write, text: &str) {
+    if stream.write_all(text.as_bytes()).is_ok() {
+        let _ = stream.flush();
+    }
+}
+
+/// Emit a usage text where the C++ `out = (argc < 0) ? stderr : stdout` sends
+/// it, and derive the exit code: a refused command line fails, `--help` does
+/// not.
+pub(crate) fn emit_usage(text: &str, refused: bool) -> i32 {
+    if refused {
+        emit(std::io::stderr(), text);
+        return EXIT_FAILURE;
+    }
+    emit(std::io::stdout(), text);
+    EXIT_SUCCESS
+}
+
+// --- Process entry ---------------------------------------------------------------
+
+/// What a tool binary hands [`run_tool`]: who it is, and the ported `main` to
+/// run.
+pub struct Tool {
+    /// The product name its `--version` banner carries.
+    pub product: &'static str,
+    /// Short flags that also ask for the banner (`vislcg3 -V`, `cg-proc -v`).
+    pub version_aliases: &'static [&'static str],
+    /// The environment variables it reads options from (`CG3_DEFAULT`, ...).
+    pub option_env: &'static [&'static str],
+    /// The ported C++ `main`, taking `argv` and returning the exit code.
+    pub main: fn(&[String]) -> i32,
+}
+
+/// A command line the tools cannot take as text.
+#[derive(Debug, thiserror::Error)]
+enum CommandLineError {
+    #[error("{program}: error in command line argument \"{lossy}\": not valid UTF-8")]
+    Argument { program: String, lossy: String },
+    #[error("{program}: error in environment variable {name}: not valid UTF-8")]
+    Environment { program: String, name: &'static str },
+}
+
+// [spec:cg3:req:robustness.cli-arguments]
+/// Run a tool binary: take its command line, answer `--version`, install
+/// diagnostics and hand over to its ported `main`. Returns the exit code.
+///
+/// DIVERGENCE: the C++ takes `argv` and its option variables as bytes and
+/// passes them on unread. Every option value here is a `String`, so an
+/// argument or option variable that is not UTF-8 is refused by name before the
+/// tool starts, where an argument used to panic and a variable was passed over
+/// as though unset.
+pub fn run_tool(tool: &Tool) -> i32 {
+    let args = match utf8_args(std::env::args_os()) {
+        Ok(args) => args,
+        Err(e) => return refuse(&e),
+    };
+    if handle_divvun_version(&args, tool.product, tool.version_aliases) {
+        return EXIT_SUCCESS;
+    }
+    init_diagnostics();
+    match check_option_env(&args, tool.option_env) {
+        Ok(()) => (tool.main)(&args),
+        Err(e) => refuse(&e),
+    }
+}
+
+/// The process `argv` as UTF-8, or the first argument that is not.
+///
+/// `argv[0]` is converted lossily rather than checked: it is the path the tool
+/// was started by, not something the user typed as an argument, and it is
+/// only ever shown as a name.
+fn utf8_args(
+    argv: impl IntoIterator<Item = std::ffi::OsString>,
+) -> Result<Vec<String>, CommandLineError> {
+    let mut argv = argv.into_iter();
+    let program = argv.next().map(|p| p.to_string_lossy().into_owned());
+    let mut args: Vec<String> = program.iter().cloned().collect();
+    for arg in argv {
+        match arg.into_string() {
+            Ok(arg) => args.push(arg),
+            Err(arg) => {
+                return Err(CommandLineError::Argument {
+                    program: program.unwrap_or_default(),
+                    lossy: arg.to_string_lossy().into_owned(),
+                });
+            }
+        }
+    }
+    Ok(args)
+}
+
+/// Refuse an option variable in `names` that is set but not UTF-8, which
+/// `parse_opts_env` would otherwise pass over as though it were unset.
+fn check_option_env(args: &[String], names: &[&'static str]) -> Result<(), CommandLineError> {
+    let not_utf8 =
+        |name: &&str| matches!(std::env::var(name), Err(std::env::VarError::NotUnicode(_)));
+    match names.iter().copied().find(not_utf8) {
+        Some(name) => Err(CommandLineError::Environment {
+            program: args.first().cloned().unwrap_or_default(),
+            name,
+        }),
+        None => Ok(()),
+    }
+}
+
+/// Report a command line the tool cannot take, and derive the exit code.
+fn refuse(e: &CommandLineError) -> i32 {
+    init_diagnostics();
+    tracing::error!("{e}");
+    EXIT_FAILURE
 }
 
 // --- Shared upstream version constants (C++ `version.hpp`) --------------------

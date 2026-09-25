@@ -236,7 +236,7 @@
 > [spec:cg3:def:relabeller.cg3.relabeller.relabeller-fn]
 > Relabeller::Relabeller(Grammar& res, const Grammar& relabels, std::ostream& ux_err)
 
-> [spec:cg3:sem:relabeller.cg3.relabeller.relabeller-fn]
+> [spec:cg3:sem:relabeller.cg3.relabeller.relabeller-fn+1]
 > Constructor. Stores `ux_stderr = &ux_err`, `grammar = &res` (the target
 > grammar to be relabelled), and `relabels = &relabels` (the grammar of
 > relabel rules). Then partitions the relabel rules into two maps: builds
@@ -271,6 +271,16 @@
 > `emplace` on an unordered_map does not overwrite, a duplicate fromTag
 > string keeps its first target. After the loop, moves `as_list` into
 > `relabel_as_list` and `as_set` into `relabel_as_set`.
+>
+> PORT DIVERGENCE: a relabel rule with no maplist — any keyword that takes no
+> tag list, such as `SELECT` or `REMOVE` — is refused: the constructor returns
+> an error naming the rule's line and keyword, and `cg-relabel` reports it and
+> exits with `EXIT_FAILURE`. The C++ computes
+> `trie_getTagList(rule->maplist->trie)` before any guard, so such a rule
+> dereferences a null pointer; the keyword guard that would skip it is never
+> reached. A relabel file holding a rule that can relabel nothing is its
+> author's mistake to hear about, and a skip would pass it over in silence
+> since the port's warnings are deferred.
 
 > [spec:cg3:def:relabeller.cg3.relabeller.tag-vector]
 > typedef std::vector<Tag*> TagVector

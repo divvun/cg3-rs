@@ -35,7 +35,7 @@ use crate::options_parser::{parse_opts, parse_opts_env};
 use crate::textual_parser::TextualParser;
 
 use super::{
-    EXIT_FAILURE, basename, fail, merge_options, print_divvun_version, print_divvun_version_line,
+    EXIT_FAILURE, basename, divvun_version, divvun_version_line, emit, fail, merge_options,
 };
 
 // [spec:cg3:def:cg-proc.end-program-fn+3]
@@ -44,34 +44,37 @@ use super::{
 /// yields `EXIT_FAILURE` for its caller to return. The `HAVE_GETOPT_LONG`
 /// variant of the banner is used (the ported getopt below is the long variant).
 fn end_program(name: &str) -> i32 {
-    print_divvun_version_line("Disambiguator");
-    println!(
-        "{}: process a stream with a constraint grammar",
-        basename(name)
+    let name = basename(name);
+    let usage = format!(
+        "{}{name}: process a stream with a constraint grammar\n\
+         USAGE: {name} [-t] [-s] [-d] [-g] [-r rule] grammar_file [input_file [output_file]]\n\
+         {USAGE_OPTIONS}",
+        divvun_version_line("Disambiguator"),
     );
-    println!(
-        "USAGE: {} [-t] [-s] [-d] [-g] [-r rule] grammar_file [input_file [output_file]]",
-        basename(name)
-    );
-    println!("Options:");
-    println!("\t-d, --disambiguation:\t morphological disambiguation");
-    println!("\t-s, --sections=NUM:\t specify number of sections to process");
-    println!("\t-f, --stream-format=NUM: set the format of the I/O stream to NUM,");
-    println!("\t\t\t\t   where `0' is VISL format, `1' is Apertium");
-    println!("\t\t\t\t   format, `2` is Matxin, and `3` is binary");
-    println!("                  (default: 1)");
-    println!("\t-r, --rule=NAME:\t run only the named rule");
-    println!("\t-t, --trace:\t\t print debug output on stderr");
-    println!("\t-w, --wordform-case:\t enforce surface case on lemma/baseform ");
-    println!("\t\t\t\t   (to work with -w option of lt-proc)");
-    println!("\t-n, --no-word-forms:\t do not print out the word form of each cohort");
-    println!("\t-g, --generation:\t do not surround lexical units in ^$");
-    println!("\t-1, --first:\t \t only output the first analysis if ambiguity remains");
-    println!("\t-z, --null-flush:\tflush output on the null character");
-    println!("\t-v, --version:\t \t version");
-    println!("\t-h, --help:\t\t show this help");
+    emit(std::io::stdout(), &usage);
     EXIT_FAILURE
 }
+
+/// The option list [`end_program`] prints below its usage line.
+const USAGE_OPTIONS: &str = concat!(
+    "Options:\n",
+    "\t-d, --disambiguation:\t morphological disambiguation\n",
+    "\t-s, --sections=NUM:\t specify number of sections to process\n",
+    "\t-f, --stream-format=NUM: set the format of the I/O stream to NUM,\n",
+    "\t\t\t\t   where `0' is VISL format, `1' is Apertium\n",
+    "\t\t\t\t   format, `2` is Matxin, and `3` is binary\n",
+    "                  (default: 1)\n",
+    "\t-r, --rule=NAME:\t run only the named rule\n",
+    "\t-t, --trace:\t\t print debug output on stderr\n",
+    "\t-w, --wordform-case:\t enforce surface case on lemma/baseform \n",
+    "\t\t\t\t   (to work with -w option of lt-proc)\n",
+    "\t-n, --no-word-forms:\t do not print out the word form of each cohort\n",
+    "\t-g, --generation:\t do not surround lexical units in ^$\n",
+    "\t-1, --first:\t \t only output the first analysis if ambiguity remains\n",
+    "\t-z, --null-flush:\tflush output on the null character\n",
+    "\t-v, --version:\t \t version\n",
+    "\t-h, --help:\t\t show this help\n",
+);
 
 /// Minimal faithful `getopt_long` for the exact optstring `"ds:f:tr:n1wvhz"`
 /// plus the cg-proc long-option table. Only what cg-proc needs is modelled:
@@ -217,10 +220,19 @@ fn getopt_long_cgproc(args: &[String]) -> GetoptResult {
         }
     }
 
+    // A numeric value that is no number refuses the command line like any
+    // other malformed option, after saying which.
+    let error = match check_number_args(&events) {
+        Ok(()) => false,
+        Err(e) => {
+            tracing::error!("{e}");
+            true
+        }
+    };
     GetoptResult {
         events,
         optind: i,
-        error: false,
+        error,
     }
 }
 
@@ -248,6 +260,34 @@ fn atoi(arg: Option<&str>) -> i32 {
         }
         None => 0, // atoi(NULL): UB — see NOTE.
     }
+}
+
+/// A numeric argument that is not a whole number.
+#[derive(Debug, thiserror::Error)]
+#[error("Error: -{flag} expects a whole number, not \"{value}\"")]
+struct NumberArgError {
+    flag: char,
+    value: String,
+}
+
+// [spec:cg3:req:robustness.cli-arguments]
+/// Check the values `-f` and `-s` will be `atoi`'d from. DIVERGENCE: C `atoi`
+/// reads a value that is no number as 0 and cuts one with trailing text down to
+/// its digits; both are refused here. A missing value — the long `--sections`,
+/// declared without an argument, whose `atoi(NULL)` is undefined in C — still
+/// reads as 0.
+fn check_number_args(events: &[(char, Option<String>)]) -> Result<(), NumberArgError> {
+    for (flag, arg) in events {
+        if let ('f' | 's', Some(value)) = (flag, arg)
+            && value.trim().parse::<i32>().is_err()
+        {
+            return Err(NumberArgError {
+                flag: *flag,
+                value: value.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 // [spec:cg3:def:cg-proc.main-fn+1]
@@ -302,7 +342,7 @@ pub fn main_proc(args: &[String]) -> i32 {
             '1' => only_first = true,
             'w' => wordform_case = true,
             'v' => {
-                print_divvun_version("Disambiguator");
+                emit(std::io::stdout(), &divvun_version("Disambiguator"));
                 // C++ exit(EXIT_SUCCESS) — returned to the wrapper in src/bin,
                 // which owns the only process::exit.
                 return 0;

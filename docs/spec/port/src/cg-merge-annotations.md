@@ -3,7 +3,7 @@
 > [spec:cg3:def:cg-merge-annotations.main-fn]
 > int main(int argc, char* argv[])
 
-> [spec:cg3:sem:cg-merge-annotations.main-fn]
+> [spec:cg3:sem:cg-merge-annotations.main-fn+1]
 > Merges several profiling SQLite databases (produced by `vislcg3 --profile`)
 > into one. Positional-only, NO option parsing and NO ICU init. Argument layout:
 > `argv[1]` = output DB path, `argv[2]` = the base/primary input DB, `argv[3..]`
@@ -37,4 +37,13 @@
 >   unconditionally uses `argv[2]`, so fewer than 3 args reads a null/garbage
 >   path (SQLite open error). With exactly `argc==3` the merge loop never runs
 >   and it simply copies the base DB to the output path.
+>
+> PORT DIVERGENCE: with fewer than three arguments the port reports the usage
+> on stderr and exits with `EXIT_FAILURE` instead of opening a garbage path.
+> A database `read` cannot open or query, and the different-grammars
+> `runtime_error`, are reported with a message and `EXIT_FAILURE` rather than
+> thrown out of `main`. The count sums are checked: one that overflows
+> `size_t` — which only a malformed database can produce, a negative count
+> read back as a huge one — is refused the same way instead of wrapping. In
+> each case nothing is written to the output path.
 

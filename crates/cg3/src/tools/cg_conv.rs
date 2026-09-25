@@ -16,10 +16,10 @@ use crate::arg_parser::parse_args;
 use crate::options_conv::{Opt, options_conv, options_default, options_override};
 use crate::options_parser::parse_opts_env;
 
-use super::{EXIT_FAILURE, EXIT_SUCCESS, fail, to_argv};
+use super::{EXIT_FAILURE, EXIT_SUCCESS, emit_usage, fail, to_argv};
 
-// [spec:cg3:def:cg-conv.main-fn]
-// [spec:cg3:sem:cg-conv.main-fn]
+// [spec:cg3:def:cg-conv.main-fn+1]
+// [spec:cg3:sem:cg-conv.main-fn+1]
 /// C++ `int main(int argc, char* argv[])`.
 // faithful port: the C++ `for (i=0; i<NUM_OPTIONS_CONV; ++i)` scans cover the
 // whole table — its length IS the enum constant (`ConvOptionsTable`).
@@ -109,14 +109,16 @@ pub fn main_conv(args: &[String]) -> i32 {
             "===============================================================================\n",
         );
 
-        if argc < 0 {
-            eprint!("{}", out);
-            return EXIT_FAILURE;
-        } else {
-            print!("{}", out);
-            return EXIT_SUCCESS;
-        }
+        return emit_usage(&out, argc < 0);
     }
+
+    let numbers = match NumericOptions::read(&options_conv) {
+        Ok(numbers) => numbers,
+        Err(e) => {
+            tracing::error!("{e}");
+            return EXIT_FAILURE;
+        }
+    };
 
     // in-cg2 → in-cg; out-cg2 → out-cg.
     if occ(&options_conv, Opt::InCg2) {
@@ -220,11 +222,7 @@ pub fn main_conv(args: &[String]) -> i32 {
     if occ(&options_conv, Opt::FstWtag) {
         applicator.set_fst_wtag(options_conv[Opt::FstWtag as usize].value.clone());
     }
-    if occ(&options_conv, Opt::FstWfactor) {
-        let wfactor = options_conv[Opt::FstWfactor as usize]
-            .value
-            .parse::<f64>()
-            .unwrap();
+    if let Some(wfactor) = numbers.wfactor {
         applicator.set_fst_wfactor(wfactor);
     }
 
@@ -258,14 +256,8 @@ pub fn main_conv(args: &[String]) -> i32 {
         applicator.base_mut().cfg.parse_dep = true;
         applicator.base_mut().doc.deps.has_dep = true;
     }
-    if occ(&options_conv, Opt::DepDelimit) {
-        // std::stoul(value) — throws (→ terminates) on non-numeric; unwrap.
-        let v = options_conv[Opt::DepDelimit as usize].value.clone();
-        applicator.base_mut().cfg.dep_delimit = if !v.is_empty() {
-            v.parse().unwrap()
-        } else {
-            10
-        };
+    if let Some(dep_delimit) = numbers.dep_delimit {
+        applicator.base_mut().cfg.dep_delimit = dep_delimit;
         applicator.base_mut().cfg.parse_dep = true;
     }
     applicator.base_mut().cfg.is_conv = true;
@@ -280,4 +272,68 @@ pub fn main_conv(args: &[String]) -> i32 {
 
     // C++ main returns nothing on this path (implicit 0).
     EXIT_SUCCESS
+}
+
+/// The cg-conv options whose values are numbers, read before the run starts.
+struct NumericOptions {
+    /// `-W` / `--wfactor`.
+    wfactor: Option<f64>,
+    /// `--dep-delimit`; 10 when it is given without a value.
+    dep_delimit: Option<u32>,
+}
+
+/// An option value that is not the number the option names.
+#[derive(Debug, thiserror::Error)]
+#[error("Error: --{option} expects {expected}, not \"{value}\"")]
+struct OptionValueError {
+    option: &'static str,
+    expected: &'static str,
+    value: String,
+}
+
+impl NumericOptions {
+    // [spec:cg3:req:robustness.cli-arguments]
+    /// Read `-W` and `--dep-delimit` from the merged option table — the command
+    /// line and `CG3_CONV_DEFAULT` / `CG3_CONV_OVERRIDE` alike.
+    ///
+    /// DIVERGENCE: the C++ converts them with `std::stod` / `std::stoul` where
+    /// it applies them, so a value that is no number throws and ends the
+    /// process, and one that only starts with a number is cut down to it. Here
+    /// the whole value must be a number the field can hold, and anything else
+    /// is refused before stdin is read.
+    fn read(options: &crate::options_conv::ConvOptionsTable) -> Result<Self, OptionValueError> {
+        let wfactor = option_number(options, Opt::FstWfactor, "a number")?;
+        let dep = &options[Opt::DepDelimit as usize];
+        let dep_delimit = if dep.does_occur && dep.value.is_empty() {
+            Some(10)
+        } else {
+            option_number(options, Opt::DepDelimit, "a whole number up to 4294967295")?
+        };
+        Ok(NumericOptions {
+            wfactor,
+            dep_delimit,
+        })
+    }
+}
+
+/// The value of `opt` as a `T`, or `None` when the option was not given.
+fn option_number<T: std::str::FromStr>(
+    options: &crate::options_conv::ConvOptionsTable,
+    opt: Opt,
+    expected: &'static str,
+) -> Result<Option<T>, OptionValueError> {
+    let option = &options[opt as usize];
+    if !option.does_occur {
+        return Ok(None);
+    }
+    option
+        .value
+        .trim()
+        .parse()
+        .map(Some)
+        .map_err(|_| OptionValueError {
+            option: option.long_name.unwrap_or_default(),
+            expected,
+            value: option.value.clone(),
+        })
 }

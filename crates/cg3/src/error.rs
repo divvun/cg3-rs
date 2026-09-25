@@ -299,6 +299,18 @@ pub enum Cg3Error {
 
     #[error(transparent)]
     Run(#[from] RunError),
+
+    #[error(transparent)]
+    Option(#[from] OptionValueError),
+}
+
+// [spec:cg3:req:robustness.cli-arguments]
+/// A numeric option given a value that is not a number it can hold.
+#[derive(Debug, thiserror::Error)]
+#[error("Error: --{option} expects a whole number up to 4294967295, not \"{value}\"")]
+pub struct OptionValueError {
+    pub option: &'static str,
+    pub value: String,
 }
 
 impl Cg3Error {

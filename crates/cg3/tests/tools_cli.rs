@@ -564,7 +564,7 @@ fn cg_comp_end_program_usage() {
     );
 }
 
-// [spec:cg3:sem:cg-conv.main-fn/test]
+// [spec:cg3:sem:cg-conv.main-fn+1/test]
 // cg-conv main: option-table parsing (--in-niceline), FormatConverter setup, and
 // the stdin->stdout conversion run. Niceline input is CONVERTED to the default
 // CG output: the C++ niceline driver's virtual print dispatch lands on the
@@ -959,7 +959,7 @@ fn write_profile_db(name: &str, num_match: usize, with_example: bool) -> (PathBu
     (db, grammar)
 }
 
-// [spec:cg3:sem:cg-annotate.main-fn/test]
+// [spec:cg3:sem:cg-annotate.main-fn+1/test]
 // [spec:cg3:sem:cg-annotate.xml-encode-fn/test]
 // [spec:cg3:sem:cg-annotate.file-save-fn/test]
 // cg-annotate main: reads a profiler db (built via the crate's own Profiler,
@@ -1023,7 +1023,7 @@ fn cg_annotate_main_writes_report() {
     let _ = std::fs::remove_dir_all(&out_dir);
 }
 
-// [spec:cg3:sem:cg-merge-annotations.main-fn/test]
+// [spec:cg3:sem:cg-merge-annotations.main-fn+1/test]
 // cg-merge-annotations main: reads the base db, folds the input db into it
 // (summing rule/context match counts and rule_contexts, adopting the missing
 // example window), and writes the merged db — verified by reading it back with

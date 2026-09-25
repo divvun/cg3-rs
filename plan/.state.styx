@@ -378,4 +378,11 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id no-panic.cli, covered_rules (
+        robustness.cli-arguments
+        robustness.cli-output
+    ), covered_claims (
+        {impl_name target-impl, rule robustness.cli-arguments}
+        {impl_name target-impl, rule robustness.cli-output}
+    )}
 )

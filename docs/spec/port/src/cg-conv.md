@@ -3,7 +3,7 @@
 > [spec:cg3:def:cg-conv.main-fn]
 > int main(int argc, char* argv[])
 
-> [spec:cg3:sem:cg-conv.main-fn]
+> [spec:cg3:sem:cg-conv.main-fn+1]
 > Entry point for `cg-conv`, the stream format converter. It reads stdin,
 > converts between CG-family formats via a `FormatConverter` applicator, and
 > writes stdout. Uses the `options_conv` UOption array (enum in
@@ -68,4 +68,17 @@
 >   `applicator.verbosity_level=0`, then
 >   `applicator.runGrammarOnText(*instream, std::cout)`. `u_cleanup()`. No
 >   explicit return (falls off end → 0).
+>
+> PORT DIVERGENCE: the values of FST_WFACTOR (`-W`) and DEP_DELIMIT are read
+> as soon as the help check has passed, before stdin is read, and each must be
+> a number whole that the field it sets can hold — an `f64` for `-W`, a `u32`
+> for `--dep-delimit`, surrounding whitespace aside. A value that is not is
+> refused: the port reports the option and the value, and exits with
+> `EXIT_FAILURE`. The C++ `std::stod` / `std::stoul` throw on a value with no
+> leading number, which ends the process with an uncaught exception, and
+> silently keep the leading number of one that only starts with one (`0,5`
+> reads as 0) or truncate one too large for `dep_delimit`. A mistyped option is
+> the user's to correct, so the port says so rather than crashing or running
+> with a number nobody asked for. The same holds for values that arrive through
+> `CG3_CONV_DEFAULT` / `CG3_CONV_OVERRIDE`, which are merged in first.
 

@@ -8,7 +8,7 @@
 use crate::arg_parser::parse_args;
 use crate::options::{ArgOption, HasArg};
 
-use super::{fail, to_argv};
+use super::{emit_usage, fail, to_argv};
 
 // [spec:cg3:def:cg-mwesplit.options-mwe.options]
 /// C++ `OptionsMWE::OPTIONS` — the tiny option enum for cg-mwesplit (help only).
@@ -80,13 +80,7 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
             }
         }
 
-        if argc < 0 {
-            eprint!("{}", out);
-            return crate::tools::EXIT_FAILURE;
-        } else {
-            print!("{}", out);
-            return crate::tools::EXIT_SUCCESS;
-        }
+        return emit_usage(&out, argc < 0);
     }
 
     // MweSplitApplicator applicator(std::cerr);

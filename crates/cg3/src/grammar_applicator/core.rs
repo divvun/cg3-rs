@@ -35,7 +35,7 @@ use crate::inlines::{
     g_app_set_opts_ranged, is_textual, isnl, read_raw, read_utf8_raw, ui8, ui32, write_raw,
     write_utf8_raw,
 };
-use crate::options::{Opt, OptionsTable};
+use crate::options::{ArgOption, Opt, OptionsTable};
 use crate::process::Process;
 use crate::reading::Reading;
 use crate::store::RuntimeStore;
@@ -269,37 +269,19 @@ pub(super) fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
     }
 }
 
-/// C `std::stoul` leading-decimal parse (option values are always well-formed).
-fn stoul(s: &str) -> u32 {
-    let mut v: u64 = 0;
-    for c in s.trim_start().chars() {
-        match c.to_digit(10) {
-            Some(d) => v = v.wrapping_mul(10).wrapping_add(d as u64),
-            None => break,
-        }
-    }
-    v as u32
-}
-
-/// C `std::stoi` leading-decimal parse with optional sign.
-fn stoi(s: &str) -> i32 {
-    let s = s.trim_start();
-    let mut it = s.chars().peekable();
-    let mut neg = false;
-    if let Some(&c) = it.peek()
-        && (c == '+' || c == '-')
-    {
-        neg = c == '-';
-        it.next();
-    }
-    let mut v: i64 = 0;
-    for c in it {
-        match c.to_digit(10) {
-            Some(d) => v = v.wrapping_mul(10).wrapping_add(d as i64),
-            None => break,
-        }
-    }
-    if neg { -v as i32 } else { v as i32 }
+// [spec:cg3:req:robustness.cli-arguments]
+/// A numeric option's value. DIVERGENCE: the C++ `std::stoul` throws on a value
+/// with no leading digits, ending the process, cuts one that merely starts with
+/// digits down to them, and truncates one past `u32`; each is refused here.
+fn option_u32(option: &ArgOption) -> Result<u32, crate::error::OptionValueError> {
+    option
+        .value
+        .trim()
+        .parse()
+        .map_err(|_| crate::error::OptionValueError {
+            option: option.long_name.unwrap_or(""),
+            value: option.value.clone(),
+        })
 }
 
 // ===========================================================================
@@ -1487,6 +1469,7 @@ impl super::GrammarApplicator {
     pub fn set_options(&mut self, options: &OptionsTable) -> Result<(), crate::error::Cg3Error> {
         let occ = |o: Opt| options[o as usize].does_occur;
         let val = |o: Opt| options[o as usize].value.as_str();
+        let number = |o: Opt| option_u32(&options[o as usize]);
 
         if occ(Opt::AlwaysSpan) {
             self.cfg.always_span = true;
@@ -1551,7 +1534,7 @@ impl super::GrammarApplicator {
             self.cfg.section_max_count = 1;
         }
         if occ(Opt::Maxruns) {
-            self.cfg.section_max_count = stoul(val(Opt::Maxruns));
+            self.cfg.section_max_count = number(Opt::Maxruns)?;
         }
         if occ(Opt::Sections) {
             g_app_set_opts_ranged(val(Opt::Sections), &mut self.cfg.sections, true);
@@ -1563,7 +1546,7 @@ impl super::GrammarApplicator {
             let v = val(Opt::Rule);
             let first = v.chars().next().unwrap_or('\0');
             if first.is_ascii_digit() {
-                self.cfg.valid_rules.insert_sorted(stoi(v) as u32);
+                self.cfg.valid_rules.insert_sorted(number(Opt::Rule)?);
             } else {
                 // Not a number: match by rule name.
                 for i in 0..self.grammar.rule_by_number.capacity() {
@@ -1580,7 +1563,7 @@ impl super::GrammarApplicator {
         }
         if occ(Opt::Verbose) {
             self.cfg.verbosity_level = if !val(Opt::Verbose).is_empty() {
-                stoul(val(Opt::Verbose))
+                number(Opt::Verbose)?
             } else {
                 1
             };
@@ -1595,13 +1578,13 @@ impl super::GrammarApplicator {
             self.doc.deps.has_dep = true;
         }
         if occ(Opt::NumWindows) {
-            self.cfg.num_windows = stoul(val(Opt::NumWindows));
+            self.cfg.num_windows = number(Opt::NumWindows)?;
         }
         if occ(Opt::SoftLimit) {
-            self.cfg.soft_limit = stoul(val(Opt::SoftLimit));
+            self.cfg.soft_limit = number(Opt::SoftLimit)?;
         }
         if occ(Opt::HardLimit) {
-            self.cfg.hard_limit = stoul(val(Opt::HardLimit));
+            self.cfg.hard_limit = number(Opt::HardLimit)?;
         }
         if occ(Opt::TextDelimit) {
             let rx = if !val(Opt::TextDelimit).is_empty() {
@@ -1613,7 +1596,7 @@ impl super::GrammarApplicator {
         }
         if occ(Opt::DepDelimit) {
             self.cfg.dep_delimit = if !val(Opt::DepDelimit).is_empty() {
-                stoul(val(Opt::DepDelimit))
+                number(Opt::DepDelimit)?
             } else {
                 10
             };

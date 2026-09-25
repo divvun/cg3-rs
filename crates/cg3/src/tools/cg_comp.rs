@@ -13,7 +13,7 @@ use crate::grammar::GrammarCore;
 use crate::inlines::is_cg3b;
 use crate::textual_parser::TextualParser;
 
-use super::{EXIT_FAILURE, basename, fail, print_divvun_version_line};
+use super::{EXIT_FAILURE, basename, divvun_version_line, emit, fail};
 
 // [spec:cg3:def:cg-comp.end-program-fn+3]
 // [spec:cg3:sem:cg-comp.end-program-fn+3]
@@ -24,12 +24,13 @@ use super::{EXIT_FAILURE, basename, fail, print_divvun_version_line};
 /// `Option<&str>`.
 fn end_program(name: Option<&str>) -> i32 {
     if let Some(name) = name {
-        print_divvun_version_line("Compiler");
-        println!(
-            "{}: compile a binary grammar from a text file",
-            basename(name)
+        let name = basename(name);
+        let usage = format!(
+            "{}{name}: compile a binary grammar from a text file\n\
+             USAGE: {name} grammar_file output_file\n",
+            divvun_version_line("Compiler"),
         );
-        println!("USAGE: {} grammar_file output_file", basename(name));
+        emit(std::io::stdout(), &usage);
     }
     // exit(EXIT_FAILURE);
     EXIT_FAILURE

@@ -14,7 +14,7 @@
 > [spec:cg3:def:cg-annotate.main-fn]
 > int main(int argc, char* argv[])
 
-> [spec:cg3:sem:cg-annotate.main-fn]
+> [spec:cg3:sem:cg-annotate.main-fn+1]
 > Entry point for `cg-annotate`: reads a profiling SQLite database and renders a
 > static HTML site that shows each grammar's source with per-rule/per-context
 > match/fail coverage highlighting, plus usage-example pages. Positional-only:
@@ -95,6 +95,18 @@
 > raw `find`/`std::stoul`/`std::stoi` on the XML text (no real XML parser), so
 > it depends on the exact attribute formatting emitted by `TextualParser::
 > print_ast`.
+>
+> PORT DIVERGENCE: the port does not ignore `argc`: with fewer than two
+> arguments it reports the usage on stderr and exits with `EXIT_FAILURE`
+> rather than reading past `argv`. Every failure the C++ throws out of `main`
+> is instead reported with a message and `EXIT_FAILURE`: a profile database
+> `read` cannot open or query, an output folder that cannot be created or
+> entered, a page `file_save` cannot write, and an AST whose `find` / `stoul`
+> parse finds no closing `</Grammar>`, no `<`, or no well-formed `u`, `b` or
+> `e` attribute. An uncaught exception is a crash, and each of these is input
+> the user can fix once told what is wrong with it. The fragment taken for
+> each grammar ends one CHARACTER after `</Grammar>` where the C++ takes one
+> byte, so a multi-byte character there is kept whole instead of split.
 
 > [spec:cg3:def:cg-annotate.xml-encode-fn]
 > inline auto xml_encode(std::string_view in)

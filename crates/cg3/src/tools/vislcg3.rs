@@ -32,8 +32,8 @@ use crate::tag_regex::{TagRegex, TagRegexError, compile_tag_regex};
 use crate::textual_parser::TextualParser;
 
 use super::{
-    CG3_COPYRIGHT_STRING, CG3_TOO_OLD, DIVVUN_COPYRIGHT_STRING, DIVVUN_REPOSITORY, EXIT_FAILURE,
-    EXIT_SUCCESS, fail, merge_options, print_divvun_version_line, to_argv,
+    CG3_TOO_OLD, EXIT_FAILURE, EXIT_SUCCESS, divvun_copyright, divvun_version_line, emit, fail,
+    merge_options, to_argv,
 };
 
 /// A `--nrules` / `--nrules-v` pattern that would not compile.
@@ -122,13 +122,13 @@ pub fn main_run(args: &[String]) -> i32 {
 
     // --min-binary-revision
     if occ(&options, Opt::VersionTooOld) {
-        println!("{}", CG3_TOO_OLD);
+        emit(std::io::stdout(), &format!("{CG3_TOO_OLD}\n"));
         return 0;
     }
 
     // --version / --help print the version line to stdout.
     if occ(&options, Opt::Version) || occ(&options, Opt::Help1) || occ(&options, Opt::Help2) {
-        print_divvun_version_line("Disambiguator");
+        emit(std::io::stdout(), &divvun_version_line("Disambiguator"));
     }
 
     if argc < 0 {
@@ -139,9 +139,7 @@ pub fn main_run(args: &[String]) -> i32 {
     }
 
     if occ(&options, Opt::Version) {
-        println!("{DIVVUN_COPYRIGHT_STRING}");
-        println!("{CG3_COPYRIGHT_STRING}");
-        println!("Source: {DIVVUN_REPOSITORY}");
+        emit(std::io::stdout(), &divvun_copyright());
         return EXIT_SUCCESS;
     }
 
@@ -686,5 +684,5 @@ fn print_help(options: &crate::options::OptionsTable) {
             out.push_str(&format!("  {}\n", o.description));
         }
     }
-    print!("{}", out);
+    emit(std::io::stdout(), &out);
 }
