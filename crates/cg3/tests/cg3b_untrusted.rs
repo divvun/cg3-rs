@@ -153,7 +153,7 @@ fn well_formed_grammar_loads_and_runs() {
 /// Every strict prefix of a real `.cg3b` is refused as truncated, rather
 /// than read as zeros into a grammar that panics once it runs.
 // [spec:cg3:req:robustness.binary-grammar-validated/test]
-// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+2/test]
+// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+3/test]
 #[test]
 fn every_truncation_is_refused_as_truncated() {
     // Without the regex tags, whose compilation would dominate thousands of
@@ -593,7 +593,7 @@ fn keyword_and_section_ranges_are_checked() {
         }
     ));
 
-    for section in [-4i32, 0x7fff_ffff] {
+    for section in [-4i32, 1024, 0x7fff_ffff] {
         let mut m = base();
         m.rules[0].head.set(0, Field::U32(section as u32));
         assert!(
@@ -601,6 +601,9 @@ fn keyword_and_section_ranges_are_checked() {
             "{section}"
         );
     }
+    let mut m = base();
+    m.rules[0].head.set(0, Field::U32(1023));
+    load(&m.encode()).expect("section 1023 loads whatever the rule count");
 
     let mut m = base();
     m.tags[0].set(6, Field::U32(99));
@@ -670,7 +673,7 @@ fn structural_cycles_are_refused() {
 /// at its own seed, so every stored hash is still the one the tag's text and
 /// seed give it.
 // [spec:cg3:req:robustness.binary-grammar-validated/test]
-// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+2/test]
+// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+3/test]
 #[test]
 fn crowded_tag_hashes_load() {
     let with_run = |len: u32| {
@@ -691,6 +694,52 @@ fn crowded_tag_hashes_load() {
         m
     };
     load(&with_run(10_000).encode()).expect("a run as long as the C++ probe loads");
+}
+
+/// A grammar with more sections than 1023 has as many rules, and loads from
+/// the `.cg3b` cg-comp writes for it, running as it does from its source.
+// [spec:cg3:req:robustness.binary-grammar-validated/test]
+// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+3/test]
+#[test]
+fn many_sections_load_from_their_cg3b() {
+    let dir = std::env::temp_dir().join(format!("cg3-sections-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let source = dir.join("sections.cg3");
+    let mut grammar = String::from("DELIMITERS = \"<$.>\" ;\n");
+    for i in 0..1100 {
+        grammar.push_str(&format!("SECTION\nREMOVE (x{i}) ;\n"));
+    }
+    std::fs::write(&source, grammar).unwrap();
+    let compiled = dir.join("sections.cg3b");
+    let comp = std::process::Command::new(env!("CARGO_BIN_EXE_cg-comp"))
+        .arg(&source)
+        .arg(&compiled)
+        .output()
+        .expect("spawn cg-comp");
+    assert!(
+        comp.status.success(),
+        "{}",
+        String::from_utf8_lossy(&comp.stderr)
+    );
+    let run = |grammar: &std::path::Path| {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_vislcg3"))
+            .arg("-g")
+            .arg(grammar)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn vislcg3");
+        let mut stdin = child.stdin.take().unwrap();
+        std::io::Write::write_all(&mut stdin, b"\"<a>\"\n\t\"a\" N\n").unwrap();
+        drop(stdin);
+        child.wait_with_output().expect("wait for vislcg3")
+    };
+    let (from_source, from_cg3b) = (run(&source), run(&compiled));
+    let _ = std::fs::remove_dir_all(&dir);
+    let stderr = String::from_utf8_lossy(&from_cg3b.stderr);
+    assert!(from_cg3b.status.success(), "{stderr}");
+    assert_eq!(from_source.stdout, from_cg3b.stdout);
 }
 
 /// The command line reports a truncated `.cg3b` and exits nonzero, without

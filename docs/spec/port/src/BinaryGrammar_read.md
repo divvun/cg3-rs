@@ -3,7 +3,7 @@
 > [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn]
 > int BinaryGrammar::parse_grammar(std::istream& input)
 
-> [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+2]
+> [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+3]
 > Reads a whole `.cg3b` binary grammar from `input` into `grammar`. All
 > multi-byte integers are big-endian via `readBE<T>` (raw read + byte swap);
 > strings are UTF-8 decoded through an ICU `UConverter` opened for "UTF-8" into
@@ -120,7 +120,10 @@
 > set operators against the four the matcher implements, with one between each
 > pair of member sets; rule types and comparison operators against their
 > enumerations, where the C++ `static_cast` stores any value; and sections
-> against -3..=1023, since a run passes over every section up to the highest.
+> against -3 and the larger of 1023 and the rule count, since loading and every
+> window pass over every section up to the highest. A textual grammar reaches
+> a section only through a `SECTION` header for each, so its `.cg3b` loads
+> unless most of its sections hold no rule.
 > Also refused: a hash equal to one of the flat hash containers' two sentinel
 > keys, a tag whose stored hash or plain hash is not the one `Tag::rehash`
 > gives its text, type and seed (a run interns by recomputing it), a tag

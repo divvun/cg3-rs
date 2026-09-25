@@ -23,11 +23,19 @@ const MIN_SET_RECORD: usize = 4;
 const MIN_CONTEXT_RECORD: usize = 4;
 const MIN_RULE_RECORD: usize = 16;
 
-/// The highest section number a `.cg3b` may use. A run makes a pass over
-/// every section up to the highest one used, rerunning each earlier
-/// section's rules in it, so the number sets the cost of every window; a
-/// grammar would need this many `SECTION` headers to reach it.
-pub(crate) const MAX_SECTION: i32 = 1023;
+/// The highest section number a `.cg3b` of `num_rules` rules may use: 1023,
+/// or the rule count if that is higher.
+///
+/// A run makes a pass over every section up to the highest one used,
+/// rerunning each earlier section's rules in it, so the number sets the cost
+/// of loading and of every window. A textual grammar reaches a section only
+/// through a `SECTION` header for each, and has no limit; tying this one to
+/// the rule count lets its `.cg3b` load too, unless most of its sections are
+/// empty, while a corrupt number costs no more than a textual grammar with
+/// that many rules can.
+fn max_section(num_rules: u32) -> i32 {
+    i32::try_from(num_rules).unwrap_or(i32::MAX).max(1023)
+}
 
 /// The C++ `C_OPS` enumerators by their serialised id.
 const C_OPS_BY_ID: [COps; 8] = [
@@ -751,7 +759,7 @@ impl BinaryGrammar {
         let at = cur.offset();
         let mut r = Rule::default(); // allocateRule()
         let rfields: u32 = cur.be("rule field mask")?;
-        rule_head(cur, rfields, &mut r)?;
+        rule_head(cur, rfields, &mut r, max_section(load.num_rules))?;
         rule_refs(cur, rfields, &mut r, load)?;
         self.rule_tests(cur, rfields, &mut r, load.num_rules)?;
         self.check_rule(&r, load.num_sets)
@@ -862,14 +870,19 @@ impl BinaryGrammar {
 }
 
 /// Rule bits 0-4: section, type, line, flags and name.
-fn rule_head(cur: &mut Cg3bCursor<'_>, rfields: u32, r: &mut Rule) -> Result<(), GrammarError> {
+fn rule_head(
+    cur: &mut Cg3bCursor<'_>,
+    rfields: u32,
+    r: &mut Rule,
+    max: i32,
+) -> Result<(), GrammarError> {
     if rfields & (1 << 0) != 0 {
         let at = cur.offset();
         r.section = cur.be("rule section")?;
-        if !(-3..=MAX_SECTION).contains(&r.section) {
+        if !(-3..=max).contains(&r.section) {
             let fault = BinaryFault::Section {
                 section: r.section,
-                max: MAX_SECTION,
+                max,
             };
             return Err(malformed(at, fault));
         }
