@@ -843,6 +843,10 @@ impl<'g, 'r> Relabeller<'g, 'r> {
             if let Some(sets_g) = sets_by_tag.get(&from_str) {
                 let sets_g: Vec<SetId> = sets_g.iter().copied().collect();
                 for set_g in sets_g {
+                    #[expect(
+                        clippy::unwrap_used,
+                        reason = "sets_by_tag is keyed by the text of tags in the grammar's sets, and tag_by_str, built above, holds the text of every tag in the grammar"
+                    )]
                     self.relabel_as_list(set_g, set_r, from_tag.unwrap());
                 }
             }
@@ -861,6 +865,10 @@ impl<'g, 'r> Relabeller<'g, 'r> {
             if let Some(sets_g) = sets_by_tag.get(&from_str) {
                 let sets_g: Vec<SetId> = sets_g.iter().copied().collect();
                 for set_g in sets_g {
+                    #[expect(
+                        clippy::unwrap_used,
+                        reason = "sets_by_tag is keyed by the text of tags in the grammar's sets, and tag_by_str, built above, holds the text of every tag in the grammar"
+                    )]
                     self.relabel_as_set(set_g, set_r, from_tag.unwrap());
                 }
             }

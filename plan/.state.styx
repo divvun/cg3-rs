@@ -199,7 +199,6 @@ assertions (
     {id grammar-phases.core-type, kind @complete, author "brendan@necessary.nu", at 2026-09-25T00:06:49.538486Z}
     {id grammar-phases.parser-trait, kind @complete, author "brendan@necessary.nu", at 2026-09-24T22:59:14.946256Z}
     {id deicu-finish, kind @complete, author "brendan@necessary.nu", at 2026-09-24T23:36:44.823534Z}
-    {id no-panic.lint-guard, kind @doing, author "brendan@necessary.nu", at 2026-09-25T15:40:26.416062Z}
 )
 
 impl_evidence (
@@ -440,8 +439,6 @@ impl_evidence (
         robustness.panic-sites-justified
     ), covered_claims (
         {impl_name target-impl, rule robustness.panic-sites-justified}
-    ), rule_versions_seen (
-        {id robustness.panic-sites-justified, version 0}
     )}
     {id no-panic.loops, covered_rules (
         robustness.terminates

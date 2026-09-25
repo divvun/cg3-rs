@@ -318,20 +318,19 @@ impl Tag {
         match self.extra {
             TagUnion::Unset => 0,
             TagUnion::DepParent(v) => v,
+            #[expect(
+                clippy::panic,
+                reason = "dep_parent is read only of a T_DEPENDENCY or T_RELATION tag; parse_tag_raw gives those types with this role or none, and the .cg3b reader refuses such a tag storing another (role_problem)"
+            )]
             other => panic!("Tag union read as dep_parent but holds {other:?}"),
         }
     }
     pub fn set_dep_parent(&mut self, v: u32) {
         self.extra = TagUnion::DepParent(v);
     }
-    /// Role accessor: `variable_hash` (0 when unset = bare variable test).
-    pub fn variable_hash(&self) -> u32 {
-        match self.extra {
-            TagUnion::Unset => 0,
-            TagUnion::VariableHash(v) => v,
-            other => panic!("Tag union read as variable_hash but holds {other:?}"),
-        }
-    }
+    /// Role setter: `variable_hash` (0 = bare variable test). A variable's
+    /// value is read by matching `extra`, since a numeric-math variable tag
+    /// holds its math offset in the same slot.
     pub fn set_variable_hash(&mut self, v: u32) {
         self.extra = TagUnion::VariableHash(v);
     }
@@ -340,6 +339,10 @@ impl Tag {
         match self.extra {
             TagUnion::Unset => 0,
             TagUnion::ContextRefPos(v) => v,
+            #[expect(
+                clippy::panic,
+                reason = "context_ref_pos is read only of a T_CONTEXT tag; parse_tag sets it last on the `_C1_`..`_C9_` tags it gives that type, and the .cg3b reader refuses a T_CONTEXT tag without one (role_problem)"
+            )]
             other => panic!("Tag union read as context_ref_pos but holds {other:?}"),
         }
     }
@@ -351,6 +354,10 @@ impl Tag {
         match self.extra {
             TagUnion::Unset => 0,
             TagUnion::ComparisonOffset(v) => v,
+            #[expect(
+                clippy::panic,
+                reason = "comparison_offset is read only of a T_NUMERIC_MATH tag or right after parse_numeric sets it; parse_numeric gives that type with this role, and the .cg3b reader stores a numeric-math tag's variable field in this role (set_variable_member) and refuses one storing a context position (role_problem)"
+            )]
             other => panic!("Tag union read as comparison_offset but holds {other:?}"),
         }
     }
@@ -693,19 +700,12 @@ impl Clone for Tag {
             tag: o.tag.clone(),
             // QUIRK: `tag_raw` is NOT copied by the C++ ctor.
             tag_raw: Box::default(),
-            vs_sets: None,
-            vs_names: None,
+            // allocateVSNames / allocateVSSets, then a copy of the source's.
+            vs_sets: o.vs_sets.clone(),
+            vs_names: o.vs_names.clone(),
             regexp: None,
         };
 
-        if let Some(names) = &o.vs_names {
-            t.allocate_vs_names();
-            *t.vs_names.as_mut().unwrap() = names.clone();
-        }
-        if let Some(sets) = &o.vs_sets {
-            t.allocate_vs_sets();
-            *t.vs_sets.as_mut().unwrap() = sets.clone();
-        }
         if let Some(re) = &o.regexp {
             t.regexp = Some(re.clone());
         }

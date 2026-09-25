@@ -664,3 +664,13 @@ fn binary_grammar_roundtrip_unserializes_tries() {
         .count();
     assert!(with_trie > 0, "trie_unserialize rebuilt set tries");
 }
+
+// A `\uXXXX` or `\u{X...}` in a grammar tag is the code point it spells.
+// [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+2/test]
+#[test]
+fn tag_unicode_escapes_decode() {
+    let p = parse_str("LIST X = a\\u0041b c\\u{1F600}d ;\nSELECT (x) ;\n");
+    let texts = set_tag_texts(&p.grammar, set_by_name(&p.grammar, "X"));
+    assert!(texts.contains("aAb"), "{texts:?}");
+    assert!(texts.contains("c\u{1F600}d"), "{texts:?}");
+}

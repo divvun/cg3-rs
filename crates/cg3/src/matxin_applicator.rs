@@ -378,6 +378,10 @@ impl MatxinApplicator {
                         }
                     }
                     if !mappings.is_empty() {
+                        #[expect(
+                            clippy::unwrap_used,
+                            reason = "the reader allocates every reading it parses with alloc_reading(Some(cohort)), and a sub-reading made above copies its reading's parent"
+                        )]
                         let parent = self.base.doc.store.readings.get(reading.0).parent.unwrap();
                         self.base
                             .engine()
@@ -545,6 +549,10 @@ impl MatxinApplicator {
             let mut n = Node::default();
 
             // Wordform, `"<`/`>"` stripped, XML-escaped (entity+literal bug).
+            #[expect(
+                clippy::expect_used,
+                reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+            )]
             let wf_tid = self
                 .base
                 .doc
@@ -913,31 +921,25 @@ impl MatxinApplicator {
             if let (Some(cc), Some(cs)) = (c_cohort, c_swindow) {
                 let cohorts_size =
                     self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32;
+                let soft_delimiters = self.base.grammar.soft_delimiters;
                 if cohorts_size >= self.base.cfg.soft_limit
-                    && self.base.grammar.soft_delimiters.is_some()
-                {
-                    let sd = self.base.grammar.sets_list
-                        [self.base.grammar.soft_delimiters.unwrap().0]
-                        .number
-                        .get();
-                    if self
+                    && self
                         .base
                         .engine()
-                        .does_set_match_cohort_normal(cc, sd, None)?
-                    {
-                        self.add_endtag_all(cc)?;
-                        append_cohort(
-                            &mut self.base.doc.store,
-                            &mut self.base.doc.cohorts,
-                            &mut self.base.doc.deps,
-                            cs,
-                            cc,
-                        );
-                        l_swindow = Some(cs);
-                        c_swindow = None;
-                        c_cohort = None;
-                        self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
-                    }
+                        .matches_delimiter_set(cc, soft_delimiters)?
+                {
+                    self.add_endtag_all(cc)?;
+                    append_cohort(
+                        &mut self.base.doc.store,
+                        &mut self.base.doc.cohorts,
+                        &mut self.base.doc.deps,
+                        cs,
+                        cc,
+                    );
+                    l_swindow = Some(cs);
+                    c_swindow = None;
+                    c_cohort = None;
+                    self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
                 }
             }
             // Hard-limit break.
@@ -945,16 +947,14 @@ impl MatxinApplicator {
                 let cohorts_size =
                     self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32;
                 let hard = cohorts_size >= self.base.cfg.hard_limit;
-                let delim_match = self.base.grammar.delimiters.is_some() && {
-                    let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0]
-                        .number
-                        .get();
-                    self.base
-                        .engine()
-                        .does_set_match_cohort_normal(cc, d, None)?
-                };
+                let delimiters = self.base.grammar.delimiters;
+                let delim_match = self.base.engine().matches_delimiter_set(cc, delimiters)?;
                 if hard || delim_match {
                     if !self.base.cfg.is_conv && cohorts_size >= self.base.cfg.hard_limit {
+                        #[expect(
+                            clippy::unwrap_used,
+                            reason = "c_cohort is set only to the cohort read_wordform gives its wordform next, and a failed read_wordform ends the run"
+                        )]
                         let wf_tid = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                         let wftag = self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
                         tracing::warn!(
@@ -980,7 +980,9 @@ impl MatxinApplicator {
                 }
             }
             // Create a window if none.
-            if c_swindow.is_none() {
+            let cs = if let Some(cs) = c_swindow {
+                cs
+            } else {
                 let cs = self
                     .base
                     .doc
@@ -1013,8 +1015,8 @@ impl MatxinApplicator {
                 firstblank.clear();
                 c_cohort = None;
                 self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
-            }
-            let cs = c_swindow.unwrap();
+                cs
+            };
 
             // Append the PREVIOUS cohort.
             if let Some(cc) = c_cohort {
@@ -1041,7 +1043,7 @@ impl MatxinApplicator {
             self.base.doc.store.cohorts.get_mut(cc.0).global_number = gn;
 
             // Read the wordform, and the static reading if one follows.
-            self.read_wordform(&mut rd, cc)?;
+            let wf = self.read_wordform(&mut rd, cc)?;
 
             let mut current_reading: Vec<char> = Vec::new();
             c_reading = None;
@@ -1063,7 +1065,6 @@ impl MatxinApplicator {
                             self.base.grammar.sets_any.as_ref(),
                         );
                     }
-                    let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                     self.base.engine().add_tag_to_reading(cr, wf)?;
                     self.process_reading(cr, &current_reading)?;
                     let mut cr = cr;
@@ -1080,7 +1081,6 @@ impl MatxinApplicator {
                 }
                 if inchar == '/' {
                     let cr = alloc_reading(&mut self.base.doc.store, Some(cc));
-                    let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                     self.base.engine().add_tag_to_reading(cr, wf)?;
                     self.process_reading(cr, &current_reading)?;
                     let mut cr2 = cr;
@@ -1172,7 +1172,7 @@ impl MatxinApplicator {
     // [spec:cg3:req:robustness.terminates]
     /// The wordform of cohort `cc`, read off `rd` up to its `/` or `<`, and
     /// the static reading that a `<` opens, read up to its `/` or `$`. A
-    /// backslash escapes the next character.
+    /// backslash escapes the next character. Returns the wordform tag.
     ///
     /// DIVERGENCE: end of input ends the wordform as `/` would and the static
     /// reading as `$` would; the C++ read U_EOF into them forever.
@@ -1180,7 +1180,7 @@ impl MatxinApplicator {
         &mut self,
         rd: &mut CharReader<'_, R>,
         cc: CohortId,
-    ) -> Result<(), crate::error::RunError> {
+    ) -> Result<TagId, crate::error::RunError> {
         let mut inchar;
         let mut wordform: String = String::from("\"<");
         loop {
@@ -1223,7 +1223,7 @@ impl MatxinApplicator {
                 tagbuf.push(inchar);
             }
         }
-        Ok(())
+        Ok(wf_tid)
     }
 }
 

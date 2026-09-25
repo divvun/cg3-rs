@@ -148,10 +148,13 @@ impl TextualParser {
         let existing = self.grammar.get_set(chash);
         if existing.is_some() {
             // verbosity dup warning skipped
-        } else if self.grammar.sets_list[s0.0].sets.len() == 1
+        } else if let &[back] = self.grammar.sets_list[s0.0].sets.as_slice()
             && (!self.grammar.sets_list[s0.0].r#type.intersects(ST_TAG_UNIFY))
         {
-            let back = *self.grammar.sets_list[s0.0].sets.last().unwrap();
+            #[expect(
+                clippy::unwrap_used,
+                reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties"
+            )]
             let tmp = self.grammar.get_set(back).unwrap();
             self.grammar.maybe_used_sets.insert(tmp);
             let th = self.grammar.sets_list[tmp.0].hash;
@@ -542,13 +545,13 @@ impl TextualParser {
             self.grammar.contexts_arena[safec.0].target = SetNumber(sets_cache[&target]);
 
             let tmp = unsafec;
-            let unsafec2 = self.grammar.add_contextual_test(Some(unsafec)).unwrap();
-            let safec2 = self.grammar.add_contextual_test(Some(safec)).unwrap();
+            let unsafec2 = self.grammar.intern_contextual_test(unsafec);
+            let safec2 = self.grammar.intern_contextual_test(safec);
 
             let orc = self.grammar.allocate_contextual_test();
             self.grammar.contexts_arena[orc.0].ors.push(safec2);
             self.grammar.contexts_arena[orc.0].ors.push(unsafec2);
-            let orc = self.grammar.add_contextual_test(Some(orc)).unwrap();
+            let orc = self.grammar.intern_contextual_test(orc);
 
             if let Some(prof) = self.profiler.as_mut() {
                 // Copy the profiler span of the original (unsafe) context onto

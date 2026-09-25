@@ -624,6 +624,10 @@ impl GrammarCore {
             if let Some(&sit) = self.sets_list[set.0].sets.get(*next) {
                 *next += 1;
                 // C++ addSetToList(getSet(sit)); getSet null → deref crash.
+                #[expect(
+                    clippy::unwrap_used,
+                    reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties, after this runs in its step (10)"
+                )]
                 let child = self.get_set(sit).unwrap();
                 if self.set_unlisted(child) {
                     open.push((child, 0));
@@ -649,10 +653,18 @@ impl GrammarCore {
         self.sets_list[set_c.0].line = 0;
         // setName(STR_DUMMY): non-empty string → name = STR_DUMMY.
         self.sets_list[set_c.0].name = STR_DUMMY.to_string();
+        #[expect(
+            clippy::expect_used,
+            reason = "allocate_tag refuses only an empty tag, one starting with `(`, or a reserved dependency or relation number (ReservedNumber::check), and the STR_DUMMY literal is none of these"
+        )]
         let t = self
             .allocate_tag(STR_DUMMY)
             .expect("the dummy set's tag is a literal and cannot fail");
         self.add_tag_to_set(t, set_c);
+        #[expect(
+            clippy::expect_used,
+            reason = "add_set refuses a name or content that another set already has, and both callers (parse_grammar_data, conv_grammar) make the dummy first, before any other set"
+        )]
         let set_c = self
             .add_set(set_c)
             .expect("the dummy set is freshly built and cannot collide");
@@ -780,20 +792,27 @@ impl GrammarCore {
     /// equal tests. `nullptr` → `None`. Recursively interns `linked` and each
     /// `ors` entry (NOT `tmpl`), then linear-probes seeds 0..999.
     pub fn add_contextual_test(&mut self, t: Option<CtxId>) -> Option<CtxId> {
-        let t = t?;
+        t.map(|t| self.intern_contextual_test(t))
+    }
+
+    // [spec:cg3:def:grammar.cg3.grammar.add-contextual-test-fn]
+    // [spec:cg3:sem:grammar.cg3.grammar.add-contextual-test-fn]
+    /// [`Self::add_contextual_test`] of a test, not a null one: returns `t`
+    /// itself, or the equal test already in `contexts`.
+    pub fn intern_contextual_test(&mut self, t: CtxId) -> CtxId {
         ContextualTest::rehash(&mut self.contexts_arena, t);
 
         // t->linked = addContextualTest(t->linked)
-        let linked = self.contexts_arena[t.0].linked;
-        let new_linked = self.add_contextual_test(linked);
-        self.contexts_arena[t.0].linked = new_linked;
+        if let Some(linked) = self.contexts_arena[t.0].linked {
+            let new_linked = self.intern_contextual_test(linked);
+            self.contexts_arena[t.0].linked = Some(new_linked);
+        }
 
         // for (auto& it : t->ors) it = addContextualTest(it)
         let ors = self.contexts_arena[t.0].ors.clone();
         let mut new_ors: Vec<CtxId> = Vec::with_capacity(ors.len());
         for it in ors {
-            // ors entries are non-null → the result is always Some.
-            new_ors.push(self.add_contextual_test(Some(it)).unwrap());
+            new_ors.push(self.intern_contextual_test(it));
         }
         self.contexts_arena[t.0].ors = new_ors;
 
@@ -831,7 +850,7 @@ impl GrammarCore {
             }
             seed += 1;
         }
-        Some(result)
+        result
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.add-template-fn]
@@ -916,12 +935,18 @@ impl GrammarCore {
         {
             let to_set_ops = self.sets_list[to.0].set_ops.clone();
             let mut all_tags = true;
+            let mut members: Vec<SetId> = Vec::with_capacity(to_sets.len());
             for i in 0..to_sets.len() {
                 if i > 0 && to_set_ops[i - 1] != S_OR {
                     all_tags = false;
                     break;
                 }
+                #[expect(
+                    clippy::unwrap_used,
+                    reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties"
+                )]
                 let s = self.get_set(to_sets[i]).unwrap();
+                members.push(s);
                 if !self.sets_list[s.0].sets.is_empty() {
                     all_tags = false;
                     break;
@@ -946,8 +971,7 @@ impl GrammarCore {
             }
 
             if all_tags {
-                for &i in &to_sets {
-                    let s = self.get_set(i).unwrap();
+                for s in members {
                     self.maybe_used_sets.insert(s);
                     // tv = trie_getTagList(s->getNonEmpty())
                     let ne = {
@@ -1155,12 +1179,20 @@ impl GrammarCore {
         let to_line = self.sets_list[to.0].line;
 
         // (1) Pull the currently-registered set out of the name index.
+        #[expect(
+            clippy::unwrap_used,
+            reason = "parse_list, the only caller, appends only once get_set has found a set by this name, and undef_set's last lookup is that one"
+        )]
         let tset = self.undef_set(&to_name).unwrap();
         // (2) Re-register it under fresh keys.
         let tset = self.add_set(tset)?;
 
         if !self.sets_list[tset.0].sets.is_empty() {
             let first_hash = self.sets_list[tset.0].sets[0];
+            #[expect(
+                clippy::unwrap_used,
+                reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties"
+            )]
             let fset = self.get_set(first_hash).unwrap();
             let fname = self.sets_list[fset.0].name.clone();
             // NOT a generated positive half → wrap-in-OR.
@@ -1187,19 +1219,22 @@ impl GrammarCore {
             } else {
                 // positive-minus-negative split: copy the positive half back into
                 // `to`, then re-establish the negative half's failfast tags.
-                let set0 = self.get_set(first_hash).unwrap();
-                let ptrie = self.sets_list[set0.0].trie.clone();
+                let ptrie = self.sets_list[fset.0].trie.clone();
                 let tvs = trie_get_tags(&ptrie, self);
                 for tv in &tvs {
                     trie_insert(&mut self.sets_list.get_mut(to.0).trie, tv, 0);
                 }
-                let ptrie_sp = self.sets_list[set0.0].trie_special.clone();
+                let ptrie_sp = self.sets_list[fset.0].trie_special.clone();
                 let tvs = trie_get_tags(&ptrie_sp, self);
                 for tv in &tvs {
                     trie_insert(&mut self.sets_list.get_mut(to.0).trie_special, tv, 0);
                 }
 
                 let second_hash = self.sets_list[tset.0].sets[1];
+                #[expect(
+                    clippy::unwrap_used,
+                    reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties"
+                )]
                 let set1 = self.get_set(second_hash).unwrap();
                 let ntrie = self.sets_list[set1.0].trie.clone();
                 let ntrie_sp = self.sets_list[set1.0].trie_special.clone();
@@ -1391,12 +1426,12 @@ impl GrammarCore {
     /// Sets bit `r` (a set number) in `sets_by_tag[t]`, first creating + resizing
     /// the bitset to `sets_list.size()` (== `sets_list_order.len()`) if absent.
     pub fn index_tag_to_set(&mut self, t: u32, r: u32) {
-        if !self.sets_by_tag.contains_key(&t) {
-            let mut bs: DynBitset = Vec::new();
-            bs.resize(self.sets_list_order.len(), false);
-            self.sets_by_tag.insert(t, bs);
-        }
-        self.sets_by_tag.get_mut(&t).unwrap()[r as usize] = true;
+        let size = self.sets_list_order.len();
+        let bs: &mut DynBitset = self
+            .sets_by_tag
+            .entry(t)
+            .or_insert_with(|| vec![false; size]);
+        bs[r as usize] = true;
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.index-set-to-rule-fn]
@@ -1704,14 +1739,26 @@ impl GrammarCore {
                 continue;
             }
             {
+                #[expect(
+                    clippy::unwrap_used,
+                    reason = "a textual rule's target and child sets are the hashes of sets the parser registered with add_set, and sets_by_contents keeps them until step (16) below"
+                )]
                 let s = self.get_set(target.get()).unwrap();
                 Set::mark_used(self, s);
             }
             if childset1.get() != 0 {
+                #[expect(
+                    clippy::unwrap_used,
+                    reason = "a textual rule's target and child sets are the hashes of sets the parser registered with add_set, and sets_by_contents keeps them until step (16) below"
+                )]
                 let s = self.get_set(childset1.get()).unwrap();
                 Set::mark_used(self, s);
             }
             if childset2.get() != 0 {
+                #[expect(
+                    clippy::unwrap_used,
+                    reason = "a textual rule's target and child sets are the hashes of sets the parser registered with add_set, and sets_by_contents keeps them until step (16) below"
+                )]
                 let s = self.get_set(childset2.get()).unwrap();
                 Set::mark_used(self, s);
             }

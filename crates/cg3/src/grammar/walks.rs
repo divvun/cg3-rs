@@ -37,6 +37,10 @@ impl GrammarCore {
         open: &mut Vec<NumericStrip>,
         s: u32,
     ) -> Result<Option<u32>, crate::error::ParseError> {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a test's target and a set's members are the hashes of sets add_set registered in sets_by_contents, and the parser strips them while it reads the grammar, before reindex empties that map"
+        )]
         let set = self.get_set(s).unwrap();
         if self.sets_list[set.0].sets.is_empty() {
             return self.strip_numeric_leaf(set).map(Some);
@@ -241,6 +245,10 @@ impl GrammarCore {
         let t = &self.contexts_arena[test.0];
         for set in [t.target, t.barrier, t.cbarrier] {
             if set.get() != 0 {
+                #[expect(
+                    clippy::unwrap_used,
+                    reason = "a textual test's target and barriers are the hashes of sets the parser registered with add_set, and reindex marks them in its step (7), before its step (16) empties sets_by_contents; it marks no test of a .cg3b"
+                )]
                 let s = self.get_set(set.get()).unwrap();
                 Set::mark_used(self, s);
             }
@@ -279,6 +287,10 @@ impl GrammarCore {
                 return Some(s);
             };
             *next += 1;
+            #[expect(
+                clippy::unwrap_used,
+                reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, and get_tags walks them only while the parser reads the grammar"
+            )]
             open.push((self.get_set(member).unwrap(), 0)); // *getSet(s), null → crash
         }
     }

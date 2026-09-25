@@ -108,10 +108,12 @@ impl<'a> JsonlApplicator<'a> {
     /// C++ `Reading* parseJsonReading(const json::Value& reading_obj, Cohort*
     /// parentCohort)`. Parses one reading object `{"l", "ts", "s"}`, recursing on
     /// subreadings; returns the new `ReadingId` or `None` on a non-object input.
+    /// `wordform` is `parent_cohort`'s, which [`Self::parse_json_cohort`] gave it.
     fn parse_json_reading(
         &mut self,
         reading_obj: &Value,
         parent_cohort: CohortId,
+        wordform: TagId,
     ) -> Result<Option<ReadingId>, crate::error::RunError> {
         let obj = match reading_obj {
             Value::Object(m) => m,
@@ -127,14 +129,6 @@ impl<'a> JsonlApplicator<'a> {
         let c_reading =
             crate::reading::alloc_reading(&mut self.base.doc.store, Some(parent_cohort));
         // addTagToReading(*cReading, parentCohort->wordform); [Tag* overload]
-        let wordform = self
-            .base
-            .doc
-            .store
-            .cohorts
-            .get(parent_cohort.0)
-            .wordform
-            .expect("parseJsonReading: cohort has no wordform");
         self.base.engine().add_tag_to_reading(c_reading, wordform)?;
 
         // Baseform ("l").
@@ -189,7 +183,7 @@ impl<'a> JsonlApplicator<'a> {
         // Subreading ("s").
         if let Some(sub_reading_val) = obj.get("s") {
             if sub_reading_val.is_object() {
-                let sub = self.parse_json_reading(sub_reading_val, parent_cohort)?;
+                let sub = self.parse_json_reading(sub_reading_val, parent_cohort, wordform)?;
                 if let Some(sub) = sub {
                     self.base.doc.store.readings.get_mut(c_reading.0).next = Some(sub);
                 } else {
@@ -280,14 +274,7 @@ impl<'a> JsonlApplicator<'a> {
 
         // Static tags ("sts").
         if let Some(Value::Array(sts)) = obj.get("sts") {
-            if self.base.doc.store.cohorts.get(c_cohort.0).wread.is_none() {
-                let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
-                self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
-                self.base.engine().add_tag_to_reading(wread, wf)?;
-                let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
-                self.base.doc.store.readings.get_mut(wread.0).baseform = Some(wf_hash);
-            }
-            let wread = self.base.doc.store.cohorts.get(c_cohort.0).wread.unwrap();
+            let wread = self.static_reading(c_cohort, wf)?;
             for tag_val in sts {
                 let tag_str = json_to_string(tag_val);
                 if !tag_str.is_empty() {
@@ -315,7 +302,7 @@ impl<'a> JsonlApplicator<'a> {
                     );
                     continue;
                 }
-                let c_reading = self.parse_json_reading(reading_val, c_cohort)?;
+                let c_reading = self.parse_json_reading(reading_val, c_cohort, wf)?;
                 if let Some(c_reading) = c_reading {
                     crate::cohort::append_reading(&mut self.base.doc.store, c_cohort, c_reading);
                     self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
@@ -358,7 +345,7 @@ impl<'a> JsonlApplicator<'a> {
                 if !dr_val.is_object() {
                     continue;
                 }
-                let del_r = self.parse_json_reading(dr_val, c_cohort)?;
+                let del_r = self.parse_json_reading(dr_val, c_cohort, wf)?;
                 if let Some(del_r) = del_r {
                     self.base.doc.store.readings.get_mut(del_r.0).deleted = true;
                     self.base
@@ -378,6 +365,24 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         Ok(c_cohort)
+    }
+
+    /// `c_cohort`'s static reading, made on first use with the wordform `wf`
+    /// as its baseform.
+    fn static_reading(
+        &mut self,
+        c_cohort: CohortId,
+        wf: TagId,
+    ) -> Result<ReadingId, crate::error::RunError> {
+        if let Some(wread) = self.base.doc.store.cohorts.get(c_cohort.0).wread {
+            return Ok(wread);
+        }
+        let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
+        self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
+        self.base.engine().add_tag_to_reading(wread, wf)?;
+        let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
+        self.base.doc.store.readings.get_mut(wread.0).baseform = Some(wf_hash);
+        Ok(wread)
     }
 
     // [spec:cg3:req:robustness.reserved-keys]
@@ -551,7 +556,7 @@ impl<'a> JsonlApplicator<'a> {
                         if let (Some(lc), Some(sw)) = (l_cohort, c_swindow) {
                             let is_last = {
                                 let cohorts = &self.base.doc.store.single_windows.get(sw.0).cohorts;
-                                !cohorts.is_empty() && *cohorts.last().unwrap() == lc
+                                cohorts.last() == Some(&lc)
                             };
                             if is_last {
                                 let rs = self.base.doc.store.cohorts.get(lc.0).readings.clone();
@@ -641,8 +646,10 @@ impl<'a> JsonlApplicator<'a> {
             }
 
             // Plain text: has "t" and NOT "w".
-            if obj.contains_key("t") && !obj.contains_key("w") {
-                let text = json_to_string(obj.get("t").unwrap());
+            if let Some(t_v) = obj.get("t")
+                && !obj.contains_key("w")
+            {
+                let text = json_to_string(t_v);
                 if !text.is_empty() {
                     // verbose Info: deferred.
                     if let Some(lc) = l_cohort {
@@ -673,7 +680,9 @@ impl<'a> JsonlApplicator<'a> {
                 continue;
             } else if obj.contains_key("w") {
                 // Cohort.
-                if c_swindow.is_none() {
+                let sw = if let Some(sw) = c_swindow {
+                    sw
+                } else {
                     let sw = self
                         .base
                         .doc
@@ -698,9 +707,8 @@ impl<'a> JsonlApplicator<'a> {
                     self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
                     c_swindow = Some(sw);
                     l_swindow = Some(sw);
-                }
-
-                let sw = c_swindow.unwrap();
+                    sw
+                };
                 let cc = self.parse_json_cohort(obj, sw)?;
                 // cCohort is never null in this port (alloc always succeeds), so the
                 // "Failed to create cohort" branch is unreachable.
@@ -716,17 +724,12 @@ impl<'a> JsonlApplicator<'a> {
 
                 let mut did_delim = false;
                 let cohorts_len = self.base.doc.store.single_windows.get(sw.0).cohorts.len();
+                let soft_delimiters = self.base.grammar.soft_delimiters;
                 let soft_hit = cohorts_len >= self.base.cfg.soft_limit as usize
-                    && self.base.grammar.soft_delimiters.is_some()
-                    && {
-                        let sd = self.base.grammar.sets_list
-                            [self.base.grammar.soft_delimiters.unwrap().0]
-                            .number
-                            .get();
-                        self.base
-                            .engine()
-                            .does_set_match_cohort_normal(cc, sd, None)?
-                    };
+                    && self
+                        .base
+                        .engine()
+                        .matches_delimiter_set(cc, soft_delimiters)?;
                 if soft_hit {
                     // verbose Info: deferred.
                     let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
@@ -736,16 +739,9 @@ impl<'a> JsonlApplicator<'a> {
                     c_swindow = None;
                     did_delim = true;
                 } else {
+                    let delimiters = self.base.grammar.delimiters;
                     let hard_hit = cohorts_len >= self.base.cfg.hard_limit as usize
-                        || (self.base.grammar.delimiters.is_some() && {
-                            let d = self.base.grammar.sets_list
-                                [self.base.grammar.delimiters.unwrap().0]
-                                .number
-                                .get();
-                            self.base
-                                .engine()
-                                .does_set_match_cohort_normal(cc, d, None)?
-                        });
+                        || self.base.engine().matches_delimiter_set(cc, delimiters)?;
                     if hard_hit {
                         if cohorts_len >= self.base.cfg.hard_limit as usize {
                             tracing::warn!(
@@ -1137,8 +1133,7 @@ impl JsonlFormat {
     pub(crate) fn print_stream_command_e<W: Write>(&self, cmd: &str, output: &mut W) {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
         let doc = json!({ "cmd": cmd.to_string() });
-        let s = serde_json::to_string(&doc).unwrap();
-        let _ = writeln!(output, "{s}");
+        let _ = writeln!(output, "{doc}");
     }
 
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
@@ -1150,8 +1145,7 @@ impl JsonlFormat {
     pub(crate) fn print_plain_text_line_e<W: Write>(&self, line: &str, output: &mut W) {
         // DIVERGENCE(NUL): RapidJSON truncates the c-string at NUL.
         let doc = json!({ "t": line.to_string() });
-        let s = serde_json::to_string(&doc).unwrap();
-        let _ = writeln!(output, "{s}");
+        let _ = writeln!(output, "{doc}");
     }
 
     // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn]
@@ -1189,6 +1183,10 @@ impl JsonlFormat {
 
         // Wordform ("w").
         let wform_tag = {
+            #[expect(
+                clippy::expect_used,
+                reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+            )]
             let wf = e
                 .doc
                 .store

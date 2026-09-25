@@ -31,7 +31,9 @@ use std::io::Write;
 use std::ops::DerefMut;
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
-use crate::cohort::{CT_AP_UNKNOWN, CT_REMOVED, alloc_cohort, append_reading, unignore_all};
+use crate::cohort::{
+    CT_AP_UNKNOWN, CT_REMOVED, alloc_cohort, append_reading, free_cohort, unignore_all,
+};
 use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{hash_value, insert_if_exists};
 use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
@@ -217,107 +219,79 @@ where
                 )?;
             } else {
                 // Case (b): comma/`=` list. Walk `s` re-computing `c`/`d`.
-                let mut s = Some(s0);
+                let mut s = s0;
                 let mut c = c;
                 let mut d = d;
                 let mut a: u32;
                 let mut b: u32;
                 while c.is_some() || d.is_some() {
-                    if let Some(dd) = d {
-                        if d.is_some() && (c.is_none() || dd < c.unwrap()) {
-                            // `=` before the next `,`. identifier before `=`.
-                            let ss = s.unwrap();
-                            if ss >= dd {
-                                // empty identifier before `=`
-                                tracing::warn!(
-                                    "Warning: SETVAR on line {} had no identifier before the =! Defaulting to identifier *.",
-                                    self.base.doc.num_lines
-                                );
-                                a = tag_any;
-                            } else {
-                                let ident = slice_str(ss, dd);
-                                let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
-                                a = self.base.grammar.single_tags_list.get(t.0).hash.get();
-                            }
-                            // if (c) { *c = 0; s = c + 1; }
-                            let mut new_s = s;
-                            if let Some(cc) = c {
-                                new_s = Some(cc + 1);
-                            }
-                            // value after `=`: d[1] .. (c or len)
-                            let val_end = c.unwrap_or(len);
-                            if dd + 1 >= val_end {
-                                tracing::warn!(
-                                    "Warning: SETVAR on line {} had no value after the =! Defaulting to value *.",
-                                    self.base.doc.num_lines
-                                );
-                                b = tag_any;
-                            } else {
-                                let val = slice_str(dd + 1, val_end);
-                                let t = self.base.add_tag(&val, crate::tag::TagType::empty())?;
-                                b = self.base.grammar.single_tags_list.get(t.0).hash.get();
-                            }
-                            if c.is_none() {
-                                d = None;
-                                new_s = None;
-                            }
-                            s = new_s;
-                            variables_set.insert((a, b));
-                            variables_rem.erase(a);
-                            variables_output.insert(a);
-                        } else if let Some(cc) = c {
-                            // comma-separated bare identifier.
-                            let ss = s.unwrap();
-                            if ss >= cc {
-                                tracing::warn!(
-                                    "Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.",
-                                    self.base.doc.num_lines
-                                );
-                                a = tag_any;
-                            } else {
-                                let ident = slice_str(ss, cc);
-                                let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
-                                a = self.base.grammar.single_tags_list.get(t.0).hash.get();
-                            }
-                            s = Some(cc + 1);
-                            variables_set.insert((a, tag_any));
-                            variables_rem.erase(a);
-                            variables_output.insert(a);
+                    if let Some(dd) = d
+                        && c.is_none_or(|cc| dd < cc)
+                    {
+                        // `=` before the next `,`. identifier before `=`.
+                        if s >= dd {
+                            // empty identifier before `=`
+                            tracing::warn!(
+                                "Warning: SETVAR on line {} had no identifier before the =! Defaulting to identifier *.",
+                                self.base.doc.num_lines
+                            );
+                            a = tag_any;
+                        } else {
+                            let ident = slice_str(s, dd);
+                            let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
+                            a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                         }
+                        // value after `=`: d[1] .. (c or len)
+                        let val_end = c.unwrap_or(len);
+                        if dd + 1 >= val_end {
+                            tracing::warn!(
+                                "Warning: SETVAR on line {} had no value after the =! Defaulting to value *.",
+                                self.base.doc.num_lines
+                            );
+                            b = tag_any;
+                        } else {
+                            let val = slice_str(dd + 1, val_end);
+                            let t = self.base.add_tag(&val, crate::tag::TagType::empty())?;
+                            b = self.base.grammar.single_tags_list.get(t.0).hash.get();
+                        }
+                        variables_set.insert((a, b));
+                        variables_rem.erase(a);
+                        variables_output.insert(a);
+                        // if (c) { *c = 0; s = c + 1; } — with no `,` the list ends.
+                        let Some(cc) = c else {
+                            break;
+                        };
+                        s = cc + 1;
                     } else if let Some(cc) = c {
-                        // d is None but c exists — comma-separated bare identifier.
-                        let ss = s.unwrap();
-                        if ss >= cc {
+                        // comma-separated bare identifier.
+                        if s >= cc {
                             tracing::warn!(
                                 "Warning: SETVAR on line {} had no identifier after the ,! Defaulting to identifier *.",
                                 self.base.doc.num_lines
                             );
                             a = tag_any;
                         } else {
-                            let ident = slice_str(ss, cc);
+                            let ident = slice_str(s, cc);
                             let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
                             a = self.base.grammar.single_tags_list.get(t.0).hash.get();
                         }
-                        s = Some(cc + 1);
+                        s = cc + 1;
                         variables_set.insert((a, tag_any));
                         variables_rem.erase(a);
                         variables_output.insert(a);
                     }
 
-                    if let Some(ss) = s {
-                        c = find_from(ss, ',');
-                        d = find_from(ss, '=');
-                        if c.is_none() && d.is_none() {
-                            // final bare identifier.
-                            self.setvar_bare(
-                                &slice_str(ss, len),
-                                variables_set,
-                                variables_rem,
-                                variables_output,
-                                false,
-                            )?;
-                            s = None;
-                        }
+                    c = find_from(s, ',');
+                    d = find_from(s, '=');
+                    if c.is_none() && d.is_none() {
+                        // final bare identifier.
+                        self.setvar_bare(
+                            &slice_str(s, len),
+                            variables_set,
+                            variables_rem,
+                            variables_output,
+                            false,
+                        )?;
                     }
                 }
             }
@@ -508,6 +482,10 @@ where
                         }
                     }
                     if !mappings.is_empty() {
+                        #[expect(
+                            clippy::unwrap_used,
+                            reason = "the reader and test_pr allocate every reading they parse with alloc_reading(Some(cohort)), and a sub-reading made above copies its reading's parent"
+                        )]
                         let parent = self.base.doc.store.readings.get(reading.0).parent.unwrap();
                         self.base
                             .engine()
@@ -554,6 +532,10 @@ where
     // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.test-pr-fn]
     /// C++ `void ApertiumApplicator::testPR(std::ostream& output)`. Round-trips six
     /// hard-coded analysis strings through `processReading`/`printReading`.
+    ///
+    /// DIVERGENCE: each fixture reading belongs to a scratch cohort, freed with
+    /// it. The C++ gives it none, and dereferences that missing cohort once a
+    /// fixture tag is in one of the grammar's sets or is a mapping tag.
     pub fn test_pr<W: Write>(&mut self, output: &mut W) -> Result<(), crate::error::RunError> {
         let texts = [
             "venir<vblex><imp><p2><sg>",
@@ -564,7 +546,8 @@ where
             "aux3<tag>+aux2<tag>+aux1<tag>+main<tag>",
         ];
         for text in texts {
-            let reading = alloc_reading(&mut self.base.doc.store, None);
+            let cohort = alloc_cohort(&mut self.base.doc.store, None);
+            let reading = alloc_reading(&mut self.base.doc.store, Some(cohort));
             let wform = tag_by_hash(&self.base.grammar, TagHash(self.base.grammar.tag_any));
             self.process_reading_str(reading, text, wform)?;
             let mut reading = reading;
@@ -584,6 +567,7 @@ where
             let _ = writeln!(output);
             let opt = Some(reading);
             free_reading(&mut self.base.doc.store, opt);
+            free_cohort(&mut self.base.doc.store, None, Some(cohort));
         }
         Ok(())
     }
@@ -813,37 +797,7 @@ where
                     st.blank.clear();
                 }
 
-                // Create a window if none.
-                if st.c_swindow.is_none() {
-                    self.ensure_endtag(st.l_swindow)?;
-                    let sw = {
-                        let base = &mut *self.base;
-                        base.doc
-                            .stream
-                            .alloc_append_single_window(&mut base.doc.store)
-                    };
-                    self.base.engine().init_empty_single_window(sw)?;
-                    // Move the variable collections into the window (C++
-                    // `cSWindow->variables_set = variables_set; ...clear()`).
-                    let set_pairs = collect_map(&st.variables_set);
-                    let rem_items = collect_set(&st.variables_rem);
-                    let out_items = st.variables_output.as_slice().to_vec();
-                    {
-                        let sww = self.base.doc.store.single_windows.get_mut(sw.0);
-                        sww.variables_set.insert_range(set_pairs);
-                        sww.variables_rem.insert_range(rem_items);
-                        sww.variables_output.insert_range(&out_items);
-                    }
-                    st.variables_set.clear(0);
-                    st.variables_rem.clear(0);
-                    st.variables_output.clear();
-                    st.c_swindow = Some(sw);
-                    st.l_swindow = Some(sw);
-                    self.base.doc.store.single_windows.get_mut(sw.0).text = st.blank.clone();
-                    st.blank.clear();
-                    self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
-                }
-                let cs = st.c_swindow.unwrap();
+                let cs = self.cohort_window(&mut st)?;
 
                 // Allocate the cohort.
                 let cc = alloc_cohort(&mut self.base.doc.store, Some(cs));
@@ -924,8 +878,7 @@ where
                         }
                         if tchars[p] == '/' || tchars[p] == '$' {
                             let c_reading = alloc_reading(&mut self.base.doc.store, Some(cc));
-                            let wf_tid2 = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                            self.process_reading(c_reading, rbuf.clone(), wf_tid2)?;
+                            self.process_reading(c_reading, rbuf.clone(), wf_tid)?;
                             let mut c_reading = c_reading;
                             if self.base.grammar.sub_readings_ltr
                                 && self.base.doc.store.readings.get(c_reading.0).next.is_some()
@@ -988,7 +941,6 @@ where
                 }
                 // if (cCohort->wordform->tag[2] == '@')
                 {
-                    let wf_tid = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                     let wftag: Vec<char> = self
                         .base
                         .grammar
@@ -1006,45 +958,31 @@ where
                 let mut did_delim = false;
                 let cohorts_size =
                     self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32;
+                let soft_delimiters = self.base.grammar.soft_delimiters;
                 if cohorts_size >= self.base.cfg.soft_limit
-                    && self.base.grammar.soft_delimiters.is_some()
-                {
-                    let sd = self.base.grammar.sets_list
-                        [self.base.grammar.soft_delimiters.unwrap().0]
-                        .number
-                        .get();
-                    if self
+                    && self
                         .base
                         .engine()
-                        .does_set_match_cohort_normal(cc, sd, None)?
-                    {
-                        let readings = self.base.doc.store.cohorts.get(cc.0).readings.clone();
-                        for r in readings {
-                            let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                            self.base.engine().add_tag_to_reading(r, et)?;
-                        }
-                        st.l_swindow = Some(cs);
-                        st.c_swindow = None;
-                        st.c_cohort = None;
-                        did_delim = true;
+                        .matches_delimiter_set(cc, soft_delimiters)?
+                {
+                    let readings = self.base.doc.store.cohorts.get(cc.0).readings.clone();
+                    for r in readings {
+                        let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
+                        self.base.engine().add_tag_to_reading(r, et)?;
                     }
+                    st.l_swindow = Some(cs);
+                    st.c_swindow = None;
+                    st.c_cohort = None;
+                    did_delim = true;
                 }
                 if st.c_cohort.is_some() {
                     let cohorts_size =
                         self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32;
                     let hard = cohorts_size >= self.base.cfg.hard_limit;
-                    let delim_match = self.base.grammar.delimiters.is_some() && {
-                        let d = self.base.grammar.sets_list
-                            [self.base.grammar.delimiters.unwrap().0]
-                            .number
-                            .get();
-                        self.base
-                            .engine()
-                            .does_set_match_cohort_normal(cc, d, None)?
-                    };
+                    let delimiters = self.base.grammar.delimiters;
+                    let delim_match = self.base.engine().matches_delimiter_set(cc, delimiters)?;
                     if hard || delim_match {
                         if !self.base.cfg.is_conv && cohorts_size >= self.base.cfg.hard_limit {
-                            let wf_tid = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                             let wftag =
                                 self.base.grammar.single_tags_list.get(wf_tid.0).tag.clone();
                             tracing::warn!(
@@ -1113,6 +1051,46 @@ where
             }
         }
         Ok(())
+    }
+
+    /// The window a cohort the driver reads goes into: the current one, or a
+    /// new one when there is none, which takes the pending stream variables
+    /// and the blank before the cohort.
+    fn cohort_window(
+        &mut self,
+        st: &mut ApertiumStreamState,
+    ) -> Result<SwId, crate::error::RunError> {
+        if let Some(sw) = st.c_swindow {
+            return Ok(sw);
+        }
+        self.ensure_endtag(st.l_swindow)?;
+        let sw = {
+            let base = &mut *self.base;
+            base.doc
+                .stream
+                .alloc_append_single_window(&mut base.doc.store)
+        };
+        self.base.engine().init_empty_single_window(sw)?;
+        // Move the variable collections into the window (C++
+        // `cSWindow->variables_set = variables_set; ...clear()`).
+        let set_pairs = collect_map(&st.variables_set);
+        let rem_items = collect_set(&st.variables_rem);
+        let out_items = st.variables_output.as_slice().to_vec();
+        {
+            let sww = self.base.doc.store.single_windows.get_mut(sw.0);
+            sww.variables_set.insert_range(set_pairs);
+            sww.variables_rem.insert_range(rem_items);
+            sww.variables_output.insert_range(&out_items);
+        }
+        st.variables_set.clear(0);
+        st.variables_rem.clear(0);
+        st.variables_output.clear();
+        st.c_swindow = Some(sw);
+        st.l_swindow = Some(sw);
+        self.base.doc.store.single_windows.get_mut(sw.0).text = st.blank.clone();
+        st.blank.clear();
+        self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
+        Ok(sw)
     }
 
     /// A superblank that just closed: if it looks like `[<STREAMCMD:...>]`,
@@ -1676,6 +1654,10 @@ impl ApertiumFormat {
                 let c = e.doc.store.cohorts.get(cohort.0);
                 (c.wordform, c.wread)
             };
+            #[expect(
+                clippy::expect_used,
+                reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+            )]
             let wf_tid = wf_tid.expect("printCohort: cohort has no wordform");
             let wf_chars: Vec<char> = e
                 .grammar

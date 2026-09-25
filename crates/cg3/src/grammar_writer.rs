@@ -641,7 +641,12 @@ impl GrammarWriter {
         }
 
         if rule.r#type == Keywords::KSubstitute || rule.r#type == Keywords::KExecute {
-            w!(to, "{} ", grammar.sets_list[rule.sublist.unwrap().0].name);
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a SUBSTITUTE or EXECUTE rule has its tag list: parse_rule reads it for both, and the .cg3b reader refuses a rule without one (check_rule's MissingSublist)"
+            )]
+            let sublist = rule.sublist.unwrap();
+            w!(to, "{} ", grammar.sets_list[sublist.0].name);
         }
 
         if let Some(ml) = rule.maplist {

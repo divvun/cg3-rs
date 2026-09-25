@@ -246,6 +246,33 @@ fn apertium_test_pr_roundtrip() {
     assert!(text.contains("be"), "testPR lost baseform text:\n{text}");
 }
 
+// A grammar that names a testPR fixture tag in a set, or whose mapping prefix
+// makes one a mapping tag, has testPR reach the cohort the fixture reading
+// belongs to. The C++ gives the reading no cohort and dereferences it.
+// [spec:cg3:req:robustness.no-input-panics/test]
+#[test]
+fn apertium_test_pr_with_grammar_tags() {
+    for grammar in [
+        "DELIMITERS = \".\" ;\nSELECT (vblex) ;\n",
+        "DELIMITERS = \".\" ;\nMAPPING-PREFIX = v ;\nSELECT (foo) ;\n",
+    ] {
+        let mut p =
+            cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
+        p.parse_grammar_utf8(grammar.as_bytes())
+            .expect("grammar parses");
+        let mut g = p.grammar;
+        let _ = g.reindex(false, false).unwrap();
+        let mut base = cg3::grammar_applicator::GrammarApplicator::new(g.into());
+        base.set_grammar().unwrap();
+        let mut a = cg3::apertium_applicator::ApertiumApplicator::new(base);
+        let mut out: Vec<u8> = Vec::new();
+        a.test_pr(&mut out)
+            .expect("testPR round-trips its fixtures");
+        let text = String::from_utf8(out).unwrap();
+        assert_eq!(text.lines().count(), 6, "{grammar}:\n{text}");
+    }
+}
+
 // ===========================================================================
 // MatxinApplicator — driven end-to-end by `cg-proc -f 2` (the only wired
 // entry): cg-proc constructs the applicator, calls setNullFlush(true) and

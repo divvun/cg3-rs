@@ -82,6 +82,10 @@ const STR_RXWORD_ANY: &str = "\"<.*>\"";
 /// C++ `thread_local` matcher `rx_u`. Matches a literal `\u` followed by
 /// EITHER exactly four hex digits OR `{` one-or-more hex digits `}`; group 1
 /// captures that alternative (braces included). Compiled once.
+#[expect(
+    clippy::unwrap_used,
+    reason = "the pattern is a fixed literal that compiles; tag_unicode_escapes_decode parses a grammar through it"
+)]
 static RX_U: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\\u((?:[0-9a-fA-F]{4})|\{(?:[0-9a-fA-F]+)\})").unwrap());
 
@@ -219,13 +223,12 @@ pub fn parse_tag<S: ParseTagState>(
         let mut tmp = String::new();
         let mut l = 0usize; // byte offset
         let mut did = false;
-        for m in re.captures_iter(&src) {
-            let whole = m.get(0).unwrap();
-            let grp = m.get(1).unwrap();
+        for whole in re.find_iter(&src) {
             let mb = whole.start();
             let me_ = whole.end();
-            let mut sb = grp.start();
-            let mut se = grp.end();
+            // Group 1 is all of the match past its leading `\u`.
+            let mut sb = mb + 2;
+            let mut se = me_;
             tmp.push_str(&src[l..mb]);
             let b = src.as_bytes();
             if b[sb] == b'{' {

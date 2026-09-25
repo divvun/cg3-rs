@@ -429,6 +429,10 @@ fn is_mapping_list_own(grammar: &GrammarCore, s: SetId, todo: &mut Vec<SetId>) -
         return false;
     }
     let members = &grammar.sets_list[s.0].sets;
+    #[expect(
+        clippy::unwrap_used,
+        reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties"
+    )]
     todo.extend(members.iter().rev().map(|&i| grammar.get_set(i).unwrap()));
     true
 }
@@ -1132,7 +1136,6 @@ impl TextualParser {
         pos: &mut usize,
         s: Option<SetId>,
     ) -> ParseResult<SetId> {
-        let mut s = s;
         let mut set_ops: Vec<u32> = Vec::new();
         let mut sets: Vec<u32> = Vec::new();
 
@@ -1220,21 +1223,26 @@ impl TextualParser {
                     }
 
                     // Eager binary set operators.
-                    if !set_ops.is_empty()
-                        && (*set_ops.last().unwrap() == S_SET_DIFF
-                            || *set_ops.last().unwrap() == S_SET_ISECT_U
-                            || *set_ops.last().unwrap() == S_SET_SYMDIFF_U)
+                    if let Some(&op) = set_ops.last()
+                        && matches!(op, S_SET_DIFF | S_SET_ISECT_U | S_SET_SYMDIFF_U)
                     {
+                        #[expect(
+                            clippy::unwrap_used,
+                            reason = "each entry of `sets` is the hash of a set add_set registered: the inline set, a named set parse_set found, or an eager result below"
+                        )]
                         let sa = self.grammar.get_set(sets[sets.len() - 1]).unwrap();
                         let mut a: TagVectorSet = TagVectorSet::new();
                         self.grammar.get_tags(sa, &mut a);
+                        #[expect(
+                            clippy::unwrap_used,
+                            reason = "each entry of `sets` is the hash of a set add_set registered: the inline set, a named set parse_set found, or an eager result below"
+                        )]
                         let sb = self.grammar.get_set(sets[sets.len() - 2]).unwrap();
                         let mut b: TagVectorSet = TagVectorSet::new();
                         self.grammar.get_tags(sb, &mut b);
 
                         let av = sorted_tvs(&self.grammar, &a);
                         let bv = sorted_tvs(&self.grammar, &b);
-                        let op = *set_ops.last().unwrap();
                         let r: Vec<TagVector> = if op == S_SET_ISECT_U {
                             merge_intersection(&self.grammar, &av, &bv)
                         } else if op == S_SET_SYMDIFF_U {
@@ -1328,22 +1336,23 @@ impl TextualParser {
             return Err(self.error_near(*pos));
         }
 
-        if s.is_none() && sets.len() == 1 {
-            s = Some(self.grammar.get_set(*sets.last().unwrap()).unwrap());
-        } else {
-            let sid = match s {
-                Some(sid) => sid,
-                None => self.grammar.allocate_set(),
-            };
-            std::mem::swap(&mut self.grammar.sets_list.get_mut(sid.0).sets, &mut sets);
-            std::mem::swap(
-                &mut self.grammar.sets_list.get_mut(sid.0).set_ops,
-                &mut set_ops,
-            );
-            s = Some(sid);
+        if let (None, &[only]) = (s, sets.as_slice()) {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "each entry of `sets` is the hash of a set add_set registered: an inline set, a named set parse_set found, or an eager result"
+            )]
+            return Ok(self.grammar.get_set(only).unwrap());
         }
-
-        Ok(s.unwrap())
+        let sid = match s {
+            Some(sid) => sid,
+            None => self.grammar.allocate_set(),
+        };
+        std::mem::swap(&mut self.grammar.sets_list.get_mut(sid.0).sets, &mut sets);
+        std::mem::swap(
+            &mut self.grammar.sets_list.get_mut(sid.0).set_ops,
+            &mut set_ops,
+        );
+        Ok(sid)
     }
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-set-inline-wrapper-fn]
@@ -1963,7 +1972,7 @@ impl TextualParser {
             }
         }
 
-        let t = self.grammar.add_contextual_test(Some(ot)).unwrap();
+        let t = self.grammar.intern_contextual_test(ot);
         let span = self.trimmed_span(buf, ast_ctx_b, *pos);
         self.ctx_spans.entry(t).or_default().push(span);
         if let Some(prof) = self.profiler.as_mut() {

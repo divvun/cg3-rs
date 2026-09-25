@@ -254,33 +254,7 @@ where
                     tag.push_str(&wf_body);
                     tag.push_str(">\"");
 
-                    if st.c_cohort.is_none() {
-                        if st.c_swindow.is_none() {
-                            let sw = {
-                                let base = &mut *self.base;
-                                base.doc
-                                    .stream
-                                    .alloc_append_single_window(&mut base.doc.store)
-                            };
-                            self.base.engine().init_empty_single_window(sw)?;
-                            st.c_swindow = Some(sw);
-                            st.l_swindow = Some(sw);
-                            self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
-                            st.did_soft_lookback = false;
-                        }
-                        let cc = alloc_cohort(&mut self.base.doc.store, st.c_swindow);
-                        let gn = self.base.doc.cohorts.next_cohort_number();
-                        let wf = self.base.add_tag(&tag, crate::tag::TagType::empty())?;
-                        {
-                            let c = self.base.doc.store.cohorts.get_mut(cc.0);
-                            c.global_number = gn;
-                            c.wordform = Some(wf);
-                        }
-                        st.c_cohort = Some(cc);
-                        st.l_cohort = Some(cc);
-                        self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
-                    }
-                    let cc = st.c_cohort.unwrap();
+                    let (cc, wordform) = self.line_cohort(&mut st, &tag)?;
 
                     // ++space; while (space && *space && (space[0]!='+' ||
                     //   space[1]!='?' || space[2]!=0)) { ... }
@@ -327,8 +301,7 @@ where
                                 base.grammar.sets_any.as_ref(),
                             );
                         }
-                        let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                        self.base.engine().add_tag_to_reading(c_reading, wf)?;
+                        self.base.engine().add_tag_to_reading(c_reading, wordform)?;
 
                         // base = space; (index into cleaned). A quoted
                         // baseform reassignment (base = tag.data()) is tracked with
@@ -598,8 +571,7 @@ where
                             .baseform
                             .is_none()
                         {
-                            let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                            let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
+                            let wf_hash = self.base.grammar.single_tags_list.get(wordform.0).hash;
                             self.base.doc.store.readings.get_mut(c_reading.0).baseform =
                                 Some(wf_hash);
                             tracing::warn!(
@@ -630,8 +602,7 @@ where
                             self.base
                                 .engine()
                                 .del_tag_from_reading_hash(c_reading, bf_hash);
-                            let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
-                            let base = self.base.engine().make_base_from_word(wf)?;
+                            let base = self.base.engine().make_base_from_word(wordform)?;
                             let h = self.base.grammar.single_tags_list.get(base.0).hash;
                             self.base.doc.store.readings.get_mut(c_reading.0).baseform = Some(h);
                         }
@@ -765,11 +736,12 @@ where
         if let Some(cs) = st.c_swindow {
             let over_soft = self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32
                 >= self.base.cfg.soft_limit;
-            if over_soft && self.base.grammar.soft_delimiters.is_some() && !st.did_soft_lookback {
+            if over_soft
+                && let Some(soft_delimiters) = self.base.grammar.soft_delimiters
+                && !st.did_soft_lookback
+            {
                 st.did_soft_lookback = true;
-                let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
-                    .number
-                    .get();
+                let sd = self.base.grammar.sets_list[soft_delimiters.0].number.get();
                 let cohorts = self.base.doc.store.single_windows.get(cs.0).cohorts.clone();
                 for &c in reversed(&cohorts) {
                     if self
@@ -780,6 +752,10 @@ where
                         st.did_soft_lookback = false;
                         let cohort = self.base.engine().delimit_at(cs, c)?;
                         // cSWindow = cohort->parent->next;
+                        #[expect(
+                            clippy::unwrap_used,
+                            reason = "delimit_at returns the new last cohort of sw, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
+                        )]
                         let parent = self.base.doc.store.cohorts.get(cohort.0).parent.unwrap();
                         st.c_swindow = self.base.doc.store.single_windows.get(parent.0).next;
                         if let Some(cc) = st.c_cohort {
@@ -796,14 +772,11 @@ where
         if let (Some(cc), Some(cs)) = (st.c_cohort, st.c_swindow) {
             let over_soft = self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32
                 >= self.base.cfg.soft_limit;
-            let sd_hit = self.base.grammar.soft_delimiters.is_some() && {
-                let sd = self.base.grammar.sets_list[self.base.grammar.soft_delimiters.unwrap().0]
-                    .number
-                    .get();
-                self.base
-                    .engine()
-                    .does_set_match_cohort_normal(cc, sd, None)?
-            };
+            let soft_delimiters = self.base.grammar.soft_delimiters;
+            let sd_hit = self
+                .base
+                .engine()
+                .matches_delimiter_set(cc, soft_delimiters)?;
             if over_soft && sd_hit {
                 let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
                 for r in rs {
@@ -831,17 +804,15 @@ where
         if let (Some(cc), Some(cs)) = (st.c_cohort, st.c_swindow) {
             let over_hard = self.base.doc.store.single_windows.get(cs.0).cohorts.len() as u32
                 >= self.base.cfg.hard_limit;
-            let delim_hit =
-                self.base.cfg.dep_delimit == 0 && self.base.grammar.delimiters.is_some() && {
-                    let d = self.base.grammar.sets_list[self.base.grammar.delimiters.unwrap().0]
-                        .number
-                        .get();
-                    self.base
-                        .engine()
-                        .does_set_match_cohort_normal(cc, d, None)?
-                };
+            let delimiters = self.base.grammar.delimiters;
+            let delim_hit = self.base.cfg.dep_delimit == 0
+                && self.base.engine().matches_delimiter_set(cc, delimiters)?;
             if over_hard || delim_hit {
                 if !self.base.cfg.is_conv && over_hard {
+                    #[expect(
+                        clippy::unwrap_used,
+                        reason = "st.c_cohort is set only by line_cohort, which gives the cohort its wordform as it makes it"
+                    )]
                     let wf = self.base.doc.store.cohorts.get(cc.0).wordform.unwrap();
                     let wftag = self.base.grammar.single_tags_list.get(wf.0).tag.clone();
                     tracing::warn!(
@@ -951,6 +922,56 @@ where
             }
         }
         Ok(())
+    }
+
+    /// The cohort a reading line belongs to, with its wordform: the current
+    /// cohort, or a new one whose wordform is `tag`, in a new window when
+    /// there is none.
+    fn line_cohort(
+        &mut self,
+        st: &mut FstStreamState,
+        tag: &str,
+    ) -> Result<(CohortId, TagId), crate::error::RunError> {
+        if let Some(cc) = st.c_cohort {
+            #[expect(
+                clippy::expect_used,
+                reason = "st.c_cohort is set only below, once the cohort has its wordform"
+            )]
+            let wf = self
+                .base
+                .doc
+                .store
+                .cohorts
+                .get(cc.0)
+                .wordform
+                .expect("cohort wordform");
+            return Ok((cc, wf));
+        }
+        if st.c_swindow.is_none() {
+            let sw = {
+                let base = &mut *self.base;
+                base.doc
+                    .stream
+                    .alloc_append_single_window(&mut base.doc.store)
+            };
+            self.base.engine().init_empty_single_window(sw)?;
+            st.c_swindow = Some(sw);
+            st.l_swindow = Some(sw);
+            self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
+            st.did_soft_lookback = false;
+        }
+        let cc = alloc_cohort(&mut self.base.doc.store, st.c_swindow);
+        let gn = self.base.doc.cohorts.next_cohort_number();
+        let wf = self.base.add_tag(tag, crate::tag::TagType::empty())?;
+        {
+            let c = self.base.doc.store.cohorts.get_mut(cc.0);
+            c.global_number = gn;
+            c.wordform = Some(wf);
+        }
+        st.c_cohort = Some(cc);
+        st.l_cohort = Some(cc);
+        self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
+        Ok((cc, wf))
     }
 }
 
@@ -1068,6 +1089,10 @@ impl FstFormat {
 
         // parent->wordform->hash for the skip test.
         let parent_wf_hash = {
+            #[expect(
+                clippy::expect_used,
+                reason = "a printed reading or sub-reading belongs to a cohort: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was"
+            )]
             let cid = parent.expect("reading has no parent cohort");
             let wf = e.doc.store.cohorts.get(cid.0).wordform;
             wf.map(|t| e.grammar.single_tags_list[t.0].hash)
@@ -1150,6 +1175,10 @@ impl FstFormat {
             // wform = cohort->wordform->tag; print stripped of `"<` and `>"`:
             // wform.size() - 4 chars starting at wform.data() + 2.
             let wform: Vec<char> = {
+                #[expect(
+                    clippy::expect_used,
+                    reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+                )]
                 let wf = e
                     .doc
                     .store
