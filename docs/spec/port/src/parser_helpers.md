@@ -32,7 +32,7 @@
 > [spec:cg3:def:parser-helpers.cg3.parse-tag-fn]
 > Tag* parseTag(const UChar* to, const UChar* p, State& state, bool unescape=true)
 
-> [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn]
+> [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+1]
 > Template free function (parameterized on the concrete parser `State`)
 > that turns a raw UTF-16 tag string `to` into a canonical `Tag*`,
 > registered in the grammar. `p` is only near-context for errors;
@@ -150,4 +150,15 @@
 > store `tag->tag_raw = to` (original spelling). Return
 > `state.addTag(tag)`. Every `state.error(...)` is [[noreturn]] (throws
 > to abort the current construct).
+>
+> PORT DIVERGENCE: three inputs the C++ parses with undefined behaviour are
+> errors in the port (`[spec:cg3:req:robustness.grammar-text-errors]`), each
+> with a kind that says what is missing. A tag of nothing but `^` is refused
+> where the C++ only asserts `length` non-empty (and in a release build reads
+> `tmp[-1]`). A regex or case-insensitive tag whose text is a single `/` — `/r`,
+> `/i`, `/l` — is refused before its slashes would be stripped from a
+> one-character text with a length of -1; `//r`, whose body is merely empty,
+> still parses as in the C++. And when `parseNumeric(true)` reports an
+> expression naming a variable outside `A`-`Z` (`tag.cg3.tag.parse-numeric-fn`),
+> that report is the error for the tag.
 

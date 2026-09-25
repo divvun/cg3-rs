@@ -11,7 +11,7 @@ use crate::error::{NumberRole, ReservedNumber};
 use crate::flat_unordered_map::FlatUnorderedMap;
 use crate::grammar::{GrammarCore, TagSpace};
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_str, is_textual};
-use crate::math_parser::MathParser;
+use crate::math_parser::{MathError, MathErrorKind, MathParser};
 use crate::sorted_vector::SortedVector;
 use crate::types::TagHash;
 use crate::uextras::eq_ignore_case;
@@ -457,18 +457,25 @@ impl Tag {
         }
     }
 
-    // [spec:cg3:def:tag.cg3.tag.parse-numeric-fn]
-    // [spec:cg3:sem:tag.cg3.tag.parse-numeric-fn]
+    // [spec:cg3:def:tag.cg3.tag.parse-numeric-fn+1]
+    // [spec:cg3:sem:tag.cg3.tag.parse-numeric-fn+1]
     /// Ported over `char`s (the analog of the C++ UTF-16 buffers): `tag.size()`
     /// == the tag's `char` count and the 256-slot stack buffers become bounds
     /// checks. The C++ scanf pattern `%*[<]%[^<>=:!]%[<>=:!]`, its leading-span
     /// count, the `MAX`/`MIN` keywords, `%lf`, and the `find_first_of` sets are
     /// reproduced inline.
-    pub fn parse_numeric(&mut self, trusted: bool) {
+    ///
+    /// DIVERGENCE: an expression the C++ would evaluate with undefined
+    /// behaviour — one naming a variable outside `A`-`Z` — is returned as the
+    /// error rather than making the tag non-numeric, so the grammar that wrote
+    /// it can be refused. Every other expression that will not evaluate still
+    /// leaves the tag non-numeric, as in the C++. Only `trusted` tags evaluate
+    /// an expression at all, so an untrusted parse never fails.
+    pub fn parse_numeric(&mut self, trusted: bool) -> Result<(), MathError> {
         let chars: Vec<char> = self.tag.chars().collect();
         let size = chars.len();
         if size >= 256 {
-            return;
+            return Ok(());
         }
 
         // C++ scanf(tag, "%*[<]%[^<>=:!]%[<>=:!]", &tkey, &top) == 2 && top[0]
@@ -481,7 +488,7 @@ impl Tag {
             n_lt += 1;
         }
         if n_lt == 0 {
-            return;
+            return Ok(());
         }
         // %[^<>=:!] : tkey (>= 1 char, else the '== 2' check fails).
         let key_start = i;
@@ -490,7 +497,7 @@ impl Tag {
         }
         let tkey: Vec<char> = chars[key_start..i].to_vec();
         if tkey.is_empty() {
-            return;
+            return Ok(());
         }
         // %[<>=:!] : top (>= 1 char, else count 1 -> '!= 2' -> return).
         let op_start = i;
@@ -500,13 +507,13 @@ impl Tag {
         let top: Vec<char> = chars[op_start..i].to_vec();
         if top.is_empty() {
             // count == 1 (top not matched) OR top[0] == 0.
-            return;
+            return Ok(());
         }
 
         let tkz = tkey.len();
         let toz = top.len();
         if tkz + toz + 1 >= size {
-            return;
+            return Ok(());
         }
 
         // txval = copy(tag[tkz+toz+1 .. size-1]); the C++ NUL-terminates just
@@ -514,7 +521,7 @@ impl Tag {
         let txval: Vec<char> = chars[(tkz + toz + 1)..(size - 1)].to_vec();
         let tget = |k: usize| -> char { if k < txval.len() { txval[k] } else { '\0' } };
         if txval.is_empty() {
-            return;
+            return Ok(());
         }
 
         let mut tval: f64 = 0.0;
@@ -539,12 +546,12 @@ impl Tag {
             // exp = view(tag).remove_prefix(comparison_offset).remove_suffix(1)
             let exp_str: String = chars[comparison_offset..(size - 1)].iter().collect();
             let mut mp = MathParser::new(NUMERIC_MIN, NUMERIC_MAX);
-            if let Err(e) = mp.eval(&exp_str) {
+            if let Err(e) = authoring_error(mp.eval(&exp_str))? {
                 // Not fatal — the tag simply is not a numeric-math tag. Worth
                 // saying which expression and where, now that the error knows.
                 tracing::debug!("Not a numeric comparison: {e}");
                 self.set_comparison_offset(0);
-                return;
+                return Ok(());
             }
             self.r#type |= T_NUMERIC_MATH;
         } else if tget(0) == 'M' && tget(1) == 'A' && tget(2) == 'X' && tget(3) == '\0' {
@@ -552,7 +559,7 @@ impl Tag {
         } else if tget(0) == 'M' && tget(1) == 'I' && tget(2) == 'N' && tget(3) == '\0' {
             tval = NUMERIC_MIN;
         } else if tget(r) != '\0' || !scan_double(&txval, &mut tval) {
-            return;
+            return Ok(());
         }
 
         tval = tval.clamp(NUMERIC_MIN, NUMERIC_MAX);
@@ -595,6 +602,7 @@ impl Tag {
         let tkey_str: String = tkey.iter().collect();
         self.comparison_hash = hash_value_str(&tkey_str, 0);
         self.r#type |= T_NUMERICAL;
+        Ok(())
     }
 
     // [spec:cg3:def:tag.cg3.tag.to-u-string-fn]
@@ -775,7 +783,8 @@ pub fn parse_tag_raw<G: TagSpace>(
     }
 
     if cat(0) == '<' && cat(length - 1) == '>' {
-        this.parse_numeric(false);
+        // Untrusted: no expression is evaluated, so there is nothing to refuse.
+        let _ = this.parse_numeric(false);
     }
     if cat(0) == '#' {
         parse_dependency(this, &to_chars)?;
@@ -925,6 +934,16 @@ pub fn fill_tagvector(
 }
 
 // ---------------------------------------------------------------------------
+/// Split the failures of a numeric tag's expression into the one that is an
+/// authoring mistake (`Err`, the grammar is refused) and the ones that only
+/// mean the tag is not numeric (`Ok(Err(..))`, as the C++ `catch (...)` did).
+fn authoring_error(evaluated: Result<f64, MathError>) -> Result<Result<f64, MathError>, MathError> {
+    match evaluated {
+        Err(e) if e.kind == MathErrorKind::VariableOutOfRange => Err(e),
+        other => Ok(other),
+    }
+}
+
 // Local stand-ins for the C++ scanf conversions used above: a scanf engine
 // has no std analogue, so each format string gets a hand-written parser rather
 // than a shared one. Deliberately un-annotated — they port a library call, not

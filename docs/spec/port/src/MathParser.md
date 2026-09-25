@@ -28,7 +28,7 @@
 > [spec:cg3:def:math-parser.cg3.math-parser.eval-assign-fn]
 > inline void MathParser::eval_assign(double& result)
 
-> [spec:cg3:sem:math-parser.cg3.math-parser.eval-assign-fn]
+> [spec:cg3:sem:math-parser.cg3.math-parser.eval-assign-fn+1]
 > Lowest-precedence level, handling an optional `VARIABLE = expression`
 > assignment. If the current `tok_type` is `VARIABLE`: save the cursor
 > `t_ptr = exp_ptr` and `temp_token = token`, and compute
@@ -45,6 +45,14 @@
 > would overwrite `vars[12]` rather than the min/max members; a
 > lowercase single-letter variable indexes out of bounds (`'a'-'A'`=32,
 > but `vars` has only 26 slots).
+>
+> PORT DIVERGENCE: the port MUST NOT index `vars` out of bounds. It takes the
+> slot only once the `=` is found, and a variable whose first letter is not
+> `A`-`Z` has no slot: the assignment is an error ("variable is not one of the
+> letters A-Z") rather than a write past `vars`, which in the C++ is undefined
+> behaviour. `MIN=`/`MAX=` keep slot 12. A numeric tag in a grammar that names
+> such a variable is refused where it is parsed
+> (`[spec:cg3:req:robustness.grammar-text-errors]`).
 
 > [spec:cg3:def:math-parser.cg3.math-parser.eval-exp-fn]
 > inline void MathParser::eval_exp(double& result)
@@ -79,7 +87,7 @@
 > [spec:cg3:def:math-parser.cg3.math-parser.eval-func-fn]
 > inline void MathParser::eval_func(double& result)
 
-> [spec:cg3:sem:math-parser.cg3.math-parser.eval-func-fn]
+> [spec:cg3:sem:math-parser.cg3.math-parser.eval-func-fn+1]
 > Highest-precedence level: a function call, a parenthesized
 > sub-expression, a numeric literal, or a variable reference. Compute
 > `isfunc = (tok_type == FUNCTION)`; if so, save the function name into
@@ -113,6 +121,11 @@
 > cleared before the `ERANGE` test, so it reflects any prior `ERANGE`;
 > `vars[token[0]-'A']` assumes an uppercase A-Z letter, so a lowercase
 > single-letter variable indexes out of bounds.
+>
+> PORT DIVERGENCE: the port MUST NOT index `vars` out of bounds. Reading a
+> variable whose letter is not `A`-`Z` is an error ("variable is not one of the
+> letters A-Z") rather than a read past `vars`, which in the C++ is undefined
+> behaviour. `MIN` and `MAX`, in either case, still read the bounds.
 
 > [spec:cg3:def:math-parser.cg3.math-parser.eval-mul-div-fn]
 > inline void MathParser::eval_mul_div(double& result)

@@ -119,6 +119,56 @@ pub enum ParseErrorKind {
     /// Nothing to parse.
     #[error("input is empty - cannot continue")]
     EmptyInput,
+    /// A `()` with no tag in it, where a tag list expected at least one.
+    #[error("empty tag list `()`")]
+    EmptyTagList,
+    /// A regular-expression or case-insensitive tag whose one `/` is both its
+    /// opening and its closing delimiter, as in `/r` or `/i`.
+    #[error("tag `{tag}` has nothing between its delimiters")]
+    TagWithoutBody { tag: String },
+    /// A tag that is only fail-fast markers: `^` with nothing after it.
+    #[error("`^` marks a tag as fail-fast, but no tag follows it")]
+    FailFastWithoutTag,
+    /// A list item with nothing in it, as in the `[A,]` context shorthand.
+    #[error("empty item in a list")]
+    EmptyListItem,
+    /// A numeric tag whose expression the grammar cannot mean, such as a
+    /// variable outside `A`-`Z`. The cause says which and where. `Box<str>`
+    /// for the reason [`RuntimeTag`](Self::RuntimeTag) gives.
+    #[error("numeric tag `{tag}`: {cause}")]
+    NumericTag {
+        tag: Box<str>,
+        #[source]
+        cause: Box<crate::math_parser::MathError>,
+    },
+    /// The `f` position flag on a template reference: `f` branches on the
+    /// test's target set, and a template reference has no target of its own.
+    #[error("the `f` position needs a target set, and a template reference has none")]
+    NumericBranchWithoutTarget,
+    /// A `(` that input ended inside.
+    #[error("`(` is still open at the end of the input")]
+    UnclosedParenthesis,
+    /// A test with position `?` that is run without an override position to
+    /// replace it.
+    #[error(
+        "position `?` needs an override position, and the rule on line {rule_line} runs it without one"
+    )]
+    PositionWithoutOverride { rule_line: u32 },
+    /// A number in the grammar too large for what it counts.
+    #[error("number `{text}` is out of range")]
+    NumberOutOfRange { text: String },
+    /// A varstring tag with a `{` that no `}` closes.
+    #[error("varstring `{tag}` has a `{{` with no closing `}}`")]
+    UnclosedVarstringBrace { tag: String },
+    /// An `INCLUDE` of a file that is already being included. The cycle runs
+    /// from the file that is included again, back to itself.
+    #[error("INCLUDE cycle: {}", .cycle.join(" includes "))]
+    IncludeCycle { cycle: Vec<String> },
+    /// A template that must refer to itself again before any test can decide,
+    /// directly or through other templates. The cycle runs from a template
+    /// back to itself.
+    #[error("template cycle: {}", .cycle.join(" refers to "))]
+    TemplateCycle { cycle: Vec<String> },
     // [spec:cg3:req:diagnostics.runtime-placed]
     /// A failure the running stream hit, attributed to the rule that caused it.
     ///
@@ -448,6 +498,13 @@ pub enum RunError {
     /// reading `VSTR:$1`, say. The C++ expands forever.
     #[error("varstring {tag} in the rule on line {line} keeps expanding into another varstring")]
     VarstringLoop { tag: String, line: u32 },
+    /// C++ `runContextualTest`: a test with position `?` run with no override
+    /// position was `CG3Quit(1)`. A textual grammar is refused at parse for
+    /// this; a compiled one reaches here.
+    #[error(
+        "contextual test on line {line} has position `?` and no override position to replace it"
+    )]
+    PositionWithoutOverride { line: u32 },
     #[error("input contains sub-readings, which this output format cannot represent")]
     SubReadingsUnsupported,
     #[error("output format {format} cannot be written here")]

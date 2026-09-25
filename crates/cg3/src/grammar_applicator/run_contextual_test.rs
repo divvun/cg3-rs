@@ -576,10 +576,10 @@ impl Matcher<'_> {
 
         let test_pos = test.pos(&self.grammar.contexts_arena);
         if test_pos.intersects(POS_UNKNOWN) {
-            // C++: print the error, then CG3Quit(1).
-            panic!(
-                "Error: Contextual tests with position '?' cannot be used directly. Provide an override position."
-            );
+            // C++: print the error, then CG3Quit(1). A textual grammar is refused
+            // for this when it is parsed; a compiled one can still get here.
+            let line = self.grammar.contexts_arena[test.id.0].line;
+            return Err(crate::error::RunError::PositionWithoutOverride { line });
         }
 
         let mut cohort: Option<CohortId> = None;

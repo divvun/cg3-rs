@@ -113,7 +113,7 @@
 > [spec:cg3:def:tag.cg3.tag.parse-numeric-fn]
 > void Tag::parseNumeric(bool trusted)
 
-> [spec:cg3:sem:tag.cg3.tag.parse-numeric-fn]
+> [spec:cg3:sem:tag.cg3.tag.parse-numeric-fn+1]
 > Attempts to interpret `tag` as a numeric comparison of the form
 > `<key op value>` (e.g. `<W=5>`, `<Sem>MAX>`, or with `trusted`, a math
 > expression like `<Weight=$1*2>`). On success it fills `comparison_op`,
@@ -163,6 +163,16 @@
 >     `T_NUMERICAL`. NOTE: because the MATH branch falls through here, a math tag
 >     ends up with BOTH `T_NUMERIC_MATH` and `T_NUMERICAL`, `comparison_val == 0`,
 >     `comparison_op` derived from the operator, and `comparison_hash` of the key.
+>
+> PORT DIVERGENCE: the port returns a result instead of nothing. An expression
+> that names a variable outside `A`-`Z` MUST be returned as the error, and the
+> tag left without `T_NUMERIC_MATH`: the C++ evaluates it by indexing past the
+> math parser's variables, which is undefined behaviour, and a grammar author
+> who wrote `<x=a+1>` has made a mistake the parser can name
+> (`[spec:cg3:req:robustness.grammar-text-errors]`). Every other expression
+> that fails to evaluate still returns quietly with `comparison_offset = 0`, as
+> the C++ `catch (...)` did. Only a `trusted` parse evaluates an expression, so
+> an untrusted one never fails.
 
 > [spec:cg3:def:tag.cg3.tag.parse-tag-raw-fn]
 > void Tag::parseTagRaw(const UChar* to, Grammar* grammar)

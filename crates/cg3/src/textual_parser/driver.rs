@@ -15,7 +15,7 @@ use crate::inlines::{
 };
 use crate::set::{ST_TAG_UNIFY, Set};
 use crate::strings::Keywords;
-use crate::tag::{T_REGEXP_LINE, T_SPECIAL, T_VARSTRING};
+use crate::tag::{T_REGEXP_LINE, T_VARSTRING};
 use crate::types::SetNumber;
 
 use super::*;
@@ -333,6 +333,7 @@ impl TextualParser {
             local_only_sets = true;
         }
 
+        let name_at = *pos;
         let mut n = *pos;
         self.grammar.lines += skiptows_chars(buf, &mut n, '\0', true, false);
         let incname: String = buf[*pos..n].iter().collect();
@@ -380,6 +381,7 @@ impl TextualParser {
                 }
             },
         };
+        let entry = self.include_entry(&abspath, name_at)?;
         if bytes.len() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF {
             bytes.drain(0..3);
         }
@@ -401,7 +403,9 @@ impl TextualParser {
         // guarded was cosmetic; `cur_source` is not — leaving it pointing at the
         // included buffer would give the outer parse's next error a span into
         // the wrong file.
+        self.include_chain.push(entry);
         let rv = self.parse_source(gi2);
+        self.include_chain.pop();
         self.parse_end_break = saved_end;
         self.only_sets = saved_only;
         self.cur_grammar_n = saved_cur_grammar_n;
@@ -410,6 +414,34 @@ impl TextualParser {
         self.filebase = saved_filebase;
         self.grammar.lines = saved_lines;
         rv
+    }
+
+    // [spec:cg3:req:robustness.cycles+1]
+    /// The include-chain entry for `path`, or the cycle it would close.
+    ///
+    /// DIVERGENCE: the C++ follows an `INCLUDE` wherever it leads, so a file
+    /// that includes itself, directly or through others, recurses until the
+    /// stack runs out. A file already being included is refused, naming the
+    /// chain from it back to itself. Files are compared by canonical path, so
+    /// two spellings of one file are one file; the names shown are the paths as
+    /// the grammar gave them.
+    fn include_entry(
+        &mut self,
+        path: &str,
+        name_at: usize,
+    ) -> ParseResult<(std::path::PathBuf, String)> {
+        let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
+        let Some(from) = self.include_chain.iter().position(|(c, _)| *c == canon) else {
+            return Ok((canon, path.to_string()));
+        };
+        let mut cycle: Vec<String> = self.include_chain[from..]
+            .iter()
+            .map(|(_, name)| name.clone())
+            .collect();
+        cycle.push(path.to_string());
+        let mut err = self.error_near(name_at);
+        err.kind = crate::error::ParseErrorKind::IncludeCycle { cycle };
+        Err(err)
     }
 
     fn make_magic_set(&mut self, name: &str) -> ParseResult<SetId> {
@@ -421,54 +453,58 @@ impl TextualParser {
         self.grammar.add_set(set_c)
     }
 
+    // [spec:cg3:req:robustness.grammar-text-errors]
+    /// Resolve a varstring tag's `{set}` groups into its `vs_sets`/`vs_names`.
+    ///
+    /// DIVERGENCE: the C++ loop only advances past a `{` once it has found the
+    /// `}` closing it, so a `{` with none spins forever. That is refused here,
+    /// placed where the tag was written.
     fn resolve_varstring(&mut self, tid: TagId) -> ParseResult {
         let tagstr = self.grammar.single_tags_list[tid.0].tag.clone();
         let mut tbuf: Vec<char> = vec!['\0'];
         tbuf.extend(tagstr.chars());
         tbuf.extend(std::iter::repeat_n('\0', 4));
-        let mut p = 1usize;
-        loop {
-            skipto_chars(&tbuf, &mut p, '{');
-            if tbuf[p] != '\0' {
-                let mut n = p;
-                skipto_chars(&tbuf, &mut n, '}');
-                if tbuf[n] != '\0' {
-                    self.grammar
-                        .single_tags_list
-                        .get_mut(tid.0)
-                        .allocate_vs_sets();
-                    self.grammar
-                        .single_tags_list
-                        .get_mut(tid.0)
-                        .allocate_vs_names();
-                    p += 1;
-                    let theset: String = tbuf[p..n].iter().collect();
-                    let tmp = self.parse_set(&theset, Near::Text(&tbuf[p..]))?;
-                    let setname = self.grammar.sets_list[tmp.0].name.clone();
-                    self.grammar
-                        .single_tags_list
-                        .get_mut(tid.0)
-                        .vs_sets
-                        .as_mut()
-                        .unwrap()
-                        .push(tmp);
-                    let old = format!("{{{setname}}}");
-                    self.grammar
-                        .single_tags_list
-                        .get_mut(tid.0)
-                        .vs_names
-                        .as_mut()
-                        .unwrap()
-                        .push(old);
-                    p = n;
-                    p += 1;
-                }
-            }
-            if tbuf[p] == '\0' {
-                break;
-            }
+        let Some(groups) = varstring_groups(&tbuf) else {
+            let raw = self.grammar.single_tags_list[tid.0].to_text(false);
+            let span = self.locate_text(&raw);
+            let kind = crate::error::ParseErrorKind::UnclosedVarstringBrace { tag: raw };
+            return Err(self.placed_error(span, kind));
+        };
+        for (open, close) in groups {
+            let tag = self.grammar.single_tags_list.get_mut(tid.0);
+            tag.allocate_vs_sets();
+            tag.allocate_vs_names();
+            let theset: String = tbuf[open + 1..close].iter().collect();
+            let tmp = self.parse_set(&theset, Near::Text(&tbuf[open + 1..]))?;
+            let setname = self.grammar.sets_list[tmp.0].name.clone();
+            let tag = self.grammar.single_tags_list.get_mut(tid.0);
+            tag.vs_sets.get_or_insert_default().push(tmp);
+            tag.vs_names
+                .get_or_insert_default()
+                .push(format!("{{{setname}}}"));
         }
         Ok(())
+    }
+
+    /// The span of the first place `text` is written in any source this parse
+    /// read — for an error about something the parser only checks once every
+    /// source has been read, and so has no cursor for.
+    fn locate_text(&self, text: &str) -> Option<crate::error::ParseSpan> {
+        let needle: Vec<char> = text.chars().collect();
+        if needle.is_empty() {
+            return None;
+        }
+        self.grammarbufs
+            .iter()
+            .enumerate()
+            .find_map(|(source, buf)| {
+                let hay = &buf.buf[BUF_TEXT_START..];
+                let at = hay.windows(needle.len()).position(|w| w == needle)?;
+                Some(crate::error::ParseSpan {
+                    source,
+                    range: at..at + needle.len(),
+                })
+            })
     }
 
     fn numeric_branch_split(&mut self) -> ParseResult {
@@ -567,8 +603,8 @@ impl TextualParser {
         Ok(())
     }
 
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-from-u-char-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-from-u-char-fn+1]
     fn parse_source(&mut self, gi: usize) -> ParseResult {
         // Clone the shared handle (a refcount bump) so `buf` is owned and does
         // NOT borrow `self`; the char data is immutable, so `#include` may push
@@ -677,8 +713,8 @@ impl TextualParser {
         Ok(())
     }
 
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-grammar-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-grammar-fn]
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-grammar-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-grammar-fn+1]
     fn parse_grammar_data(&mut self, gi: usize) -> ParseResult {
         // 1. START anchor at rule 0.
         self.grammar
@@ -735,28 +771,7 @@ impl TextualParser {
         }
 
         // 8. Validate JUMP rules.
-        for rid in &rule_ids {
-            let (rtype, maplist) = {
-                let r = &self.grammar.rule_by_number[rid.0];
-                (r.r#type, r.maplist)
-            };
-            if rtype == Keywords::KJump {
-                let maplist = maplist.unwrap();
-                let to = self.grammar.get_tag_list_any_ret(maplist)[0];
-                let (tty, thash) = {
-                    let t = &self.grammar.single_tags_list[to.0];
-                    (t.r#type, t.hash)
-                };
-                if tty.intersects(T_SPECIAL) {
-                    continue;
-                }
-                if self.grammar.anchors.find(thash.get()) == self.grammar.anchors.end() {
-                    self.record(
-                        self.parse_error_at(String::new(), crate::error::ParseErrorKind::Syntax),
-                    );
-                }
-            }
-        }
+        self.validate_jumps(&rule_ids);
 
         // 9. Varstring set resolution + T_REGEXP_LINE ordered.
         let tag_ids: Vec<TagId> = (0..self.grammar.single_tags_list.capacity())
@@ -774,31 +789,11 @@ impl TextualParser {
             self.resolve_varstring(*tid)?;
         }
 
-        // 10. Resolve deferred template refs.
-        let deferred: Vec<(CtxId, (usize, String))> = self
-            .deferred_tmpls
-            .iter()
-            .map(|(&k, v)| (k, v.clone()))
-            .collect();
-        for (t, (line, name)) in deferred {
-            let cn = hash_value_str(&name, 0);
-            if !self.grammar.templates.contains_key(&cn) {
-                // The line is the deferred reference's own, not `grammar.lines`:
-                // resolution happens after the whole buffer has been walked, so
-                // the running line counter points at the end of the grammar. The
-                // C++ printed the correct line in a separate message beside
-                // an error value that carried the wrong one; there is one
-                // diagnostic now, and it is the right one.
-                let mut e = self.parse_error_at(
-                    String::new(),
-                    crate::error::ParseErrorKind::UnknownTemplate { name: name.clone() },
-                );
-                e.line = ui32(line);
-                self.record(e);
-                continue;
-            }
-            let real = self.grammar.templates[&cn];
-            self.grammar.contexts_arena[t.0].tmpl = Some(real);
+        // 10. Resolve deferred template refs, then check the graph of tests
+        // they complete — which only exists once every reference resolved.
+        if self.resolve_deferred_templates() {
+            self.check_template_cycles();
+            self.check_unknown_positions();
         }
 
         // 11. Numeric-branch splitting.
@@ -843,6 +838,11 @@ impl TextualParser {
         self.filename = filename.to_string();
         self.filebase = basename(Some(filename)).to_string();
         self.grammar.grammar_size = buffer.len();
+        // The top-level file is the first link of the include chain, when it is
+        // a file at all.
+        let top = std::fs::canonicalize(filename).ok();
+        self.include_chain
+            .extend(top.map(|c| (c, filename.to_string())));
         let text = String::from_utf8_lossy(buffer);
         self.grammarbufs
             .push(SourceBuf::new(self.filename.clone(), text.as_ref()));
@@ -871,6 +871,28 @@ impl TextualParser {
             }
             .into())
         }
+    }
+}
+
+/// The `{`...`}` groups of a varstring, as `(open, close)` indices into
+/// `tbuf` (its text behind one leading NUL, with trailing NULs), found the way
+/// the C++ loop finds them: the next unescaped `{`, then the next unescaped `}`
+/// after it. `None` when a `{` has no `}` after it.
+fn varstring_groups(tbuf: &[char]) -> Option<Vec<(usize, usize)>> {
+    let mut groups = Vec::new();
+    let mut p = 1usize;
+    loop {
+        skipto_chars(tbuf, &mut p, '{');
+        if tbuf[p] == '\0' {
+            return Some(groups);
+        }
+        let mut n = p;
+        skipto_chars(tbuf, &mut n, '}');
+        if tbuf[n] == '\0' {
+            return None;
+        }
+        groups.push((p, n));
+        p = n + 1;
     }
 }
 

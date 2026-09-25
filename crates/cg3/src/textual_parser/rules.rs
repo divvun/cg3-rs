@@ -962,7 +962,7 @@ impl TextualParser {
             let t = self.parse_contextual_test_list(buf, pos, None, true)?;
             self.no_itmpls = saved;
             self.grammar.contexts_arena[t.0].line = line;
-            self.grammar.add_template(t, &name)?;
+            self.add_template_def(t, &name)?;
             self.grammar.lines += skipws_chars(buf, pos, ';', '\0', false);
             if buf[*pos] != ';' {
                 return Err(self.error_near(*pos));

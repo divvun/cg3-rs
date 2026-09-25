@@ -975,7 +975,7 @@ fn add_tag_reflow_ignores_non_dependency_union_roles() {
         tag: "<number=1+2>".into(),
         ..Tag::default()
     };
-    numeric.parse_numeric(true);
+    numeric.parse_numeric(true).expect("a valid expression");
     assert!(numeric.r#type.intersects(T_NUMERIC_MATH));
     assert_ne!(numeric.comparison_offset(), 0);
     let tag = engine.grammar.add_tag(numeric);

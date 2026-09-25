@@ -149,8 +149,8 @@ impl ParseTagState for TextualParser {
     }
 }
 
-// [spec:cg3:def:parser-helpers.cg3.parse-tag-fn]
-// [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn]
+// [spec:cg3:def:parser-helpers.cg3.parse-tag-fn+1]
+// [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+1]
 pub fn parse_tag<S: ParseTagState>(
     to: &str,
     near: Near<'_>,
@@ -229,7 +229,7 @@ pub fn parse_tag<S: ParseTagState>(
         }
         // length = length of tmp
         let mut length: usize = to_chars.len().saturating_sub(tmp_off);
-        debug_assert!(length != 0, "parseTag() will not work with empty strings.");
+        refuse_bare_failfast(length, near, state)?;
 
         // tmp[i] == to_chars[tmp_off + i]
         let tget = |off: usize, i: usize, chars: &[char]| -> char { cat(chars, off + i) };
@@ -464,7 +464,14 @@ pub fn parse_tag<S: ParseTagState>(
                         .r#type
                         .intersects(T_CASE_INSENSITIVE | T_REGEXP | T_REGEXP_LINE | T_VARSTRING)
                 {
-                    tag.parse_numeric(true);
+                    tag.parse_numeric(true).map_err(|cause| {
+                        let mut err = state.error_at(near);
+                        err.kind = crate::error::ParseErrorKind::NumericTag {
+                            tag: to.into(),
+                            cause: Box::new(cause),
+                        };
+                        err
+                    })?;
                 }
             }
 
@@ -513,6 +520,8 @@ pub fn parse_tag<S: ParseTagState>(
                 tag.r#type |= T_CONTEXT;
                 tag.set_context_ref_pos(9);
             }
+
+            refuse_missing_body(&tag, to, near, state)?;
 
             // Regex compile.
             if tag.r#type.intersects(T_REGEXP) {
@@ -584,6 +593,42 @@ pub fn parse_tag<S: ParseTagState>(
     }
 
     Ok(state.add_tag(tag))
+}
+
+// [spec:cg3:req:robustness.grammar-text-errors]
+/// A tag of nothing but fail-fast markers (`^`). DIVERGENCE: the C++ asserts
+/// this away and, in a release build, reads before the start of the text.
+fn refuse_bare_failfast<S: ParseTagState>(
+    length: usize,
+    near: Near<'_>,
+    state: &mut S,
+) -> Result<(), crate::error::ParseError> {
+    if length != 0 {
+        return Ok(());
+    }
+    let mut err = state.error_at(near);
+    err.kind = crate::error::ParseErrorKind::FailFastWithoutTag;
+    Err(err)
+}
+
+// [spec:cg3:req:robustness.grammar-text-errors]
+/// A regular-expression or case-insensitive tag whose one `/` is both of its
+/// delimiters (`/r`, `/i`, `/l`). DIVERGENCE: the C++ strips the two slashes
+/// from a one-character text with a length of -1.
+fn refuse_missing_body<S: ParseTagState>(
+    tag: &Tag,
+    to: &str,
+    near: Near<'_>,
+    state: &mut S,
+) -> Result<(), crate::error::ParseError> {
+    if &*tag.tag != "/" || !tag.r#type.intersects(T_REGEXP | T_CASE_INSENSITIVE) {
+        return Ok(());
+    }
+    let mut err = state.error_at(near);
+    err.kind = crate::error::ParseErrorKind::TagWithoutBody {
+        tag: to.to_string(),
+    };
+    Err(err)
 }
 
 // [spec:cg3:def:parser-helpers.cg3.parse-set-fn]
@@ -715,7 +760,7 @@ mod tests {
     // vs baseform vs plain tags, consumes the `^` failfast prefix, recognizes the
     // `*` special (T_ANY), and dedups (same text -> same TagId). Drives the whole
     // helper on non-error inputs (no `error_near` panic).
-    // [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn/test]
+    // [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+1/test]
     #[test]
     fn parse_tag_classifies_and_dedups() {
         let mut p = parser();
@@ -764,6 +809,32 @@ mod tests {
         let star: Vec<char> = "*".chars().collect();
         let any = parse_tag("*", Near::Text(&star), &mut p, true).unwrap();
         assert!(tag_type(&p, any).intersects(T_ANY), "* is T_ANY");
+    }
+
+    // The tags the C++ parses with undefined behaviour are refused, each with a
+    // kind saying what is missing: a lone fail-fast marker, a regex or
+    // case-insensitive tag whose single `/` is both delimiters, and a numeric
+    // expression naming a variable outside A-Z. `//r` still parses, as in the C++.
+    // [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+1/test]
+    #[test]
+    fn parse_tag_refuses_tags_without_text() {
+        use crate::error::ParseErrorKind as K;
+        let mut p = parser();
+        let kind = |p: &mut TextualParser, src: &str| {
+            parse_tag(src, Near::Text(&[]), p, true)
+                .expect_err(src)
+                .kind
+        };
+        assert!(matches!(kind(&mut p, "^"), K::FailFastWithoutTag));
+        assert!(matches!(kind(&mut p, "^^"), K::FailFastWithoutTag));
+        for src in ["/r", "/i", "/l", "/ri"] {
+            assert!(
+                matches!(kind(&mut p, src), K::TagWithoutBody { ref tag } if tag == src),
+                "{src}"
+            );
+        }
+        assert!(matches!(kind(&mut p, "<x=a+1>"), K::NumericTag { .. }));
+        assert!(parse_tag("//r", Near::Text(&[]), &mut p, true).is_ok());
     }
 
     // `parse_set` resolves a set NAME to a SetId. Via the `list_tags` path: when

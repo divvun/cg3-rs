@@ -208,7 +208,7 @@ exiting the process. There is no Rust function left for these rules to describe.
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn]
 > ContextualTest* TextualParser::parseContextualTestList(UChar*& p, Rule* rule, bool in_tmpl)
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn]
+> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+1]
 > Parse a full contextual test (position/target/barriers, plus the
 > template forms and any LINKed continuation) and return the
 > registered `ContextualTest*`. `p` is advanced; `rule` may be null
@@ -279,11 +279,25 @@ exiting the process. There is no Rust function left for these rules to describe.
 > is set, record `deferred_tmpls[t] = tmpl_data` so the name-hash is
 > resolved to a real template after the whole grammar is parsed. Return
 > `t`.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.grammar-text-errors]`): two inputs
+> the C++ mishandles are refused.
+> - After an inline-template alternative, the C++ `++p` steps over whatever
+>   ended it as if it were the `)`. An alternative that ends at the end of the
+>   input MUST be refused ("`(` is still open at the end of the input"),
+>   pointing at its `(`: stepping over the terminating NUL walks the cursor one
+>   place past the text per open level, and past the buffer's padding once
+>   enough levels are open. Any other character is still stepped over, as in
+>   the C++.
+> - A template reference MUST NOT carry the `f` position. `f` splits a test on
+>   its target set and a reference has none, so the C++ goes on to strip the
+>   numeric tags from set 0 in `parse_grammar` and dereferences a null set. The
+>   port refuses it at the reference, pointing at its `T:`.
 
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn]
 > void TextualParser::parseContextualTestPosition(UChar*& p, ContextualTest& t)
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn]
+> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn+1]
 > Parse the position specifier of a contextual test (the leading token
 > such as `-1`, `*`, `**C`, `p`, `cc`, `r:rel`, `jC3`) into `t.pos`,
 > `t.offset`, `t.offset_sub`, `t.relation`, `t.jump_pos`. `n=p`
@@ -344,6 +358,11 @@ exiting the process. There is no Rust function left for these rules to describe.
 > - if POS_SCANALL and POS_NOT -> warning "mixing NOT and **".
 > - finally, if `t.pos > POS_64BIT` set POS_64BIT (marks that high bits
 >   are in use). All `error(...)` calls throw to abort the test.
+>
+> PORT DIVERGENCE: the offset and the sub-reading offset accumulate with
+> checked arithmetic. A number that leaves the `int32_t` range MUST be refused,
+> pointing at its digits (`[spec:cg3:req:robustness.checked-arithmetic]`); the
+> C++ overflows a signed integer, which is undefined behaviour.
 
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-tests-fn]
 > void TextualParser::parseContextualTests(UChar*& p, Rule* rule)
@@ -358,7 +377,7 @@ exiting the process. There is no Rust function left for these rules to describe.
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
 > void TextualParser::parseFromUChar(UChar* input, const char* fname)
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-from-u-char-fn]
+> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-from-u-char-fn+1]
 > Top-level directive parser over a null-terminated UTF-16 buffer
 > `input` with optional filename `fname`. If `input` is null or empty
 > -> print error and `CG3Quit(1)`. If `profiler` set, force
@@ -453,11 +472,18 @@ exiting the process. There is no Rust function left for these rules to describe.
 >   / skip to whitespace; if non-terminator garbage remains -> error
 >   "Garbage data encountered"; count a newline; `++p`.
 > After the loop, AST-close the Grammar node with `id`.
+>
+> PORT DIVERGENCE: an INCLUDE of a file that is already being included —
+> directly or through other files, compared by canonical path, the top-level
+> file among them when it is a file — MUST be refused, naming the chain from
+> that file back to itself (`[spec:cg3:req:robustness.cycles+1]`). The C++
+> follows it, recursing until the stack overflows. The refusal is an ordinary
+> recoverable error of the INCLUDE directive; the rest of the grammar is read.
 
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-grammar-fn]
 > int TextualParser::parse_grammar(UString& data)
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-grammar-fn]
+> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-grammar-fn+1]
 > The private `parse_grammar(UString& data)` driver: sets up magic
 > tags/sets, runs the directive parser, then finalizes. `data` is the
 > fully-decoded UTF-16 buffer whose real text starts at index 4 (with
@@ -499,11 +525,41 @@ exiting the process. There is no Rust function left for these rules to describe.
 >    present, and restart the scan.
 > 10. Set `result->num_tags = single_tags_list.size()`.
 > Return `error_counter`.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.grammar-text-errors]`,
+> `[spec:cg3:req:robustness.cycles+1]`):
+> - Step 6 MUST resolve the members of a composite maplist by content hash.
+>   `getTagList_Any` takes them as set numbers, which they only are after
+>   `reindex`; before it, a JUMP whose maplist is built from other sets indexes
+>   `sets_list` by a hash — undefined behaviour.
+> - Step 7 MUST refuse a varstring whose `{` has no `}` after it, placed where
+>   the tag is first written. The C++ loop only advances past a `{` once it
+>   finds its `}`, so it spins forever.
+> - Step 8 resolves the references in source order (the C++ walks an unordered
+>   map), so its errors come out in the order they were written. Once every
+>   reference has resolved, the port checks the graph of tests they complete;
+>   a reference that did not resolve holds a name hash in place of a test, so
+>   then neither check runs.
+>   - A template that must refer to itself again at the same position before
+>     any test can decide — through template references and the FIRST
+>     alternative of inline OR groups — MUST be refused, naming the templates
+>     in the order they refer to each other, at the definition of the one the
+>     cycle returns to. Evaluating one recurses without end; the C++ runs out
+>     of stack. A cycle through a LINK, or through a later OR alternative, is
+>     left alone: whether it recurses depends on the input, and the C++ test
+>     corpus has one (`TEMPLATE alts = ... OR (T:alts)` in `T_Templates`).
+>   - A test with position `?` that a rule runs without an override position
+>     MUST be refused. An override is the position of the `T:` reference that
+>     reaches a template; it replaces the position of the template's own test
+>     and carries into the templates and OR alternatives that test runs, but
+>     not into a LINK. The C++ checks this only when the test runs, and quits.
+>     The error is placed where the rule writes the test when it does, else
+>     where the test was first written.
 
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-flags-fn]
 > flags_t TextualParser::parseRuleFlags(UChar*& p)
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-flags-fn]
+> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-flags-fn+1]
 > Parse the sequence of rule option flags at `p`, returning a
 > `flags_t {flags, sub_reading}`. `SKIPWS`; remember `lp=p` for errors.
 > Outer loop `while (setflag)`: reset `setflag=false`, then inner
@@ -518,6 +574,10 @@ exiting the process. There is no Rust function left for these rules to describe.
 > restore `p=op`, `setflag=false`, break. Otherwise emit a RuleFlag AST
 > node. After each attempt, `SKIPWS`, and if the next char is
 > `(`/`T`/`t`/`;` there can be no more flags -> `setflag=false`, break.
+>
+> PORT DIVERGENCE: a `SUB:` number outside the `int` range MUST be refused,
+> pointing at it (`[spec:cg3:req:robustness.checked-arithmetic]`); what
+> `u_sscanf` stores for one is undefined.
 > After the inner loop, if any of RF_WITHCHILD/RF_NOCHILD/RF_BEFORE/
 > RF_AFTER is set, break the outer loop (these must be last, since a
 > set follows). Then validate mutual exclusions: for each group in
@@ -625,7 +685,7 @@ exiting the process. There is no Rust function left for these rules to describe.
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-set-inline-fn]
 > Set* TextualParser::parseSetInline(UChar*& p, Set* s)
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-inline-fn]
+> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-inline-fn+1]
 > Parse an inline set expression (operands joined by set operators,
 > e.g. `A - (foo bar) | B`) into a Set. `s` may be a pre-allocated
 > target Set to fill, else one is created. Local `set_ops` and `sets`
@@ -664,6 +724,13 @@ exiting the process. There is no Rust function left for these rules to describe.
 > result->getSet(sets.back())` (the operand itself, no wrapper). Else:
 > allocate `s` if needed and `swap` `sets`->`s->sets` and
 > `set_ops`->`s->set_ops`. Return `s`.
+>
+> PORT DIVERGENCE: trimming the trailing `,`/`]` off a set name MUST stop at
+> the start of the name. The C++ trims with no floor, so an empty item in a
+> context list (`[A,]`, `[A, ]`) backs the name's end up before its start and
+> copies a negative length. An item that is nothing but `,`/`]` is refused as
+> an empty list item, pointing at it
+> (`[spec:cg3:req:robustness.grammar-text-errors]`).
 
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-set-inline-wrapper-fn]
 > Set* TextualParser::parseSetInlineWrapper(UChar*& p)
@@ -698,7 +765,7 @@ exiting the process. There is no Rust function left for these rules to describe.
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-tag-list-fn]
 > void TextualParser::parseTagList(UChar*& p, Set* s, bool ordered)
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-list-fn]
+> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-list-fn+1]
 > Parse a LIST/DELIMITERS-style tag list into set `s`. `ordered`
 > controls whether tags within a composite are sorted+uniq'd. Uses a
 > `taglists` set (dedup of tag-vectors) and a `tag_freq` frequency map.
@@ -719,6 +786,12 @@ exiting the process. There is no Rust function left for these rules to describe.
 > vector by descending frequency (freq_sorter) for cheap trie
 > compression; determine `special` if any member has T_SPECIAL; then
 > `trie_insert` into `s->trie_special` (special) or `s->trie`.
+>
+> PORT DIVERGENCE: a composite entry with no tags in it, `()`, MUST be refused
+> as an empty tag list, pointing at its `(`
+> (`[spec:cg3:req:robustness.grammar-text-errors]`). The C++ inserts the empty
+> tag vector into the trie, where `trie_insert` reads its first element —
+> undefined behaviour.
 
 > [spec:cg3:def:textual-parser.cg3.textual-parser.print-ast-fn]
 > void TextualParser::print_ast(std::ostream& out)

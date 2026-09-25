@@ -58,6 +58,9 @@ pub enum MathErrorKind {
     Overflow,
     #[error("variables other than MIN and MAX must be 1 letter")]
     LongVariableName,
+    /// A variable named by a letter outside `A`-`Z`, which has no slot.
+    #[error("variable is not one of the letters A-Z")]
+    VariableOutOfRange,
 }
 
 // [spec:cg3:def:math-parser.cg3.math-parser.type-t]
@@ -152,19 +155,30 @@ impl<'a> MathParser<'a> {
         Ok(result)
     }
 
-    // [spec:cg3:def:math-parser.cg3.math-parser.eval-assign-fn]
-    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-assign-fn]
+    /// The `vars` slot a variable token names: `token[0] - 'A'`.
+    ///
+    /// DIVERGENCE: the C++ indexes `vars` with whatever that difference is, so
+    /// a lowercase name (`'a' - 'A'` == 32) reads or writes past the 26 slots.
+    /// Only `A`-`Z` has a slot here; anything else is an error. `MIN`/`MAX`
+    /// keep the C++ quirk of slot 12 when assigned to.
+    fn var_slot(&self, token: &str) -> Result<usize, MathError> {
+        let c = first_char(token);
+        if c.is_ascii_uppercase() {
+            return Ok(c as usize - 'A' as usize);
+        }
+        Err(self.err(MathErrorKind::VariableOutOfRange))
+    }
+
+    // [spec:cg3:def:math-parser.cg3.math-parser.eval-assign-fn+1]
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-assign-fn+1]
     // The C++ declares `temp_token` at function scope, but only the VARIABLE
-    // branch ever reads it; it is scoped to that branch here.
+    // branch ever reads it; it is scoped to that branch here. The C++ also
+    // computes `slot` before looking for the `=`; it is only used once one is
+    // found, so it is computed there, where an out-of-range name is an error.
     fn eval_assign(&mut self, result: &mut f64) -> Result<(), MathError> {
         if self.tok_type == TypeT::Variable as u8 {
             let t_ptr: &'a str = self.exp_ptr;
             let temp_token: &'a str = self.token;
-            // Quirk: `slot` is `token[0]-'A'` even for MIN/MAX (first letter
-            // 'M' => 12) and for a lowercase single-letter name ('a'-'A' == 32),
-            // which then indexes past the 26-slot `vars`. In C++ the OOB index
-            // is UB; in safe Rust `vars[slot]` panics instead.
-            let slot = first_char(self.token) as i32 - 'A' as i32;
             self.get_token()?;
             if first_char(self.token) != '=' {
                 self.exp_ptr = t_ptr;
@@ -173,7 +187,7 @@ impl<'a> MathParser<'a> {
             } else {
                 self.get_token()?;
                 self.eval_add_sub(result)?;
-                self.vars[slot as usize] = *result;
+                self.vars[self.var_slot(temp_token)?] = *result;
                 return Ok(());
             }
         }
@@ -260,8 +274,8 @@ impl<'a> MathParser<'a> {
     }
 
     // Process a function, a parenthesized expression, a value or a variable
-    // [spec:cg3:def:math-parser.cg3.math-parser.eval-func-fn]
-    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-func-fn]
+    // [spec:cg3:def:math-parser.cg3.math-parser.eval-func-fn+1]
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-func-fn+1]
     fn eval_func(&mut self, result: &mut f64) -> Result<(), MathError> {
         let isfunc = self.tok_type == TypeT::Function as u8;
         let mut temp_token: &'a str = "";
@@ -325,10 +339,7 @@ impl<'a> MathParser<'a> {
             } else if matches_keyword(self.token, "MAX") {
                 *result = self.max;
             } else {
-                // `vars[token[0]-'A']` assumes an uppercase A-Z letter; a
-                // lowercase single-letter name indexes out of bounds. C++: UB;
-                // safe Rust: panics on OOB.
-                *result = self.vars[(first_char(self.token) as i32 - 'A' as i32) as usize];
+                *result = self.vars[self.var_slot(self.token)?];
             }
             self.get_token()?;
             return Ok(());
@@ -571,7 +582,7 @@ mod tests {
     // Function calls (eval_func FUNCTION branch): SQRT/FLOOR are exact; an
     // unknown function name errors. Also exercises get_token classifying an
     // identifier followed by '(' as FUNCTION.
-    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-func-fn/test]
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-func-fn+1/test]
     #[test]
     fn functions() {
         assert_eq!(eval("SQRT(9)").unwrap(), 3.0);
@@ -597,7 +608,7 @@ mod tests {
     // vars[slot], and the assigned value is returned. A follow-up expression on
     // the SAME parser then reads the stored variable back through eval_func's
     // VARIABLE branch. MIN/MAX read the ctor bounds.
-    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-assign-fn/test]
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-assign-fn+1/test]
     #[test]
     fn variable_assignment_and_bounds() {
         let mut mp = MathParser::new(-7.0, 11.0);
@@ -617,5 +628,29 @@ mod tests {
             mp.eval("AB").unwrap_err().kind,
             MathErrorKind::LongVariableName
         );
+    }
+
+    // A variable outside A-Z has no slot: reading one (eval_func) or assigning
+    // one (eval_assign) is an error, where the C++ indexed past `vars`. A
+    // lowercase `min`/`max` is still the bound when read, since only the
+    // assignment needs a slot.
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-assign-fn+1/test]
+    // [spec:cg3:sem:math-parser.cg3.math-parser.eval-func-fn+1/test]
+    #[test]
+    fn variables_outside_a_to_z_are_errors() {
+        assert_eq!(
+            eval("a+1").unwrap_err().kind,
+            MathErrorKind::VariableOutOfRange
+        );
+        assert_eq!(
+            eval("b=1+1").unwrap_err().kind,
+            MathErrorKind::VariableOutOfRange
+        );
+        assert_eq!(
+            eval("min=1").unwrap_err().kind,
+            MathErrorKind::VariableOutOfRange
+        );
+        assert_eq!(eval("max+1").unwrap(), 1001.0);
+        assert_eq!(eval("MIN=4").unwrap(), 4.0);
     }
 }

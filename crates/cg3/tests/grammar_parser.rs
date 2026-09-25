@@ -96,8 +96,8 @@ fn tag_hash_by_text(g: &GrammarCore, text: &str) -> Option<u32> {
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.set-compatible-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.set-verbosity-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.get-grammar-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-grammar-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-from-u-char-fn/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-grammar-fn+1/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-from-u-char-fn+1/test]
 // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.i-grammar-parser-fn/test]
 // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.parse-grammar-fn/test]
 // [spec:cg3:sem:i-grammar-parser.cg3.i-grammar-parser.set-compatible-fn/test]
@@ -136,10 +136,10 @@ fn constructor_trait_surface_and_compat_mode() {
 // That ordering IS the C++ freq_sorter comparator, which the port inlines
 // rather than carrying as a functor struct; its rules are retired, so this
 // test is where the inlined comparator's behaviour is pinned.
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-list-fn/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-list-fn+1/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.add-tag-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-inline-fn/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-inline-fn+1/test]
 // [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.allocate-set-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.add-set-fn/test]
@@ -300,7 +300,7 @@ fn setops_fixture_eager_operators() {
 // validated at end-of-parse via getTagList_Any against the anchor table.
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.maybe-parse-rule-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-flags-fn/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-flags-fn+1/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.add-rule-to-grammar-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-anchorish-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.allocate-rule-fn/test]
@@ -366,8 +366,8 @@ fn rules_sections_anchors_and_jump() {
 // deferred `T:` references are resolved to the interned templates at the end
 // of the parse (ctx.tmpl wired up).
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-tests-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+1/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn+1/test]
 // [spec:cg3:sem:grammar.cg3.grammar.allocate-contextual-test-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.add-contextual-test-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.add-template-fn/test]

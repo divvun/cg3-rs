@@ -32,6 +32,7 @@ use cg3::contextual_test::{
 };
 use cg3::grammar::{Grammar, GrammarCore, TagSpace};
 use cg3::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_str};
+use cg3::math_parser::MathErrorKind;
 use cg3::reading::{
     Reading, ReadingList, alloc_reading, alloc_reading_copy, free_reading, reading_clear,
     reading_copy, reading_rehash,
@@ -946,7 +947,7 @@ fn rule_defaults_name_tests_flags() {
 // #x->y dependency, ID:n and R:name:n relation forms with interned relation
 // tag) and parseNumeric (operator/value parsing incl. MAX and reject paths).
 // [spec:cg3:sem:tag.cg3.tag.parse-tag-raw-fn+1/test]
-// [spec:cg3:sem:tag.cg3.tag.parse-numeric-fn/test]
+// [spec:cg3:sem:tag.cg3.tag.parse-numeric-fn+1/test]
 #[test]
 fn tag_parse_raw_and_numeric() {
     let mut g = GrammarCore::default();
@@ -982,7 +983,7 @@ fn tag_parse_raw_and_numeric() {
         tag: "<w>=12>".into(),
         ..Default::default()
     };
-    t.parse_numeric(false);
+    t.parse_numeric(false).unwrap();
     assert_eq!(t.comparison_op, COps::OpGreaterequals);
     assert_eq!(t.comparison_val, 12.0);
     assert!(t.r#type.intersects(T_NUMERICAL));
@@ -992,7 +993,7 @@ fn tag_parse_raw_and_numeric() {
         tag: "<w<3>".into(),
         ..Default::default()
     };
-    t.parse_numeric(false);
+    t.parse_numeric(false).unwrap();
     assert_eq!(t.comparison_op, COps::OpLessthan);
     assert_eq!(t.comparison_val, 3.0);
 
@@ -1000,19 +1001,34 @@ fn tag_parse_raw_and_numeric() {
         tag: "<w=MAX>".into(),
         ..Default::default()
     };
-    t.parse_numeric(false);
+    t.parse_numeric(false).unwrap();
     assert_eq!(t.comparison_val, NUMERIC_MAX);
 
     let mut t = Tag {
         tag: "<w=abc>".into(),
         ..Default::default()
     };
-    t.parse_numeric(false);
+    t.parse_numeric(false).unwrap();
     assert!(
         !t.r#type.intersects(T_NUMERICAL),
         "non-numeric value rejected"
     );
     assert_eq!(t.comparison_op, COps::OpNop);
+
+    // A trusted expression that will not evaluate leaves the tag non-numeric;
+    // one naming a variable outside A-Z is the error, for the grammar to refuse.
+    let mut t = Tag {
+        tag: "<w=1+>".into(),
+        ..Default::default()
+    };
+    t.parse_numeric(true).unwrap();
+    assert!(!t.r#type.intersects(T_NUMERICAL));
+    let mut t = Tag {
+        tag: "<w=a+1>".into(),
+        ..Default::default()
+    };
+    let err = t.parse_numeric(true).expect_err("lowercase variable");
+    assert_eq!(err.kind, MathErrorKind::VariableOutOfRange);
 }
 
 // parseTagRaw refuses a dependency or relation number the flat hash containers

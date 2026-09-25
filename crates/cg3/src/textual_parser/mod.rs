@@ -73,6 +73,7 @@ use crate::tag::{
 use crate::tag_regex::TagRegex;
 use crate::tag_trie::{trie_get_tags, trie_insert};
 use crate::types::SetNumber;
+mod checks;
 mod driver;
 mod rules;
 use crate::uextras::{
@@ -330,8 +331,11 @@ fn is_icase_kw(buf: &[char], pos: usize, uc: &str, lc: &str) -> usize {
     crate::inlines::is_icase_chars(buf, pos, &ucv, &lcv)
 }
 
-/// scanf `"%d"`: leading optional sign + decimal digits.
-fn scan_d(s: &str) -> i32 {
+// [spec:cg3:req:robustness.checked-arithmetic]
+/// scanf `"%d"`: leading optional sign + decimal digits, or `None` when the
+/// number does not fit an `i32`. DIVERGENCE: scanf's result for an
+/// out-of-range number is undefined; the port refuses it.
+fn scan_d(s: &str) -> Option<i32> {
     let chars: Vec<char> = s.chars().collect();
     let mut i = 0usize;
     while i < chars.len() && chars[i].is_whitespace() {
@@ -346,10 +350,26 @@ fn scan_d(s: &str) -> i32 {
     }
     let mut n = 0i64;
     while i < chars.len() && chars[i].is_ascii_digit() {
-        n = n * 10 + (chars[i] as i64 - '0' as i64);
+        n = n
+            .checked_mul(10)?
+            .checked_add(chars[i] as i64 - '0' as i64)?;
         i += 1;
     }
-    (sign * n) as i32
+    i32::try_from(sign * n).ok()
+}
+
+// [spec:cg3:req:robustness.checked-arithmetic]
+/// Accumulate a run of ASCII digits at `pos` onto `acc` (`acc * 10 + digit`
+/// per digit, as the C++ does), or `None` once the value leaves the `i32`
+/// range. The whole run is consumed either way, so `pos` ends past it.
+fn accumulate_digits(buf: &[char], pos: &mut usize, acc: i32) -> Option<i32> {
+    let mut acc = Some(acc);
+    while buf[*pos].is_ascii_digit() {
+        let digit = buf[*pos] as i32 - '0' as i32;
+        acc = acc.and_then(|a| a.checked_mul(10)?.checked_add(digit));
+        *pos += 1;
+    }
+    acc
 }
 
 // [spec:cg3:def:textual-parser.cg3.is-mapping-list-fn]
@@ -568,6 +588,16 @@ pub struct TextualParser {
     cur_grammar_n: u32,
     num_grammars: u32,
     deferred_tmpls: DeferredTests,
+    /// Every place each contextual test was written, in the order they were
+    /// read — one test is shared by every identical spelling of it. For the
+    /// checks that run on the finished graph of tests, which have no cursor to
+    /// point with.
+    ctx_spans: HashMap<CtxId, Vec<crate::error::ParseSpan>>,
+    /// Where each `TEMPLATE`'s test was defined, by the test.
+    template_defs: HashMap<CtxId, crate::error::ParseSpan>,
+    /// The files whose `INCLUDE`s are being parsed, outermost first, by
+    /// canonical path — what an `INCLUDE` must not name again.
+    include_chain: Vec<(std::path::PathBuf, String)>,
     grammarbufs: Vec<SourceBuf>,
     /// Every recoverable parse error found, in source order —
     /// `[spec:cg3:req:errors.parse-reports-all]`. Replaces the C++
@@ -628,6 +658,9 @@ impl TextualParser {
             cur_grammar_n: 0,
             num_grammars: 0,
             deferred_tmpls: HashMap::new(),
+            ctx_spans: HashMap::new(),
+            template_defs: HashMap::new(),
+            include_chain: Vec::new(),
             grammarbufs: Vec::new(),
             errors: Vec::new(),
             parse_end_break: false,
@@ -902,8 +935,39 @@ impl TextualParser {
 }
 
 impl TextualParser {
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-tag-list-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-list-fn]
+    // [spec:cg3:req:robustness.grammar-text-errors]
+    /// One `( tag tag ... )` entry of a tag list, from its `(` to past its `)`.
+    /// DIVERGENCE: an empty `()` is refused, pointing at the `(`; the C++
+    /// inserts the empty tag vector into the trie, reading its first element.
+    fn parse_composite_tag(&mut self, buf: &[char], pos: &mut usize) -> ParseResult<TagVector> {
+        let open = *pos;
+        let mut tags: TagVector = TagVector::new();
+        *pos += 1;
+        self.grammar.lines += skipws_chars(buf, pos, ';', ')', false);
+        while buf[*pos] != '\0' && buf[*pos] != ';' && buf[*pos] != ')' {
+            let mut n = *pos;
+            self.maybe_quoted(buf, &mut n, *pos)?;
+            self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
+            let token: String = buf[*pos..n].iter().collect();
+            let t = self.parse_tag(&token, Near::At(*pos))?;
+            tags.push(t);
+            *pos = n;
+            self.grammar.lines += skipws_chars(buf, pos, ';', ')', false);
+        }
+        if buf[*pos] != ')' {
+            return Err(self.error_near(*pos));
+        }
+        *pos += 1;
+        if tags.is_empty() {
+            let mut err = self.error_near(open);
+            err.kind = crate::error::ParseErrorKind::EmptyTagList;
+            return Err(err);
+        }
+        Ok(tags)
+    }
+
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-tag-list-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-list-fn+1]
     fn parse_tag_list(
         &mut self,
         buf: &[char],
@@ -919,22 +983,7 @@ impl TextualParser {
             if buf[*pos] != '\0' && buf[*pos] != ';' && buf[*pos] != ')' {
                 let mut tags: TagVector = TagVector::new();
                 if buf[*pos] == '(' {
-                    *pos += 1;
-                    self.grammar.lines += skipws_chars(buf, pos, ';', ')', false);
-                    while buf[*pos] != '\0' && buf[*pos] != ';' && buf[*pos] != ')' {
-                        let mut n = *pos;
-                        self.maybe_quoted(buf, &mut n, *pos)?;
-                        self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
-                        let token: String = buf[*pos..n].iter().collect();
-                        let t = self.parse_tag(&token, Near::At(*pos))?;
-                        tags.push(t);
-                        *pos = n;
-                        self.grammar.lines += skipws_chars(buf, pos, ';', ')', false);
-                    }
-                    if buf[*pos] != ')' {
-                        return Err(self.error_near(*pos));
-                    }
-                    *pos += 1;
+                    tags = self.parse_composite_tag(buf, pos)?;
                 } else {
                     let mut n = *pos;
                     self.maybe_quoted(buf, &mut n, *pos)?;
@@ -998,8 +1047,25 @@ impl TextualParser {
         Ok(())
     }
 
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-set-inline-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-inline-fn]
+    // [spec:cg3:req:robustness.grammar-text-errors]
+    /// Where a set name that runs from `start` to `end` ends once the `,`/`]`
+    /// of a surrounding `[A, B]` list are trimmed off it. DIVERGENCE: the C++
+    /// trims with no floor, so an empty item (`[A,]`) backs `end` up past
+    /// `start`; the port stops at `start` and refuses the empty item.
+    fn list_item_end(&mut self, buf: &[char], start: usize, mut end: usize) -> ParseResult<usize> {
+        while end > start && (buf[end - 1] == ',' || buf[end - 1] == ']') {
+            end -= 1;
+        }
+        if end == start {
+            let mut err = self.error_near(start);
+            err.kind = crate::error::ParseErrorKind::EmptyListItem;
+            return Err(err);
+        }
+        Ok(end)
+    }
+
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-set-inline-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-inline-fn+1]
     fn parse_set_inline(
         &mut self,
         buf: &[char],
@@ -1085,9 +1151,7 @@ impl TextualParser {
                     } else {
                         let mut n = *pos;
                         self.grammar.lines += skiptows_chars(buf, &mut n, ')', true, false);
-                        while buf[n - 1] == ',' || buf[n - 1] == ']' {
-                            n -= 1;
-                        }
+                        let n = self.list_item_end(buf, *pos, n)?;
                         let token: String = buf[*pos..n].iter().collect();
                         let tmp = self.parse_set(&token, Near::At(*pos))?;
                         let sh = self.grammar.sets_list[tmp.0].hash;
@@ -1244,8 +1308,29 @@ impl TextualParser {
 }
 
 impl TextualParser {
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn]
+    // [spec:cg3:req:robustness.checked-arithmetic]
+    /// The digits of a position's offset or sub-reading offset, appended to
+    /// `acc`. DIVERGENCE: the C++ accumulates into an `int32_t` with no check,
+    /// so a long number overflows; here it is refused, pointing at the digits.
+    fn position_number(&mut self, buf: &[char], pos: &mut usize, acc: i32) -> ParseResult<i32> {
+        let start = *pos;
+        accumulate_digits(buf, pos, acc)
+            .ok_or_else(|| self.number_out_of_range(start, buf[start..*pos].iter().collect()))
+    }
+
+    /// A number at `at` that does not fit, marked from its first digit to its
+    /// last rather than to the end of the near-context.
+    fn number_out_of_range(&mut self, at: usize, text: String) -> crate::error::ParseError {
+        let mut err = self.error_near(at);
+        if let Some(span) = err.span.as_mut() {
+            span.range.end = span.range.start + text.chars().count();
+        }
+        err.kind = crate::error::ParseErrorKind::NumberOutOfRange { text };
+        err
+    }
+
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn+1]
     fn parse_contextual_test_position(
         &mut self,
         buf: &[char],
@@ -1392,10 +1477,7 @@ impl TextualParser {
             }
             if buf[*pos].is_numeric() {
                 had_digits = true;
-                while buf[*pos] >= '0' && buf[*pos] <= '9' {
-                    offset = (offset * 10) + (buf[*pos] as i32 - '0' as i32);
-                    *pos += 1;
-                }
+                offset = self.position_number(buf, pos, offset)?;
             }
             if buf[*pos] == 'r' && buf[*pos + 1] == ':' {
                 posb |= POS_RELATION;
@@ -1472,10 +1554,7 @@ impl TextualParser {
                     *pos += 1;
                 }
                 if buf[*pos].is_numeric() {
-                    while buf[*pos] >= '0' && buf[*pos] <= '9' {
-                        offset_sub = (offset_sub * 10) + (buf[*pos] as i32 - '0' as i32);
-                        *pos += 1;
-                    }
+                    offset_sub = self.position_number(buf, pos, offset_sub)?;
                 }
                 tries2 += 1;
             }
@@ -1569,6 +1648,47 @@ impl TextualParser {
 }
 
 impl TextualParser {
+    // [spec:cg3:req:robustness.grammar-text-errors]
+    /// One `( ... )` alternative of an inline template, from its `(` to past
+    /// its `)`. DIVERGENCE: the C++ steps over whatever ends the alternative as
+    /// if it were the `)`, so a `(` still open at the end of the input walks the
+    /// cursor one step past the end per open level, beyond the buffer's padding
+    /// once there are enough of them; here it is refused, pointing at the `(`.
+    fn parse_or_branch(
+        &mut self,
+        buf: &[char],
+        pos: &mut usize,
+        rule_flags: Option<crate::rule::RuleFlags>,
+    ) -> ParseResult<CtxId> {
+        let open = *pos;
+        *pos += 1;
+        let ored = self.parse_contextual_test_list(buf, pos, rule_flags, true)?;
+        if buf[*pos] == '\0' {
+            let mut err = self.error_near(open);
+            err.kind = crate::error::ParseErrorKind::UnclosedParenthesis;
+            return Err(err);
+        }
+        *pos += 1;
+        Ok(ored)
+    }
+
+    // [spec:cg3:req:robustness.grammar-text-errors]
+    /// DIVERGENCE: a template reference that also carries the `f` position is
+    /// refused, pointing at its `T:`. `f` splits a test on its target set, and
+    /// a reference has none; the C++ goes on to strip numeric tags from set 0
+    /// and crashes.
+    fn refuse_numeric_branch(&mut self, t_cur: CtxId, at: usize) -> ParseResult {
+        if !self.grammar.contexts_arena[t_cur.0]
+            .pos
+            .intersects(POS_NUMERIC_BRANCH)
+        {
+            return Ok(());
+        }
+        let mut err = self.error_near(at);
+        err.kind = crate::error::ParseErrorKind::NumericBranchWithoutTarget;
+        Err(err)
+    }
+
     /// The `label_parseTemplateRef` body: read the template name, stash the
     /// name-hash placeholder in `tmpl`, and return `(line, name)` for deferral.
     fn parse_template_ref_body(
@@ -1576,7 +1696,8 @@ impl TextualParser {
         buf: &[char],
         pos: &mut usize,
         t_cur: CtxId,
-    ) -> (usize, String) {
+    ) -> ParseResult<(usize, String)> {
+        self.refuse_numeric_branch(t_cur, *pos)?;
         *pos += 2;
         let mut n = *pos;
         self.grammar.lines += skiptows_chars(buf, &mut n, ')', false, false);
@@ -1587,11 +1708,11 @@ impl TextualParser {
         let tmpl_data = (self.grammar.lines as usize, name);
         *pos = n;
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-        tmpl_data
+        Ok(tmpl_data)
     }
 
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn]
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+1]
     fn parse_contextual_test_list(
         &mut self,
         buf: &[char],
@@ -1651,9 +1772,7 @@ impl TextualParser {
                 if buf[*pos] != '(' {
                     return Err(self.error_near(*pos));
                 }
-                *pos += 1;
-                let ored = self.parse_contextual_test_list(buf, pos, rule_flags, true)?;
-                *pos += 1;
+                let ored = self.parse_or_branch(buf, pos, rule_flags)?;
                 self.grammar.contexts_arena[t_cur.0].ors.push(ored);
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
                 if simplecasecmp(buf, *pos, STR_OR) {
@@ -1717,7 +1836,7 @@ impl TextualParser {
                 if !goto_template {
                     self.grammar.contexts_arena[t_cur.0].pos |= POS_TMPL_OVERRIDE;
                 }
-                tmpl_data = Some(self.parse_template_ref_body(buf, pos, t_cur));
+                tmpl_data = Some(self.parse_template_ref_body(buf, pos, t_cur)?);
                 self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
             } else {
                 let s = self.parse_set_inline_wrapper(buf, pos)?;
@@ -1806,6 +1925,8 @@ impl TextualParser {
         }
 
         let t = self.grammar.add_contextual_test(Some(ot)).unwrap();
+        let span = self.trimmed_span(buf, ast_ctx_b, *pos);
+        self.ctx_spans.entry(t).or_default().push(span);
         if let Some(prof) = self.profiler.as_mut() {
             // profiler->addContext(t->hash, cur_grammar_n,
             //                      cur_ast->b - cur_grammar, p - cur_grammar)
@@ -1863,8 +1984,19 @@ impl TextualParser {
 }
 
 impl TextualParser {
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-flags-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-flags-fn]
+    // [spec:cg3:req:robustness.checked-arithmetic]
+    /// The number after `SUB:` — `*` for any sub-reading, else scanf `%d`.
+    /// DIVERGENCE: a number that does not fit an `int` is refused, pointing at
+    /// it; scanf's result for one is undefined.
+    fn sub_reading_number(&mut self, token: &str, at: usize) -> ParseResult<i32> {
+        if token.starts_with('*') {
+            return Ok(GsrSpecials::GsrAny as i32);
+        }
+        scan_d(token).ok_or_else(|| self.number_out_of_range(at, token.to_string()))
+    }
+
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-flags-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-flags-fn+1]
     fn parse_rule_flags(&mut self, buf: &[char], pos: &mut usize) -> ParseResult<DynBitset> {
         let mut rv = DynBitset::default();
 
@@ -1892,12 +2024,8 @@ impl TextualParser {
                             let mut n = *pos;
                             self.grammar.lines += skiptows_chars(buf, &mut n, '\0', true, false);
                             let token: String = buf[*pos..n].iter().collect();
+                            rv.sub_reading = self.sub_reading_number(&token, *pos)?;
                             *pos = n;
-                            if token.starts_with('*') {
-                                rv.sub_reading = GsrSpecials::GsrAny as i32;
-                            } else {
-                                rv.sub_reading = scan_d(&token);
-                            }
                         }
                     }
 

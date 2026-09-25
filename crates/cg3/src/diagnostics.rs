@@ -109,26 +109,36 @@ pub fn render_parse_errors(
 fn marked(kind: &crate::error::ParseErrorKind) -> &'static str {
     use crate::error::ParseErrorKind as K;
     match kind {
-        K::Syntax => "the parse stopped here",
+        K::Syntax
+        | K::EmptyTagList
+        | K::EmptyListItem
+        | K::UnclosedParenthesis
+        | K::NumberOutOfRange { .. } => "the parse stopped here",
         K::TagRegex { .. }
         | K::EmptyTag
         | K::TagStartsWithParen { .. }
-        | K::ReservedNumber { .. } => "this tag",
-        K::UnknownTemplate { .. } => "this reference",
+        | K::ReservedNumber { .. }
+        | K::TagWithoutBody { .. }
+        | K::FailFastWithoutTag
+        | K::NumericTag { .. }
+        | K::UnclosedVarstringBrace { .. } => "this tag",
+        K::UnknownTemplate { .. } | K::NumericBranchWithoutTarget => "this reference",
         K::TemplateRedefined { .. }
         | K::AnchorRedefined { .. }
         | K::SetRedefined { .. }
-        | K::SetContentCollision => "this definition",
+        | K::SetContentCollision
+        | K::TemplateCycle { .. } => "this definition",
         K::EmptyNumericBranch => "this branch",
-        K::IncludeUnreadable { .. } => "this directive",
+        K::IncludeUnreadable { .. } | K::IncludeCycle { .. } => "this directive",
         // Marked on the whole rule: the tag that failed came off the running
         // stream, or the rule met input it cannot be applied to, so the only
         // thing in the grammar to point at is the rule that asked for it
         // (`[spec:cg3:req:diagnostics.runtime-placed]`).
         K::RuntimeTag { .. } | K::RuleInapplicable(_) => "this rule asked for it",
-        // Spanless in practice — an empty input has no line to mark — so this
-        // arm exists to keep the match total rather than to be read.
-        K::EmptyInput => "here",
+        // An empty input is spanless in practice — it has no line to mark. A
+        // `?` test run without an override is marked on the test, and the
+        // headline already says why.
+        K::EmptyInput | K::PositionWithoutOverride { .. } => "here",
     }
 }
 

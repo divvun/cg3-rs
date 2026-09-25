@@ -60,12 +60,17 @@ process. Having written a file does not make it trusted when it is read back.
 > supplies one, and a template, varstring brace or parenthesis still open at
 > end of input.
 
-> [spec:cg3:req:robustness.cycles]
-> A cycle in a grammar's structure MUST be refused with an error naming it:
-> an `INCLUDE` that reaches itself directly or through other files, a template
-> that refers to itself, a set that contains itself, a contextual test whose
-> `OR` or `LINK` chain returns to itself. In grammar source these are parse
-> errors; in a `.cg3b`, load errors.
+> [spec:cg3:req:robustness.cycles+1]
+> A cycle in a grammar's structure that can never be decided MUST be refused
+> with an error naming it: an `INCLUDE` that reaches itself directly or through
+> other files, a template that is its own first step (directly, through other
+> templates, or through the first alternative of an `OR`), and a set that
+> contains itself. In grammar source these are parse errors; in a `.cg3b`, load
+> errors. A template that recurses through a LATER `OR` alternative or through
+> a `LINK` is repetition, not a cycle — the recursion ends when an earlier
+> alternative or the linked test decides, and `test/T_Templates` relies on it —
+> so it loads, and how deep it may recurse at run time is
+> `[spec:cg3:req:robustness.depth-bounded]`'s to bound.
 
 > [spec:cg3:req:robustness.binary-grammar-validated]
 > A `.cg3b` is untrusted bytes. The reader MUST detect truncation — a read past
