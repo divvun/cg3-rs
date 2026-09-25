@@ -1005,6 +1005,7 @@ impl MatxinApplicator {
             let mut current_reading: Vec<char> = Vec::new();
             c_reading = None;
 
+            // [spec:cg3:req:robustness.terminates]
             // Read the readings. DIVERGENCE: end of input ends the last reading
             // as `$` would; the C++ read U_EOF into it forever.
             while incohort {
@@ -1127,6 +1128,7 @@ impl MatxinApplicator {
         Ok(())
     }
 
+    // [spec:cg3:req:robustness.terminates]
     /// The wordform of cohort `cc`, read off `rd` up to its `/` or `<`, and
     /// the static reading that a `<` opens, read up to its `/` or `$`. A
     /// backslash escapes the next character.

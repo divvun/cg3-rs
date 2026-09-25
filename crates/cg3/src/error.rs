@@ -443,6 +443,11 @@ pub enum RunError {
         #[source]
         source: ReservedNumber,
     },
+    // [spec:cg3:req:robustness.terminates]
+    /// A varstring whose every expansion is another varstring — captured text
+    /// reading `VSTR:$1`, say. The C++ expands forever.
+    #[error("varstring {tag} in the rule on line {line} keeps expanding into another varstring")]
+    VarstringLoop { tag: String, line: u32 },
     #[error("input contains sub-readings, which this output format cannot represent")]
     SubReadingsUnsupported,
     #[error("output format {format} cannot be written here")]

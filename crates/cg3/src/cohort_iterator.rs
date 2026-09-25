@@ -639,11 +639,11 @@ impl DepAncestorIter {
     }
 
     // [spec:cg3:def:cohort-iterator.cg3.dep-ancestor-iter.reset-fn]
-    // [spec:cg3:sem:cohort-iterator.cg3.dep-ancestor-iter.reset-fn]
-    /// Rebuilds `m_ancestors`. QUIRK/cycle risk (reproduced, NOT fixed): when a
-    /// node is span-filtered (`good == false`) it is skipped but the loop still
-    /// climbs through it; the only terminators are a `cohort_map` miss or a
-    /// duplicate insert, so an all-span-filtered cross-window cycle loops forever.
+    // [spec:cg3:sem:cohort-iterator.cg3.dep-ancestor-iter.reset-fn+1]
+    // [spec:cg3:req:robustness.terminates]
+    /// Rebuilds `m_ancestors`. DIVERGENCE: a span-filtered ancestor is skipped
+    /// but still climbed through, so the C++ loops forever on a cross-window
+    /// cycle of filtered cohorts; this stops at the first cohort climbed twice.
     pub fn reset(
         &mut self,
         cohort: Option<CohortId>,
@@ -667,6 +667,7 @@ impl DepAncestorIter {
             let cohort_win = windows[cohort_parent.unwrap().0].number;
 
             let mut current = cohort_id;
+            let mut climbed = std::collections::HashSet::new();
             loop {
                 let dep_parent = cohorts[current.0].dep_parent;
                 // C++ looks the raw value up unconditionally; DEP_NO_PARENT
@@ -675,6 +676,9 @@ impl DepAncestorIter {
                     None => break,
                     Some(&c) => c,
                 };
+                if !climbed.insert(current) {
+                    break;
+                }
                 if span_good(cohorts, windows, pos, current, cohort_parent, cohort_win) {
                     // A failed (duplicate) insert means we've looped back.
                     if !cs_insert(cohorts, windows, &mut self.m_ancestors, current) {

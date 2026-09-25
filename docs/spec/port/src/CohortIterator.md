@@ -122,7 +122,7 @@
 > [spec:cg3:def:cohort-iterator.cg3.dep-ancestor-iter.reset-fn]
 > void DepAncestorIter::reset(Cohort* cohort, const ContextualTest* test, bool span)
 
-> [spec:cg3:sem:cohort-iterator.cg3.dep-ancestor-iter.reset-fn]
+> [spec:cg3:sem:cohort-iterator.cg3.dep-ancestor-iter.reset-fn+1]
 > Rebuilds `m_ancestors` (a CohortSet ordered by compare_Cohort — by
 > local_number then owning-window number) as the chain of dependency
 > ancestors of `cohort`, filtered by span/position flags. Steps:
@@ -148,6 +148,13 @@
 > assign(lower_bound(cohort), end); if POS_SELF, insert cohort itself; if
 > POS_RIGHTMOST and non-empty, reverse the underlying vector in place.
 > (4) m_ai = m_ancestors.begin(); m_cohort = *m_ai if non-empty else null.
+>
+> PORT DIVERGENCE: the port also stops when it climbs to a cohort it has
+> already climbed through, recorded or span-filtered, so the cycle the QUIRK
+> describes ends instead of looping forever
+> (`[spec:cg3:req:robustness.terminates]`). Every recorded ancestor of a
+> cycle is inserted before any cohort of it repeats, so the set built is the
+> one the C++ builds whenever the C++ terminates.
 
 > [spec:cg3:def:cohort-iterator.cg3.dep-descendent-iter]
 > class DepDescendentIter : public CohortIterator {

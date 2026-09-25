@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-09-25T12:55:09.922602Z
+last_sync_at 2026-09-25T12:59:10.842052Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -370,6 +370,14 @@ impl_evidence (
         {id robustness.cli-arguments, version 0}
         {id robustness.cli-output, version 0}
     )}
+    {id no-panic.engine-matching, covered_rules (
+        robustness.accepted-grammars-run
+    ), covered_claims (
+        {impl_name target-impl, rule robustness.accepted-grammars-run}
+    ), rule_versions_seen (
+        {id diagnostics.runtime-placed, version 0}
+        {id robustness.accepted-grammars-run, version 0}
+    )}
     {id no-panic.hash-probe, covered_rules (
         robustness.hash-probe-bounded
         robustness.reserved-keys
@@ -460,9 +468,9 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
-    {id no-panic.engine-matching, covered_rules (
-        robustness.accepted-grammars-run
+    {id no-panic.loops, covered_rules (
+        robustness.terminates
     ), covered_claims (
-        {impl_name target-impl, rule robustness.accepted-grammars-run}
+        {impl_name target-impl, rule robustness.terminates}
     )}
 )

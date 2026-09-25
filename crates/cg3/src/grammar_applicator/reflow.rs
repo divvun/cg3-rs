@@ -1079,12 +1079,8 @@ impl Engine<'_> {
         let mapping_prefix = self.grammar.mapping_prefix;
         let mut idx = 0usize;
         while idx < mappings.len() {
-            let mut t = mappings[idx];
-            while self.grammar.tag_type(t).intersects(T_VARSTRING) {
-                let tval = self.grammar.single_tags_list[t.0].clone();
-                t = self.generate_varstring_tag(t, &tval)?;
-                mappings[idx] = t;
-            }
+            let t = self.expand_varstring(mappings[idx])?;
+            mappings[idx] = t;
             let ttype = self.grammar.tag_type(t);
             let first_char = self.grammar.single_tags_list[t.0]
                 .tag

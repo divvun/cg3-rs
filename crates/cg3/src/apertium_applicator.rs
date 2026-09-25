@@ -449,8 +449,27 @@ where
         taglist.extend(tags.iter().copied());
         taglist.extend(prefix_tags.iter().copied());
 
-        // Assign tags to reading(s), scanning from the BACK for baseforms.
+        self.assign_tag_groups(c_reading, wform, taglist)?;
+        Ok(())
+    }
+
+    // [spec:cg3:req:robustness.terminates]
+    /// `processReading`'s last step: hand each baseform, with the tags after
+    /// it, to a reading, scanning `taglist` from the back and chaining earlier
+    /// groups off later ones as sub-readings.
+    ///
+    /// DIVERGENCE: the C++ rescans until `taglist` is empty, so an analysis in
+    /// which no tag parses as a baseform (an escaped `\<x\>` lemma, which
+    /// becomes the wordform-shaped `"<x>"`) loops forever. A scan that consumes
+    /// nothing stops here, and the tags it could not place are dropped.
+    fn assign_tag_groups(
+        &mut self,
+        c_reading: ReadingId,
+        wform: TagId,
+        mut taglist: TagList,
+    ) -> Result<(), crate::error::RunError> {
         while !taglist.is_empty() {
+            let before = taglist.len();
             let mut reading = c_reading;
             // reverse_foreach over taglist
             let mut ri = taglist.len();
@@ -507,6 +526,13 @@ where
                     // After the pops, taglist.len() == ri, so the `ri -= 1` at the
                     // top of the loop continues the reverse scan correctly.
                 }
+            }
+            if taglist.len() == before {
+                tracing::warn!(
+                    "Warning: Apertium analysis has no baseform to attach {} tag(s) to; they are dropped.",
+                    before
+                );
+                break;
             }
         }
         Ok(())

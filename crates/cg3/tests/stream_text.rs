@@ -137,6 +137,7 @@ fn invalid_utf8_refused_in_every_text_format() {
 // read forever.
 // [spec:cg3:req:robustness.stream-invalid-utf8/test]
 // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn+1/test]
+// [spec:cg3:req:robustness.terminates/test]
 #[test]
 fn matxin_reader_errors_and_ends_inside_cohorts() {
     let (name, line, bytes) = invalid_utf8(matxin(b"^a/a<n>$\n^caf\xE9/x<n>$\n"));

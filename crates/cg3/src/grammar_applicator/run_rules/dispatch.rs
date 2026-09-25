@@ -606,10 +606,7 @@ impl crate::grammar_applicator::Engine<'_> {
         if let Some(ml) = maplist {
             let raw = self.get_tag_list_of_set(ml, false);
             for &t0 in &raw {
-                let mut t = t0;
-                while self.grammar.tag_type(t).intersects(T_VARSTRING) {
-                    t = self.generate_varstring_tag_id(t)?;
-                }
+                let t = self.expand_varstring(t0)?;
                 out.push(t);
             }
         }
@@ -821,10 +818,7 @@ impl crate::grammar_applicator::Engine<'_> {
     ) -> Result<(), crate::error::RunError> {
         let mapping_prefix = self.grammar.mapping_prefix;
         for &t0 in taglist {
-            let mut tter = t0;
-            while self.grammar.tag_type(tter).intersects(T_VARSTRING) {
-                tter = self.generate_varstring_tag_id(tter)?;
-            }
+            let tter = self.expand_varstring(t0)?;
             let ttype = self.grammar.tag_type(tter);
             let thash = self.grammar.single_tags_list.get(tter.0).hash;
             let first = self.grammar.single_tags_list.get(tter.0).tag.chars().next();
@@ -1047,9 +1041,7 @@ impl crate::grammar_applicator::Engine<'_> {
             for t0 in rit {
                 let mut tter = t0;
                 let mut hash = self.grammar.single_tags_list.get(tter.0).hash;
-                while self.grammar.tag_type(tter).intersects(T_VARSTRING) {
-                    tter = self.generate_varstring_tag_id(tter)?;
-                }
+                tter = self.expand_varstring(tter)?;
                 let ttype = self.grammar.tag_type(tter);
                 let first = self.grammar.single_tags_list.get(tter.0).tag.chars().next();
                 if ttype.intersects(T_MAPPING) || first == Some(mapping_prefix) {
@@ -1695,10 +1687,7 @@ impl crate::grammar_applicator::Engine<'_> {
             None => TagList::new(),
         };
         for t0 in map_tags {
-            let mut tter = t0;
-            while self.grammar.tag_type(tter).intersects(T_VARSTRING) {
-                tter = self.generate_varstring_tag_id(tter)?;
-            }
+            let tter = self.expand_varstring(t0)?;
             let thash = self.grammar.single_tags_list.get(tter.0).hash;
             let attach_gn = self.doc.store.cohorts.get(attach.0).global_number.get();
             match rtype {
@@ -1748,10 +1737,7 @@ impl crate::grammar_applicator::Engine<'_> {
             };
             let target_gn = self.doc.store.cohorts.get(target.0).global_number.get();
             for t0 in sub_tags {
-                let mut tter = t0;
-                while self.grammar.tag_type(tter).intersects(T_VARSTRING) {
-                    tter = self.generate_varstring_tag_id(tter)?;
-                }
+                let tter = self.expand_varstring(t0)?;
                 let thash = self.grammar.single_tags_list.get(tter.0).hash;
                 match rtype {
                     KAddrelations => {

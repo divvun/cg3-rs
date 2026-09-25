@@ -2917,6 +2917,13 @@ children (
                         kind @note
                         text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da; VERIFIED hangs unless marked reasoned).\n\n- apertium_applicator.rs:426 `while !taglist.is_empty()` never pops when the reading has no baseform tag: `printf '^a/\\\\<x\\\\>$\\n' | cg-conv --in-apertium` (the escaped `<` makes the baseform `\"<x>\"`, which parses as a wordform). CPU spin.\n- matxin_applicator.rs:1000/1024/1051 read loops never check EOF: `printf '^abc$\\n' | cg-proc -f 2 g.cg3b` (also `^abc<n`, `^abc/x<n>`) — hang with unbounded memory.\n- driver.rs:429 resolve_varstring on an unmatched `{` — owned by no-panic.grammar-text (parse error), listed here for completeness.\n- Varstring expansion loops `while T_VARSTRING { generate }` at dispatch.rs:741/965/1582/1635 and reflow.rs:1054 never end when the generated tag is itself a varstring (rc 124) — strip T_VARSTRING/T_VSTR from generated tags. (The recursive sibling is on no-panic.depth.)\n- cohort_iterator.rs:669 DepAncestorIter::reset: a cross-window ancestor cycle without the span flag loops forever at constant memory — the seen-set must include every climbed node, not only span-passing ones.\n- test/T_JumpExecute grammar: ANY cohort carrying a mapping tag hangs (`\"<There>\"\\n\\t\"there\" ADV @x`) — found by the stream fuzzer; needs a root cause (a JUMP/EXECUTE loop the grammar did not ask for vs a grammar loop the C++ also has — check against the C++ before deciding which side of robustness.terminates it falls).\n- The flat-container probe hang is no-panic.hash-probe's.\n- OUT OF SCOPE by robustness.terminates (grammar-requested loops, the C++ loops too): `COPY/APPEND/ADDCOHORT REPEAT` growth (COPY REPEAT reached 475 MB), `SPLITCOHORT (…) (*)` re-splitting, `JUMP` back to an earlier anchor, `DELIMIT (…)(-1A (>>>))` per new window. Recorded so nobody rediscovers them as bugs.\n- Also noticed: uextras `find_and_replace(\"\", _)` loops forever (no production caller today)."
                     }
+
+                    {
+                        at 2026-09-25T13:03:07.651842Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

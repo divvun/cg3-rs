@@ -24,7 +24,7 @@
 > [spec:cg3:def:uextras.cg3.find-and-replace-fn]
 > size_t findAndReplace(UnicodeString& str, UStringView from, UStringView to)
 
-> [spec:cg3:sem:uextras.cg3.find-and-replace-fn]
+> [spec:cg3:sem:uextras.cg3.find-and-replace-fn+1]
 > Replaces every non-overlapping occurrence of the substring `from` with
 > `to` inside the ICU `UnicodeString` `str`, in place, and returns the
 > number of replacements made. `from` and `to` are UTF-16 views
@@ -37,6 +37,12 @@
 > inserted replacement, so replacements are not re-scanned and a `to` that
 > contains `from` cannot loop forever), and increment `rv`. Return `rv`.
 > Sizes are cast to `int32_t` for the ICU calls.
+>
+> PORT DIVERGENCE: an empty `from` matches at every offset, and advancing past
+> an empty or non-empty `to` never reaches the end, so the C++ loops forever
+> (inserting `to` each time when it is non-empty). The port replaces nothing
+> and returns 0 for an empty `from` (`[spec:cg3:req:robustness.terminates]`).
+> Varstring names reach this from grammar input.
 
 > [spec:cg3:def:uextras.cg3.get-line-clean-fn+1]
 > size_t get_line_clean(UString& line, UString& cleaned, std::istream& input, bool keep_tabs)

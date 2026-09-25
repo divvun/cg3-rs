@@ -500,14 +500,19 @@ fn dirname_posix(path: &str) -> String {
 }
 
 // [spec:cg3:def:uextras.cg3.find-and-replace-fn]
-// [spec:cg3:sem:uextras.cg3.find-and-replace-fn]
+// [spec:cg3:sem:uextras.cg3.find-and-replace-fn+1]
+// [spec:cg3:req:robustness.terminates]
 //
 // The C++ mutates a UTF-16 string in place; here it is a `&mut String`.
 // `offset` and the `from`/`to` sizes are byte offsets into the UTF-8 buffer
 // (the direct analog of C++'s code-unit offsets). Advancing `offset` past the
 // inserted `to` prevents re-scanning replacements, so a `to` containing `from`
-// cannot loop.
+// cannot loop. DIVERGENCE: an empty `from`, which matches at every offset and
+// loops the C++ forever, replaces nothing.
 pub fn find_and_replace(str: &mut String, from: &str, to: &str) -> usize {
+    if from.is_empty() {
+        return 0;
+    }
     let mut rv = 0usize;
     let mut offset = 0usize;
     while let Some(idx) = str[offset..].find(from) {
@@ -894,7 +899,7 @@ mod tests {
 
     // find_and_replace mutates the string in place and returns the count; a `to`
     // containing `from` must not loop forever (offset advances past the insert).
-    // [spec:cg3:sem:uextras.cg3.find-and-replace-fn/test]
+    // [spec:cg3:sem:uextras.cg3.find-and-replace-fn+1/test]
     #[test]
     fn find_and_replace_counts_and_no_loop() {
         let mut s: String = "a.b.c".to_string();
@@ -910,6 +915,11 @@ mod tests {
         let mut s3: String = "abc".to_string();
         assert_eq!(find_and_replace(&mut s3, "z", "!"), 0);
         assert_eq!(s3, "abc");
+
+        // An empty `from` matches everywhere; it replaces nothing.
+        let mut s4: String = "abc".to_string();
+        assert_eq!(find_and_replace(&mut s4, "", "!"), 0);
+        assert_eq!(s4, "abc");
     }
 
     // get_line_clean reads a line via read_char, collapsing runs of spaces to a

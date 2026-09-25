@@ -489,7 +489,7 @@ fn dep_parent_iterator() {
 // [spec:cg3:sem:cohort-iterator.cg3.dep-descendent-iter.dep-descendent-iter-fn/test]
 // [spec:cg3:sem:cohort-iterator.cg3.dep-descendent-iter.reset-fn/test]
 // [spec:cg3:sem:cohort-iterator.cg3.dep-ancestor-iter.dep-ancestor-iter-fn/test]
-// [spec:cg3:sem:cohort-iterator.cg3.dep-ancestor-iter.reset-fn/test]
+// [spec:cg3:sem:cohort-iterator.cg3.dep-ancestor-iter.reset-fn+1/test]
 #[test]
 fn dep_descendent_and_ancestor_iterators() {
     let (mut store, w, _sw, ids) = setup_window(4);
@@ -555,6 +555,38 @@ fn dep_descendent_and_ancestor_iterators() {
         iter_arenas(&store, &g, &w),
     );
     assert_eq!(ai.base.current(), Some(c2));
+}
+
+// A dependency cycle whose every cohort sits in a later window than the
+// origin: each is span-filtered, so none is ever recorded, and the C++ climbs
+// it forever. The test runner's 10 s limit is the assertion that it ends.
+// [spec:cg3:req:robustness.terminates/test]
+#[test]
+fn ancestor_cycle_in_another_window_terminates() {
+    let (mut store, mut w, _sw, ids) = setup_window(1);
+    let origin = ids[0];
+    let later = w.stream.alloc_append_single_window(&mut store);
+    let mut cycle = Vec::new();
+    for g in 2..=3 {
+        let c = alloc_cohort(&mut store, Some(later));
+        store.cohorts.get_mut(c.0).global_number = GlobalNumber(g);
+        append_cohort(&mut store, &mut w.cohorts, &mut w.deps, later, c);
+        cycle.push(c);
+    }
+    store.cohorts.get_mut(origin.0).dep_parent = Some(GlobalNumber(2));
+    store.cohorts.get_mut(cycle[0].0).dep_parent = Some(GlobalNumber(3));
+    store.cohorts.get_mut(cycle[1].0).dep_parent = Some(GlobalNumber(2));
+
+    let mut g = GrammarCore::default();
+    let ctx = g.allocate_contextual_test();
+    let g = Grammar::from(g);
+    let ai = DepAncestorIter::new(
+        Some(origin),
+        Some(TestRef::new(ctx)),
+        false,
+        iter_arenas(&store, &g, &w),
+    );
+    assert_eq!(ai.base.current(), None, "every ancestor is filtered out");
 }
 
 // CohortSetIter (ctor + span-filtered advance incl. the faithful re-yield bug,

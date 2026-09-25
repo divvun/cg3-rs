@@ -16,6 +16,11 @@ use crate::types::{SetNumber, TagHash};
 
 use super::*;
 
+/// How many times [`Engine::expand_varstring`] re-expands a varstring whose
+/// expansion is itself a varstring before calling it a loop. Real grammars
+/// nest one level, if at all.
+const MAX_VARSTRING_EXPANSIONS: usize = 16;
+
 impl crate::grammar_applicator::Engine<'_> {
     // ---- small helpers (not manifest symbols) --------------------------------
 
@@ -38,6 +43,33 @@ impl crate::grammar_applicator::Engine<'_> {
     ) -> Result<TagId, crate::error::RunError> {
         let t = self.grammar.single_tags_list.get(tag.0).clone();
         self.generate_varstring_tag(tag, &t)
+    }
+
+    // [spec:cg3:req:robustness.terminates]
+    /// C++ `while (tag->type & T_VARSTRING) tag = generateVarstringTag(tag);`.
+    ///
+    /// DIVERGENCE: the C++ loops for as long as an expansion yields another
+    /// varstring, which captured text reading `VSTR:$1` makes forever. This
+    /// stops after [`MAX_VARSTRING_EXPANSIONS`] and reports the tag.
+    pub(crate) fn expand_varstring(&mut self, tag: TagId) -> Result<TagId, crate::error::RunError> {
+        let mut t = tag;
+        for _ in 0..MAX_VARSTRING_EXPANSIONS {
+            if !self.grammar.tag_type(t).intersects(crate::tag::T_VARSTRING) {
+                return Ok(t);
+            }
+            t = self.generate_varstring_tag_id(t)?;
+        }
+        if !self.grammar.tag_type(t).intersects(crate::tag::T_VARSTRING) {
+            return Ok(t);
+        }
+        let line = self
+            .scratch
+            .current_rule
+            .map_or(0, |r| self.grammar.rule_by_number[r.0].line);
+        Err(crate::error::RunError::VarstringLoop {
+            tag: self.grammar.single_tags_list[tag.0].to_text(false),
+            line,
+        })
     }
 
     /// C++ `TRACE` macro: push `rule->number` onto the apply-to subreading's
