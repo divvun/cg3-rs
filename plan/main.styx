@@ -2825,6 +2825,13 @@ children (
                         kind @note
                         text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da).\n\nPROBE — a production hang risk for any long-running pipeline:\n- flat_unordered_map.rs insert (~322) / erase (~371) and flat_unordered_set.rs insert (~240) / erase (~287) have NO iteration cap (find caps at capacity*4). Once tombstones saturate the table they spin forever. VERIFIED via `<STREAMCMD:SETVAR:…>` / `<STREAMCMD:REMVAR:…>` churn (engine repro D/v1.txt). Fix: cap the probe like find, and compact/rehash when tombstones pass a threshold.\n\nSENTINEL KEYS (0xFFFFFFFF res_empty, 0xFFFFFFFE res_del) — debug_assert \"Key cannot be res_empty or res_del!\" at flat_unordered_map.rs:305 (insert) / :259 (find); in RELEASE the insert is a silent no-op or find returns an empty slot, i.e. silent corruption. VERIFIED reachable from:\n- CG dependency tags `\"a\" N #-1->2`, `#1->-2`, `#1->4294967294` (reflow_dependency_window; reflow.rs:479/482/514/522/615/884), relation tags `R:x:-2`, ids `ID:4294967294` / `ID:4294967295 R:x:1 | cg-conv --out-binary`;\n- binary-stream dep_self 0xFFFFFFFF (binary_applicator.rs:390/413) or relation head 0xFFFFFFFF;\n- a `.cg3b` tag hash of 0xFFFFFFFF (also anchors) at load.\nFix: refuse the two values where they are parsed (tag.rs scan_id / scan_hash, the binary readers).\nUnsure: a textual tag or context hash landing on a sentinel needs a hash preimage — reasoned only."
                     }
+
+                    {
+                        at 2026-09-25T12:43:05.79608Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

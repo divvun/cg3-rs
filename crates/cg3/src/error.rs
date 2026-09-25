@@ -103,6 +103,12 @@ pub enum ParseErrorKind {
     SetContentCollision,
     #[error("numeric branch resulted in an empty set")]
     EmptyNumericBranch,
+    /// A tag whose dependency or relation number is a hash-table sentinel.
+    #[error("{cause}")]
+    ReservedNumber {
+        #[source]
+        cause: ReservedNumber,
+    },
     /// An `#include` whose file could not be read.
     #[error("cannot read included grammar `{path}` ({source}) - bailing out")]
     IncludeUnreadable {
@@ -152,6 +158,68 @@ impl ParseErrorKind {
             self,
             ParseErrorKind::IncludeUnreadable { .. } | ParseErrorKind::EmptyInput
         )
+    }
+}
+
+/// What a [`ReservedNumber`] was read as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumberRole {
+    /// The `x` of a `#x->y` dependency tag, or a JSONL cohort's `ds`.
+    DependencySelf,
+    /// The `y` of a `#x->y` dependency tag, or a JSONL cohort's `dp`.
+    DependencyParent,
+    /// The `n` of an `ID:n` relation tag.
+    RelationId,
+    /// The `n` of an `R:name:n` relation tag.
+    RelationTarget,
+}
+
+impl std::fmt::Display for NumberRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            NumberRole::DependencySelf => "dependency number",
+            NumberRole::DependencyParent => "dependency parent",
+            NumberRole::RelationId => "relation id",
+            NumberRole::RelationTarget => "relation target",
+        })
+    }
+}
+
+// [spec:cg3:req:robustness.reserved-keys]
+/// A number read from input that the flat hash containers reserve as a
+/// sentinel key: `u32::MAX` marks an empty slot, `u32::MAX - 1` a deleted one.
+/// Stored as a key it would make a table lose or invent entries — silently,
+/// in a release build — so it is refused where it is parsed.
+///
+/// A parent or relation target of `u32::MAX` is not refused: that is the
+/// C++'s `DEP_NO_PARENT`, "no parent", and is never used as a key.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{role} {value} in `{text}` is out of range")]
+pub struct ReservedNumber {
+    /// The tag, or the JSON member, the number was read from.
+    pub text: Box<str>,
+    pub role: NumberRole,
+    pub value: u32,
+}
+
+impl ReservedNumber {
+    /// `Err` when `value`, read as `role` from `text`, is a sentinel key.
+    pub fn check(text: &str, role: NumberRole, value: u32) -> Result<(), ReservedNumber> {
+        use crate::flat_unordered_map::Sentinel;
+        let reserved = match role {
+            NumberRole::DependencySelf | NumberRole::RelationId => {
+                value == u32::EMPTY || value == u32::DEL
+            }
+            NumberRole::DependencyParent | NumberRole::RelationTarget => value == u32::DEL,
+        };
+        if reserved {
+            return Err(ReservedNumber {
+                text: text.into(),
+                role,
+                value,
+            });
+        }
+        Ok(())
     }
 }
 
@@ -277,6 +345,15 @@ pub enum RunError {
     /// hot loop. `line` is the grammar line in flight.
     #[error("cannot add a mapping tag to a reading which already is mapped, on line {line}")]
     MappingTagConflict { line: u32 },
+    /// A number in the stream that the hash tables reserve, refused as it was
+    /// read. `input` and `line` name the stream and its line.
+    #[error("{input}: {source}, on line {line}")]
+    ReservedNumber {
+        input: String,
+        line: u32,
+        #[source]
+        source: ReservedNumber,
+    },
     #[error("input contains sub-readings, which this output format cannot represent")]
     SubReadingsUnsupported,
     #[error("output format {format} cannot be written here")]

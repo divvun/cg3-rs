@@ -64,7 +64,7 @@
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn]
 > void JsonlApplicator::parseJsonCohort(const json::Value& obj, SingleWindow* cSWindow, Cohort*& cCohort)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn]
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+1]
 > Parses one cohort object `obj` into a new cohort, assigning it into the output
 > parameter `cCohort`. Consumes the cohort object shape: `{"w": wordform, "sts":
 > [static tags], "z": text, "rs": [readings], "drs": [deleted readings], "ds":
@@ -97,6 +97,14 @@
 > skip non-object elements; otherwise `parseJsonReading(dr_val, cCohort)`; on
 > success set `delR->deleted = true` and push onto `cCohort->deleted`; on failure
 > print "Error: Failed to parse deleted reading on line <numLines>."
+>
+> PORT DIVERGENCE: a `"ds"` of `UINT32_MAX` or `UINT32_MAX-1`, or a `"dp"` of
+> `UINT32_MAX-1`, is refused with a run error naming the member, before either
+> is stored (`[spec:cg3:req:robustness.reserved-keys]`). They key and probe the
+> window's `dep_map`, whose flat hash container reserves both values as
+> sentinels; the C++ stores them and a debug build asserts, a release build
+> corrupts the map. A `"dp"` of `UINT32_MAX` is `DEP_NO_PARENT` and still means
+> no parent.
 
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn]
 > Reading* JsonlApplicator::parseJsonReading(const json::Value& reading_obj, Cohort* parentCohort)

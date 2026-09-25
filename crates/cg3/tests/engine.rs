@@ -1122,6 +1122,120 @@ fn engine_relations() {
 }
 
 // ===========================================================================
+// 11b. Hash-table keys from the stream. Stream variables and dependency and
+// relation numbers land in the flat hash containers, whose probe must end
+// however many tombstones a long stream leaves, and whose two sentinel keys
+// must never arrive from input.
+// ===========================================================================
+
+/// Parse `grammar` and run the CG text stream `input` through it in-process.
+fn run_text(grammar: &[u8], input: &str) -> Result<String, cg3::error::Cg3Error> {
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::textual_parser::TextualParser;
+
+    let mut parser = TextualParser::new(cg3::grammar::GrammarCore::default(), false);
+    parser
+        .parse_grammar_named(grammar, "keys.cg3")
+        .expect("grammar parses");
+    let mut grammar = parser.grammar;
+    let _ = grammar.reindex(false, false).expect("reindex");
+    let mut app = GrammarApplicator::new(grammar.into());
+    app.set_grammar().expect("applicator setup");
+    let mut cursor = std::io::Cursor::new(input.as_bytes().to_vec());
+    let mut out: Vec<u8> = Vec::new();
+    app.run_grammar_on_text(&mut cursor, &mut out)?;
+    Ok(String::from_utf8(out).expect("UTF-8 output"))
+}
+
+/// One variable held throughout, then `cycles` rounds of `round(i)` stream
+/// commands, then a cohort.
+fn variable_churn(held: &str, cycles: usize, round: impl Fn(usize) -> String) -> String {
+    let mut s = format!("<STREAMCMD:{held}>\n");
+    for i in 0..cycles {
+        s.push_str(&round(i));
+    }
+    s.push_str("\"<w>\"\n\t\"w\" n\n");
+    s
+}
+
+/// A stream that sets and removes variables for as long as it runs fills the
+/// variable tables with tombstones until no empty slot is left; removing a
+/// variable neither table holds then used to probe forever. The first stream
+/// saturates the set-variable map, the second the removed-variable set.
+// [spec:cg3:req:robustness.hash-probe-bounded/test]
+// [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.erase-fn+1/test]
+// [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.erase-fn+1/test]
+#[test]
+fn variable_churn_does_not_hang_the_stream() {
+    let grammar = b"DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nSECTION\nSELECT N ;\n";
+    let map_churn = variable_churn("SETVAR:keep=x", 2000, |i| {
+        format!("<STREAMCMD:SETVAR:v{i}=a>\n<STREAMCMD:REMVAR:v{i}>\n<STREAMCMD:REMVAR:z{i}>\n")
+    });
+    let set_churn = variable_churn("REMVAR:keep", 2000, |i| {
+        format!("<STREAMCMD:REMVAR:v{i}>\n<STREAMCMD:SETVAR:v{i}=a>\n<STREAMCMD:SETVAR:w{i}=a>\n")
+    });
+    for input in [map_churn, set_churn] {
+        let out = run_text(grammar, &input).expect("the churned stream runs");
+        assert!(
+            out.contains("\"<w>\""),
+            "the cohort after the churn is lost"
+        );
+    }
+}
+
+/// A dependency grammar: the window's dependency map is built and probed.
+const DEP_GRAMMAR: &[u8] = b"DELIMITERS = \"<$.>\" ;\nADD (@child) (*) (p (*)) ;\n";
+
+/// A dependency or relation number equal to a hash-table sentinel is refused
+/// where the stream tag is parsed, naming the tag and what it was read as; it
+/// used to reach the dependency or relation map and trip its sentinel assert.
+// [spec:cg3:req:robustness.reserved-keys/test]
+#[test]
+fn reserved_numbers_in_stream_tags_are_refused() {
+    use cg3::error::{Cg3Error, NumberRole, RunError};
+
+    let cases = [
+        ("#-1->2", NumberRole::DependencySelf, u32::MAX),
+        ("#1->-2", NumberRole::DependencyParent, u32::MAX - 1),
+        ("#1->4294967294", NumberRole::DependencyParent, u32::MAX - 1),
+        ("ID:4294967294", NumberRole::RelationId, u32::MAX - 1),
+        ("ID:4294967295", NumberRole::RelationId, u32::MAX),
+        ("R:x:-2", NumberRole::RelationTarget, u32::MAX - 1),
+    ];
+    for (tag, role, value) in cases {
+        let input = format!("\"<a>\"\n\t\"a\" n #1->2\n\"<b>\"\n\t\"b\" n {tag}\n");
+        match run_text(DEP_GRAMMAR, &input) {
+            Err(Cg3Error::Run(RunError::ReservedNumber { source, .. })) => {
+                assert_eq!(
+                    (&*source.text, source.role, source.value),
+                    (tag, role, value)
+                );
+            }
+            other => panic!("{tag}: expected a reserved-number refusal, got {other:?}"),
+        }
+    }
+}
+
+/// `#x->-1` is the C++'s `DEP_NO_PARENT`: the cohort has no parent, and the
+/// stream runs. It used to be kept as parent 4294967295 and looked up.
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn/test]
+// [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn/test]
+#[test]
+fn dependency_parent_minus_one_is_no_parent() {
+    let input = "\"<a>\"\n\t\"a\" n #1->-1\n\"<b>\"\n\t\"b\" n #2->1\n";
+    let out = run_text(DEP_GRAMMAR, input).expect("the stream runs");
+    let reading = |base: &str| {
+        out.lines()
+            .find(|l| l.contains(base))
+            .unwrap_or_else(|| panic!("{base} lost:\n{out}"))
+            .to_string()
+    };
+    let a = reading("\"a\"");
+    assert!(a.contains("#1->1") && !a.contains("@child"), "{out}");
+    assert!(reading("\"b\"").contains("@child"), "{out}");
+}
+
+// ===========================================================================
 // 12. Rule-context accessors (context.cpp) + tag unification. T_With's WITH
 // blocks push context frames whose _MARK_/_C1_/attach targets round-trip
 // through set_mark/get_mark and set_attach_to/get_attach_to, with every rule

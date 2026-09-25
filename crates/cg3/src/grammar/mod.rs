@@ -706,7 +706,8 @@ impl GrammarCore {
     // [spec:cg3:sem:grammar.cg3.grammar.allocate-tag-fn]
     /// Interns a tag from raw text. Empty / leading-`(` texts are hard errors
     /// (`CG3Quit(1)`; the stderr diagnostic is deferred I/O); anything
-    /// else goes to [`intern_text`](Self::intern_text).
+    /// else goes to [`intern_text`](Self::intern_text), which refuses a
+    /// dependency or relation number the hash tables reserve.
     pub fn allocate_tag(&mut self, txt: &str) -> Result<TagId, crate::error::ParseError> {
         let first = txt.chars().next().unwrap_or('\0');
         if first == '\0' {
@@ -719,7 +720,8 @@ impl GrammarCore {
                 }),
             );
         }
-        Ok(self.intern_text(txt))
+        self.intern_text(txt)
+            .map_err(|cause| self.error(crate::error::ParseErrorKind::ReservedNumber { cause }))
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.add-tag-to-set-fn]

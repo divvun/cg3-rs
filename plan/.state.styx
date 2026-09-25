@@ -423,4 +423,11 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id no-panic.hash-probe, covered_rules (
+        robustness.hash-probe-bounded
+        robustness.reserved-keys
+    ), covered_claims (
+        {impl_name target-impl, rule robustness.hash-probe-bounded}
+        {impl_name target-impl, rule robustness.reserved-keys}
+    )}
 )

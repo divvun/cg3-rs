@@ -227,8 +227,8 @@ impl<'a> JsonlApplicator<'a> {
         Ok(Some(c_reading))
     }
 
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn]
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+1]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+1]
     /// C++ `void parseJsonCohort(const json::Value& obj, SingleWindow* cSWindow,
     /// Cohort*& cCohort)`. Parses one cohort object into a new cohort, assigning
     /// it into the returned value.
@@ -350,23 +350,7 @@ impl<'a> JsonlApplicator<'a> {
             self.base.grammar.sets_any.as_ref(),
         );
 
-        // Dependency ("ds" / "dp").
-        if let Some(ds) = obj.get("ds")
-            && let Some(v) = as_uint(ds)
-        {
-            self.base.doc.store.cohorts.get_mut(c_cohort.0).dep_self =
-                (v != 0).then_some(crate::types::GlobalNumber(v));
-        }
-        if let Some(dp) = obj.get("dp")
-            && let Some(v) = as_uint(dp)
-        {
-            self.base.doc.store.cohorts.get_mut(c_cohort.0).dep_parent =
-                if v == crate::cohort::DEP_NO_PARENT {
-                    None
-                } else {
-                    Some(crate::types::GlobalNumber(v))
-                };
-        }
+        self.parse_json_dependency(obj, c_cohort)?;
 
         // Deleted readings ("drs").
         if let Some(Value::Array(drs)) = obj.get("drs") {
@@ -394,6 +378,42 @@ impl<'a> JsonlApplicator<'a> {
         }
 
         Ok(c_cohort)
+    }
+
+    // [spec:cg3:req:robustness.reserved-keys]
+    /// `parseJsonCohort`'s dependency members: `"ds"` and `"dp"`, each when it
+    /// is an unsigned 32-bit integer. They key and probe the window's
+    /// dependency map, so a number that map reserves is refused; a `"dp"` of
+    /// `u32::MAX` is `DEP_NO_PARENT` and stays.
+    fn parse_json_dependency(
+        &mut self,
+        obj: &Map<String, Value>,
+        c_cohort: CohortId,
+    ) -> Result<(), crate::error::RunError> {
+        use crate::error::{NumberRole, ReservedNumber};
+        let ds = obj.get("ds").and_then(as_uint);
+        let dp = obj.get("dp").and_then(as_uint);
+        let (input, line) = (&self.base.cfg.input_name, self.base.doc.num_lines);
+        let refuse = |source| crate::error::RunError::ReservedNumber {
+            input: input.clone(),
+            line,
+            source,
+        };
+        if let Some(v) = ds {
+            ReservedNumber::check("ds", NumberRole::DependencySelf, v).map_err(refuse)?;
+        }
+        if let Some(v) = dp {
+            ReservedNumber::check("dp", NumberRole::DependencyParent, v).map_err(refuse)?;
+        }
+        let cohort = self.base.doc.store.cohorts.get_mut(c_cohort.0);
+        if let Some(v) = ds {
+            cohort.dep_self = (v != 0).then_some(crate::types::GlobalNumber(v));
+        }
+        if let Some(v) = dp {
+            cohort.dep_parent =
+                (v != crate::cohort::DEP_NO_PARENT).then_some(crate::types::GlobalNumber(v));
+        }
+        Ok(())
     }
 
     // =======================================================================

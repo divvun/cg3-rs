@@ -167,7 +167,7 @@
 > [spec:cg3:def:tag.cg3.tag.parse-tag-raw-fn]
 > void Tag::parseTagRaw(const UChar* to, Grammar* grammar)
 
-> [spec:cg3:sem:tag.cg3.tag.parse-tag-raw-fn]
+> [spec:cg3:sem:tag.cg3.tag.parse-tag-raw-fn+1]
 > Parses the raw tag text `to` (a NUL-terminated `UChar*`) into this Tag,
 > deriving `type` bits and dependency/relation/numeric fields; `grammar` supplies
 > the regex-tag and icase-tag tables and tag allocation. Steps:
@@ -211,6 +211,19 @@
 > 10. Finalize special: clear `T_SPECIAL`, then if `type & T_NUMERICAL` is set,
 >     OR in `T_SPECIAL`. NOTE: unlike `rehash()`, this only re-derives
 >     `T_SPECIAL` from `T_NUMERICAL`, not from the full `MASK_TAG_SPECIAL`.
+>
+> PORT DIVERGENCE: the port returns an error, and interns nothing, when a
+> number these steps parse is one the flat hash containers reserve as a
+> sentinel key (`[spec:cg3:req:robustness.reserved-keys]`): a `T_DEPENDENCY`
+> tag's `dep_self` of `UINT32_MAX` or `UINT32_MAX-1`, or its `dep_parent` of
+> `UINT32_MAX-1` (step 7); a `T_RELATION` `ID:` tag's `dep_self` of either
+> (step 8); a `T_RELATION` `R:` tag's `dep_parent` of `UINT32_MAX-1` (step 9),
+> checked before the relation name is allocated. `%i` wraps, so `-1`, `-2`,
+> `4294967294` and `8589934590` all land on these values. The C++ stores them,
+> and they key or probe the window's `dep_map` and `relation_map`: a debug build
+> asserts, a release build silently loses or invents entries. A `dep_parent` of
+> `UINT32_MAX` is `DEP_NO_PARENT`, which `addTagToReading` copies to the cohort
+> as "no parent" and which never reaches a table, so `#x->-1` still parses.
 
 > [spec:cg3:def:tag.cg3.tag.rehash-fn]
 > uint32_t Tag::rehash()

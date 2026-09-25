@@ -255,7 +255,7 @@ fn cohort_numeric_min_max() {
     );
 
     // On-demand: a newly-added smaller value is visible at once.
-    let t1 = g.intern_text("<n=1>");
+    let t1 = g.intern_text("<n=1>").unwrap();
     let h1 = g.single_tags_list[t1.0].hash.get();
     store.readings.get_mut(r1.0).tags_numerical.insert(h1, t1);
     assert_eq!(
@@ -265,7 +265,7 @@ fn cohort_numeric_min_max() {
     );
     // Only the `readings` list participates: a deleted reading's tags do not.
     let rdel = alloc_reading(&mut store, Some(c));
-    let t0 = g.intern_text("<n=-7>");
+    let t0 = g.intern_text("<n=-7>").unwrap();
     let h0 = g.single_tags_list[t0.0].hash.get();
     store.readings.get_mut(rdel.0).tags_numerical.insert(h0, t0);
     store.cohorts.get_mut(c.0).deleted.push(rdel);
@@ -913,7 +913,7 @@ fn rule_defaults_name_tests_flags() {
 // parseTagRaw (wordform/baseform classification, numeric <...> delegation,
 // #x->y dependency, ID:n and R:name:n relation forms with interned relation
 // tag) and parseNumeric (operator/value parsing incl. MAX and reject paths).
-// [spec:cg3:sem:tag.cg3.tag.parse-tag-raw-fn/test]
+// [spec:cg3:sem:tag.cg3.tag.parse-tag-raw-fn+1/test]
 // [spec:cg3:sem:tag.cg3.tag.parse-numeric-fn/test]
 #[test]
 fn tag_parse_raw_and_numeric() {
@@ -933,13 +933,13 @@ fn tag_parse_raw_and_numeric() {
     assert_eq!((d.dep_self, d.dep_parent()), (2, 1));
 
     let mut t = Tag::default();
-    parse_tag_raw(&mut t, "ID:5", &mut g);
+    parse_tag_raw(&mut t, "ID:5", &mut g).unwrap();
     assert!(t.r#type.intersects(T_RELATION));
     assert_eq!(t.dep_self, 5);
 
     // R:name:n interns the relation-name tag and caches its hash.
     let mut t = Tag::default();
-    parse_tag_raw(&mut t, "R:mark:4", &mut g);
+    parse_tag_raw(&mut t, "R:mark:4", &mut g).unwrap();
     assert!(t.r#type.intersects(T_RELATION));
     assert_eq!(t.dep_parent(), 4);
     let mark = g.allocate_tag("mark").unwrap(); // dedups to the tag interned above
@@ -981,6 +981,70 @@ fn tag_parse_raw_and_numeric() {
         "non-numeric value rejected"
     );
     assert_eq!(t.comparison_op, COps::OpNop);
+}
+
+// parseTagRaw refuses a dependency or relation number the flat hash containers
+// reserve as a sentinel — `%i` wraps, so negatives and oversized numbers land
+// on them too — and keeps `-1` as a parent, which is DEP_NO_PARENT.
+// [spec:cg3:req:robustness.reserved-keys/test]
+// [spec:cg3:sem:tag.cg3.tag.parse-tag-raw-fn+1/test]
+#[test]
+fn parse_tag_raw_refuses_reserved_numbers() {
+    use cg3::error::{NumberRole as R, ParseErrorKind, ReservedNumber};
+
+    let empty = u32::MAX;
+    let del = u32::MAX - 1;
+    let refused = [
+        ("#-1->2", R::DependencySelf, empty),
+        ("#4294967294->2", R::DependencySelf, del),
+        ("#1->-2", R::DependencyParent, del),
+        ("#1->4294967294", R::DependencyParent, del),
+        ("#1\u{2192}-2", R::DependencyParent, del),
+        ("ID:4294967294", R::RelationId, del),
+        ("ID:4294967295", R::RelationId, empty),
+        ("ID:8589934591", R::RelationId, empty),
+        ("R:unseen:-2", R::RelationTarget, del),
+        ("R:unseen:4294967294", R::RelationTarget, del),
+    ];
+    let mut g = GrammarCore::default();
+    for (text, role, value) in refused {
+        let mut t = Tag::default();
+        let expected = ReservedNumber {
+            text: text.into(),
+            role,
+            value,
+        };
+        assert_eq!(parse_tag_raw(&mut t, text, &mut g), Err(expected), "{text}");
+    }
+    assert!(
+        g.find_unseeded("unseen").is_none(),
+        "a refused relation interns no name"
+    );
+
+    // A relation name is itself parsed, so a reserved number in it is refused.
+    let mut t = Tag::default();
+    let err = parse_tag_raw(&mut t, "R:#-1->2:5", &mut g).unwrap_err();
+    assert_eq!((&*err.text, err.role), ("#-1->2", R::DependencySelf));
+
+    // Grammar tags built from raw text are refused as parse errors.
+    let err = g.allocate_tag("ID:4294967295").unwrap_err();
+    assert!(matches!(
+        err.kind,
+        ParseErrorKind::ReservedNumber { cause } if cause.role == R::RelationId
+    ));
+
+    // -1 as a parent is "no parent"; -1 as a relation target is no relation;
+    // a zero self is no dependency, whatever its parent.
+    let mut t = Tag::default();
+    parse_tag_raw(&mut t, "#1->-1", &mut g).expect("-1 is DEP_NO_PARENT");
+    assert!(t.r#type.intersects(T_DEPENDENCY));
+    assert_eq!((t.dep_self, t.dep_parent()), (1, empty));
+    let mut t = Tag::default();
+    parse_tag_raw(&mut t, "R:x:-1", &mut g).expect("not a relation");
+    assert!(!t.r#type.intersects(T_RELATION));
+    let mut t = Tag::default();
+    parse_tag_raw(&mut t, "#0->-2", &mut g).expect("not a dependency");
+    assert!(!t.r#type.intersects(T_DEPENDENCY));
 }
 
 // Tag copy ctor (Clone: tag_raw NOT copied — quirk; vs_names copied), rehash

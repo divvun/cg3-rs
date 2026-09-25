@@ -110,7 +110,10 @@ fn marked(kind: &crate::error::ParseErrorKind) -> &'static str {
     use crate::error::ParseErrorKind as K;
     match kind {
         K::Syntax => "the parse stopped here",
-        K::TagRegex { .. } | K::EmptyTag | K::TagStartsWithParen { .. } => "this tag",
+        K::TagRegex { .. }
+        | K::EmptyTag
+        | K::TagStartsWithParen { .. }
+        | K::ReservedNumber { .. } => "this tag",
         K::UnknownTemplate { .. } => "this reference",
         K::TemplateRedefined { .. }
         | K::AnchorRedefined { .. }

@@ -6,11 +6,14 @@
 //! handling, load-factor / rehash triggers, and the
 //! `size_ + deleted == capacity()` compaction guard are reproduced exactly,
 //! **including** the faithfully-preserved quirks:
-//!   - the unbounded `insert`/`erase`/`reserve` probe loops that skip
-//!     `res_del` tombstones (never reusing a tombstoned slot);
-//!   - `find`'s `capacity()*4` iteration cap;
+//!   - probes that skip `res_del` tombstones (never reusing a tombstoned slot);
 //!   - iterator `operator--` not validating slot 0;
 //!   - `insert` never rewriting an already-present value.
+//!
+//! DIVERGENCE: `insert` and `erase` probe with `find`'s `capacity()*4` bound.
+//! The C++ loops are unbounded, and `erase` of an absent value spins forever
+//! once tombstones have taken every empty slot; here that erase compacts the
+//! table instead (`[spec:cg3:req:robustness.hash-probe-bounded]`).
 //!
 //! The C++ template `flat_unordered_set<T, res_empty = T(-1),
 //! res_del = T(-1)-1>` becomes a generic struct whose element type `T`
@@ -217,8 +220,29 @@ impl<T: Sentinel> FlatUnorderedSet<T> {
         self.hash_value_sz(t.as_size())
     }
 
-    // [spec:cg3:def:flat-unordered-set.cg3.flat-unordered-set.insert-fn]
-    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.insert-fn]
+    // [spec:cg3:req:robustness.hash-probe-bounded]
+    /// The probe `find`, `insert` and `erase` share: from `hash_value(t)`,
+    /// step `spot = hash_value_sz(spot) & max`, skipping tombstones, to the
+    /// slot holding `t` or the first empty one. `None` when neither turns up
+    /// within `find`'s `capacity() * 4` steps, which happens only when no
+    /// empty slot is left and `t` is absent: the step is a full-period LCG
+    /// mod the power-of-two capacity, so `capacity()` steps visit every slot.
+    fn probe(&self, t: T) -> Option<usize> {
+        let max = self.capacity() - 1;
+        let mut spot = self.hash_value(t) & max;
+        for _ in 0..self.capacity() * 4 {
+            let value = self.elements[spot];
+            if value == t || value == T::EMPTY {
+                return Some(spot);
+            }
+            spot = self.hash_value_sz(spot) & max;
+        }
+        None
+    }
+
+    // [spec:cg3:def:flat-unordered-set.cg3.flat-unordered-set.insert-fn+1]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.insert-fn+1]
+    // [spec:cg3:req:robustness.hash-probe-bounded]
     pub fn insert(&mut self, t: T) {
         debug_assert!(
             t != T::EMPTY && t != T::DEL,
@@ -234,16 +258,27 @@ impl<T: Sentinel> FlatUnorderedSet<T> {
         if (self.size_ + 1) * 3 / 2 >= self.capacity() / 2 {
             self.reserve(std::cmp::max(Self::DEFAULT_CAP, self.capacity() * 2));
         }
-        let max = self.capacity() - 1;
-        let mut spot = self.hash_value(t) & max;
-        // (4) Probe — skips res_del tombstones; unbounded.
-        while self.elements[spot] != T::EMPTY && self.elements[spot] != t {
-            spot = self.hash_value_sz(spot) & max;
-        }
+        // (4) Probe — skips res_del tombstones. DIVERGENCE: bounded.
+        let spot = self.probe(t).unwrap_or_else(|| self.probe_after_growth(t));
         // (5) Only write when the value was not already present.
         if self.elements[spot] != t {
             self.elements[spot] = t;
             self.size_ += 1;
+        }
+    }
+
+    // [spec:cg3:req:robustness.hash-probe-bounded]
+    /// Where `insert` puts `t` when its bounded probe finds no empty slot. Its
+    /// compaction and growth steps leave one, so this does not run while the
+    /// table's invariants hold; if it does, growing rehashes the live entries
+    /// into twice the slots with no tombstones, so empty slots remain and the
+    /// probe, which visits every slot, stops.
+    fn probe_after_growth(&mut self, t: T) -> usize {
+        loop {
+            self.reserve(std::cmp::max(Self::DEFAULT_CAP, self.capacity() * 2));
+            if let Some(spot) = self.probe(t) {
+                return spot;
+            }
         }
     }
 
@@ -270,8 +305,9 @@ impl<T: Sentinel> FlatUnorderedSet<T> {
         }
     }
 
-    // [spec:cg3:def:flat-unordered-set.cg3.flat-unordered-set.erase-fn]
-    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.erase-fn]
+    // [spec:cg3:def:flat-unordered-set.cg3.flat-unordered-set.erase-fn+1]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.erase-fn+1]
+    // [spec:cg3:req:robustness.hash-probe-bounded]
     pub fn erase(&mut self, t: T) {
         debug_assert!(
             t != T::EMPTY && t != T::DEL,
@@ -281,12 +317,13 @@ impl<T: Sentinel> FlatUnorderedSet<T> {
         if self.size_ == 0 {
             return;
         }
-        let max = self.capacity() - 1;
-        let mut spot = self.hash_value(t) & max;
-        // Probe — skips res_del tombstones; unbounded.
-        while self.elements[spot] != T::EMPTY && self.elements[spot] != t {
-            spot = self.hash_value_sz(spot) & max;
-        }
+        // Probe — skips res_del tombstones. DIVERGENCE: bounded; running out
+        // means `t` is absent and tombstones hold every empty slot, where the
+        // C++ spins forever. Compact then, as the next insert would.
+        let Some(spot) = self.probe(t) else {
+            self.reserve(self.capacity());
+            return;
+        };
         if self.elements[spot] == t {
             self.elements[spot] = T::DEL;
             self.size_ -= 1;
@@ -339,21 +376,12 @@ impl<T: Sentinel> FlatUnorderedSet<T> {
 
         let mut it = ConstIterator::default();
 
-        if self.size_ != 0 {
-            let max = self.capacity() - 1;
-            let mut spot = self.hash_value(t) & max;
-            let mut i = 0;
-            while i < self.capacity() * 4
-                && self.elements[spot] != T::EMPTY
-                && self.elements[spot] != t
-            {
-                spot = self.hash_value_sz(spot) & max;
-                i += 1;
-            }
-            if self.elements[spot] == t {
-                it.fus = Some(self);
-                it.i = spot;
-            }
+        if self.size_ != 0
+            && let Some(spot) = self.probe(t)
+            && self.elements[spot] == t
+        {
+            it.fus = Some(self);
+            it.i = spot;
         }
 
         it
@@ -447,6 +475,8 @@ impl<T: Sentinel> FlatUnorderedSet<T> {
         self.clear(n);
         self.size_ = vals.len();
         let max = self.capacity() - 1;
+        // A fresh table with more slots than values and no tombstones: every
+        // probe meets an empty slot.
         for val in &vals {
             let mut spot = self.hash_value(*val) & max;
             while self.elements[spot] != T::EMPTY && self.elements[spot] != *val {
@@ -558,7 +588,7 @@ mod tests {
     // Default ctor + insert + find/count/contains, begin/end iteration with
     // post-increment (the annotated operator-fn), size/capacity/empty, default
     // (end) ConstIterator. insert never rewrites an already-present value.
-    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.insert-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.insert-fn+1/test]
     // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.find-fn/test]
     // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.count-fn/test]
     // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.contains-fn/test]
@@ -611,7 +641,7 @@ mod tests {
 
     // erase tombstones, reserve rehashes, clear resets, swap exchanges state,
     // assign clears + range-inserts. Also the erase-last-with-tombstone path.
-    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.erase-fn/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.erase-fn+1/test]
     // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.reserve-fn/test]
     // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.clear-fn/test]
     // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.swap-fn/test]
@@ -665,5 +695,52 @@ mod tests {
         assert!(t.empty());
         t.insert(5);
         assert!(t.contains(5));
+    }
+
+    /// One live value, then insert-and-erase churn until tombstones hold every
+    /// slot the value does not: no empty slot is left.
+    fn saturated() -> Uint32FlatHashSet {
+        let mut s: Uint32FlatHashSet = FlatUnorderedSet::new();
+        s.insert(1);
+        let mut v = 2;
+        while s.size() + s.deleted < s.capacity() {
+            s.insert(v);
+            s.erase(v);
+            v += 1;
+        }
+        assert!(s.elements.iter().all(|&e| e != u32::MAX));
+        s
+    }
+
+    // Erasing an absent value from a table with no empty slot left spun
+    // forever in the C++; it now compacts, reclaiming every tombstone.
+    // [spec:cg3:req:robustness.hash-probe-bounded/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.erase-fn+1/test]
+    #[test]
+    fn erase_absent_value_from_saturated_table() {
+        let mut s = saturated();
+        let capacity = s.capacity();
+        s.erase(999_999);
+        assert_eq!(s.deleted, 0, "the tombstones are reclaimed");
+        assert_eq!(s.capacity(), capacity, "compacted in place");
+        assert_eq!(collect(&s), vec![1]);
+        let mut s = saturated();
+        s.erase(1);
+        assert!(s.empty());
+    }
+
+    // An insert whose probe finds no empty slot grows the table rather than
+    // spinning. Compaction and growth rule this state out, so it is built by
+    // hand: every slot but the live value's tombstoned, no tombstone counted.
+    // [spec:cg3:req:robustness.hash-probe-bounded/test]
+    // [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.insert-fn+1/test]
+    #[test]
+    fn insert_without_empty_slot_grows() {
+        let mut s = saturated();
+        s.deleted = 0;
+        let capacity = s.capacity();
+        s.insert(7);
+        assert!(s.capacity() > capacity);
+        assert_eq!(collect(&s), vec![1, 7]);
     }
 }

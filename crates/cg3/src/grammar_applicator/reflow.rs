@@ -854,7 +854,8 @@ impl Engine<'_> {
             } else {
                 Some(GlobalNumber(tds))
             };
-            c.dep_parent = Some(GlobalNumber(tdp));
+            // The raw C++ copy: a parent of `-1` IS `DEP_NO_PARENT`.
+            c.dep_parent = (tdp != crate::cohort::DEP_NO_PARENT).then_some(GlobalNumber(tdp));
             if tdp == tds {
                 c.dep_parent = None;
             }

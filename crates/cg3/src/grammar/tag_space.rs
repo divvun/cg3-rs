@@ -9,6 +9,7 @@
 //! methods.
 
 use crate::arena::TagId;
+use crate::error::ReservedNumber;
 use crate::inlines::hash_value_str;
 use crate::tag::Tag;
 
@@ -91,23 +92,25 @@ pub trait TagSpace {
     }
 
     /// C++ `new Tag; tag->parseTagRaw(txt, this); addTag(tag)` — no fast path.
-    fn add_tag_text(&mut self, txt: &str) -> TagId
+    /// A tag carrying a number the hash tables reserve is refused before it
+    /// is interned.
+    fn add_tag_text(&mut self, txt: &str) -> Result<TagId, ReservedNumber>
     where
         Self: Sized,
     {
         let mut tag = Tag::default();
-        crate::tag::parse_tag_raw(&mut tag, txt, self);
-        self.add_tag(tag)
+        crate::tag::parse_tag_raw(&mut tag, txt, self)?;
+        Ok(self.add_tag(tag))
     }
 
     /// `allocateTag`'s body past its checks: the tag already at `txt`'s
     /// un-seeded slot, else a fresh one parsed from `txt` and interned.
-    fn intern_text(&mut self, txt: &str) -> TagId
+    fn intern_text(&mut self, txt: &str) -> Result<TagId, ReservedNumber>
     where
         Self: Sized,
     {
         match self.find_unseeded(txt) {
-            Some(tid) => tid,
+            Some(tid) => Ok(tid),
             None => self.add_tag_text(txt),
         }
     }

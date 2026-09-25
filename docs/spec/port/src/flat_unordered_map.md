@@ -105,7 +105,7 @@
 > [spec:cg3:def:flat-unordered-map.cg3.flat-unordered-map.erase-fn]
 > void erase(T t)
 
-> [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.erase-fn]
+> [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.erase-fn+1]
 > Removes the entry with key t (t must not equal res_empty or res_del;
 > asserted in debug builds). If size_ == 0, returns immediately. Otherwise
 > set max = capacity()-1, spot = hash_value(t) & max, then probe: while
@@ -117,6 +117,22 @@
 > --size_. If that made size_ == 0 while deleted != 0, call clear() (a full
 > reset that also drops all tombstones); otherwise ++deleted. If the key is
 > not found, nothing changes. No return value.
+>
+> PORT DIVERGENCE: the probe is bounded like find()'s, at capacity()*4 steps
+> (`[spec:cg3:req:robustness.hash-probe-bounded]`). The C++ loop never ends
+> when t is absent and no empty slot is left — tombstones fill a table until
+> the next insert compacts it, so a stream that keeps setting and removing
+> variables reaches that state and then hangs on removing one it does not
+> hold. When the bound is reached the port reclaims the tombstones with
+> reserve(capacity()), the compaction insert() step (1) performs, and returns
+> with nothing erased.
+>
+> The bound changes no run the C++ completes. The step `spot =
+> hash_value_sz(spot) & max` is a full-period LCG modulo every power-of-two
+> capacity (odd increment, multiplier congruent to 1 mod 4), so from any start
+> it visits every slot within capacity() steps: whenever the C++ loop stops,
+> the bounded one stops on the same slot, and slot placement, and with it
+> iteration order, is unchanged.
 
 > [spec:cg3:def:flat-unordered-map.cg3.flat-unordered-map.find-fn]
 > const_iterator find(T t) const
@@ -161,7 +177,7 @@
 > [spec:cg3:def:flat-unordered-map.cg3.flat-unordered-map.insert-fn]
 > size_t insert(const value_type& t)
 
-> [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.insert-fn]
+> [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.insert-fn+1]
 > Inserts pair t (t.first must not equal res_empty or res_del; asserted in
 > debug). Returns the slot index size_t. Steps: (1) If deleted != 0 and
 > size_ + deleted == capacity() (no empty slots remain, only live+tombstone),
@@ -178,6 +194,20 @@
 > present), store elements[spot] = t and ++size_. If the key was already
 > present, the existing value is NOT overwritten. (6) Return spot (the slot,
 > whether newly written or pre-existing).
+>
+> PORT DIVERGENCE: the probe in step (4) is bounded like find()'s, at
+> capacity()*4 steps (`[spec:cg3:req:robustness.hash-probe-bounded]`). Steps
+> (1) and (2) always leave an empty slot, so the bound is never reached while
+> the table's invariants hold; if it were, the port would grow the table as in
+> step (2), which rehashes every tombstone away, and probe again, rather than
+> loop forever.
+>
+> The bound changes no run the C++ completes. The step `spot =
+> hash_value_sz(spot) & max` is a full-period LCG modulo every power-of-two
+> capacity (odd increment, multiplier congruent to 1 mod 4), so from any start
+> it visits every slot within capacity() steps: whenever the C++ loop stops,
+> the bounded one stops on the same slot, and slot placement, and with it
+> iteration order, is unchanged.
 
 > [spec:cg3:def:flat-unordered-map.cg3.flat-unordered-map.iterator]
 > typedef const_iterator iterator

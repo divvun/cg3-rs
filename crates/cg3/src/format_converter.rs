@@ -154,7 +154,9 @@ pub(crate) fn conv_grammar() -> Result<GrammarCore, crate::error::Cg3Error> {
     grammar.allocate_dummy_set();
     let delim = grammar.allocate_set();
     grammar.delimiters = Some(delim);
-    let dummy_tag = grammar.intern_text(STR_DUMMY);
+    let dummy_tag = grammar
+        .intern_text(STR_DUMMY)
+        .expect("the dummy tag is a literal and cannot fail");
     grammar.add_tag_to_set(dummy_tag, delim);
     let _ = grammar.reindex(false, false)?;
     Ok(grammar)

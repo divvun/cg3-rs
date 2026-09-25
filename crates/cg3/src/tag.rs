@@ -7,6 +7,7 @@
 //! Pointer→arena mapping: C++ `Tag*` → [`TagId`], `Set*` → [`SetId`].
 
 use crate::arena::{SetId, TagId};
+use crate::error::{NumberRole, ReservedNumber};
 use crate::flat_unordered_map::FlatUnorderedMap;
 use crate::grammar::{GrammarCore, TagSpace};
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_str, is_textual};
@@ -691,8 +692,8 @@ impl Clone for Tag {
     }
 }
 
-// [spec:cg3:def:tag.cg3.tag.parse-tag-raw-fn]
-// [spec:cg3:sem:tag.cg3.tag.parse-tag-raw-fn]
+// [spec:cg3:def:tag.cg3.tag.parse-tag-raw-fn+1]
+// [spec:cg3:sem:tag.cg3.tag.parse-tag-raw-fn+1]
 /// Free fn (interning/allocation touches `Grammar`): C++ `Tag::parseTagRaw`.
 /// `this` is a standalone tag (not yet in the grammar arena) — its C++ call
 /// sites are `new Tag()` in `allocateTag` and a fresh tag in
@@ -703,7 +704,14 @@ impl Clone for Tag {
 /// compiled `regexp` (anchoring is baked into the pattern at compile time in the
 /// parser layer). `grammar->icase_tags` uses `eq_ignore_case` (the C++ full
 /// Unicode case-folding compare, approximated with lowercase folding).
-pub fn parse_tag_raw<G: TagSpace>(this: &mut Tag, to: &str, grammar: &mut G) {
+///
+/// DIVERGENCE: a dependency or relation number that the hash tables reserve
+/// is refused with [`ReservedNumber`] instead of being stored.
+pub fn parse_tag_raw<G: TagSpace>(
+    this: &mut Tag,
+    to: &str,
+    grammar: &mut G,
+) -> Result<(), ReservedNumber> {
     this.r#type = TagType::empty();
     let to_chars: Vec<char> = to.chars().collect();
     let length = to_chars.len();
@@ -757,60 +765,88 @@ pub fn parse_tag_raw<G: TagSpace>(this: &mut Tag, to: &str, grammar: &mut G) {
         this.parse_numeric(false);
     }
     if cat(0) == '#' {
-        // C++ scanf("#%i->%i", &dep_self, &dep_parent) == 2 && dep_self != 0
-        let (n, v1, v2) = scan_hash_i_arrow_i(&to_chars, &['-', '>']);
-        if let Some(v) = v1 {
-            this.dep_self = v;
-        }
-        if let Some(v) = v2 {
-            this.set_dep_parent(v);
-        }
-        if n == 2 && this.dep_self != 0 {
-            this.r#type |= T_DEPENDENCY;
-        }
-        // Unicode-arrow form: scanf("#%i\u{2192}%i", ...)
-        let (n, v1, v2) = scan_hash_i_arrow_i(&to_chars, &['\u{2192}']);
-        if let Some(v) = v1 {
-            this.dep_self = v;
-        }
-        if let Some(v) = v2 {
-            this.set_dep_parent(v);
-        }
-        if n == 2 && this.dep_self != 0 {
-            this.r#type |= T_DEPENDENCY;
-        }
+        parse_dependency(this, &to_chars)?;
     }
     if cat(0) == 'I' && cat(1) == 'D' && cat(2) == ':' && cat(3).is_numeric() {
-        // C++ scanf("ID:%i", &dep_self) == 1 && dep_self != 0
-        if let Some(v) = scan_id(&to_chars) {
-            this.dep_self = v;
-            if this.dep_self != 0 {
-                this.r#type |= T_RELATION;
-            }
-        }
+        parse_relation_id(this, &to_chars)?;
     }
     if cat(0) == 'R' && cat(1) == ':' {
-        // dep_parent = UINT32_MAX; scanf("R:%[^:]:%i", &relname, &dep_parent)
-        this.set_dep_parent(u32::MAX);
-        let (n, relname, dp) = scan_relation(&to_chars);
-        if let Some(v) = dp {
-            this.set_dep_parent(v);
-        }
-        if n == 2 && this.dep_parent() != u32::MAX {
-            this.r#type |= T_RELATION;
-            // C++ `grammar->allocateTag(relname)`. `%[^:]` matched at least
-            // one char, so only its leading-`(` quit could fire.
-            // DIVERGENCE: that quit is not reproduced; `(` names intern.
-            let relname: String = relname.iter().collect();
-            let reltag = grammar.intern_text(&relname);
-            this.comparison_hash = grammar.tag(reltag).hash.get();
-        }
+        parse_relation_target(this, &to_chars, grammar)?;
     }
 
     this.r#type &= !T_SPECIAL;
     if this.r#type.intersects(T_NUMERICAL) {
         this.r#type |= T_SPECIAL;
     }
+    Ok(())
+}
+
+// [spec:cg3:req:robustness.reserved-keys]
+/// `parseTagRaw`'s `#x->y` branch: C++ `scanf("#%i->%i", &dep_self,
+/// &dep_parent) == 2 && dep_self != 0`, then the same for the `→` arrow. A
+/// dependency tag's numbers key the window's dependency map, so a reserved
+/// one is refused; a parent of `-1` is `DEP_NO_PARENT` and stays.
+fn parse_dependency(this: &mut Tag, to_chars: &[char]) -> Result<(), ReservedNumber> {
+    for arrow in [&['-', '>'][..], &['\u{2192}'][..]] {
+        let (n, v1, v2) = scan_hash_i_arrow_i(to_chars, arrow);
+        if let Some(v) = v1 {
+            this.dep_self = v;
+        }
+        if let Some(v) = v2 {
+            this.set_dep_parent(v);
+        }
+        if n == 2 && this.dep_self != 0 {
+            this.r#type |= T_DEPENDENCY;
+        }
+    }
+    if this.r#type.intersects(T_DEPENDENCY) {
+        ReservedNumber::check(&this.tag, NumberRole::DependencySelf, this.dep_self)?;
+        ReservedNumber::check(&this.tag, NumberRole::DependencyParent, this.dep_parent())?;
+    }
+    Ok(())
+}
+
+// [spec:cg3:req:robustness.reserved-keys]
+/// `parseTagRaw`'s `ID:n` branch: C++ `scanf("ID:%i", &dep_self) == 1 &&
+/// dep_self != 0`. The id keys the window's relation map, so a reserved one
+/// is refused.
+fn parse_relation_id(this: &mut Tag, to_chars: &[char]) -> Result<(), ReservedNumber> {
+    if let Some(v) = scan_id(to_chars) {
+        this.dep_self = v;
+        if this.dep_self != 0 {
+            ReservedNumber::check(&this.tag, NumberRole::RelationId, v)?;
+            this.r#type |= T_RELATION;
+        }
+    }
+    Ok(())
+}
+
+// [spec:cg3:req:robustness.reserved-keys]
+/// `parseTagRaw`'s `R:name:n` branch: `dep_parent = UINT32_MAX; scanf(
+/// "R:%[^:]:%i", &relname, &dep_parent)`, a relation when both convert and
+/// `n` is not `UINT32_MAX`. `n` is looked up in the window's relation map, so
+/// a reserved one is refused before the name is interned.
+fn parse_relation_target<G: TagSpace>(
+    this: &mut Tag,
+    to_chars: &[char],
+    grammar: &mut G,
+) -> Result<(), ReservedNumber> {
+    this.set_dep_parent(u32::MAX);
+    let (n, relname, dp) = scan_relation(to_chars);
+    if let Some(v) = dp {
+        this.set_dep_parent(v);
+    }
+    if n == 2 && this.dep_parent() != u32::MAX {
+        ReservedNumber::check(&this.tag, NumberRole::RelationTarget, this.dep_parent())?;
+        this.r#type |= T_RELATION;
+        // C++ `grammar->allocateTag(relname)`. `%[^:]` matched at least
+        // one char, so only its leading-`(` quit could fire.
+        // DIVERGENCE: that quit is not reproduced; `(` names intern.
+        let relname: String = relname.iter().collect();
+        let reltag = grammar.intern_text(&relname)?;
+        this.comparison_hash = grammar.tag(reltag).hash.get();
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
