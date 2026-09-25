@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 
 use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::GrammarCore;
+use crate::grammar::GrammarDraft;
 use crate::inlines::is_cg3b;
 use crate::textual_parser::TextualParser;
 
@@ -48,7 +48,7 @@ pub fn main_comp(args: &[String]) -> i32 {
     }
 
     // Grammar grammar; — owned by the parser in this port (moved out after parse).
-    let grammar = GrammarCore::default();
+    let grammar = GrammarDraft::default();
 
     // FILE* input = fopen(argv[1], "rb"); read first 4 bytes; fclose(input);
     let mut input = match File::open(&args[1]) {
@@ -100,12 +100,11 @@ pub fn main_comp(args: &[String]) -> i32 {
 
     // Move the built grammar out of the parser (the C++ grammar outlives the
     // parser, which is `reset()` after parsing).
-    let mut grammar = parser.grammar;
-
     // grammar.reindex();
-    if let Err(e) = grammar.reindex(false, false) {
-        return fail(&e);
-    }
+    let grammar = match parser.grammar.finish() {
+        Ok(g) => g,
+        Err(e) => return fail(&e),
+    };
 
     // Info banner to stderr (container sizes; see tools/mod.rs on Arena counts).
     tracing::info!(

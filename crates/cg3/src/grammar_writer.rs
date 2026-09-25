@@ -253,6 +253,10 @@ impl GrammarWriter {
     /// rule number with anchor-tag-hash values, which `print_rule` later queries
     /// via `equal_range(rule.number)`. (The non-specced destructor merely nulls
     /// `grammar`; the arena port keeps no such pointer, so it is a no-op.)
+    ///
+    /// Takes an indexed grammar only: the text it writes reads sets by number
+    /// and rules by section.
+    // [spec:cg3:req:grammar-phases.indexed-only]
     pub fn new(res: &GrammarCore) -> GrammarWriter {
         let mut anchors: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
 

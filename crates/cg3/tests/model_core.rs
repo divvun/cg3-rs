@@ -30,7 +30,7 @@ use cg3::cohort_iterator::{
 use cg3::contextual_test::{
     ContextualTest, POS_RIGHTMOST, POS_SELF, POS_SPAN_BOTH, TestRef, copy_cntx,
 };
-use cg3::grammar::{Grammar, GrammarCore, TagSpace};
+use cg3::grammar::{Grammar, GrammarCore, GrammarDraft, TagSpace};
 use cg3::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_str};
 use cg3::math_parser::MathErrorKind;
 use cg3::reading::{
@@ -950,7 +950,7 @@ fn rule_defaults_name_tests_flags() {
 // [spec:cg3:sem:tag.cg3.tag.parse-numeric-fn+1/test]
 #[test]
 fn tag_parse_raw_and_numeric() {
-    let mut g = GrammarCore::default();
+    let mut g = GrammarDraft::default();
 
     let wf = g.allocate_tag("\"<word>\"").unwrap();
     let wt = g.single_tags_list[wf.0].r#type;
@@ -1054,7 +1054,7 @@ fn parse_tag_raw_refuses_reserved_numbers() {
         ("R:unseen:-2", R::RelationTarget, del),
         ("R:unseen:4294967294", R::RelationTarget, del),
     ];
-    let mut g = GrammarCore::default();
+    let mut g = GrammarDraft::default();
     for (text, role, value) in refused {
         let mut t = Tag::default();
         let expected = ReservedNumber {
@@ -1216,7 +1216,7 @@ fn tag_ctor_rehash_markused_vs_tostring() {
 // [spec:cg3:sem:tag.cg3.fill-tagvector-fn/test]
 #[test]
 fn tag_comparators_and_fill_tagvector() {
-    let mut g = GrammarCore::default();
+    let mut g = GrammarDraft::default();
     let ta = g.allocate_tag("alpha").unwrap();
     let tb = g.allocate_tag("beta").unwrap();
     let (ha, hb) = (g.single_tags_list[ta.0].hash, g.single_tags_list[tb.0].hash);

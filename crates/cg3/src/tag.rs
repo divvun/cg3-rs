@@ -9,7 +9,7 @@
 use crate::arena::{SetId, TagId};
 use crate::error::{NumberRole, ReservedNumber};
 use crate::flat_unordered_map::FlatUnorderedMap;
-use crate::grammar::{GrammarCore, TagSpace};
+use crate::grammar::{GrammarCore, Phase, TagSpace};
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_str, is_textual};
 use crate::math_parser::{MathError, MathErrorKind, MathParser};
 use crate::sorted_vector::SortedVector;
@@ -883,19 +883,23 @@ fn parse_relation_target<G: TagSpace>(
 
 // [spec:cg3:def:tag.cg3.compare-tag.operator-fn]
 // [spec:cg3:sem:tag.cg3.compare-tag.operator-fn]
-pub fn compare_tag(grammar: &GrammarCore, a: TagId, b: TagId) -> bool {
+pub fn compare_tag<P: Phase>(grammar: &GrammarCore<P>, a: TagId, b: TagId) -> bool {
     grammar.single_tags_list[a.0].hash < grammar.single_tags_list[b.0].hash
 }
 
 // [spec:cg3:def:tag.cg3.equal-tag.operator-fn]
 // [spec:cg3:sem:tag.cg3.equal-tag.operator-fn]
-pub fn equal_tag(grammar: &GrammarCore, a: TagId, b: TagId) -> bool {
+pub fn equal_tag<P: Phase>(grammar: &GrammarCore<P>, a: TagId, b: TagId) -> bool {
     grammar.single_tags_list[a.0].hash == grammar.single_tags_list[b.0].hash
 }
 
 // [spec:cg3:def:tag.cg3.compare-tag-vector.operator-fn]
 // [spec:cg3:sem:tag.cg3.compare-tag-vector.operator-fn]
-pub fn compare_tag_vector(grammar: &GrammarCore, a: &TagVector, b: &TagVector) -> bool {
+pub fn compare_tag_vector<P: Phase>(
+    grammar: &GrammarCore<P>,
+    a: &TagVector,
+    b: &TagVector,
+) -> bool {
     let mut i = 0usize;
     while i < a.len() && i < b.len() {
         let ha = grammar.single_tags_list[a[i].0].hash;
@@ -913,8 +917,8 @@ pub fn compare_tag_vector(grammar: &GrammarCore, a: &TagVector, b: &TagVector) -
 /// Template helper `fill_tagvector(const T& in, ...)`; the generic input becomes
 /// a `&[TagId]` and `tag->type` is resolved via the tag arena. `did`/`special`
 /// are only ever set to `true` (accumulating; the caller pre-initializes them).
-pub fn fill_tagvector(
-    grammar: &GrammarCore,
+pub fn fill_tagvector<P: Phase>(
+    grammar: &GrammarCore<P>,
     in_: &[TagId],
     tags: &mut TagVector,
     did: &mut bool,

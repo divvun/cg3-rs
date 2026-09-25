@@ -10,7 +10,7 @@ use std::io::Cursor;
 
 use cg3::binary_grammar::BinaryGrammar;
 use cg3::error::{BinaryFault, Cg3Error, GrammarError};
-use cg3::grammar::GrammarCore;
+use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered};
 use cg3::grammar_applicator::GrammarApplicator;
 use cg3::grammar_writer::GrammarWriter;
 use cg3::textual_parser::TextualParser;
@@ -65,12 +65,11 @@ WITH V IF (1 N) {
 const INPUT: &[u8] = b"\"<a>\"\n\t\"a\" n\n\"<b>\"\n\t\"b\" v\n\t\"b\" a\n\"<,>\"\n\t\",\" cc\n\"<r>\"\n\t\"r\" n\n\"<.>\"\n\t\".\" punct\n";
 
 fn compile(src: &str) -> Vec<u8> {
-    let mut parser = TextualParser::new(GrammarCore::default(), false);
+    let mut parser = TextualParser::new(GrammarDraft::default(), false);
     parser
         .parse_grammar_utf8(src.as_bytes())
         .expect("fixture grammar compiles");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).expect("fixture reindexes");
+    let grammar = parser.grammar.finish().expect("fixture reindexes");
     let mut blob = Vec::new();
     BinaryGrammar::new(grammar)
         .write_binary_grammar(&mut blob)
@@ -85,16 +84,17 @@ fn base() -> Cg3b {
     model
 }
 
-fn load(blob: &[u8]) -> Result<GrammarCore, Cg3Error> {
-    let mut parser = BinaryGrammar::new(GrammarCore::default());
+fn load(blob: &[u8]) -> Result<GrammarNumbered, Cg3Error> {
+    let mut parser = BinaryGrammar::new(GrammarNumbered::default());
     parser.parse_grammar_buffer(blob)?;
     Ok(parser.grammar)
 }
 
 fn loaded(blob: &[u8]) -> GrammarCore {
-    let mut g = load(blob).unwrap_or_else(|e| panic!("a well-formed grammar loads: {e}"));
-    let _ = g.reindex(false, false).expect("a loaded grammar reindexes");
-    g
+    load(blob)
+        .unwrap_or_else(|e| panic!("a well-formed grammar loads: {e}"))
+        .finish()
+        .expect("a loaded grammar reindexes")
 }
 
 /// Load, reindex, write both ways, and run: everything a loaded grammar

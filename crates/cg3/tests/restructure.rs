@@ -31,8 +31,7 @@ fn run_in_process(grammar: &str, input: &str, trace: bool) -> String {
     parser
         .parse_grammar_named(grammar.as_bytes(), "actions.cg3")
         .expect("grammar parses");
-    let mut core = parser.grammar;
-    let _ = core.reindex(false, false).expect("reindex");
+    let core = parser.grammar.finish().expect("reindex");
     let mut app = GrammarApplicator::new(core.into());
     app.cfg.trace = trace;
     app.set_grammar().expect("applicator setup");

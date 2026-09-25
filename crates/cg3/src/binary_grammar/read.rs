@@ -446,7 +446,7 @@ pub(super) fn context_fields(
     Ok(tmpl)
 }
 
-impl BinaryGrammar {
+impl BinaryGrammar<Numbered> {
     /// The mapping prefix and the two `CMDARGS` strings that follow the
     /// feature bits.
     pub(super) fn read_prefix_and_cmdargs(

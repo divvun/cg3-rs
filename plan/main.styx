@@ -2740,6 +2740,13 @@ children (
                         kind @decision
                         text "Shape: `pub struct GrammarCore<P = Indexed>` with `phase: PhantomData<P>`, sealed `Phase` for empty enums Draft/Numbered/Indexed, `Numbering: Phase` for Numbered+Indexed; aliases GrammarDraft/GrammarNumbered. impl<P: Phase>: allocate_set, add_tag_to_set, allocate_tag(_new), allocate_contextual_test, single_tags, error, TagSpace, generic Default. Draft-only: get_set, undef_set, add_set, append_to_set, get_tags, remove_numeric_tags, allocate_dummy_set, allocate_rule/add_rule, destroy_*, add_contextual_test, intern_contextual_test, add_template, add_anchor, add_set_to_list, set_adjust_sets, context_adjust_target, walks.rs hash walks, Set::rehash/reindex/mark_used. Numbering: set_id_by_number, set_by_number, get_tag_list_any(_ret), members_by_number. Indexed only: From<GrammarCore> for Grammar, GrammarWriter, write_binary_grammar. `GrammarDraft::finish(self)` = resolve+index; `GrammarNumbered::finish(self)` = index; `GrammarCore::into_numbered(self)` clears the indexes. Parser holds GrammarCore<Draft>; BinaryGrammar<P = Indexed> (reader impl on Numbered, writer on Indexed; IGrammarParser for BinaryGrammar<Numbered>). Relabeller::new(target: GrammarCore, relabels: &GrammarCore) → into_numbered; relabel(self) -> Result<GrammarCore> ends in finish. `into_phase` moves fields (delete the no-op `impl Drop for GrammarCore`, mod.rs:519). Reindexed and reindex go; vislcg3 returns EXIT_SUCCESS after finish for --show-tags; unused_sets dropped (prints nothing today). Tools: finish exactly where reindex was, so error order is unchanged. Tests: 31 reindex sites → finish; some GrammarCore::default() sites need an explicit phase."
                     }
+
+                    {
+                        at 2026-09-25T19:40:32.532845864Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

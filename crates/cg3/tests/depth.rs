@@ -26,9 +26,7 @@ use cg3::textual_parser::TextualParser;
 fn parse(src: &str) -> Result<GrammarCore, Cg3Error> {
     let mut parser = TextualParser::new(GrammarCore::default(), false);
     parser.parse_grammar_named(src.as_bytes(), "depth.cg3")?;
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false)?;
-    Ok(grammar)
+    parser.grammar.finish()
 }
 
 /// The first error a grammar is refused with.
@@ -391,9 +389,7 @@ fn through_cg3b(grammar: GrammarCore) -> GrammarCore {
         .expect("writes");
     let mut reader = BinaryGrammar::new(GrammarCore::default());
     reader.parse_grammar_buffer(&blob).expect("reads back");
-    let mut grammar = reader.grammar;
-    let _ = grammar.reindex(false, false).expect("reindexes");
-    grammar
+    reader.grammar.finish().expect("reindexes")
 }
 
 /// `grammar` written out as text.

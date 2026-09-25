@@ -100,7 +100,7 @@ fn conv_base() -> cg3::grammar_applicator::GrammarApplicator {
     grammar.delimiters = Some(delim);
     let dummy_tag = grammar.allocate_tag("__CG3_DUMMY_STRINGBIT__").unwrap();
     grammar.add_tag_to_set(dummy_tag, delim);
-    let _ = grammar.reindex(false, false).unwrap();
+    let grammar = grammar.finish().unwrap();
     let mut base = cg3::grammar_applicator::GrammarApplicator::new(grammar.into());
     base.set_grammar().unwrap();
     base
@@ -216,8 +216,7 @@ fn apertium_test_pr_roundtrip() {
         cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     p.parse_grammar_utf8(b"DELIMITERS = \".\" ;\nSELECT (foo) ;\n")
         .expect("minimal grammar failed to parse");
-    let mut g = p.grammar;
-    let _ = g.reindex(false, false).unwrap();
+    let g = p.grammar.finish().unwrap();
     let mut base = cg3::grammar_applicator::GrammarApplicator::new(g.into());
     base.set_grammar().unwrap();
     let mut a = cg3::apertium_applicator::ApertiumApplicator::new(base);
@@ -255,8 +254,7 @@ fn cohortless_reading_refuses_cohort_tags() {
         cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     p.parse_grammar_utf8(b"DELIMITERS = \".\" ;\nSELECT (vblex) ;\n")
         .expect("the grammar parses");
-    let mut g = p.grammar;
-    let _ = g.reindex(false, false).unwrap();
+    let g = p.grammar.finish().unwrap();
     let mut base = cg3::grammar_applicator::GrammarApplicator::new(g.into());
     base.set_grammar().unwrap();
     let tag = base.add_tag("vblex", cg3::tag::TagType::empty()).unwrap();
@@ -288,8 +286,7 @@ fn apertium_test_pr_with_grammar_tags() {
             cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
         p.parse_grammar_utf8(grammar.as_bytes())
             .expect("grammar parses");
-        let mut g = p.grammar;
-        let _ = g.reindex(false, false).unwrap();
+        let g = p.grammar.finish().unwrap();
         let mut base = cg3::grammar_applicator::GrammarApplicator::new(g.into());
         base.set_grammar().unwrap();
         let mut a = cg3::apertium_applicator::ApertiumApplicator::new(base);

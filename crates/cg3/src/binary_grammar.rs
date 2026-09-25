@@ -81,7 +81,7 @@ use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::contextual_test::{ContextualTest, POS_64BIT};
 use crate::error::GrammarError;
 use crate::flat_unordered_set::Uint32FlatHashSet;
-use crate::grammar::{GrammarCore, trie_unserialize};
+use crate::grammar::{GrammarCore, GrammarNumbered, Indexed, Numbered, Phase, trie_unserialize};
 use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::{is_cg3b, ui16, ui32, write_be, write_be_f64};
 use crate::rule::Rule;
@@ -149,9 +149,14 @@ pub type DeferredOrs = HashMap<CtxId, Vec<u32>>;
 /// `IGrammarParser` members (`nrules`, `nrules_inv`, `verbosity`) live here as
 /// fields (a Rust trait has no fields). The C++ base error-stream pointer
 /// has no field analogue: diagnostics are tracing events (wave 4).
-pub struct BinaryGrammar {
+///
+/// `P` is the phase of the grammar it holds. The reader is a
+/// `BinaryGrammar<Numbered>`: a `.cg3b` stores set numbers, and what it reads
+/// is finished by the caller. The writer is a `BinaryGrammar` over an indexed
+/// grammar.
+pub struct BinaryGrammar<P: Phase = Indexed> {
     /// C++ `Grammar* grammar` (aliases `result`); OWNED here.
-    pub grammar: GrammarCore,
+    pub grammar: GrammarCore<P>,
     /// C++ base `nrules` — the `--nrules` name filter, compiled through the
     /// tag-regex seam like every other user-authored pattern
     /// (`[spec:cg3:req:tag-regex.single-seam]`).
@@ -167,7 +172,7 @@ pub struct BinaryGrammar {
     seen_uint32: Uint32FlatHashSet,
 }
 
-impl BinaryGrammar {
+impl<P: Phase> BinaryGrammar<P> {
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.binary-grammar-fn]
     // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.binary-grammar-fn]
     /// C++ `BinaryGrammar` constructor. Delegates to the base `IGrammarParser`
@@ -175,7 +180,7 @@ impl BinaryGrammar {
     /// null; `verbosity` 0), then sets `grammar = result`. The port OWNS `res`
     /// (so `grammar` == `result` == the owned field); diagnostics are tracing
     /// events. No allocation or I/O occurs.
-    pub fn new(res: GrammarCore) -> BinaryGrammar {
+    pub fn new(res: GrammarCore<P>) -> BinaryGrammar<P> {
         BinaryGrammar {
             grammar: res,
             nrules: None,
@@ -186,7 +191,9 @@ impl BinaryGrammar {
             seen_uint32: Uint32FlatHashSet::new(),
         }
     }
+}
 
+impl BinaryGrammar<Numbered> {
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.parse-grammar-fn]
     // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.parse-grammar-fn]
     /// C++ `int parse_grammar(const char* filename)` — the file-path entry point.
@@ -249,7 +256,10 @@ impl BinaryGrammar {
     /// number is checked against what it indexes as it is stored; what needs a
     /// whole table — cycles, template references, crowded hashes — is checked
     /// once that table is in. A grammar this accepts is one reindexing, both
-    /// writers and a run can take.
+    /// writers and a run can take. It stays numbered: none of the indexes are
+    /// built here, so a failure the finishing reports comes after the checks
+    /// the tools make once a grammar is loaded, as in the C++.
+    // [spec:cg3:req:grammar-phases.loaders]
     fn parse_cg3b(&mut self, data: &[u8]) -> Result<(), crate::error::Cg3Error> {
         let mut cur = Cg3bCursor::new(data);
         // Header: 4 magic bytes.
@@ -386,7 +396,9 @@ impl BinaryGrammar {
     ) -> crate::error::GrammarError {
         crate::error::GrammarError::LegacyRevision { found }
     }
+}
 
+impl BinaryGrammar {
     /// The C++ dense `sets_list` VECTOR (`Grammar::sets_list_order`): position 0
     /// is the dummy (number 0), positions 1..k the sets numbered by
     /// `addSetToList`. Written in this exact order, with each set's dense
@@ -404,6 +416,11 @@ impl BinaryGrammar {
     /// `reverseContextualTests()` on each rule (reverses `tests`/`dep_tests` in
     /// place). See the module docs for the full wire layout + byte-parity risks
     /// (esp. the set sparse-numbering divergence).
+    ///
+    /// Exists on a `BinaryGrammar` over an indexed grammar only: the sections,
+    /// the rule flags and the static-set names it writes are built by
+    /// finishing.
+    // [spec:cg3:req:grammar-phases.indexed-only]
     pub fn write_binary_grammar<W: Write>(
         &mut self,
         output: &mut W,
@@ -1082,7 +1099,9 @@ impl BinaryGrammar {
     }
 }
 
-impl IGrammarParser for BinaryGrammar {
+impl IGrammarParser for BinaryGrammar<Numbered> {
+    type Phase = Numbered;
+
     /// Reads `input` as a `.cg3b` blob; see
     /// [`parse_grammar_buffer`](BinaryGrammar::parse_grammar_buffer).
     fn parse_grammar(&mut self, input: &[u8]) -> Result<(), crate::error::Cg3Error> {
@@ -1101,7 +1120,7 @@ impl IGrammarParser for BinaryGrammar {
         self.verbosity = level;
     }
 
-    fn get_grammar(&self) -> &GrammarCore {
+    fn get_grammar(&self) -> &GrammarNumbered {
         &self.grammar
     }
 }

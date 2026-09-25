@@ -54,7 +54,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::arena::{SetId, TagId};
-use crate::grammar::{GrammarCore, TagSpace};
+use crate::grammar::{GrammarCore, GrammarNumbered, Phase, TagSpace};
 use crate::set::Set;
 use crate::strings::Keywords;
 use crate::tag::{T_SPECIAL, TagVector, TagVectorSet};
@@ -159,7 +159,7 @@ struct RelabelCopy {
 /// [`crate::tag_trie::trie_copy_helper`], so nested child levels are copied by the
 /// ORIGINAL `TagId` WITHOUT re-interning into `grammar`. Only the top level has
 /// its tags transferred; deeper levels keep source-grammar tag ids.
-pub fn trie_copy(trie: &TagTrie, grammar: &mut GrammarCore) -> TagTrie {
+pub fn trie_copy<P: Phase>(trie: &TagTrie, grammar: &mut GrammarCore<P>) -> TagTrie {
     let mut nt = TagTrie::new();
     // Collect the source keys/nodes first so the `&mut grammar` re-intern borrow
     // does not alias an immutable borrow of `trie` (which lives inside a Set in
@@ -192,7 +192,10 @@ pub fn trie_copy(trie: &TagTrie, grammar: &mut GrammarCore) -> TagTrie {
 /// form), so it is effectively DEAD CODE in the C++. Ported for completeness (it
 /// is public API, exercised only by the spec test); the intended deep
 /// re-interning of nested trie levels does not occur.
-pub fn trie_copy_helper_reintern(trie: &TagTrie, grammar: &mut GrammarCore) -> Box<TagTrie> {
+pub fn trie_copy_helper_reintern<P: Phase>(
+    trie: &TagTrie,
+    grammar: &mut GrammarCore<P>,
+) -> Box<TagTrie> {
     let mut nt = Box::new(TagTrie::new());
     let entries: Vec<(TagId, TrieNode)> = trie.iter().map(|(k, n)| (*k, n.clone())).collect();
     for (k, node) in entries {
@@ -265,11 +268,13 @@ fn is_skipped(
 /// read-only `relabels` grammar, plus the two partitioned relabel-rule maps.
 ///
 /// The C++ error-stream pointer has no field analogue:
-/// diagnostics are tracing events (wave 4). The two grammars are held as
-/// `&mut`/`&` borrows for the lifetime of the relabeller (the C++ raw pointers).
-pub struct Relabeller<'g, 'r> {
-    /// C++ `Grammar* grammar` — the target grammar (mutated).
-    grammar: &'g mut GrammarCore,
+/// diagnostics are tracing events. The relabeller owns the grammar it
+/// relabels, with its indexes given up while it adds sets, tags and set
+/// members, and hands it back finished; the relabels grammar is borrowed.
+pub struct Relabeller<'r> {
+    /// C++ `Grammar* grammar` — the target grammar (mutated), numbered but not
+    /// indexed until [`relabel`](Self::relabel) finishes it.
+    grammar: GrammarNumbered,
     /// C++ `const Grammar* relabels` — the relabel-rules grammar (read-only).
     relabels: &'r GrammarCore,
     /// C++ `std::unique_ptr<const StringSetMap> relabel_as_list`.
@@ -278,7 +283,7 @@ pub struct Relabeller<'g, 'r> {
     relabel_as_set: StringSetMap,
 }
 
-impl<'g, 'r> Relabeller<'g, 'r> {
+impl<'r> Relabeller<'r> {
     // [spec:cg3:def:relabeller.cg3.relabeller.relabeller-fn+1]
     // [spec:cg3:sem:relabeller.cg3.relabeller.relabeller-fn+1]
     // [spec:cg3:req:robustness.cli-arguments]
@@ -293,8 +298,9 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     /// DIVERGENCE: the C++ reads `rule->maplist->trie` before any guard, so a
     /// rule with no maplist — `SELECT`, `REMOVE`, any keyword that takes no tag
     /// list — dereferences null. It is refused here instead.
+    // [spec:cg3:req:grammar-phases.index-rebuilds]
     pub fn new(
-        res: &'g mut GrammarCore,
+        res: GrammarCore,
         relabels: &'r GrammarCore,
         _ux_err: (),
     ) -> Result<Self, RelabelRuleError> {
@@ -343,7 +349,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         }
 
         Ok(Relabeller {
-            grammar: res,
+            grammar: res.into_numbered(),
             relabels,
             relabel_as_list: as_list,
             relabel_as_set: as_set,
@@ -465,7 +471,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     fn relabel_as_list(&mut self, set_g: SetId, set_r: SetId, from_tag: TagId) {
         // old_tvs = trie_getTagsOrdered(set_g->trie)
         let set_g_trie = self.grammar.sets_list[set_g.0].trie.clone();
-        let old_tvs = trie_get_tags_ordered(&set_g_trie, self.grammar);
+        let old_tvs = trie_get_tags_ordered(&set_g_trie, &self.grammar);
         // trie_delete(set_g->trie); set_g->trie.clear();
         {
             let t = &mut self.grammar.sets_list.get_mut(set_g.0).trie;
@@ -534,7 +540,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     // [spec:cg3:req:robustness.depth-bounded]
     fn reindex_set(&mut self, s: SetId) {
         // Set* set = grammar->sets_list[i]; — i is a set NUMBER.
-        Set::reindex_members(self.grammar, s, |grammar, i| {
+        Set::reindex_members(&mut self.grammar, s, |grammar, i| {
             grammar.set_id_by_number(SetNumber(i))
         });
     }
@@ -639,9 +645,9 @@ impl<'g, 'r> Relabeller<'g, 'r> {
 
         // Copy the tries WITH tag transfer (two-arg trie_copy).
         let src_trie = self.relabels.sets_list[s_r.0].trie.clone();
-        let new_trie = trie_copy(&src_trie, self.grammar);
+        let new_trie = trie_copy(&src_trie, &mut self.grammar);
         let src_trie_sp = self.relabels.sets_list[s_r.0].trie_special.clone();
-        let new_trie_sp = trie_copy(&src_trie_sp, self.grammar);
+        let new_trie_sp = trie_copy(&src_trie_sp, &mut self.grammar);
         {
             let node = self.grammar.sets_list.get_mut(s_g.0);
             node.trie = new_trie;
@@ -679,7 +685,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
 
         // (3) Snapshot + wipe the main trie.
         let set_g_trie = self.grammar.sets_list[set_g.0].trie.clone();
-        let old_tvs = trie_get_tags_ordered(&set_g_trie, self.grammar);
+        let old_tvs = trie_get_tags_ordered(&set_g_trie, &self.grammar);
         {
             let t = &mut self.grammar.sets_list.get_mut(set_g.0).trie;
             trie_delete(t);
@@ -794,13 +800,16 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     /// Top-level driver. Builds `tag_by_str` (tag string → target-grammar TagId,
     /// last-wins) and `sets_by_tag` (tag string → set of target sets whose MAIN
     /// trie mentions it), applies RELABEL AS LIST then RELABEL AS SET for every
-    /// matching set, then finalizes: `reindex()`es, which rebuilds every index
-    /// from nothing, and sets `num_tags = single_tags_list.size()`.
+    /// matching set, then finalizes: `reindex()`es — finishes the grammar, whose
+    /// indexes [`new`](Self::new) gave up, so every index is built again from
+    /// nothing — and sets `num_tags = single_tags_list.size()`. Consumes the
+    /// relabeller and returns the finished grammar.
     ///
     /// The finalizing reindex is the one step here that can fail, and it used to
     /// re-raise as a process exit from inside the relabeller. It travels back to
     /// the caller instead — `[dec:cg3:results-not-unwinding]`.
-    pub fn relabel(&mut self) -> Result<(), crate::error::Cg3Error> {
+    // [spec:cg3:req:grammar-phases.index-rebuilds]
+    pub fn relabel(mut self) -> Result<GrammarCore, crate::error::Cg3Error> {
         // (1) tag_by_str: iterate single_tags_list (arena, insertion order),
         // last-wins per tag string.
         let mut tag_by_str: HashMap<String, TagId> = HashMap::new();
@@ -819,7 +828,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         let set_ids: Vec<SetId> = self.grammar.sets_list_order.clone();
         for sid in &set_ids {
             let trie = self.grammar.sets_list[sid.0].trie.clone();
-            let to_tags = trie_get_tag_list(&trie, self.grammar);
+            let to_tags = trie_get_tag_list(&trie, &self.grammar);
             for toit in to_tags {
                 let ts = self.grammar.single_tags_list[toit.0].tag.to_string();
                 sets_by_tag.entry(ts).or_default().insert(*sid);
@@ -877,8 +886,8 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         // (5) Finalize. `single_tags_list.size()` == the count of live arena
         // slots; tags are never freed during relabelling, so `capacity()` (the
         // grammar's own size analog, see its reindex) equals that count.
-        let _ = self.grammar.reindex(false, false)?;
-        self.grammar.num_tags = self.grammar.single_tags_list.capacity() as usize;
-        Ok(())
+        let mut grammar = self.grammar.finish()?;
+        grammar.num_tags = grammar.single_tags_list.capacity() as usize;
+        Ok(grammar)
     }
 }

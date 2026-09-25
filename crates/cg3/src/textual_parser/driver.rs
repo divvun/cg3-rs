@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::ast::{ASTHelper, ASTType};
 use crate::contextual_test::{POS_CAREFUL, POS_NUMERIC_BRANCH, copy_cntx};
-use crate::grammar::GrammarCore;
+use crate::grammar::{Draft, GrammarDraft};
 use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::{
     hash_value_str, isspace, skipln_chars, skipto_chars, skiptows_chars, skipws_chars, ui32,
@@ -913,6 +913,8 @@ fn shell_expand(s: &str) -> String {
 }
 
 impl IGrammarParser for TextualParser {
+    type Phase = Draft;
+
     /// Parses `input` as grammar text with no file behind it; see
     /// [`parse_grammar_utf8`](TextualParser::parse_grammar_utf8).
     fn parse_grammar(&mut self, input: &[u8]) -> Result<(), crate::error::Cg3Error> {
@@ -933,7 +935,7 @@ impl IGrammarParser for TextualParser {
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.get-grammar-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.get-grammar-fn]
-    fn get_grammar(&self) -> &GrammarCore {
+    fn get_grammar(&self) -> &GrammarDraft {
         &self.grammar
     }
 }

@@ -13,7 +13,7 @@
 //! diagnostics with it), and the UTF-16 forms describe nothing a UTF-8 port
 //! has.
 
-use crate::grammar::GrammarCore;
+use crate::grammar::{GrammarCore, Phase};
 
 // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser]
 // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.i-grammar-parser-fn]
@@ -45,6 +45,11 @@ pub trait IGrammarParser {
     /// enable more optional warnings.
     fn set_verbosity(&mut self, level: u32);
 
+    // [spec:cg3:req:grammar-phases.loaders]
+    /// The phase of the grammar this parser builds: a draft from text, a
+    /// numbered grammar from a `.cg3b`.
+    type Phase: Phase;
+
     /// The grammar this parser builds (C++ `result`).
-    fn get_grammar(&self) -> &GrammarCore;
+    fn get_grammar(&self) -> &GrammarCore<Self::Phase>;
 }

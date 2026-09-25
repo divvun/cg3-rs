@@ -1,12 +1,13 @@
-//! A grammar's load phases (`docs/spec/port/src/grammar_phases.md`): a
-//! textual grammar is resolved and indexed, a `.cg3b` only indexed, and both
-//! come out as the grammar the C++ `Grammar::reindex` builds.
+//! A grammar's load phases (`docs/spec/port/src/grammar_phases.md`): the
+//! textual parser builds a draft and the `.cg3b` reader a numbered grammar,
+//! `finish` makes either an indexed grammar, and both come out as the grammar
+//! the C++ `Grammar::reindex` builds.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cg3::binary_grammar::BinaryGrammar;
-use cg3::grammar::GrammarCore;
+use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered};
 use cg3::textual_parser::TextualParser;
 
 /// `crates/cg3` -> repo root (holds `test/`).
@@ -28,25 +29,24 @@ fn fixture_grammars() -> Vec<PathBuf> {
     paths
 }
 
-/// The fixture at `path`, parsed and reindexed.
-fn load_text(path: &PathBuf) -> GrammarCore {
+fn parse_text(path: &Path) -> GrammarDraft {
     let src = std::fs::read(path).unwrap();
-    let mut parser = TextualParser::new(GrammarCore::default(), false);
+    let mut parser = TextualParser::new(GrammarDraft::default(), false);
     parser
         .parse_grammar_named(&src, path.to_str().unwrap())
         .unwrap_or_else(|e| panic!("{} parses: {e}", path.display()));
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).unwrap();
-    grammar
+    parser.grammar
 }
 
-/// `blob`, read as a `.cg3b` and reindexed.
-fn load_binary(blob: &[u8]) -> GrammarCore {
-    let mut reader = BinaryGrammar::new(GrammarCore::default());
+fn read_binary(blob: &[u8]) -> GrammarNumbered {
+    let mut reader = BinaryGrammar::new(GrammarNumbered::default());
     reader.parse_grammar_buffer(blob).unwrap();
-    let mut grammar = reader.grammar;
-    let _ = grammar.reindex(false, false).unwrap();
-    grammar
+    reader.grammar
+}
+
+/// The fixture at `path`, parsed and finished.
+fn load_text(path: &Path) -> GrammarCore {
+    parse_text(path).finish().unwrap()
 }
 
 fn write(grammar: GrammarCore) -> Vec<u8> {
@@ -110,6 +110,7 @@ fn indexes(g: &GrammarCore) -> Indexes {
 // A textual grammar is resolved and indexed, the `.cg3b` written from it only
 // indexed: both must come out with the same indexes. Over every fixture grammar.
 // [spec:cg3:req:grammar-phases.same-output/test]
+// [spec:cg3:req:grammar-phases.finish/test]
 #[test]
 fn text_and_cg3b_index_the_same() {
     let mut compared = 0;
@@ -117,7 +118,7 @@ fn text_and_cg3b_index_the_same() {
         let text = load_text(&path);
         let from_text = indexes(&text);
         let blob = write(text);
-        let binary = load_binary(&blob);
+        let binary = read_binary(&blob).finish().unwrap();
         assert_eq!(
             indexes(&binary),
             from_text,
@@ -127,4 +128,69 @@ fn text_and_cg3b_index_the_same() {
         compared += 1;
     }
     assert!(compared > 50, "only {compared} fixtures compared");
+}
+
+// Each loader hands back the phase its output is in: the textual parser a
+// draft, whose references are content hashes, and the `.cg3b` reader a
+// numbered grammar with none of the indexes built.
+// [spec:cg3:req:grammar-phases.loaders/test]
+#[test]
+fn loaders_return_their_phase() {
+    let path = repo_root().join("test/T_SetParentChild/grammar.cg3");
+    let draft: GrammarDraft = parse_text(&path);
+    assert!(!draft.is_binary);
+    assert!(
+        !draft.sets_by_contents.is_empty(),
+        "a draft refers to its sets by content hash"
+    );
+    let blob = write(draft.finish().unwrap());
+
+    let numbered: GrammarNumbered = read_binary(&blob);
+    assert!(numbered.is_binary);
+    assert!(
+        numbered.sets_by_contents.is_empty(),
+        "a numbered grammar refers to its sets by number"
+    );
+    assert!(
+        numbered.sets_by_tag.is_empty() && numbered.rules_by_tag.is_empty(),
+        "reading builds no index"
+    );
+    assert!(!numbered.finish().unwrap().sets_by_tag.is_empty());
+}
+
+// An indexed grammar that gives its indexes up has none left, and finishing it
+// again builds the same ones: nothing stale or duplicated survives. Over every
+// fixture grammar, from its text and from its `.cg3b`.
+// [spec:cg3:req:grammar-phases.index-rebuilds/test]
+#[test]
+fn refinishing_rebuilds_the_same_indexes() {
+    for path in fixture_grammars() {
+        let text = load_text(&path);
+        let blob = write(load_text(&path));
+        for (origin, grammar) in [
+            ("text", text),
+            (".cg3b", read_binary(&blob).finish().unwrap()),
+        ] {
+            let first = indexes(&grammar);
+            let numbered = grammar.into_numbered();
+            assert!(
+                numbered.wf_rules.is_empty()
+                    && numbered.sections.is_empty()
+                    && numbered.rules_by_set.is_empty()
+                    && numbered.rules_by_tag.is_empty()
+                    && numbered.sets_by_tag.is_empty()
+                    && numbered.sets_any.is_none()
+                    && numbered.rules_any.is_none(),
+                "{} from {origin}: indexes survive into_numbered",
+                path.display()
+            );
+            let again = numbered.finish().unwrap();
+            assert_eq!(
+                indexes(&again),
+                first,
+                "{} from {origin}: refinishing changed the indexes",
+                path.display()
+            );
+        }
+    }
 }

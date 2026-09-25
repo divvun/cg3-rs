@@ -31,12 +31,15 @@
 //! `crate::contextual_test::ContextualTest`. Until those land + are wired into
 //! `lib.rs`, this module will not resolve those paths.
 //!
-//! ## Core / overlay split
-//! A grammar lives in two phases, and each has its own type. [`GrammarCore`]
-//! is the grammar: the parsers and the binary reader build it, `reindex` and
-//! the relabeller finish it, the writers serialise it — all through
-//! `&mut GrammarCore`, which only its owner can have. Loaded, it goes behind
-//! an `Arc`, and from then on nothing can edit it.
+//! ## Load phases, and the core / overlay split
+//! [`GrammarCore`] is the grammar, and it carries the phase of its load as a
+//! type (see [`Phase`]): the textual parser builds a [`GrammarDraft`], the
+//! binary reader a [`GrammarNumbered`], and `finish` consumes either into the
+//! indexed `GrammarCore` that the writers serialise and a run applies. The
+//! relabeller gives an indexed grammar's indexes up with `into_numbered`,
+//! edits it, and finishes it again. All of it through a grammar its owner
+//! holds by value. Loaded, it goes behind an `Arc`, and from then on nothing
+//! can edit it.
 //!
 //! [`Grammar`] is one run's view of a loaded grammar: a shared core plus a thin
 //! OVERLAY of the tag state the run does change. Applying a grammar can mint
@@ -51,6 +54,7 @@
 //! which both types implement.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::marker::PhantomData;
 
 use crate::arena::{Arena, CtxId, RuleId, SetId, TagId};
 use crate::flat_unordered_map::{FlatUnorderedMap, Uint32FlatHashMap};
@@ -84,7 +88,10 @@ use crate::tag_trie::{
 // stand-ins (same precedent as the local scanf stand-ins in `tag.rs` /
 // `set.rs`). To reconcile: move to `crate::strings` when that module grows.
 mod finish;
+mod phase;
 mod walks;
+
+pub use phase::{Draft, GrammarDraft, GrammarNumbered, Indexed, Numbered, Numbering, Phase};
 
 const STR_DELIMITSET: &str = "_S_DELIMITERS_";
 const STR_SOFTDELIMITSET: &str = "_S_SOFT_DELIMITERS_";
@@ -151,32 +158,34 @@ pub type SetsByTag = HashMap<u32, DynBitset>;
 /// Represented as `BTreeMap` (sorted associative container).
 pub type Parentheses = BTreeMap<u32, u32>;
 
-/// What a completed [`Grammar::reindex`] leaves its caller to do.
-///
-/// The C++ `exit(0)`s inside `reindex` once the `--show-tags` dump has been
-/// written. That is a successful stop, and success does not travel in the error
-/// channel — `[spec:cg3:req:errors.exit-codes-at-cli]` puts the decision at the
-/// boundary that owns the exit code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[must_use]
-pub enum Reindexed {
-    /// Nothing further; the grammar is ready to use.
-    Done,
-    /// `used_tags` was asked for and the dump has been written. The caller is
-    /// done, successfully.
-    DumpedTags,
-}
-
+// [spec:cg3:def:grammar.cg3.grammar.grammar-fn]
+// [spec:cg3:sem:grammar.cg3.grammar.grammar-fn]
+// C++ `~Grammar()`. The C++ dtor manually `delete`s every owned object
+// (sets_list → destroySet, sets_all, single_tags, rule_by_number, contexts).
+// In the arena port each of those lives inside an `Arena<T>` that the derived
+// drop glue tears down when the grammar drops (each arena drops its slots;
+// `Set::drop` runs `trie_delete`), so the grammar has no `Drop` of its own —
+// which is also what lets a phase change move its fields into the next
+// phase's type. DIVERGENCE: the C++ note that `templates` can leak (used
+// templates retained during reindex, not also owned via `contexts`) does NOT
+// occur here — every `ContextualTest` is owned once by `contexts_arena`, so no
+// double-free and no leak.
 // [spec:cg3:def:grammar.cg3.grammar]
 /// The parsed/loaded grammar: owner of all static tags, sets, rules and
-/// contextual tests, plus every runtime lookup index built by `reindex`.
+/// contextual tests, plus every runtime lookup index built by `finish`.
+///
+/// `P` is the phase of its load: [`Draft`], [`Numbered`] or, by default,
+/// [`Indexed`]. Its fields are the same in every phase and public; what the
+/// phase decides is which operations exist, so an indexed grammar has no
+/// `finish` and no lookup by content hash, and only an indexed grammar is
+/// written or run.
 ///
 /// Frozen once loaded, and shared from there on — a process applying the same
 /// grammar down N pipelines holds ONE of these behind an `Arc` instead of N
 /// copies, which for a real grammar is hundreds of megabytes of sets, rules and
 /// contexts per pipeline. Everything a run needs to change lives beside it in
 /// [`Grammar`]'s overlay instead.
-pub struct GrammarCore {
+pub struct GrammarCore<P: Phase = Indexed> {
     /// Wave-4 grammar-owned PRNG state for `Set::set_name`'s `to == 0`
     /// fallback (the C++ used the process-global libc `rand()`). Non-zero
     /// xorshift32 state, stepped by [`crate::set::rand_step`].
@@ -356,9 +365,12 @@ pub struct GrammarCore {
     pub null_section: Vec<RuleId>,
     /// C++ `RuleVector wf_rules` (wordform-scoped rules).
     pub wf_rules: Vec<RuleId>,
+
+    /// Which phase of its load the grammar is in; see [`Phase`].
+    phase: PhantomData<P>,
 }
 
-impl Default for GrammarCore {
+impl<P: Phase> Default for GrammarCore<P> {
     /// Faithful analog of the C++ `Grammar() = default;`: every member takes its
     /// zero/empty value except `mapping_prefix`, whose C++ member initializer is
     /// `'@'`.
@@ -421,6 +433,7 @@ impl Default for GrammarCore {
             after_sections: Vec::new(),
             null_section: Vec::new(),
             wf_rules: Vec::new(),
+            phase: PhantomData,
         }
     }
 }
@@ -431,7 +444,7 @@ mod tag_space;
 pub use overlay::{Grammar, TagHashRef, TagIndex, TagStore};
 pub use tag_space::TagSpace;
 
-impl GrammarCore {
+impl<P: Phase> GrammarCore<P> {
     /// C++ `Grammar::single_tags` over a grammar still being built: its own
     /// hash index, with no run half.
     #[inline]
@@ -444,7 +457,7 @@ impl GrammarCore {
 }
 
 /// A grammar being built interns into itself.
-impl TagSpace for GrammarCore {
+impl<P: Phase> TagSpace for GrammarCore<P> {
     #[inline]
     fn tag(&self, id: TagId) -> &Tag {
         &self.single_tags_list[id.0]
@@ -497,22 +510,7 @@ impl TagSpace for GrammarCore {
 // `allocateDummySet`) and position 0 of `sets_list_order` (front-insert).
 // ===========================================================================
 
-// [spec:cg3:def:grammar.cg3.grammar.grammar-fn]
-// [spec:cg3:sem:grammar.cg3.grammar.grammar-fn]
-/// C++ `~Grammar()`. The C++ dtor manually `delete`s every owned object
-/// (sets_list → destroySet, sets_all, single_tags, rule_by_number, contexts).
-/// In the arena port each of those lives inside an `Arena<T>` that the derived
-/// drop glue tears down automatically when the `Grammar` drops (each arena drops
-/// its slots; `Set::drop` runs `trie_delete`). This explicit `Drop` is therefore
-/// a documented no-op. DIVERGENCE: the C++ note that `templates` can leak (used
-/// templates retained during reindex, not also owned via `contexts`) does NOT
-/// occur here — every `ContextualTest` is owned once by `contexts_arena`, so no
-/// double-free and no leak.
-impl Drop for GrammarCore {
-    fn drop(&mut self) {}
-}
-
-impl GrammarCore {
+impl<P: Phase> GrammarCore<P> {
     // [spec:cg3:def:grammar.cg3.grammar.allocate-set-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.allocate-set-fn]
     /// `new Set` → arena alloc; inserted into the `sets_all` ownership registry.
@@ -521,7 +519,9 @@ impl GrammarCore {
         self.sets_all.insert(id);
         id
     }
+}
 
+impl GrammarCore<Draft> {
     // [spec:cg3:def:grammar.cg3.grammar.destroy-set-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.destroy-set-fn]
     /// `sets_all.erase(set); delete set` → erase from the registry, then free the
@@ -691,7 +691,9 @@ impl GrammarCore {
     pub fn destroy_rule(&mut self, rule: RuleId) {
         self.rule_by_number.free_slot(rule.0);
     }
+}
 
+impl<P: Phase> GrammarCore<P> {
     /// C++ no-arg `Tag* Grammar::allocateTag() { return new Tag; }` (unannotated
     /// in the spec). By-value reconciliation: returns a fresh `Tag` for the
     /// build-then-`add_tag` flow.
@@ -760,14 +762,18 @@ impl GrammarCore {
             s.trie.entry(rtag).or_default().terminal = true;
         }
     }
+}
 
+impl GrammarCore<Draft> {
     // [spec:cg3:def:grammar.cg3.grammar.destroy-tag-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.destroy-tag-fn]
     /// `delete tag` → free the arena slot. Does not unregister from `single_tags`.
     pub fn destroy_tag(&mut self, tag: TagId) {
         self.single_tags_list.free_slot(tag.0);
     }
+}
 
+impl<P: Phase> GrammarCore<P> {
     // [spec:cg3:def:grammar.cg3.grammar.allocate-contextual-test-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.allocate-contextual-test-fn]
     /// `new ContextualTest` → arena alloc, returning its `CtxId`. Not registered
@@ -777,7 +783,9 @@ impl GrammarCore {
     pub fn allocate_contextual_test(&mut self) -> CtxId {
         CtxId(self.contexts_arena.alloc(ContextualTest::default()))
     }
+}
 
+impl GrammarCore<Draft> {
     // [spec:cg3:def:grammar.cg3.grammar.add-contextual-test-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.add-contextual-test-fn]
     /// Interns a `ContextualTest` into `contexts`, deduplicating structurally
@@ -898,7 +906,7 @@ impl GrammarCore {
     }
 }
 
-impl GrammarCore {
+impl GrammarCore<Draft> {
     // [spec:cg3:def:grammar.cg3.grammar.add-set-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.add-set-fn]
     /// Registers a fully-built set, canonicalizing by content and by name, and
@@ -1294,7 +1302,9 @@ impl GrammarCore {
             self.get_own_tags(done, rv);
         }
     }
+}
 
+impl<P: Numbering> GrammarCore<P> {
     /// C++ one-arg overload `TagList getTagList_Any(const Set&) const`: delegates
     /// to the two-arg form with a fresh `TagList`.
     pub fn get_tag_list_any_ret(&self, set: SetId) -> TagList {
@@ -1341,7 +1351,9 @@ impl GrammarCore {
             }
         }
     }
+}
 
+impl GrammarCore<Draft> {
     // [spec:cg3:def:grammar.cg3.grammar.remove-numeric-tags-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.remove-numeric-tags-fn]
     /// Returns the hash of a variant of set `s` with all `T_NUMERICAL` tags
@@ -1384,7 +1396,7 @@ impl GrammarCore {
     }
 }
 
-impl GrammarCore {
+impl<P: Phase> GrammarCore<P> {
     /// The C++ `sets_list` VECTOR (the numbered used-set list) in dense number
     /// order: position 0 is the dummy, positions 1..k the sets numbered by
     /// `addSetToList`. Unused sets stay in the arena but are not listed. Not a
@@ -1392,7 +1404,9 @@ impl GrammarCore {
     fn used_set_ids(&self) -> Vec<SetId> {
         self.sets_list_order.clone()
     }
+}
 
+impl<P: Numbering> GrammarCore<P> {
     /// C++ `grammar->sets_list[number]` — resolves a DENSE set number to its
     /// arena id via `sets_list_order`. Panics on an out-of-range number (the C++
     /// vector-index UB analog). Not a manifest symbol — port infrastructure.
@@ -1478,7 +1492,9 @@ impl GrammarCore {
             todo.extend(self.members_by_number(s));
         }
     }
+}
 
+impl GrammarCore<Draft> {
     // [spec:cg3:def:grammar.cg3.grammar.set-adjust-sets-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.set-adjust-sets-fn]
     /// Rewrites `s->sets` from content hashes to set numbers, recursively, once
@@ -1541,7 +1557,7 @@ impl GrammarCore {
 /// an EXTERNAL copy (callers clone the set's trie out first) so it does not alias
 /// the `&mut Grammar` borrow. Walks with a [`TrieWalk`] where the C++ recurses.
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_index_to_rule(trie: &TagTrie, grammar: &mut GrammarCore, r: u32) {
+pub fn trie_index_to_rule<P: Numbering>(trie: &TagTrie, grammar: &mut GrammarCore<P>, r: u32) {
     crate::tag_trie::TrieWalk::new(trie).each(|k, _| {
         let h = grammar.single_tags_list[k.0].hash;
         grammar.index_tag_to_rule(h.get(), r);
@@ -1553,7 +1569,7 @@ pub fn trie_index_to_rule(trie: &TagTrie, grammar: &mut GrammarCore, r: u32) {
 /// Free fn. Identical shape to `trie_index_to_rule` but sets bit `r` (a set
 /// number) in `sets_by_tag[tag->hash]` for every tag in the trie.
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_index_to_set(trie: &TagTrie, grammar: &mut GrammarCore, r: u32) {
+pub fn trie_index_to_set<P: Numbering>(trie: &TagTrie, grammar: &mut GrammarCore<P>, r: u32) {
     crate::tag_trie::TrieWalk::new(trie).each(|k, _| {
         let h = grammar.single_tags_list[k.0].hash;
         grammar.index_tag_to_set(h.get(), r);

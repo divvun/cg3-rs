@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cg3::binary_grammar::BinaryGrammar;
-use cg3::grammar::GrammarCore;
+use cg3::grammar::{GrammarCore, GrammarNumbered};
 use cg3::igrammar_parser::IGrammarParser;
 use cg3::textual_parser::TextualParser;
 
@@ -160,8 +160,7 @@ fn inprocess_binary_roundtrip() {
     parser
         .parse_grammar_utf8(&src)
         .expect("textual parse failed");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).unwrap();
+    let grammar = parser.grammar.finish().unwrap();
 
     let num_tags = grammar.num_tags;
     let num_sets = grammar.sets_list_order.len();
@@ -173,12 +172,12 @@ fn inprocess_binary_roundtrip() {
     );
 
     let mut writer = BinaryGrammar::new(grammar);
-    writer.set_compatible(true); // C++ setCompatible: empty body, flag discarded
     let mut blob: Vec<u8> = Vec::new();
     writer.write_binary_grammar(&mut blob).unwrap();
     assert_eq!(&blob[..4], b"CG3B", "magic bytes");
 
-    let mut reader = BinaryGrammar::new(GrammarCore::default());
+    let mut reader = BinaryGrammar::new(GrammarNumbered::default());
+    reader.set_compatible(true); // C++ setCompatible: empty body, flag discarded
     reader
         .parse_grammar_buffer(&blob)
         .expect("binary reread failed");
@@ -284,8 +283,7 @@ fn provenance_never_reaches_the_wire() {
         parser
             .parse_grammar_named(&src, "grammar.cg3")
             .expect("fixture parses");
-        let mut grammar = parser.grammar;
-        let _ = grammar.reindex(false, false).expect("reindex");
+        let mut grammar = parser.grammar.finish().expect("reindex");
         if strip {
             for i in 0..grammar.rule_by_number.capacity() {
                 if grammar.rule_by_number.try_get(i).is_some() {

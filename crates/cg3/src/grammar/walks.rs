@@ -14,7 +14,7 @@ use crate::tag::{T_FAILFAST, TagVector, TagVectorSet, fill_tagvector};
 use crate::tag_trie::{trie_get_tags, trie_get_tags_into, trie_insert};
 use crate::types::SetNumber;
 
-use super::{GrammarCore, STR_GPREFIX};
+use super::{Draft, GrammarCore, Numbering, STR_GPREFIX};
 
 /// A set built from sets that [`GrammarCore::remove_numeric_tags`] is
 /// stripping: its members, rewritten as they are stripped, the index of the
@@ -26,7 +26,7 @@ pub(super) struct NumericStrip {
     pub(super) did: bool,
 }
 
-impl GrammarCore {
+impl GrammarCore<Draft> {
     // [spec:cg3:def:grammar.cg3.grammar.remove-numeric-tags-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.remove-numeric-tags-fn]
     /// Begin stripping the set `s` names: a set built from sets goes onto
@@ -294,7 +294,9 @@ impl GrammarCore {
             open.push((self.get_set(member).unwrap(), 0)); // *getSet(s), null → crash
         }
     }
+}
 
+impl<P: Numbering> GrammarCore<P> {
     /// The sets `s` is built from, by their numbers in `s.sets`, last first:
     /// to go onto a walk's stack so they come off it in order.
     pub(super) fn members_by_number(&self, s: SetId) -> Vec<SetId> {
@@ -305,7 +307,9 @@ impl GrammarCore {
             .map(|&i| self.set_id_by_number(SetNumber(i)))
             .collect()
     }
+}
 
+impl GrammarCore<Draft> {
     /// Whether [`Self::add_set_to_list`] numbers `s`: it has no number yet
     /// (`number == 0`), and it is not the dummy at `sets_list[0]` (the C++
     /// guard `sets_list.empty() || sets_list[0] != s`).

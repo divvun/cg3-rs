@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use crate::arena::{CtxId, RuleId, SetId};
 use crate::contextual_test::{POS_TMPL_OVERRIDE, POS_UNKNOWN};
 use crate::error::{ParseError, ParseErrorKind, ParseSpan};
-use crate::grammar::GrammarCore;
+use crate::grammar::GrammarDraft;
 use crate::inlines::{hash_value_str, isspace, ui32};
 use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY};
 use crate::strings::Keywords;
@@ -308,7 +308,7 @@ impl TextualParser {
 /// The sets still to visit are kept on a heap stack, in the order the C++
 /// recursion takes them, so a set built from sets however deep costs no stack.
 // [spec:cg3:req:robustness.depth-bounded]
-fn tag_list_any_by_hash(grammar: &GrammarCore, set: SetId, the_tags: &mut TagList) {
+fn tag_list_any_by_hash(grammar: &GrammarDraft, set: SetId, the_tags: &mut TagList) {
     let mut todo = vec![set];
     while let Some(set) = todo.pop() {
         let s = &grammar.sets_list[set.0];

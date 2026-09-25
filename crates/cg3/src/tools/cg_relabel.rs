@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 
 use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::GrammarCore;
+use crate::grammar::{GrammarCore, GrammarDraft, GrammarNumbered};
 use crate::inlines::is_cg3b;
 use crate::relabeller::{RelabelRuleError, Relabeller};
 use crate::textual_parser::TextualParser;
@@ -99,19 +99,22 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<GrammarCore,
         })?;
     drop(input); // input.close();
 
-    // Grammar* grammar = new Grammar; (owned by value here.)
-    let grammar = GrammarCore::default();
-
-    let mut parsed = if is_cg3b(head) {
+    let reindex_failed = |source| GrammarLoadError::Reindex {
+        path: filename.to_string(),
+        source,
+    };
+    // Grammar* grammar = new Grammar; (owned by value here, in the phase its
+    // loader builds.)
+    if is_cg3b(head) {
         // parser.reset(new BinaryGrammar(*grammar, ...));
-        let mut parser = BinaryGrammar::new(grammar);
+        let mut parser = BinaryGrammar::new(GrammarNumbered::default());
         parser
             .parse_grammar_filename(filename)
             .map_err(|source| GrammarLoadError::Parse {
                 path: filename.to_string(),
                 source,
             })?;
-        parser.grammar
+        parser.grammar.finish().map_err(reindex_failed)
     } else {
         if require_binary {
             return Err(GrammarLoadError::RequiresBinary {
@@ -119,7 +122,7 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<GrammarCore,
             });
         }
         // parser.reset(new TextualParser(*grammar, ...));
-        let mut parser = TextualParser::new(grammar, false);
+        let mut parser = TextualParser::new(GrammarDraft::default(), false);
         let buffer = std::fs::read(filename).map_err(|source| GrammarLoadError::Open {
             path: filename.to_string(),
             source,
@@ -131,16 +134,8 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<GrammarCore,
                 path: filename.to_string(),
                 source,
             })?;
-        parser.grammar
-    };
-
-    let _ = parsed
-        .reindex(false, false)
-        .map_err(|source| GrammarLoadError::Reindex {
-            path: filename.to_string(),
-            source,
-        })?;
-    Ok(parsed)
+        parser.grammar.finish().map_err(reindex_failed)
+    }
 }
 
 /// Report a load failure on the way out of [`main_relabel`], and derive the exit
@@ -194,13 +189,12 @@ fn relabel_grammar(grammar_path: &str, relabel_path: &str) -> Result<GrammarCore
     // neither result before dereferencing it, so a grammar that fails to load
     // crashes the process. The loader hands the failure back as a value now, so
     // the boundary that owns the exit code reports it and returns.
-    let mut grammar = cg3_grammar_load(grammar_path, true)?;
+    let grammar = cg3_grammar_load(grammar_path, true)?;
     let relabel_grammar = cg3_grammar_load(relabel_path, false)?;
 
     // Relabeller relabeller(*grammar, *relabel_grammar, std::cerr);
     // relabeller.relabel();
-    Relabeller::new(&mut grammar, &relabel_grammar, ())?.relabel()?;
-    Ok(grammar)
+    Ok(Relabeller::new(grammar, &relabel_grammar, ())?.relabel()?)
 }
 
 // [spec:cg3:def:cg-relabel.main-fn+1]

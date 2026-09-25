@@ -1,13 +1,15 @@
-//! `Grammar::reindex` — the pass that turns a loaded grammar into one a run
-//! and the writers can use — as its two jobs, each step its own helper.
+//! `finish`: the C++ `Grammar::reindex`, the pass that turns a loaded
+//! grammar into one a run and the writers can use, as its two jobs, each step
+//! its own helper.
 //!
-//! *Resolving* turns a grammar the textual parser built, whose sets, rules and
-//! tests refer to sets by content hash, into one that refers to them by set
-//! number. It runs once, on a textual grammar only. *Indexing* builds the maps
-//! and flags a run reads from a grammar whose references are numbers, and runs
-//! on every grammar, after resolving when there is any. The step numbers are
-//! those of `[spec:cg3:sem:grammar.cg3.grammar.reindex-fn]`; the rule's port
-//! divergence lists which step belongs to which job.
+//! *Resolving* turns a [`Draft`], whose sets, rules and tests refer to sets by
+//! content hash, into a [`Numbered`] grammar that refers to them by set
+//! number. It can run only once, and only a draft has it. *Indexing* builds the
+//! maps and flags a run reads from a numbered grammar, making it
+//! [`Indexed`](super::Indexed). Finishing a draft resolves it and then indexes
+//! it; a `.cg3b` is stored numbered, so finishing one only indexes it. The step
+//! numbers are those of `[spec:cg3:sem:grammar.cg3.grammar.reindex-fn]`; the
+//! rule's port divergence lists which step belongs to which job.
 //!
 //! Neither job reads what the other writes out of this order: resolving never
 //! reads an index or `T_TEXTUAL`, and the `T_USED` marks both write are ORs.
@@ -30,35 +32,52 @@ use crate::tag_trie::trie_has_type;
 use crate::types::SetNumber;
 use crate::uextras::eq_ignore_case;
 
-use super::{Contexts, GrammarCore, Reindexed};
+use super::{Contexts, Draft, GrammarCore, GrammarNumbered, Indexed, Numbered, Phase};
 
-impl GrammarCore {
+impl GrammarCore<Draft> {
     // [spec:cg3:def:grammar.cg3.grammar.reindex-fn+1]
     // [spec:cg3:sem:grammar.cg3.grammar.reindex-fn+1]
+    // [spec:cg3:req:grammar-phases.finish]
     // [spec:cg3:req:grammar-phases.same-output]
-    /// Core finalization pass. Resolves a textual grammar's references from
-    /// content hashes to set numbers, then indexes the grammar. A `.cg3b` is
-    /// stored numbered, so it is only indexed.
+    /// Finishes a draft: resolves its references from content hashes to set
+    /// numbers, then indexes it. Consumes the draft, so nothing is resolved
+    /// twice.
     ///
-    /// Neither diagnostic flag prints: the unused-set report and the tag dump
-    /// are not ported. `used_tags` asks for the dump, after which the C++
-    /// `exit(0)`s. That is a successful stop, not a failure, so it comes back
-    /// as [`Reindexed::DumpedTags`] rather than an error carrying exit code 0.
-    pub fn reindex(&mut self, unused_sets: bool, used_tags: bool) -> Result<Reindexed, Cg3Error> {
-        // (9) The unused-set report reads state resolving throws away; it is
-        // not ported, and prints nothing.
-        let _ = unused_sets;
-        if !self.is_binary {
-            self.resolve()?;
-        }
-        self.index()?;
-        // (21) The tag dump is not ported; the caller stops, successfully.
-        if used_tags {
-            return Ok(Reindexed::DumpedTags);
-        }
-        Ok(Reindexed::Done)
+    /// Neither of the C++ `reindex`'s diagnostic flags is taken. Its
+    /// unused-set report (step 9) needs state resolving throws away, and is
+    /// not ported. Its tag dump (step 21) is not ported either; the C++
+    /// `exit(0)`s after it, and that successful stop is the caller's, once the
+    /// grammar is finished.
+    pub fn finish(mut self) -> Result<GrammarCore, Cg3Error> {
+        self.resolve()?;
+        self.into_phase::<Numbered>().finish()
     }
+}
 
+impl GrammarCore<Numbered> {
+    // [spec:cg3:def:grammar.cg3.grammar.reindex-fn+1]
+    // [spec:cg3:sem:grammar.cg3.grammar.reindex-fn+1]
+    // [spec:cg3:req:grammar-phases.finish]
+    // [spec:cg3:req:grammar-phases.same-output]
+    /// Finishes a numbered grammar: indexes it.
+    pub fn finish(mut self) -> Result<GrammarCore, Cg3Error> {
+        self.index()?;
+        Ok(self.into_phase())
+    }
+}
+
+impl GrammarCore<Indexed> {
+    // [spec:cg3:req:grammar-phases.index-rebuilds]
+    /// Gives up this grammar's indexes, to edit it in a way they depend on;
+    /// [`finish`](GrammarNumbered::finish) it again after the edit.
+    /// The relabeller, which adds sets, tags and set members, is the caller.
+    pub fn into_numbered(mut self) -> GrammarNumbered {
+        self.clear_indexes();
+        self.into_phase()
+    }
+}
+
+impl<P: Phase> GrammarCore<P> {
     /// Every live tag, in number order (arena order is number order).
     fn all_tag_ids(&self) -> Vec<TagId> {
         (0..self.single_tags_list.capacity())
@@ -74,7 +93,9 @@ impl GrammarCore {
             .map(RuleId)
             .collect()
     }
+}
 
+impl GrammarCore<Draft> {
     // -----------------------------------------------------------------------
     // Resolving: a textual grammar's references, content hash to set number.
     // -----------------------------------------------------------------------
@@ -292,7 +313,9 @@ impl GrammarCore {
         let s = self.sets_by_contents[&hash];
         self.sets_list[s.0].number
     }
+}
 
+impl GrammarCore<Numbered> {
     // -----------------------------------------------------------------------
     // Indexing: the maps and flags a run reads, from a numbered grammar.
     // -----------------------------------------------------------------------
@@ -324,7 +347,9 @@ impl GrammarCore {
         self.keep_order_where_needed(&sets_vstr, &nk);
         Ok(())
     }
+}
 
+impl<P: Phase> GrammarCore<P> {
     /// (3), indexing's part, and every other index this pass builds: empty,
     /// so each is built from nothing.
     fn clear_indexes(&mut self) {
@@ -346,7 +371,9 @@ impl GrammarCore {
         self.regex_tags.clear();
         self.icase_tags.clear();
     }
+}
 
+impl GrammarCore<Numbered> {
     /// (4) The regex and case-insensitive tags that are not literals.
     fn collect_pattern_tags(&mut self, all_tag_ids: &[TagId]) {
         for &tid in all_tag_ids {
@@ -418,7 +445,9 @@ impl GrammarCore {
             }
         }
     }
+}
 
+impl<P: Phase> GrammarCore<P> {
     /// (11) A tag is a mapping tag when it starts with the mapping prefix.
     fn set_mapping_flags(&mut self) {
         let mp = self.mapping_prefix;
@@ -431,7 +460,9 @@ impl GrammarCore {
             }
         }
     }
+}
 
+impl GrammarCore<Numbered> {
     /// (13), indexing's part, and (14): file each rule under its section,
     /// index the tags of its target, and flag a rule whose lists unify; then
     /// number the sections without gaps.

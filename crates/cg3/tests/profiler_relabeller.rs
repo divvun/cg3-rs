@@ -218,11 +218,11 @@ fn relabel_list_apertium_protocol() {
 // helper), so no fixture can reach it; it is driven directly in-process here.
 #[test]
 fn relabeller_trie_copy_helper_reintern() {
-    use cg3::grammar::GrammarCore;
+    use cg3::grammar::GrammarDraft;
     use cg3::relabeller::trie_copy_helper_reintern;
     use cg3::tag_trie::{TagTrie, trie_insert};
 
-    let mut g = GrammarCore::default();
+    let mut g = GrammarDraft::default();
     let foo = g.allocate_tag("foo").unwrap();
     let bar = g.allocate_tag("bar").unwrap();
     let baz = g.allocate_tag("baz").unwrap();

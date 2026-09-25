@@ -385,8 +385,7 @@ mod external {
         let mut parser =
             cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
         parser.parse_grammar_utf8(src.as_bytes()).expect("parses");
-        let mut grammar = parser.grammar;
-        let _ = grammar.reindex(false, false).unwrap();
+        let grammar = parser.grammar.finish().unwrap();
         let mut app = GrammarApplicator::new(grammar.into());
         app.set_grammar().unwrap();
         let input = b"\"<a>\"\n\t\"a\" x\n".to_vec();

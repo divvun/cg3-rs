@@ -176,8 +176,10 @@ impl Default for Grammar {
     }
 }
 
+// [spec:cg3:req:grammar-phases.indexed-only]
 /// A run over a grammar nobody else is applying — `from_core` over a fresh
-/// `Arc`.
+/// `Arc`. Only from an indexed grammar: a draft or a numbered one has none of
+/// the indexes a run reads.
 impl From<GrammarCore> for Grammar {
     fn from(core: GrammarCore) -> Self {
         Grammar::from_core(Arc::new(core))

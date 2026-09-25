@@ -27,8 +27,7 @@ fn applicator() -> GrammarApplicator {
     parser
         .parse_grammar_utf8(src.as_bytes())
         .expect("fixture grammar parses");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).expect("reindex");
+    let grammar = parser.grammar.finish().expect("reindex");
     GrammarApplicator::new(grammar.into())
 }
 

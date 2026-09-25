@@ -18,12 +18,12 @@ use crate::arg_parser::parse_args;
 use crate::binary_grammar::BinaryGrammar;
 use std::sync::Arc;
 
-use crate::grammar::{Grammar, GrammarCore, Reindexed};
+use crate::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered, Phase};
 use crate::grammar_writer::GrammarWriter;
 use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::is_cg3b;
 use crate::options::{
-    Opt, grammar_options_default, grammar_options_override, options, options_default,
+    Opt, OptionsTable, grammar_options_default, grammar_options_override, options, options_default,
     options_override,
 };
 use crate::options_parser::{parse_opts, parse_opts_env};
@@ -304,8 +304,11 @@ pub fn main_run(args: &[String]) -> i32 {
     // `[spec:cg3:req:diagnostics.source-lazy]` forbids.
     let mut grammar_sources: Vec<crate::error::ParseSource> = Vec::new();
 
-    let mut grammar: GrammarCore = if is_binary {
-        let mut parser = BinaryGrammar::new(GrammarCore::default());
+    // Loaded in the phase its loader builds, and finished where the C++
+    // reindexes: after the grammar's own options are merged and `--prefix` is
+    // applied.
+    let grammar: GrammarCore = if is_binary {
+        let mut parser = BinaryGrammar::new(GrammarNumbered::default());
         if verbose {
             parser.set_verbosity(verbosity_level);
         }
@@ -318,9 +321,25 @@ pub fn main_run(args: &[String]) -> i32 {
         }
         let mut g = parser.grammar;
         g.verbosity_level = verbosity_level;
-        g
+        if let Err(code) = apply_grammar_options(
+            &mut g,
+            &mut options,
+            &mut grammar_options_default,
+            &mut grammar_options_override,
+            &options_override,
+        ) {
+            return code;
+        }
+        if verbose {
+            tracing::info!("Reindexing grammar...");
+        }
+        // grammar.reindex(SHOW_UNUSED_SETS, SHOW_TAGS)
+        match g.finish() {
+            Ok(g) => g,
+            Err(e) => return fail(&e),
+        }
     } else {
-        let mut parser = TextualParser::new(GrammarCore::default(), occ(&options, Opt::DumpAst));
+        let mut parser = TextualParser::new(GrammarDraft::default(), occ(&options, Opt::DumpAst));
         if verbose {
             parser.set_verbosity(verbosity_level);
         }
@@ -362,51 +381,30 @@ pub fn main_run(args: &[String]) -> i32 {
 
         let mut g = parser.grammar;
         g.verbosity_level = verbosity_level;
-        g
+        if let Err(code) = apply_grammar_options(
+            &mut g,
+            &mut options,
+            &mut grammar_options_default,
+            &mut grammar_options_override,
+            &options_override,
+        ) {
+            return code;
+        }
+        if verbose {
+            tracing::info!("Reindexing grammar...");
+        }
+        // grammar.reindex(SHOW_UNUSED_SETS, SHOW_TAGS)
+        match g.finish() {
+            Ok(g) => g,
+            Err(e) => return fail(&e),
+        }
     };
 
-    // Grammar cmdargs → parse_opts into grammar_options_{default,override}, merge.
-    if !grammar.cmdargs.is_empty() {
-        parse_opts(&grammar.cmdargs, &mut grammar_options_default);
-    }
-    if !grammar.cmdargs_override.is_empty() {
-        parse_opts(&grammar.cmdargs_override, &mut grammar_options_override);
-    }
-    merge_options(
-        &mut options,
-        &grammar_options_default,
-        &grammar_options_override,
-        Some(&options_override),
-    );
-
-    // --prefix: override the mapping prefix (must match a binary grammar's).
-    if occ(&options, Opt::MappingPrefix) {
-        let mp = options[Opt::MappingPrefix as usize]
-            .value
-            .chars()
-            .next()
-            .unwrap_or('@');
-        if grammar.is_binary && grammar.mapping_prefix != mp {
-            tracing::error!(
-                "Error: Mapping prefix must match the one used for compiling the binary grammar!"
-            );
-            return EXIT_FAILURE;
-        }
-        grammar.mapping_prefix = mp;
-    }
-
-    if verbose {
-        tracing::info!("Reindexing grammar...");
-    }
-    match grammar.reindex(
-        occ(&options, Opt::ShowUnusedSets),
-        occ(&options, Opt::ShowTags),
-    ) {
-        // --show-tags: the dump is the whole job. The C++ exit(0)s inside
-        // reindex; the exit code is decided here instead.
-        Ok(Reindexed::DumpedTags) => return EXIT_SUCCESS,
-        Ok(Reindexed::Done) => {}
-        Err(e) => return fail(&e),
+    // --show-tags: the C++ dumps the used tags and exit(0)s inside reindex. The
+    // dump is not ported; the successful stop is decided here instead.
+    // --show-unused-sets prints nothing, as its report is not ported either.
+    if occ(&options, Opt::ShowTags) {
+        return EXIT_SUCCESS;
     }
 
     if verbose {
@@ -561,6 +559,48 @@ fn input_name(options: &crate::options::OptionsTable) -> String {
         return opt.value.clone();
     }
     crate::grammar_applicator::STDIN_SOURCE_NAME.to_string()
+}
+
+/// What vislcg3 does with a grammar between loading and finishing it, in
+/// either phase a loader returns: merges the options the grammar carries into
+/// `options`, and applies `--prefix`. `Err` is the exit code.
+fn apply_grammar_options<P: Phase>(
+    grammar: &mut GrammarCore<P>,
+    options: &mut OptionsTable,
+    grammar_options_default: &mut OptionsTable,
+    grammar_options_override: &mut OptionsTable,
+    options_override: &OptionsTable,
+) -> Result<(), i32> {
+    // Grammar cmdargs → parse_opts into grammar_options_{default,override}, merge.
+    if !grammar.cmdargs.is_empty() {
+        parse_opts(&grammar.cmdargs, grammar_options_default);
+    }
+    if !grammar.cmdargs_override.is_empty() {
+        parse_opts(&grammar.cmdargs_override, grammar_options_override);
+    }
+    merge_options(
+        options,
+        grammar_options_default,
+        grammar_options_override,
+        Some(options_override),
+    );
+
+    // --prefix: override the mapping prefix (must match a binary grammar's).
+    if options[Opt::MappingPrefix as usize].does_occur {
+        let mp = options[Opt::MappingPrefix as usize]
+            .value
+            .chars()
+            .next()
+            .unwrap_or('@');
+        if grammar.is_binary && grammar.mapping_prefix != mp {
+            tracing::error!(
+                "Error: Mapping prefix must match the one used for compiling the binary grammar!"
+            );
+            return Err(EXIT_FAILURE);
+        }
+        grammar.mapping_prefix = mp;
+    }
+    Ok(())
 }
 
 /// `--grammar-out` / `--grammar-bin`, after the run.

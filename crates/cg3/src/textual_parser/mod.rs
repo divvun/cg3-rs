@@ -1,5 +1,5 @@
 //! Port of `src/TextualParser.cpp` / `src/TextualParser.hpp` — the recursive
-//! descent parser that turns CG-3 text grammar into a [`GrammarCore`]
+//! descent parser that turns CG-3 text grammar into a [`GrammarDraft`]
 //! (spec `docs/spec/port/src/TextualParser.md`).
 //!
 //! Literal, bug-for-bug 1:1 translation (Wave 2, translate pass).
@@ -53,7 +53,7 @@ use crate::contextual_test::{
     POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, PosJumpPos,
 };
 use crate::error::Nesting;
-use crate::grammar::{GrammarCore, TagSpace};
+use crate::grammar::{GrammarDraft, TagSpace};
 use crate::inlines::{hash_value_str, isspace, skiptows_chars, skipws_chars, ui32};
 use crate::parser_helpers::Near;
 use crate::rule::{
@@ -381,7 +381,7 @@ fn accumulate_digits(buf: &[char], pos: &mut usize, acc: i32) -> Option<i32> {
 /// instead and stops at the first that does not, so a set built from sets
 /// however deep costs no stack.
 // [spec:cg3:req:robustness.depth-bounded]
-fn is_mapping_list(grammar: &GrammarCore, s: SetId) -> bool {
+fn is_mapping_list(grammar: &GrammarDraft, s: SetId) -> bool {
     let mut todo = vec![s];
     while let Some(s) = todo.pop() {
         if !is_mapping_list_own(grammar, s, &mut todo) {
@@ -395,7 +395,7 @@ fn is_mapping_list(grammar: &GrammarCore, s: SetId) -> bool {
 // [spec:cg3:sem:textual-parser.cg3.is-mapping-list-fn]
 /// One set of [`is_mapping_list`]'s walk: whether its own tags or operators
 /// rule it out, its member sets pushed onto `todo` to be checked in turn.
-fn is_mapping_list_own(grammar: &GrammarCore, s: SetId, todo: &mut Vec<SetId>) -> bool {
+fn is_mapping_list_own(grammar: &GrammarDraft, s: SetId, todo: &mut Vec<SetId>) -> bool {
     let st = grammar.sets_list[s.0].r#type;
     let trie_empty = grammar.sets_list[s.0].trie.is_empty();
     let trie_sp_empty = grammar.sets_list[s.0].trie_special.is_empty();
@@ -440,7 +440,7 @@ fn is_mapping_list_own(grammar: &GrammarCore, s: SetId, todo: &mut Vec<SetId>) -
 /// Collect a `TagVectorSet` into a `Vec<TagVector>` ordered by `compare_TagVector`
 /// (hash order) — the order `std::set_*` require (the port's `BTreeSet` is
 /// `Vec<TagId>`-ordered instead; documented deviation in `tag.rs`).
-fn sorted_tvs(grammar: &GrammarCore, s: &TagVectorSet) -> Vec<TagVector> {
+fn sorted_tvs(grammar: &GrammarDraft, s: &TagVectorSet) -> Vec<TagVector> {
     let mut v: Vec<TagVector> = s.iter().cloned().collect();
     v.sort_by(|x, y| {
         if compare_tag_vector(grammar, x, y) {
@@ -454,7 +454,7 @@ fn sorted_tvs(grammar: &GrammarCore, s: &TagVectorSet) -> Vec<TagVector> {
     v
 }
 
-fn merge_intersection(g: &GrammarCore, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
+fn merge_intersection(g: &GrammarDraft, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
     let mut r = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     while i < a.len() && j < b.len() {
@@ -471,7 +471,7 @@ fn merge_intersection(g: &GrammarCore, a: &[TagVector], b: &[TagVector]) -> Vec<
     r
 }
 
-fn merge_symdiff(g: &GrammarCore, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
+fn merge_symdiff(g: &GrammarDraft, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
     let mut r = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     while i < a.len() && j < b.len() {
@@ -492,7 +492,7 @@ fn merge_symdiff(g: &GrammarCore, a: &[TagVector], b: &[TagVector]) -> Vec<TagVe
 }
 
 /// a \ b (elements of `a` not in `b`).
-fn merge_difference(g: &GrammarCore, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
+fn merge_difference(g: &GrammarDraft, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
     let mut r = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     while i < a.len() && j < b.len() {
@@ -559,7 +559,7 @@ impl SourceBuf {
 
 // [spec:cg3:def:textual-parser.cg3.textual-parser]
 pub struct TextualParser {
-    pub grammar: GrammarCore,
+    pub grammar: GrammarDraft,
     pub filebase: String,
     pub strict_tags: Uint32SortedVector,
     pub list_tags: Uint32SortedVector,
@@ -685,8 +685,10 @@ impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.textual-parser-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.textual-parser-fn]
     /// C++ `TextualParser` ctor.
-    /// The port OWNS its `Grammar`; the C++ error-stream arg becomes stderr.
-    pub fn new(grammar: GrammarCore, dump_ast: bool) -> TextualParser {
+    /// The port OWNS its `Grammar`, a draft, which it hands back as the
+    /// `grammar` field; the C++ error-stream arg becomes stderr.
+    // [spec:cg3:req:grammar-phases.loaders]
+    pub fn new(grammar: GrammarDraft, dump_ast: bool) -> TextualParser {
         TextualParser {
             ast: Ast::new(dump_ast),
             grammar,

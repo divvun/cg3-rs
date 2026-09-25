@@ -15,8 +15,7 @@ fn run(grammar: &str, input: &str) -> Result<String, Cg3Error> {
     parser
         .parse_grammar_named(grammar.as_bytes(), "terminates.cg3")
         .expect("grammar parses");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).expect("reindex");
+    let grammar = parser.grammar.finish().expect("reindex");
     let mut app = GrammarApplicator::new(grammar.into());
     app.set_grammar().expect("applicator setup");
     let mut out: Vec<u8> = Vec::new();

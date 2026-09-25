@@ -42,7 +42,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::arena::{SetId, TagId};
-use crate::grammar::{GrammarCore, TagSpace};
+use crate::grammar::{GrammarDraft, TagSpace};
 use crate::inlines::hash_value_str;
 use crate::nesting::MAX_NESTING;
 use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY};
@@ -144,8 +144,8 @@ pub trait ParseTagState {
 }
 
 impl ParseTagState for TextualParser {
-    type Tags = GrammarCore;
-    fn grammar(&self) -> &GrammarCore {
+    type Tags = GrammarDraft;
+    fn grammar(&self) -> &GrammarDraft {
         &self.grammar
     }
     fn filebase(&self) -> &str {
@@ -785,7 +785,7 @@ mod tests {
     use super::*;
 
     fn parser() -> TextualParser {
-        TextualParser::new(GrammarCore::default(), false)
+        TextualParser::new(GrammarDraft::default(), false)
     }
 
     /// The tag text of a parsed tag id.

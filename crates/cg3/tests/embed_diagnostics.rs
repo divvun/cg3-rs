@@ -45,8 +45,7 @@ fn tag_regex_failures_name_the_tag() {
     let mut parser =
         cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     parser.parse_grammar_utf8(src.as_bytes()).expect("parses");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).unwrap();
+    let grammar = parser.grammar.finish().unwrap();
 
     let mut applicator = cg3::grammar_applicator::GrammarApplicator::new(grammar.into());
     let err = applicator

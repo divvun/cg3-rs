@@ -15,7 +15,7 @@ use super::read::variable_hash_of;
 use crate::arena::CtxId;
 use crate::contextual_test::{POS_TMPL_OVERRIDE, POS_UNKNOWN};
 use crate::error::{BinaryFault, GrammarError};
-use crate::grammar::GrammarCore;
+use crate::grammar::GrammarNumbered;
 use crate::tag::Tag;
 
 /// A node on a cycle in the graph over `0..n` whose edges `succ` gives, or
@@ -54,7 +54,7 @@ fn find_cycle(n: usize, succ: impl Fn(usize) -> Vec<usize>) -> Option<usize> {
 
 // [spec:cg3:req:robustness.binary-grammar-validated]
 /// A set that contains itself, directly or through its member sets.
-pub(super) fn set_cycles(grammar: &GrammarCore, load: &Load) -> Result<(), GrammarError> {
+pub(super) fn set_cycles(grammar: &GrammarNumbered, load: &Load) -> Result<(), GrammarError> {
     let members = |i: usize| {
         grammar.sets_list[i as u32]
             .sets
@@ -77,7 +77,7 @@ pub(super) fn set_cycles(grammar: &GrammarCore, load: &Load) -> Result<(), Gramm
 /// through a template reference is another matter — the `T_Templates` fixture
 /// has an `OR` alternative naming its own template, which the C++ compiles
 /// and runs — so template edges are not followed here.
-pub(super) fn context_cycles(grammar: &GrammarCore, load: &Load) -> Result<(), GrammarError> {
+pub(super) fn context_cycles(grammar: &GrammarNumbered, load: &Load) -> Result<(), GrammarError> {
     let ids: Vec<CtxId> = grammar.contexts.values().copied().collect();
     let index: HashMap<CtxId, usize> = ids.iter().enumerate().map(|(i, &c)| (c, i)).collect();
     let links = |i: usize| {
@@ -103,7 +103,10 @@ pub(super) fn context_cycles(grammar: &GrammarCore, load: &Load) -> Result<(), G
 /// is reached without one from a rule or through a `LINK`, and through the
 /// template or OR'd tests of a test so reached that carries no override
 /// itself; everything else a run reaches, it reaches overridden.
-pub(super) fn unknown_positions(grammar: &GrammarCore, load: &Load) -> Result<(), GrammarError> {
+pub(super) fn unknown_positions(
+    grammar: &GrammarNumbered,
+    load: &Load,
+) -> Result<(), GrammarError> {
     let mut pending: Vec<CtxId> = Vec::new();
     for number in 0..load.num_rules {
         let r = &grammar.rule_by_number[number];
@@ -136,7 +139,7 @@ pub(super) fn unknown_positions(grammar: &GrammarCore, load: &Load) -> Result<()
 
 // [spec:cg3:req:robustness.binary-grammar-validated]
 /// A rule that is among its own `WITH` sub-rules, directly or further down.
-pub(super) fn rule_cycles(grammar: &GrammarCore, load: &Load) -> Result<(), GrammarError> {
+pub(super) fn rule_cycles(grammar: &GrammarNumbered, load: &Load) -> Result<(), GrammarError> {
     let subs = |i: usize| {
         let rule = &grammar.rule_by_number[i as u32];
         rule.sub_rules.iter().map(|r| r.0 as usize).collect()
@@ -153,7 +156,7 @@ pub(super) fn rule_cycles(grammar: &GrammarCore, load: &Load) -> Result<(), Gram
 // [spec:cg3:req:robustness.binary-grammar-validated]
 /// The tag table as a whole: every tag stores the hashes its text, type and
 /// seed give it, and every variable value names a tag.
-pub(super) fn tag_hashes(grammar: &GrammarCore, load: &Load) -> Result<(), GrammarError> {
+pub(super) fn tag_hashes(grammar: &GrammarNumbered, load: &Load) -> Result<(), GrammarError> {
     for number in 0..load.num_tags {
         let t = &grammar.single_tags_list[number];
         let at = load.tag_at[number as usize];

@@ -251,8 +251,7 @@ fn unknown_position_at_run_time_is_error() {
 
     let src = "DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nTEMPLATE q = ? (*) ;\nSECTION\n\
                ADD (@x) N (-1 T:q) ;\n";
-    let mut grammar = loads(src).grammar;
-    let _ = grammar.reindex(false, false).expect("reindex");
+    let mut grammar = loads(src).grammar.finish().expect("reindex");
     // Take the override away, as a hand-built `.cg3b` could.
     let rule = (0..grammar.rule_by_number.capacity())
         .find_map(|i| grammar.rule_by_number.try_get(i))

@@ -22,7 +22,7 @@
 //! ## Engine / core mismatches (noted)
 //! * `grammar->single_tags[hash]` operator[] → [`tag_by_hash`] (`TagId(0)` on a
 //!   miss; benign for the always-present hashes).
-//! * `reindex()` (C++ default args) → `reindex(false, false)`.
+//! * `reindex()` (C++ default args) → `finish()` on the conv grammar's draft.
 //! * `alloc_reading(*sub)` deep-copy → [`crate::reading::alloc_reading_copy`]
 //!   (copies the whole `->next` sub-reading chain).
 //! * `add_tag` is `add_tag(&str, type)`.

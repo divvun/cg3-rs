@@ -52,10 +52,10 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 
-use crate::arena::TagId;
-use crate::grammar::GrammarCore;
+use crate::arena::{Arena, TagId};
+use crate::grammar::{GrammarCore, Phase};
 use crate::inlines::{hash_value, write_be};
-use crate::tag::{T_USED, TagList, TagVector, TagVectorSet};
+use crate::tag::{T_USED, Tag, TagList, TagVector, TagVectorSet};
 
 // [spec:cg3:def:tag-trie.cg3.trie-node-t]
 /// C++ `struct trie_node_t { bool terminal = false; std::unique_ptr<trie_t> trie; }`.
@@ -97,11 +97,11 @@ pub type TagTrie = BTreeMap<TagId, TrieNode>;
 /// `Tag->hash`. Not a manifest symbol: port infrastructure standing in for the
 /// flat_map's intrinsic hash ordering. STABLE sort → equal-hash entries keep
 /// their `TagId` order (they would have collided into one key in C++).
-fn ordered_entries<'a>(trie: &'a TagTrie, grammar: &GrammarCore) -> Vec<(TagId, &'a TrieNode)> {
+fn ordered_entries<'a>(trie: &'a TagTrie, tags: &Arena<Tag>) -> Vec<(TagId, &'a TrieNode)> {
     let mut v: Vec<(TagId, &TrieNode)> = trie.iter().map(|(k, n)| (*k, n)).collect();
     v.sort_by(|a, b| {
-        let ha = grammar.single_tags_list[a.0.0].hash;
-        let hb = grammar.single_tags_list[b.0.0].hash;
+        let ha = tags[a.0.0].hash;
+        let hb = tags[b.0.0].hash;
         ha.cmp(&hb)
     });
     v
@@ -140,7 +140,7 @@ impl<'a> Iterator for Level<'a> {
 pub struct TrieWalk<'a> {
     levels: Vec<Level<'a>>,
     /// Orders each level by hash, as [`ordered_entries`] does, when set.
-    grammar: Option<&'a GrammarCore>,
+    tags: Option<&'a Arena<Tag>>,
 }
 
 impl<'a> TrieWalk<'a> {
@@ -148,15 +148,16 @@ impl<'a> TrieWalk<'a> {
     pub fn new(trie: &'a TagTrie) -> Self {
         TrieWalk {
             levels: vec![Level::Keys(trie.iter())],
-            grammar: None,
+            tags: None,
         }
     }
 
     /// A walk visiting each level in ascending `Tag::hash` order.
-    pub fn ordered(trie: &'a TagTrie, grammar: &'a GrammarCore) -> Self {
+    pub fn ordered<P: Phase>(trie: &'a TagTrie, grammar: &'a GrammarCore<P>) -> Self {
+        let tags = &grammar.single_tags_list;
         TrieWalk {
-            levels: vec![Level::Ordered(ordered_entries(trie, grammar).into_iter())],
-            grammar: Some(grammar),
+            levels: vec![Level::Ordered(ordered_entries(trie, tags).into_iter())],
+            tags: Some(tags),
         }
     }
 
@@ -176,8 +177,8 @@ impl<'a> TrieWalk<'a> {
     /// Walk `sub`, the sub-trie of the entry just yielded, before the rest of
     /// that entry's level.
     pub fn descend(&mut self, sub: &'a TagTrie) {
-        let level = match self.grammar {
-            Some(grammar) => Level::Ordered(ordered_entries(sub, grammar).into_iter()),
+        let level = match self.tags {
+            Some(tags) => Level::Ordered(ordered_entries(sub, tags).into_iter()),
             None => Level::Keys(sub.iter()),
         };
         self.levels.push(level);
@@ -198,7 +199,7 @@ impl<'a> TrieWalk<'a> {
 /// `std::sort(tv.begin(), tv.end(), compare_Tag())` — sort a tag vector ascending
 /// by `Tag->hash`. (Stable here vs C++ `std::sort`'s unstable; only differs on
 /// equal-hash ties, which do not occur with unique tag hashes.)
-fn sort_tv_by_hash(tv: &mut TagVector, grammar: &GrammarCore) {
+fn sort_tv_by_hash<P: Phase>(tv: &mut TagVector, grammar: &GrammarCore<P>) {
     tv.sort_by(|a, b| {
         let ha = grammar.single_tags_list[a.0].hash;
         let hb = grammar.single_tags_list[b.0].hash;
@@ -395,7 +396,7 @@ fn sole_entry(trie: &TagTrie) -> Option<&TrieNode> {
 /// finished sub-trie's value is folded into its parent's before the parent's
 /// next entry, where the C++ recursion returns it.
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_rehash(trie: &TagTrie, grammar: &GrammarCore) -> u32 {
+pub fn trie_rehash<P: Phase>(trie: &TagTrie, grammar: &GrammarCore<P>) -> u32 {
     let mut walk = TrieWalk::ordered(trie, grammar);
     let mut retvals: Vec<u32> = vec![0];
     while let Some((k, node, depth)) = walk.next_entry() {
@@ -432,7 +433,7 @@ fn fold_finished_levels(retvals: &mut Vec<u32>, live: usize) {
 /// `grammar.single_tags_list` and the immutable borrow of the set's trie must be
 /// split — restructure or clone as needed.) Walks with a [`TrieWalk`].
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_markused(trie: &TagTrie, grammar: &mut GrammarCore) {
+pub fn trie_markused<P: Phase>(trie: &TagTrie, grammar: &mut GrammarCore<P>) {
     TrieWalk::new(trie).each(|k, _| grammar.single_tags_list.get_mut(k.0).r#type |= T_USED);
 }
 
@@ -443,7 +444,11 @@ pub fn trie_markused(trie: &TagTrie, grammar: &mut GrammarCore) {
 /// `Tag::type`, so `grammar` is required. (C++ takes `trie_t&`; the port takes
 /// `&trie_t` since it never mutates.) Walks with a [`TrieWalk`].
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_has_type(trie: &TagTrie, type_: crate::tag::TagType, grammar: &GrammarCore) -> bool {
+pub fn trie_has_type<P: Phase>(
+    trie: &TagTrie,
+    type_: crate::tag::TagType,
+    grammar: &GrammarCore<P>,
+) -> bool {
     let mut walk = TrieWalk::new(trie);
     while let Some((k, node, _)) = walk.next_entry() {
         if grammar.single_tags_list[k.0].r#type.intersects(type_) {
@@ -462,7 +467,11 @@ pub fn trie_has_type(trie: &TagTrie, type_: crate::tag::TagType, grammar: &Gramm
 /// See [`trie_get_tag_list_find`] for the spec'd sibling overload. Walks with a
 /// [`TrieWalk`].
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_get_tag_list_append(trie: &TagTrie, the_tags: &mut TagList, grammar: &GrammarCore) {
+pub fn trie_get_tag_list_append<P: Phase>(
+    trie: &TagTrie,
+    the_tags: &mut TagList,
+    grammar: &GrammarCore<P>,
+) {
     TrieWalk::ordered(trie, grammar).each(|k, _| the_tags.push(k));
 }
 
@@ -486,11 +495,11 @@ pub fn trie_get_tag_list_append(trie: &TagTrie, the_tags: &mut TagList, grammar:
 /// Walks with a [`TrieWalk`]: cutting `the_tags` back to the depth of each
 /// entry before pushing it is the C++'s `pop_back` after each subtree.
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_get_tag_list_find(
+pub fn trie_get_tag_list_find<P: Phase>(
     trie: &TagTrie,
     the_tags: &mut TagList,
     node: *const core::ffi::c_void,
-    grammar: &GrammarCore,
+    grammar: &GrammarCore<P>,
 ) -> bool {
     let base = the_tags.len();
     let mut walk = TrieWalk::ordered(trie, grammar);
@@ -511,9 +520,9 @@ pub fn trie_get_tag_list_find(
 // Unspecced C++ overload `trie_getTagList(const trie_t&) -> TagVector`: returns the
 // full tag list (delegates sub-tries to [`trie_get_tag_list_append`]). Output
 // order is the flat_map hash order, so `grammar` is required.
-pub fn trie_get_tag_list(trie: &TagTrie, grammar: &GrammarCore) -> TagVector {
+pub fn trie_get_tag_list<P: Phase>(trie: &TagTrie, grammar: &GrammarCore<P>) -> TagVector {
     let mut the_tags = TagVector::new();
-    for (k, node) in ordered_entries(trie, grammar) {
+    for (k, node) in ordered_entries(trie, &grammar.single_tags_list) {
         the_tags.push(k);
         if let Some(sub) = &node.trie {
             trie_get_tag_list_append(sub, &mut the_tags, grammar);
@@ -527,11 +536,11 @@ pub fn trie_get_tag_list(trie: &TagTrie, grammar: &GrammarCore) -> TagVector {
 // SORT-THEN-POP BUG (see [`trie_get_tags`]). Walks with a [`TrieWalk`]; the
 // C++ does nothing to `tv` on returning from a sub-trie, so neither does this.
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_get_tags_into(
+pub fn trie_get_tags_into<P: Phase>(
     trie: &TagTrie,
     rv: &mut TagVectorSet,
     tv: &mut TagVector,
-    grammar: &GrammarCore,
+    grammar: &GrammarCore<P>,
 ) {
     let mut walk = TrieWalk::ordered(trie, grammar);
     while let Some((k, node, _)) = walk.next_entry() {
@@ -559,9 +568,9 @@ pub fn trie_get_tags_into(
 /// delegate to [`trie_get_tags_into`], which carries the sort-then-pop BUG. See
 /// that helper for the reproduced quirk. `grammar` is required for both the hash
 /// ordering and the per-sequence sort.
-pub fn trie_get_tags(trie: &TagTrie, grammar: &GrammarCore) -> TagVectorSet {
+pub fn trie_get_tags<P: Phase>(trie: &TagTrie, grammar: &GrammarCore<P>) -> TagVectorSet {
     let mut rv = TagVectorSet::new();
-    for (k, node) in ordered_entries(trie, grammar) {
+    for (k, node) in ordered_entries(trie, &grammar.single_tags_list) {
         let mut tv = TagVector::new();
         tv.push(k);
         if node.terminal {
@@ -582,11 +591,11 @@ pub fn trie_get_tags(trie: &TagTrie, grammar: &GrammarCore) -> TagVectorSet {
 // so backtracking (`pop`) correctly removes the just-pushed tag. Walks with a
 // [`TrieWalk`], as [`trie_get_tags_into`] does.
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_get_tags_ordered_into(
+pub fn trie_get_tags_ordered_into<P: Phase>(
     trie: &TagTrie,
     rv: &mut TagVectorSet,
     tv: &mut TagVector,
-    grammar: &GrammarCore,
+    grammar: &GrammarCore<P>,
 ) {
     let mut walk = TrieWalk::ordered(trie, grammar);
     while let Some((k, node, _)) = walk.next_entry() {
@@ -608,9 +617,9 @@ pub fn trie_get_tags_ordered_into(
 /// [`trie_get_tags`] but WITHOUT any per-sequence sorting: paths preserve their
 /// in-trie (ascending-hash) order, so `pop` always removes the just-pushed tag
 /// (no corruption). `grammar` is required for the hash ordering.
-pub fn trie_get_tags_ordered(trie: &TagTrie, grammar: &GrammarCore) -> TagVectorSet {
+pub fn trie_get_tags_ordered<P: Phase>(trie: &TagTrie, grammar: &GrammarCore<P>) -> TagVectorSet {
     let mut rv = TagVectorSet::new();
-    for (k, node) in ordered_entries(trie, grammar) {
+    for (k, node) in ordered_entries(trie, &grammar.single_tags_list) {
         let mut tv = TagVector::new();
         tv.push(k);
         if node.terminal {
@@ -636,7 +645,7 @@ pub fn trie_get_tags_ordered(trie: &TagTrie, grammar: &GrammarCore) -> TagVector
 ///
 /// Walks with a [`TrieWalk`], so the bytes come out in the C++'s order.
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_serialize<W: Write>(trie: &TagTrie, out: &mut W, grammar: &GrammarCore) {
+pub fn trie_serialize<W: Write, P: Phase>(trie: &TagTrie, out: &mut W, grammar: &GrammarCore<P>) {
     let mut walk = TrieWalk::ordered(trie, grammar);
     while let Some((k, node, _)) = walk.next_entry() {
         let number = grammar.single_tags_list[k.0].number;
@@ -654,14 +663,19 @@ pub fn trie_serialize<W: Write>(trie: &TagTrie, out: &mut W, grammar: &GrammarCo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grammar::GrammarCore;
+    use crate::grammar::GrammarDraft;
     use crate::tag::{T_MAPPING, Tag};
 
     /// Intern a fresh `Tag` into the grammar arena with an explicit `hash`,
     /// `number`, and `type`, returning its `TagId`. Building tags directly (rather
     /// than via the parser) keeps the trie tests self-contained while still using
     /// the real `Grammar` arena the trie functions read through.
-    fn mk_tag(g: &mut GrammarCore, hash: u32, number: u32, type_: crate::tag::TagType) -> TagId {
+    fn mk_tag<P: Phase>(
+        g: &mut GrammarCore<P>,
+        hash: u32,
+        number: u32,
+        type_: crate::tag::TagType,
+    ) -> TagId {
         let t = Tag {
             hash: crate::types::TagHash(hash),
             number,
@@ -682,7 +696,7 @@ mod tests {
     // [spec:cg3:sem:tag-trie.cg3.trie-get-tag-list-fn/test]
     #[test]
     fn insert_singular_has_type_and_tag_list() {
-        let mut g = GrammarCore::default();
+        let mut g = GrammarDraft::default();
         // Distinct ascending hashes so ordering is unambiguous.
         let a = mk_tag(&mut g, 10, 0, crate::tag::TagType::empty());
         let b = mk_tag(&mut g, 20, 1, T_MAPPING);
@@ -723,7 +737,7 @@ mod tests {
     // [spec:cg3:sem:tag-trie.cg3.trie-get-tags-ordered-fn/test]
     #[test]
     fn get_tags_sort_pop_corruption() {
-        let mut g = GrammarCore::default();
+        let mut g = GrammarDraft::default();
         // Root tag `p` has a HIGHER hash than the two leaves so that sorting the
         // shared prefix reorders it to the end and the pop removes the wrong tag.
         let leaf_lo = mk_tag(&mut g, 5, 0, crate::tag::TagType::empty()); // low hash leaf
@@ -770,7 +784,7 @@ mod tests {
     // [spec:cg3:sem:tag-trie.cg3.trie-serialize-fn/test]
     #[test]
     fn rehash_markused_serialize() {
-        let mut g = GrammarCore::default();
+        let mut g = GrammarDraft::default();
         let a = mk_tag(&mut g, 0x11, 7, crate::tag::TagType::empty()); // number 7
         let b = mk_tag(&mut g, 0x22, 9, crate::tag::TagType::empty()); // number 9
 
@@ -813,7 +827,7 @@ mod tests {
     // [spec:cg3:sem:tag-trie.cg3.trie-delete-fn/test]
     #[test]
     fn copy_and_delete() {
-        let mut g = GrammarCore::default();
+        let mut g = GrammarDraft::default();
         let a = mk_tag(&mut g, 1, 0, crate::tag::TagType::empty());
         let b = mk_tag(&mut g, 2, 1, crate::tag::TagType::empty());
         let c = mk_tag(&mut g, 3, 2, crate::tag::TagType::empty());

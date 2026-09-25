@@ -50,7 +50,7 @@ fn matxin(input: &[u8]) -> Result<String, Cg3Error> {
     grammar.delimiters = Some(delim);
     let dummy = grammar.allocate_tag("__CG3_DUMMY_STRINGBIT__").unwrap();
     grammar.add_tag_to_set(dummy, delim);
-    let _ = grammar.reindex(false, false).unwrap();
+    let grammar = grammar.finish().unwrap();
     let mut base = GrammarApplicator::new(grammar.into());
     base.set_grammar().unwrap();
     base.cfg.input_name = "in.txt".to_string();

@@ -362,8 +362,7 @@ fn current_rule_does_not_outlive_the_run() {
     parser
         .parse_grammar_named(src, "current-rule.cg3")
         .expect("grammar parses");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).expect("reindex");
+    let grammar = parser.grammar.finish().expect("reindex");
 
     let mut app = GrammarApplicator::new(grammar.into());
     app.set_grammar().expect("applicator setup");
@@ -401,8 +400,7 @@ fn runtime_tag_flags_do_not_reach_the_grammar() {
     parser
         .parse_grammar_named(src, "tag-flags.cg3")
         .expect("grammar parses");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).expect("reindex");
+    let grammar = parser.grammar.finish().expect("reindex");
     let grammar = Grammar::from(grammar);
 
     // Materialised flags are exactly the load-time ones, for every live tag.
@@ -482,8 +480,7 @@ fn runtime_interning_dedups_against_the_shared_core() {
     parser
         .parse_grammar_named(src, "collide.cg3")
         .expect("grammar parses");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).expect("reindex");
+    let grammar = parser.grammar.finish().expect("reindex");
 
     let collide_hash = cg3::inlines::hash_value_str("aac0c", 0);
     assert_eq!(
@@ -563,8 +560,7 @@ fn a_loaded_core_is_shareable() {
     parser
         .parse_grammar_named(src, "shared.cg3")
         .expect("grammar parses");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).expect("reindex");
+    let grammar = parser.grammar.finish().expect("reindex");
 
     let core = std::sync::Arc::new(grammar);
     let tags = core.single_tags_list.capacity();
@@ -610,9 +606,7 @@ fn two_pipelines_share_one_grammar_core() {
         parser
             .parse_grammar_named(SRC, "shared-core.cg3")
             .expect("grammar parses");
-        let mut grammar = parser.grammar;
-        let _ = grammar.reindex(false, false).expect("reindex");
-        grammar
+        parser.grammar.finish().expect("reindex")
     }
 
     fn owned() -> GrammarApplicator {
@@ -715,8 +709,7 @@ fn a_shared_core_cannot_reach_the_writers() {
     parser
         .parse_grammar_named(src, "writers.cg3")
         .expect("grammar parses");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).expect("reindex");
+    let grammar = parser.grammar.finish().expect("reindex");
 
     let core = Arc::new(grammar);
     let pipeline = GrammarApplicator::from_core(Arc::clone(&core)).expect("pipeline");
@@ -1137,8 +1130,7 @@ fn run_text(grammar: &[u8], input: &str) -> Result<String, cg3::error::Cg3Error>
     parser
         .parse_grammar_named(grammar, "keys.cg3")
         .expect("grammar parses");
-    let mut grammar = parser.grammar;
-    let _ = grammar.reindex(false, false).expect("reindex");
+    let grammar = parser.grammar.finish().expect("reindex");
     let mut app = GrammarApplicator::new(grammar.into());
     app.set_grammar().expect("applicator setup");
     let mut cursor = std::io::Cursor::new(input.as_bytes().to_vec());
@@ -1279,8 +1271,7 @@ fn apply_grammar(
     parser
         .parse_grammar_named(grammar.as_bytes(), "robustness.cg3")
         .expect("grammar parses");
-    let mut core = parser.grammar;
-    let _ = core.reindex(false, false).expect("reindex");
+    let core = parser.grammar.finish().expect("reindex");
     let mut app = GrammarApplicator::new(core.into());
     app.set_grammar().expect("applicator setup");
     configure(&mut app.cfg);
@@ -1464,16 +1455,14 @@ fn numeric_math_variable_tag_survives_cg3b() {
     parser
         .parse_grammar_named(b"ADD (@m) (VAR:<x=5+1>) ;\n", "math.cg3")
         .expect("grammar parses");
-    let mut core = parser.grammar;
-    let _ = core.reindex(false, false).expect("reindex");
+    let core = parser.grammar.finish().expect("reindex");
     let mut blob: Vec<u8> = Vec::new();
     BinaryGrammar::new(core)
         .write_binary_grammar(&mut blob)
         .expect("the grammar writes");
     let mut reader = BinaryGrammar::new(GrammarCore::default());
     reader.parse_grammar_buffer(&blob).expect("the .cg3b reads");
-    let mut core = reader.grammar;
-    let _ = core.reindex(false, false).expect("reindex");
+    let core = reader.grammar.finish().expect("reindex");
 
     let mut app = GrammarApplicator::new(core.into());
     app.set_grammar().expect("applicator setup");

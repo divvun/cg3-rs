@@ -28,7 +28,7 @@ use std::io::{Read, Seek, Write};
 use crate::apertium_applicator::{ApertiumApplicator, ApertiumFormat};
 use crate::arena::{CohortId, SwId};
 use crate::fst_applicator::{FSTApplicator, FstFormat};
-use crate::grammar::{Grammar, GrammarCore, TagSpace};
+use crate::grammar::{Grammar, GrammarCore, GrammarDraft, TagSpace};
 use crate::grammar_applicator::stream_format::StreamFormat;
 use crate::grammar_applicator::{Engine, GrammarApplicator, StreamFormatKind};
 use crate::jsonl_applicator::{JsonlApplicator, JsonlFormat};
@@ -154,7 +154,7 @@ pub struct FormatConverter {
 /// [`FormatConverter`] and [`MweSplitApplicator`](crate::mwesplit_applicator::MweSplitApplicator),
 /// whose C++ constructors each build it.
 pub(crate) fn conv_grammar() -> Result<GrammarCore, crate::error::Cg3Error> {
-    let mut grammar = GrammarCore::default();
+    let mut grammar = GrammarDraft::default();
     grammar.allocate_dummy_set();
     let delim = grammar.allocate_set();
     grammar.delimiters = Some(delim);
@@ -166,8 +166,7 @@ pub(crate) fn conv_grammar() -> Result<GrammarCore, crate::error::Cg3Error> {
         .intern_text(STR_DUMMY)
         .expect("the dummy tag is a literal and cannot fail");
     grammar.add_tag_to_set(dummy_tag, delim);
-    let _ = grammar.reindex(false, false)?;
-    Ok(grammar)
+    grammar.finish()
 }
 
 impl FormatConverter {

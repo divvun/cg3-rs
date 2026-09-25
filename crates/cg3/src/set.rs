@@ -7,7 +7,7 @@
 //! Pointer→arena mapping: C++ `Set*` → [`SetId`], `Tag*` → `TagId`.
 
 use crate::arena::{SetId, TagId};
-use crate::grammar::GrammarCore;
+use crate::grammar::{Draft, GrammarCore, Phase};
 use crate::inlines::{hash_value, ui32};
 use crate::sorted_vector::{Comparator, SortedVector};
 use crate::tag::{CompareTag, T_MAPPING, T_SPECIAL, TagSortedVector};
@@ -192,7 +192,7 @@ impl Set {
     /// first char or `'\0'` (never panics). The `Set::dump_hashes_out` debug
     /// stream is a class-static global-I/O concern and is NOT reproduced (same
     /// precedent as `Tag::rehash`).
-    pub fn rehash(grammar: &mut GrammarCore, id: SetId) -> u32 {
+    pub fn rehash(grammar: &mut GrammarCore<Draft>, id: SetId) -> u32 {
         let mut retval: u32 = 0;
 
         let ty = grammar.sets_list[id.0].r#type;
@@ -267,7 +267,7 @@ impl Set {
     ///
     /// The C++ recurses into the child sets; [`Set::reindex_members`] walks
     /// them without recursing.
-    pub fn reindex(grammar: &mut GrammarCore, id: SetId) {
+    pub fn reindex(grammar: &mut GrammarCore<Draft>, id: SetId) {
         // find(s)->second — no end-check (see QUIRK above).
         Set::reindex_members(grammar, id, |grammar, s| grammar.sets_by_contents[&s]);
     }
@@ -281,10 +281,10 @@ impl Set {
     /// rather than the call stack. A child's flags are merged into its parent
     /// as soon as the child is done and before the next child is begun, where
     /// the recursion returns.
-    pub(crate) fn reindex_members(
-        grammar: &mut GrammarCore,
+    pub(crate) fn reindex_members<P: Phase>(
+        grammar: &mut GrammarCore<P>,
         id: SetId,
-        member: impl Fn(&GrammarCore, u32) -> SetId,
+        member: impl Fn(&GrammarCore<P>, u32) -> SetId,
     ) {
         Set::reindex_own(grammar, id);
         let mut open = vec![(id, 0usize)];
@@ -304,7 +304,7 @@ impl Set {
 
     /// The part of `Set::reindex` before the child sets: clear the derived
     /// flags, then take the flags the set's own tags give it.
-    fn reindex_own(grammar: &mut GrammarCore, id: SetId) {
+    fn reindex_own<P: Phase>(grammar: &mut GrammarCore<P>, id: SetId) {
         grammar.sets_list[id.0].r#type &= !ST_SPECIAL;
         grammar.sets_list[id.0].r#type &= !ST_CHILD_UNIFY;
         let r_trie = trie_reindex(&grammar.sets_list[id.0].trie, grammar);
@@ -315,7 +315,7 @@ impl Set {
 
     /// The part of `Set::reindex` after the child sets, then the parent's
     /// merge of the flags this set leaves it with.
-    fn reindex_finish(grammar: &mut GrammarCore, id: SetId, parent: Option<SetId>) {
+    fn reindex_finish<P: Phase>(grammar: &mut GrammarCore<P>, id: SetId, parent: Option<SetId>) {
         if grammar.sets_list[id.0]
             .r#type
             .intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY)
@@ -350,7 +350,7 @@ impl Set {
     ///
     /// The C++ recurses into the child sets; this keeps the sets still to mark
     /// on a heap stack, taking them in the recursion's order.
-    pub fn mark_used(grammar: &mut GrammarCore, id: SetId) {
+    pub fn mark_used(grammar: &mut GrammarCore<Draft>, id: SetId) {
         let mut todo = vec![id];
         while let Some(set) = todo.pop() {
             Set::mark_used_own(grammar, set);
@@ -370,7 +370,7 @@ impl Set {
     /// borrow does not alias the set's own trie (`trie_markused` reads only
     /// structure + `TagId`s, mutating the tags, so the clone yields identical
     /// marking).
-    fn mark_used_own(grammar: &mut GrammarCore, id: SetId) {
+    fn mark_used_own(grammar: &mut GrammarCore<Draft>, id: SetId) {
         grammar.sets_list[id.0].r#type |= ST_USED;
 
         let trie = grammar.sets_list[id.0].trie.clone();
@@ -411,7 +411,7 @@ impl Drop for Set {
 /// so the `BTreeMap` is iterated directly; `grammar` resolves each `TagId`'s
 /// `Tag::type`. Walks with a [`TrieWalk`] where the C++ recurses.
 // [spec:cg3:req:robustness.depth-bounded]
-pub fn trie_reindex(trie: &TagTrie, grammar: &GrammarCore) -> SetType {
+pub fn trie_reindex<P: Phase>(trie: &TagTrie, grammar: &GrammarCore<P>) -> SetType {
     let mut type_ = SetType::empty();
     TrieWalk::new(trie).each(|k, _| {
         let tag_type = grammar.single_tags_list[k.0].r#type;

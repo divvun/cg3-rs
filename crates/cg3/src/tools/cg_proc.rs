@@ -24,7 +24,7 @@ use std::io::Read;
 use crate::apertium_applicator::ApertiumApplicator;
 use crate::binary_applicator::BinaryApplicator;
 use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::{Grammar, GrammarCore};
+use crate::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered};
 use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::is_cg3b;
 use crate::matxin_applicator::MatxinApplicator;
@@ -290,6 +290,35 @@ fn check_number_args(events: &[(char, Option<String>)]) -> Result<(), NumberArgE
     Ok(())
 }
 
+/// Parses the grammar at `grammar_path`, whose first bytes are `head` (binary
+/// → BinaryGrammar; text → TextualParser + warning), and finishes it where the
+/// C++ calls `grammar.reindex()`. `Err` is the exit code, the failure already
+/// reported.
+fn load_grammar(grammar_path: &str, head: [u8; 4]) -> Result<GrammarCore, i32> {
+    let finished = if is_cg3b(head) {
+        let mut parser = BinaryGrammar::new(GrammarNumbered::default());
+        parser
+            .parse_grammar_filename(grammar_path)
+            .map_err(|e| fail(&e))?;
+        parser.grammar.finish()
+    } else {
+        tracing::warn!(
+            "Warning: Text grammar detected - to better process textual\ngrammars, use `vislcg3'; to compile this grammar, use `cg-comp'"
+        );
+        let mut parser = TextualParser::new(GrammarDraft::default(), false);
+        let buffer = std::fs::read(grammar_path).map_err(|_| {
+            tracing::error!("Error: Error opening {} for reading!", grammar_path);
+            EXIT_FAILURE
+        })?;
+        // [spec:cg3:req:diagnostics.source-named]
+        parser
+            .parse_grammar_named(&buffer, grammar_path)
+            .map_err(|e| fail(&e))?;
+        parser.grammar.finish()
+    };
+    finished.map_err(|e| fail(&e))
+}
+
 // [spec:cg3:def:cg-proc.main-fn+1]
 // [spec:cg3:sem:cg-proc.main-fn+1]
 /// C++ `int main(int argc, char* argv[])`.
@@ -391,36 +420,10 @@ pub fn main_proc(args: &[String]) -> i32 {
     let input_path: Option<&String> = args.get(optind + 1);
     let output_path: Option<&String> = args.get(optind + 2);
 
-    // Parse the grammar (binary → BinaryGrammar; text → TextualParser + warning).
-    let mut grammar: GrammarCore = if is_cg3b(head) {
-        let mut parser = BinaryGrammar::new(GrammarCore::default());
-        if let Err(e) = parser.parse_grammar_filename(grammar_path) {
-            return fail(&e);
-        }
-        parser.grammar
-    } else {
-        tracing::warn!(
-            "Warning: Text grammar detected - to better process textual\ngrammars, use `vislcg3'; to compile this grammar, use `cg-comp'"
-        );
-        let mut parser = TextualParser::new(GrammarCore::default(), false);
-        let buffer = match std::fs::read(grammar_path) {
-            Ok(b) => b,
-            Err(_) => {
-                tracing::error!("Error: Error opening {} for reading!", grammar_path);
-                return EXIT_FAILURE;
-            }
-        };
-        // [spec:cg3:req:diagnostics.source-named]
-        if let Err(e) = parser.parse_grammar_named(&buffer, grammar_path) {
-            return fail(&e);
-        }
-        parser.grammar
+    let grammar = match load_grammar(grammar_path, head) {
+        Ok(g) => g,
+        Err(code) => return code,
     };
-
-    // grammar.reindex();
-    if let Err(e) = grammar.reindex(false, false) {
-        return fail(&e);
-    }
 
     // Grammar cmdargs → parse_opts into grammar_options_{default,override}.
     if !grammar.cmdargs.is_empty() {

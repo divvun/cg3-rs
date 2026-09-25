@@ -536,4 +536,15 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id grammar-phases.load-types, covered_rules (
+        grammar-phases.finish
+        grammar-phases.index-rebuilds
+        grammar-phases.indexed-only
+        grammar-phases.loaders
+    ), covered_claims (
+        {impl_name target-impl, rule grammar-phases.finish}
+        {impl_name target-impl, rule grammar-phases.index-rebuilds}
+        {impl_name target-impl, rule grammar-phases.indexed-only}
+        {impl_name target-impl, rule grammar-phases.loaders}
+    )}
 )
