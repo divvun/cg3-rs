@@ -305,19 +305,21 @@ impl TextualParser {
 /// C++ `Grammar::getTagList_Any` over a set that has not been through
 /// `reindex`: a composite set's members are the content hashes the parser
 /// stored, so they are looked up by hash rather than taken as set numbers.
+/// The sets still to visit are kept on a heap stack, in the order the C++
+/// recursion takes them, so a set built from sets however deep costs no stack.
+// [spec:cg3:req:robustness.depth-bounded]
 fn tag_list_any_by_hash(grammar: &GrammarCore, set: SetId, the_tags: &mut TagList) {
-    let s = &grammar.sets_list[set.0];
-    if s.r#type.intersects(ST_SET_UNIFY | ST_TAG_UNIFY) {
-        the_tags.clear();
-        the_tags.extend(grammar.single_tags().find(grammar.tag_any).tag());
-    } else if !s.sets.is_empty() {
-        for &member in &s.sets {
-            if let Some(child) = grammar.get_set(member) {
-                tag_list_any_by_hash(grammar, child, the_tags);
-            }
+    let mut todo = vec![set];
+    while let Some(set) = todo.pop() {
+        let s = &grammar.sets_list[set.0];
+        if s.r#type.intersects(ST_SET_UNIFY | ST_TAG_UNIFY) {
+            the_tags.clear();
+            the_tags.extend(grammar.single_tags().find(grammar.tag_any).tag());
+        } else if !s.sets.is_empty() {
+            todo.extend(s.sets.iter().rev().filter_map(|&m| grammar.get_set(m)));
+        } else {
+            trie_get_tag_list_append(&s.trie, the_tags, grammar);
+            trie_get_tag_list_append(&s.trie_special, the_tags, grammar);
         }
-    } else {
-        trie_get_tag_list_append(&s.trie, the_tags, grammar);
-        trie_get_tag_list_append(&s.trie_special, the_tags, grammar);
     }
 }

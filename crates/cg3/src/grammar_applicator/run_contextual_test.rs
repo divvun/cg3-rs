@@ -66,7 +66,8 @@ use crate::contextual_test::{
     POS_JUMP, POS_LEFT, POS_LEFT_PAR, POS_LEFTMOST, POS_LOOK_DELAYED, POS_LOOK_DELETED,
     POS_LOOK_IGNORED, POS_MARK_SET, POS_NEGATE, POS_NONE, POS_NOT, POS_PASS_ORIGIN, POS_RELATION,
     POS_RIGHT, POS_RIGHT_PAR, POS_RIGHTMOST, POS_SCANALL, POS_SCANFIRST, POS_SELF, POS_SPAN_BOTH,
-    POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, TestOverride, TestRef,
+    POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, PosFlags,
+    TestOverride, TestRef,
 };
 use crate::inlines::{make_64, si32};
 use crate::single_window::{SingleWindow, less_cohort};
@@ -105,6 +106,30 @@ struct TestArgs<'a> {
     deep: Option<&'a mut Option<CohortId>>,
     /// C++ `Cohort* origin`.
     origin: Option<CohortId>,
+}
+
+/// A cohort whose dependents a deep `runDependencyTest` is walking: the
+/// frame the C++ recursion keeps on the stack, kept on the heap.
+struct DepLevel {
+    current: CohortId,
+    /// The dependents to test, by global number, in order.
+    deps: Vec<u32>,
+    /// The index in `deps` of the next one to test.
+    next: usize,
+    /// The result so far.
+    rv: Option<CohortId>,
+}
+
+/// What testing one dependent does to a `runDependencyTest` walk.
+enum DepNext {
+    /// Go on to the next dependent.
+    Next,
+    /// The walk of this level ends with this result.
+    End(Option<CohortId>),
+    /// `ALL`: this one matched, and is the result unless a later one fails.
+    Matched(CohortId),
+    /// A deep test: walk this dependent's own dependents before the next.
+    Descend(CohortId),
 }
 
 // --- Arena-aware `CohortSet` helpers (runRelationTest builds a `CohortSet`) ---
@@ -442,10 +467,10 @@ impl Matcher<'_> {
         good
     }
 
-    // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn]
-    // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-contextual-test-tmpl-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-tmpl-fn]
+    // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn+1]
+    // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn+1]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-contextual-test-tmpl-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-tmpl-fn+1]
     /// Runs one template (`tmpl`) on behalf of the outer `test`, optionally
     /// imposing the outer test's position onto the template, then validating the
     /// result. C++ `Cohort* runContextualTest_tmpl(SingleWindow*, size_t, const
@@ -526,7 +551,7 @@ impl Matcher<'_> {
 
         // cohort = runContextualTest(sWindow, position, tmpl, &cdeep, origin)
         let mut cohort =
-            self.run_contextual_test(sw, position, tmpl_ref, Some(&mut *cdeep), origin)?;
+            self.run_template_test(test.id, sw, position, tmpl_ref, Some(&mut *cdeep), origin)?;
 
         if override_applied
             && let (Some(c), Some(cd)) = (cohort, *cdeep)
@@ -552,10 +577,10 @@ impl Matcher<'_> {
         Ok(cohort)
     }
 
-    // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+1]
-    // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+1]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+1]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+1]
+    // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+2]
+    // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+2]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+2]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+2]
     // [spec:cg3:req:robustness.accepted-grammars-run]
     /// The central contextual-test dispatcher. C++ `Cohort*
     /// runContextualTest(SingleWindow* sWindow, size_t position, const
@@ -785,7 +810,7 @@ impl Matcher<'_> {
                     if let Some(l) = test_linked {
                         // A LINK target is its own test object: the C++ arena
                         // write never reached it, so no override travels here.
-                        cohort = self.run_contextual_test(
+                        cohort = self.run_linked_test(
                             sw,
                             position,
                             TestRef::new(l),
@@ -1290,10 +1315,18 @@ impl Matcher<'_> {
     // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-dependency-test-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:req:robustness.depth-bounded]
     /// Traverses dependency children/parents/siblings from `current`, testing
     /// each, optionally recursing (deep). C++ `Cohort* runDependencyTest(
     /// SingleWindow*, Cohort* current, const ContextualTest*, Cohort** deep,
     /// Cohort* origin, const Cohort* self)`.
+    ///
+    /// A deep test (`c*`, `s*`) walks the dependency tree depth first, which
+    /// the C++ does by recursing once per level of the tree: as deep as the
+    /// input's dependency chain. Here each cohort whose dependents are being
+    /// walked is a level on a heap stack instead, entered where the C++
+    /// recurses and left where it returns, so the cohorts are tested in the
+    /// same order and a chain of any length costs no stack.
     pub fn run_dependency_test(
         &mut self,
         // C++ reads `sWindow->parent->cohort_map` throughout, which is the
@@ -1306,17 +1339,84 @@ impl Matcher<'_> {
         origin: Option<CohortId>,
         self_cohort: Option<CohortId>,
     ) -> Result<Option<CohortId>, crate::error::RunError> {
-        let mut rv: Option<CohortId> = None;
-
-        let selfc = match self_cohort {
-            Some(s) => {
-                if s == current {
-                    return Ok(None);
+        let selfc = self_cohort.unwrap_or(current);
+        let mut levels: Vec<DepLevel> = Vec::new();
+        let mut finished = self.dep_test_enter(
+            &mut levels,
+            current,
+            self_cohort,
+            test,
+            deep.as_deref_mut(),
+            origin,
+        )?;
+        loop {
+            // A level that has finished hands its result to the one above,
+            // which ends with it if it found a cohort.
+            if let Some(result) = finished.take() {
+                let Some(parent) = levels.last_mut() else {
+                    return Ok(result);
+                };
+                if result.is_some() {
+                    parent.rv = result;
+                    parent.next = parent.deps.len();
                 }
-                s
             }
-            None => current,
-        };
+            let Some(level) = levels.last_mut() else {
+                return Ok(None);
+            };
+            let Some(&dter) = level.deps.get(level.next) else {
+                finished = levels.pop().map(|done| done.rv);
+                continue;
+            };
+            level.next += 1;
+            let at = level.current;
+            match self.dep_test_next(at, dter, test, deep.as_deref_mut(), origin)? {
+                DepNext::Next => {}
+                DepNext::End(rv) => {
+                    if let Some(level) = levels.last_mut() {
+                        level.rv = rv;
+                        level.next = level.deps.len();
+                    }
+                }
+                DepNext::Matched(cohort) => {
+                    if let Some(level) = levels.last_mut() {
+                        level.rv = Some(cohort);
+                    }
+                }
+                DepNext::Descend(cohort) => {
+                    finished = self.dep_test_enter(
+                        &mut levels,
+                        cohort,
+                        Some(selfc),
+                        test,
+                        deep.as_deref_mut(),
+                        origin,
+                    )?;
+                }
+            }
+        }
+    }
+
+    // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
+    /// What `runDependencyTest` does on entry for `current`, before it walks
+    /// the cohort's dependents: the cycle and self checks, the `SELF` test,
+    /// and the choice of dependents. Pushes a level for the dependents to walk,
+    /// or returns the result when the entry already decides it.
+    fn dep_test_enter(
+        &mut self,
+        levels: &mut Vec<DepLevel>,
+        current: CohortId,
+        self_cohort: Option<CohortId>,
+        test: TestRef,
+        deep: Option<&mut Option<CohortId>>,
+        origin: Option<CohortId>,
+    ) -> Result<Option<Option<CohortId>>, crate::error::RunError> {
+        if self_cohort == Some(current) {
+            return Ok(Some(None));
+        }
 
         let (test_pos, test_hash) = {
             let c = &self.grammar.contexts_arena;
@@ -1326,173 +1426,196 @@ impl Matcher<'_> {
         if test_pos.intersects(POS_DEP_DEEP) {
             let key = (test_hash, self.cohorts.get(current.0).global_number.get());
             if self.scratch.dep_deep_seen.contains(key) {
-                return Ok(None);
+                return Ok(Some(None));
             }
             self.scratch.dep_deep_seen.insert(key);
         }
 
         if (test_pos.intersects(POS_SELF)) && (!test_pos.intersects(MASK_POS_LORR)) {
             let mut rvs: u8 = 0;
-            let (tmc, retval) =
-                self.run_single_test(current, test, &mut rvs, deep.as_deref_mut(), origin)?;
+            let (tmc, retval) = self.run_single_test(current, test, &mut rvs, deep, origin)?;
             if retval {
-                return Ok(tmc);
+                return Ok(Some(tmc));
             }
             if rvs & TRV_BARRIER != 0 {
-                return Ok(None);
+                return Ok(Some(None));
             }
         }
 
-        // Select the walked dependency global-number set.
-        let mut deps: Vec<u32>;
+        let Some(deps) = self.dep_test_dependents(current, test_pos) else {
+            return Ok(Some(None));
+        };
+        levels.push(DepLevel {
+            current,
+            deps: self.dep_test_ordered(current, test_pos, deps),
+            next: 0,
+            rv: None,
+        });
+        Ok(None)
+    }
+
+    // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
+    /// The global numbers of the dependents `runDependencyTest` walks from
+    /// `current`: its children, or its siblings — `None` when a sibling test
+    /// finds the cohort has none.
+    fn dep_test_dependents(&self, current: CohortId, test_pos: PosFlags) -> Option<Vec<u32>> {
         if test_pos.intersects(POS_DEP_CHILD) {
-            deps = self.cohorts.get(current.0).dep_children.as_slice().to_vec();
-        } else {
-            if self.cohorts.get(current.0).dep_parent == Some(GlobalNumber(0)) {
-                let parent_sw = self.cohorts.get(current.0).parent.unwrap();
-                let root = self.single_windows.get(parent_sw.0).cohorts[0];
-                deps = self.cohorts.get(root.0).dep_children.as_slice().to_vec();
-            } else {
-                let dep_parent = self.cohorts.get(current.0).dep_parent;
-                let mapped = dep_parent
-                    .and_then(|dp| self.registry.cohort_map.get(&dp))
-                    .copied();
-                match mapped {
-                    Some(pc) if !self.cohorts.get(pc.0).dep_children.empty() => {
-                        deps = self.cohorts.get(pc.0).dep_children.as_slice().to_vec();
-                    }
-                    _ => {
-                        if self.cfg.verbosity_level > 0 {
-                            let (ds, dp) = {
-                                let c = self.cohorts.get(current.0);
-                                (c.dep_self, c.dep_parent)
-                            };
-                            tracing::warn!(
-                                "Warning: Cohort {} (parent {}) did not have any siblings.",
-                                ds.map_or(0, |g| g.get()),
-                                dp.map_or(crate::cohort::DEP_NO_PARENT, |g| g.get())
-                            );
-                        }
-                        return Ok(None);
-                    }
+            return Some(self.cohorts.get(current.0).dep_children.as_slice().to_vec());
+        }
+        if self.cohorts.get(current.0).dep_parent == Some(GlobalNumber(0)) {
+            let parent_sw = self.cohorts.get(current.0).parent.unwrap();
+            let root = self.single_windows.get(parent_sw.0).cohorts[0];
+            return Some(self.cohorts.get(root.0).dep_children.as_slice().to_vec());
+        }
+        let dep_parent = self.cohorts.get(current.0).dep_parent;
+        let mapped = dep_parent
+            .and_then(|dp| self.registry.cohort_map.get(&dp))
+            .copied();
+        match mapped {
+            Some(pc) if !self.cohorts.get(pc.0).dep_children.empty() => {
+                Some(self.cohorts.get(pc.0).dep_children.as_slice().to_vec())
+            }
+            _ => {
+                if self.cfg.verbosity_level > 0 {
+                    let (ds, dp) = {
+                        let c = self.cohorts.get(current.0);
+                        (c.dep_self, c.dep_parent)
+                    };
+                    tracing::warn!(
+                        "Warning: Cohort {} (parent {}) did not have any siblings.",
+                        ds.map_or(0, |g| g.get()),
+                        dp.map_or(crate::cohort::DEP_NO_PARENT, |g| g.get())
+                    );
                 }
+                None
             }
         }
+    }
 
-        if test_pos.intersects(MASK_POS_LORR) {
-            // Rebuild `deps` by scanning the whole cohort_map (slower container).
-            let mut tmp_deps = Uint32SortedVector::new();
-            let map: Vec<CohortId> = self.registry.cohort_map.values().copied().collect();
-            for citer in map {
-                let gnum = self.cohorts.get(citer.0).global_number.get();
-                if deps.contains(&gnum) {
-                    if test_pos.intersects(POS_LEFT) {
-                        if less_cohort(self.cohorts, self.single_windows, citer, current) {
-                            tmp_deps.insert(gnum);
-                        }
-                    } else if test_pos.intersects(POS_RIGHT) {
-                        if less_cohort(self.cohorts, self.single_windows, current, citer) {
-                            tmp_deps.insert(gnum);
-                        }
-                    } else {
+    // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
+    /// `deps` in the order `runDependencyTest` walks them: as they are, or,
+    /// for a test with a left/right position, rebuilt from the whole cohort map
+    /// (the slower container) in cohort order.
+    fn dep_test_ordered(&self, current: CohortId, test_pos: PosFlags, deps: Vec<u32>) -> Vec<u32> {
+        if !test_pos.intersects(MASK_POS_LORR) {
+            return deps;
+        }
+        let mut tmp_deps = Uint32SortedVector::new();
+        let map: Vec<CohortId> = self.registry.cohort_map.values().copied().collect();
+        for citer in map {
+            let gnum = self.cohorts.get(citer.0).global_number.get();
+            if deps.contains(&gnum) {
+                if test_pos.intersects(POS_LEFT) {
+                    if less_cohort(self.cohorts, self.single_windows, citer, current) {
                         tmp_deps.insert(gnum);
                     }
-                }
-            }
-            if test_pos.intersects(POS_SELF) {
-                let gnum = self.cohorts.get(current.0).global_number.get();
-                tmp_deps.insert(gnum);
-            }
-            let mut tmp_vec = tmp_deps.as_slice().to_vec();
-            if (test_pos.intersects(POS_RIGHTMOST)) && !tmp_vec.is_empty() {
-                tmp_vec.reverse();
-            }
-            deps = tmp_vec;
-        }
-
-        let cur_gnum = self.cohorts.get(current.0).global_number.get();
-        for dter in deps {
-            if dter == cur_gnum && (!test_pos.intersects(POS_SELF)) {
-                continue;
-            }
-            let mapped = self.registry.cohort_map.get(&GlobalNumber(dter)).copied();
-            let cohort = match mapped {
-                None => {
-                    if self.cfg.verbosity_level > 0 {
-                        let ds = self.cohorts.get(current.0).dep_self.map_or(0, |g| g.get());
-                        if test_pos.intersects(POS_DEP_CHILD) {
-                            tracing::warn!(
-                                "Warning: Child dependency {} -> {} does not exist - ignoring.",
-                                ds,
-                                dter
-                            );
-                        } else {
-                            tracing::warn!(
-                                "Warning: Sibling dependency {} -> {} does not exist - ignoring.",
-                                ds,
-                                dter
-                            );
-                        }
+                } else if test_pos.intersects(POS_RIGHT) {
+                    if less_cohort(self.cohorts, self.single_windows, current, citer) {
+                        tmp_deps.insert(gnum);
                     }
-                    continue;
-                }
-                Some(c) => c,
-            };
-            if self.cohorts.get(cohort.0).r#type.intersects(CT_REMOVED) {
-                continue;
-            }
-            let mut good = true;
-            let (cur_parent, coh_parent) = {
-                (
-                    self.cohorts.get(current.0).parent,
-                    self.cohorts.get(cohort.0).parent,
-                )
-            };
-            if cur_parent != coh_parent {
-                let cur_win = self.single_windows.get(cur_parent.unwrap().0).number;
-                let coh_win = self.single_windows.get(coh_parent.unwrap().0).number;
-                if ((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) && coh_win < cur_win)
-                    || ((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) && coh_win > cur_win)
-                {
-                    good = false;
-                }
-            }
-            let mut retval = false;
-            let mut rvs: u8 = 0;
-            if good {
-                (_, retval) =
-                    self.run_single_test(cohort, test, &mut rvs, deep.as_deref_mut(), origin)?;
-            }
-            if test_pos.intersects(POS_ALL) {
-                if !retval {
-                    rv = None;
-                    break;
                 } else {
-                    rv = Some(cohort);
-                }
-            } else if retval {
-                rv = Some(cohort);
-                break;
-            } else if rvs & TRV_BARRIER != 0 {
-                continue;
-            } else if test_pos.intersects(POS_DEP_DEEP) {
-                let coh_parent = self.cohorts.get(cohort.0).parent.unwrap();
-                let tmc = self.run_dependency_test(
-                    coh_parent,
-                    cohort,
-                    test,
-                    deep.as_deref_mut(),
-                    origin,
-                    Some(selfc),
-                )?;
-                if let Some(tmc) = tmc {
-                    rv = Some(tmc);
-                    break;
+                    tmp_deps.insert(gnum);
                 }
             }
         }
+        if test_pos.intersects(POS_SELF) {
+            let gnum = self.cohorts.get(current.0).global_number.get();
+            tmp_deps.insert(gnum);
+        }
+        let mut tmp_vec = tmp_deps.as_slice().to_vec();
+        if (test_pos.intersects(POS_RIGHTMOST)) && !tmp_vec.is_empty() {
+            tmp_vec.reverse();
+        }
+        tmp_vec
+    }
 
-        Ok(rv)
+    // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
+    /// One dependent, `dter`, of `current` in a `runDependencyTest` walk: test
+    /// it, and say what that does to the walk.
+    fn dep_test_next(
+        &mut self,
+        current: CohortId,
+        dter: u32,
+        test: TestRef,
+        deep: Option<&mut Option<CohortId>>,
+        origin: Option<CohortId>,
+    ) -> Result<DepNext, crate::error::RunError> {
+        let test_pos = test.pos(&self.grammar.contexts_arena);
+        let cur_gnum = self.cohorts.get(current.0).global_number.get();
+        if dter == cur_gnum && (!test_pos.intersects(POS_SELF)) {
+            return Ok(DepNext::Next);
+        }
+        let mapped = self.registry.cohort_map.get(&GlobalNumber(dter)).copied();
+        let Some(cohort) = mapped else {
+            if self.cfg.verbosity_level > 0 {
+                let ds = self.cohorts.get(current.0).dep_self.map_or(0, |g| g.get());
+                if test_pos.intersects(POS_DEP_CHILD) {
+                    tracing::warn!(
+                        "Warning: Child dependency {} -> {} does not exist - ignoring.",
+                        ds,
+                        dter
+                    );
+                } else {
+                    tracing::warn!(
+                        "Warning: Sibling dependency {} -> {} does not exist - ignoring.",
+                        ds,
+                        dter
+                    );
+                }
+            }
+            return Ok(DepNext::Next);
+        };
+        if self.cohorts.get(cohort.0).r#type.intersects(CT_REMOVED) {
+            return Ok(DepNext::Next);
+        }
+        let mut retval = false;
+        let mut rvs: u8 = 0;
+        if self.dep_in_span(current, cohort, test_pos) {
+            (_, retval) = self.run_single_test(cohort, test, &mut rvs, deep, origin)?;
+        }
+        Ok(if test_pos.intersects(POS_ALL) {
+            if !retval {
+                DepNext::End(None)
+            } else {
+                DepNext::Matched(cohort)
+            }
+        } else if retval {
+            DepNext::End(Some(cohort))
+        } else if rvs & TRV_BARRIER != 0 {
+            DepNext::Next
+        } else if test_pos.intersects(POS_DEP_DEEP) {
+            DepNext::Descend(cohort)
+        } else {
+            DepNext::Next
+        })
+    }
+
+    /// Whether `runDependencyTest` tests `cohort`, a dependent of `current`:
+    /// always in the same window, and in another only where the test spans
+    /// that way.
+    fn dep_in_span(&self, current: CohortId, cohort: CohortId, test_pos: PosFlags) -> bool {
+        let (cur_parent, coh_parent) = {
+            (
+                self.cohorts.get(current.0).parent,
+                self.cohorts.get(cohort.0).parent,
+            )
+        };
+        if cur_parent == coh_parent {
+            return true;
+        }
+        let cur_win = self.single_windows.get(cur_parent.unwrap().0).number;
+        let coh_win = self.single_windows.get(coh_parent.unwrap().0).number;
+        !(((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) && coh_win < cur_win)
+            || ((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) && coh_win > cur_win))
     }
 
     // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-parenthesis-test-fn]

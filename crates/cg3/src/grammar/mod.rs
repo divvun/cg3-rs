@@ -77,11 +77,11 @@ use crate::set::{
 use crate::strings::Keywords;
 use crate::tag::{
     T_ANY, T_CASE_INSENSITIVE, T_FAILFAST, T_MAPPING, T_SPECIAL, T_TEXTUAL, T_VARSTRING, TagList,
-    TagVector, TagVectorSet, fill_tagvector,
+    TagVectorSet,
 };
 use crate::tag_trie::{
     TagTrie, trie_delete, trie_get_tag_list, trie_get_tag_list_append, trie_get_tags,
-    trie_get_tags_into, trie_has_type, trie_insert, trie_singular,
+    trie_has_type, trie_insert, trie_singular,
 };
 
 // ---------------------------------------------------------------------------
@@ -92,6 +92,8 @@ use crate::tag_trie::{
 // may edit ONLY `grammar.rs`, they are reproduced here verbatim as local
 // stand-ins (same precedent as the local scanf stand-ins in `tag.rs` /
 // `set.rs`). To reconcile: move to `crate::strings` when that module grows.
+mod walks;
+
 const STR_DELIMITSET: &str = "_S_DELIMITERS_";
 const STR_SOFTDELIMITSET: &str = "_S_SOFT_DELIMITERS_";
 const STR_TEXTDELIMITSET: &str = "_S_TEXT_DELIMITERS_";
@@ -607,21 +609,31 @@ impl GrammarCore {
     /// Children are numbered first. `sets_list.push_back(s);
     /// s->number = UI32(sets_list.size()-1)` → push onto `sets_list_order` and
     /// assign the dense push-back position (see the reconciliation note).
+    ///
+    /// The C++ recurses into the components; the sets still being numbered are
+    /// kept on a heap stack instead, so a set built from sets however deep
+    /// costs no stack, and each is numbered once its components are, as in
+    /// the recursion.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn add_set_to_list(&mut self, s: SetId) {
-        if self.sets_list[s.0].number == SetNumber(0) {
-            // C++ guard `sets_list.empty() || sets_list[0] != s`.
-            if self.sets_list_order.is_empty() || self.sets_list_order[0] != s {
-                let sets = self.sets_list[s.0].sets.clone();
-                if !sets.is_empty() {
-                    for sit in sets {
-                        // C++ addSetToList(getSet(sit)); getSet null → deref crash.
-                        let child = self.get_set(sit).unwrap();
-                        self.add_set_to_list(child);
-                    }
+        if !self.set_unlisted(s) {
+            return;
+        }
+        let mut open = vec![(s, 0usize)];
+        while let Some((set, next)) = open.last_mut() {
+            let set = *set;
+            if let Some(&sit) = self.sets_list[set.0].sets.get(*next) {
+                *next += 1;
+                // C++ addSetToList(getSet(sit)); getSet null → deref crash.
+                let child = self.get_set(sit).unwrap();
+                if self.set_unlisted(child) {
+                    open.push((child, 0));
                 }
-                self.sets_list_order.push(s);
-                self.sets_list[s.0].number = SetNumber(ui32(self.sets_list_order.len() - 1));
+                continue;
             }
+            open.pop();
+            self.sets_list_order.push(set);
+            self.sets_list[set.0].number = SetNumber(ui32(self.sets_list_order.len() - 1));
         }
     }
 
@@ -1244,18 +1256,17 @@ impl GrammarCore {
     /// (resolved by content hash via `getSet`; other operators than OR are ignored,
     /// per the source ToDo) then appends this set's own trie paths via the shared
     /// `tv` buffer (the sort-then-pop quirk lives in `trie_get_tags_into`).
+    ///
+    /// The C++ recurses into the component sets; the sets whose components
+    /// are still being collected are kept on a heap stack instead, and each
+    /// set's own paths are collected once its components' are, as in the
+    /// recursion.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn get_tags(&self, set: SetId, rv: &mut TagVectorSet) {
-        let sets = self.sets_list[set.0].sets.clone();
-        for s in sets {
-            let child = self.get_set(s).unwrap(); // *getSet(s), null → crash
-            self.get_tags(child, rv);
+        let mut open = vec![(set, 0usize)];
+        while let Some(done) = self.next_set_done(&mut open) {
+            self.get_own_tags(done, rv);
         }
-        let trie = self.sets_list[set.0].trie.clone();
-        let trie_special = self.sets_list[set.0].trie_special.clone();
-        let mut tv: TagVector = TagVector::new();
-        trie_get_tags_into(&trie, rv, &mut tv, self);
-        tv.clear();
-        trie_get_tags_into(&trie_special, rv, &mut tv, self);
     }
 
     /// C++ one-arg overload `TagList getTagList_Any(const Set&) const`: delegates
@@ -1272,27 +1283,36 @@ impl GrammarCore {
     /// single `tag_any` tag; (b) composite → recurse over `sets_list[iter]`
     /// (treating `sets` entries as NUMBERS, i.e. post-reindex `SetId`s); (c) leaf →
     /// flatten both tries (every key at every depth, incl. non-terminals).
+    ///
+    /// The C++ recurses into the components; the sets still to visit are kept
+    /// on a heap stack instead, taken in the recursion's order.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn get_tag_list_any(&self, set: SetId, the_tags: &mut TagList) {
-        let ty = self.sets_list[set.0].r#type;
-        if ty.intersects(ST_SET_UNIFY | ST_TAG_UNIFY) {
-            the_tags.clear();
-            // single_tags.find(tag_any)->second — null-deref crash if absent.
-            let tid = {
-                let it = self.single_tags().find(self.tag_any);
-                it.get().1
-            };
-            the_tags.push(tid);
-        } else if !self.sets_list[set.0].sets.is_empty() {
-            let sets = self.sets_list[set.0].sets.clone();
-            for iter in sets {
+        let mut todo = vec![set];
+        while let Some(set) = todo.pop() {
+            let ty = self.sets_list[set.0].r#type;
+            let members = &self.sets_list[set.0].sets;
+            if ty.intersects(ST_SET_UNIFY | ST_TAG_UNIFY) {
+                the_tags.clear();
+                // single_tags.find(tag_any)->second — null-deref crash if absent.
+                let tid = {
+                    let it = self.single_tags().find(self.tag_any);
+                    it.get().1
+                };
+                the_tags.push(tid);
+            } else if !members.is_empty() {
                 // getTagList_Any(*sets_list[iter]) — `iter` is a set NUMBER.
-                self.get_tag_list_any(self.set_id_by_number(SetNumber(iter)), the_tags);
+                todo.extend(
+                    members
+                        .iter()
+                        .rev()
+                        .map(|&iter| self.set_id_by_number(SetNumber(iter))),
+                );
+            } else {
+                let set = &self.sets_list[set.0];
+                trie_get_tag_list_append(&set.trie, the_tags, self);
+                trie_get_tag_list_append(&set.trie_special, the_tags, self);
             }
-        } else {
-            let trie = self.sets_list[set.0].trie.clone();
-            let trie_special = self.sets_list[set.0].trie_special.clone();
-            trie_get_tag_list_append(&trie, the_tags, self);
-            trie_get_tag_list_append(&trie_special, the_tags, self);
         }
     }
 
@@ -1302,111 +1322,39 @@ impl GrammarCore {
     /// removed, building a new `_G_<name>_B_` set only when something was actually
     /// removed. Composite and leaf cases per the spec; `ntags` is a
     /// `BTreeMap<TagVector, bool>` (C++ `std::map<TagVector, bool>`).
+    ///
+    /// The C++ recurses into the component sets. The sets built from sets
+    /// whose components are still being stripped are kept on a heap stack
+    /// instead, and a component's result is taken into its set as soon as it
+    /// is known, before the next component is begun, as in the recursion.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn remove_numeric_tags(&mut self, s: u32) -> Result<u32, crate::error::ParseError> {
-        let mut set = self.get_set(s).unwrap();
-        let is_composite = !self.sets_list[set.0].sets.is_empty();
-        if is_composite {
-            let mut did = false;
-            let mut sets = self.sets_list[set.0].sets.clone();
-            for i in sets.iter_mut() {
-                let ns = self.remove_numeric_tags(*i)?;
+        let mut open: Vec<walks::NumericStrip> = Vec::new();
+        let mut stripped = self.strip_numeric_enter(&mut open, s)?;
+        loop {
+            if let Some(ns) = stripped.take() {
+                let Some(parent) = open.last_mut() else {
+                    return Ok(ns);
+                };
                 if ns == 0 {
                     return Err(self.error(crate::error::ParseErrorKind::EmptyNumericBranch));
                 }
-                if ns != *i {
-                    *i = ns;
-                    did = true;
+                let i = parent.next - 1;
+                if ns != parent.sets[i] {
+                    parent.sets[i] = ns;
+                    parent.did = true;
                 }
             }
-            if did {
-                let ns_id = self.allocate_set();
-                let (ty, line, mut nm, set_ops) = {
-                    let src = &self.sets_list[set.0];
-                    (src.r#type, src.line, src.name.clone(), src.set_ops.clone())
-                };
-                nm = format!("{STR_GPREFIX}{nm}_B_");
-                {
-                    let dst = self.sets_list.get_mut(ns_id.0);
-                    dst.r#type = ty;
-                    dst.line = line;
-                    dst.name = nm;
-                    dst.sets = sets;
-                    dst.set_ops = set_ops;
-                }
-                set = self.add_set(ns_id)?;
-            }
-        } else {
-            let mut did = false;
-            let mut ntags: BTreeMap<TagVector, bool> = BTreeMap::new();
-            let tries = [
-                self.sets_list[set.0].trie.clone(),
-                self.sets_list[set.0].trie_special.clone(),
-            ];
-            for tr in &tries {
-                if tr.is_empty() {
-                    continue;
-                }
-                let ctags = trie_get_tags(tr, self);
-                for it in &ctags {
-                    let mut special = false;
-                    let mut tags: TagVector = TagVector::new();
-                    fill_tagvector(self, it, &mut tags, &mut did, &mut special);
-                    if !tags.is_empty() {
-                        ntags.insert(tags, special);
-                    }
-                }
-            }
-            let ff: Vec<TagId> = self.sets_list[set.0].ff_tags.as_slice().to_vec();
-            if !ff.is_empty() {
-                let mut special = false;
-                let mut tags: TagVector = TagVector::new();
-                fill_tagvector(self, &ff, &mut tags, &mut did, &mut special);
-                if !tags.is_empty() {
-                    ntags.insert(tags, special);
-                }
-            }
-            if did {
-                if ntags.is_empty() {
-                    let tid = {
-                        let it = self.single_tags().find(self.tag_any);
-                        it.get().1
-                    };
-                    ntags.insert(vec![tid], true);
-                    // verbosity_level>0 "Set ... was empty ... C branch": deferred.
-                }
-                let ns_id = self.allocate_set();
-                let (ty, line, mut nm) = {
-                    let src = &self.sets_list[set.0];
-                    (src.r#type, src.line, src.name.clone())
-                };
-                nm = format!("{STR_GPREFIX}{nm}_B_");
-                {
-                    let dst = self.sets_list.get_mut(ns_id.0);
-                    dst.r#type = ty;
-                    dst.line = line;
-                    dst.name = nm;
-                }
-                for (tagvec, special) in &ntags {
-                    if *special {
-                        if tagvec.len() == 1
-                            && self.single_tags_list[tagvec[0].0]
-                                .r#type
-                                .intersects(T_FAILFAST)
-                        {
-                            self.sets_list.get_mut(ns_id.0).ff_tags.insert(tagvec[0]);
-                        } else {
-                            let dst = &mut self.sets_list.get_mut(ns_id.0).trie_special;
-                            trie_insert(dst, tagvec, 0);
-                        }
-                    } else {
-                        let dst = &mut self.sets_list.get_mut(ns_id.0).trie;
-                        trie_insert(dst, tagvec, 0);
-                    }
-                }
-                set = self.add_set(ns_id)?;
+            let Some(top) = open.last_mut() else {
+                return Ok(0);
+            };
+            if let Some(&member) = top.sets.get(top.next) {
+                top.next += 1;
+                stripped = self.strip_numeric_enter(&mut open, member)?;
+            } else if let Some(done) = open.pop() {
+                stripped = Some(self.strip_numeric_composite(done)?);
             }
         }
-        Ok(self.sets_list[set.0].hash)
     }
 }
 
@@ -1457,21 +1405,24 @@ impl GrammarCore {
     /// Records which tags trigger rule number `r` through target set `s`. Special
     /// / tag-unify sets also index `tag_any`. Descends into BOTH tries and every
     /// child (unlike `indexSets`, it does NOT stop for special sets).
+    ///
+    /// The C++ recurses into the child sets; the sets still to index are kept
+    /// on a heap stack instead, taken in the recursion's order.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn index_set_to_rule(&mut self, r: u32, s: SetId) {
-        let ty = self.sets_list[s.0].r#type;
-        if ty.intersects(ST_SPECIAL | ST_TAG_UNIFY) {
-            let ta = self.tag_any;
-            self.index_tag_to_rule(ta, r);
-        }
-        let trie = self.sets_list[s.0].trie.clone();
-        let trie_special = self.sets_list[s.0].trie_special.clone();
-        trie_index_to_rule(&trie, self, r);
-        trie_index_to_rule(&trie_special, self, r);
-        let sets = self.sets_list[s.0].sets.clone();
-        for i in sets {
+        let mut todo = vec![s];
+        while let Some(s) = todo.pop() {
+            let ty = self.sets_list[s.0].r#type;
+            if ty.intersects(ST_SPECIAL | ST_TAG_UNIFY) {
+                let ta = self.tag_any;
+                self.index_tag_to_rule(ta, r);
+            }
+            let trie = self.sets_list[s.0].trie.clone();
+            let trie_special = self.sets_list[s.0].trie_special.clone();
+            trie_index_to_rule(&trie, self, r);
+            trie_index_to_rule(&trie_special, self, r);
             // indexSetToRule(r, sets_list[i]) — `i` is a set NUMBER.
-            let child = self.set_id_by_number(SetNumber(i));
-            self.index_set_to_rule(r, child);
+            todo.extend(self.members_by_number(s));
         }
     }
 
@@ -1480,22 +1431,25 @@ impl GrammarCore {
     /// Maps each tag hash to the bitset of set numbers containing it. Special /
     /// tag-unify sets index `tag_any` and RETURN immediately (no trie/child
     /// descent — the key difference from `indexSetToRule`).
+    ///
+    /// The C++ recurses into the child sets; the sets still to index are kept
+    /// on a heap stack instead, taken in the recursion's order.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn index_sets(&mut self, r: u32, s: SetId) {
-        let ty = self.sets_list[s.0].r#type;
-        if ty.intersects(ST_SPECIAL | ST_TAG_UNIFY) {
-            let ta = self.tag_any;
-            self.index_tag_to_set(ta, r);
-            return;
-        }
-        let trie = self.sets_list[s.0].trie.clone();
-        let trie_special = self.sets_list[s.0].trie_special.clone();
-        trie_index_to_set(&trie, self, r);
-        trie_index_to_set(&trie_special, self, r);
-        let sets = self.sets_list[s.0].sets.clone();
-        for i in sets {
+        let mut todo = vec![s];
+        while let Some(s) = todo.pop() {
+            let ty = self.sets_list[s.0].r#type;
+            if ty.intersects(ST_SPECIAL | ST_TAG_UNIFY) {
+                let ta = self.tag_any;
+                self.index_tag_to_set(ta, r);
+                continue;
+            }
+            let trie = self.sets_list[s.0].trie.clone();
+            let trie_special = self.sets_list[s.0].trie_special.clone();
+            trie_index_to_set(&trie, self, r);
+            trie_index_to_set(&trie_special, self, r);
             // indexSets(r, sets_list[i]) — `i` is a set NUMBER.
-            let child = self.set_id_by_number(SetNumber(i));
-            self.index_sets(r, child);
+            todo.extend(self.members_by_number(s));
         }
     }
 
@@ -1504,58 +1458,32 @@ impl GrammarCore {
     /// Rewrites `s->sets` from content hashes to set numbers, recursively, once
     /// per set (`ST_USED` is the visited marker, cleared on entry). No presence
     /// check on the content-hash lookup (C++ UB → HashMap index panic).
+    ///
+    /// The C++ recurses into the child sets; the sets still to visit are kept
+    /// on a heap stack instead.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn set_adjust_sets(&mut self, s: SetId) {
-        if !self.sets_list[s.0].r#type.intersects(ST_USED) {
-            return;
+        let mut todo = vec![s];
+        while let Some(s) = todo.pop() {
+            let members = self.adjust_one_set(s);
+            todo.extend(members);
         }
-        self.sets_list.get_mut(s.0).r#type &= !ST_USED;
-        let sets = self.sets_list[s.0].sets.clone();
-        let mut new_sets = Vec::with_capacity(sets.len());
-        for i in &sets {
-            let set = self.sets_by_contents[i]; // find(i)->second — no end-check.
-            new_sets.push(self.sets_list[set.0].number.get());
-            self.set_adjust_sets(set);
-        }
-        self.sets_list.get_mut(s.0).sets = new_sets;
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.context-adjust-target-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.context-adjust-target-fn]
     /// Rewrites a test's set references from content hash to set number,
     /// recursively, once per test (`is_used` doubles as the visited marker).
+    ///
+    /// The C++ recurses into the tests a test refers to, which a `.cg3b` can
+    /// chain to any length; the tests still to visit are kept on a heap stack
+    /// instead.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn context_adjust_target(&mut self, test: CtxId) {
-        if !self.contexts_arena[test.0].is_used {
-            return;
-        }
-        self.contexts_arena[test.0].is_used = false;
-        let (target, barrier, cbarrier) = {
-            let t = &self.contexts_arena[test.0];
-            (t.target, t.barrier, t.cbarrier)
-        };
-        if target.get() != 0 {
-            let set = self.sets_by_contents[&target.get()];
-            self.contexts_arena[test.0].target = self.sets_list[set.0].number;
-        }
-        if barrier.get() != 0 {
-            let set = self.sets_by_contents[&barrier.get()];
-            self.contexts_arena[test.0].barrier = self.sets_list[set.0].number;
-        }
-        if cbarrier.get() != 0 {
-            let set = self.sets_by_contents[&cbarrier.get()];
-            self.contexts_arena[test.0].cbarrier = self.sets_list[set.0].number;
-        }
-        let (ors, tmpl, linked) = {
-            let t = &self.contexts_arena[test.0];
-            (t.ors.clone(), t.tmpl, t.linked)
-        };
-        for tor in ors {
-            self.context_adjust_target(tor);
-        }
-        if let Some(t) = tmpl {
-            self.context_adjust_target(t);
-        }
-        if let Some(l) = linked {
-            self.context_adjust_target(l);
+        let mut todo = vec![test];
+        while let Some(test) = todo.pop() {
+            let next = self.adjust_one_context(test);
+            todo.extend(next);
         }
     }
 
@@ -1566,42 +1494,16 @@ impl GrammarCore {
     /// `Grammar::getSet(..)->markUsed(..)`. Ported faithfully as a private
     /// `Grammar` method; `is_used` guards against re-processing. `getSet` null →
     /// deref crash (reproduced via `unwrap`).
+    ///
+    /// The C++ recurses into the tests a test refers to, which a `.cg3b` can
+    /// chain to any length; the tests still to visit are kept on a heap stack
+    /// instead.
+    // [spec:cg3:req:robustness.depth-bounded]
     fn context_mark_used(&mut self, test: CtxId) {
-        if self.contexts_arena[test.0].is_used {
-            return;
-        }
-        self.contexts_arena[test.0].is_used = true;
-        let (target, barrier, cbarrier, tmpl, ors, linked) = {
-            let t = &self.contexts_arena[test.0];
-            (
-                t.target,
-                t.barrier,
-                t.cbarrier,
-                t.tmpl,
-                t.ors.clone(),
-                t.linked,
-            )
-        };
-        if target.get() != 0 {
-            let s = self.get_set(target.get()).unwrap();
-            Set::mark_used(self, s);
-        }
-        if barrier.get() != 0 {
-            let s = self.get_set(barrier.get()).unwrap();
-            Set::mark_used(self, s);
-        }
-        if cbarrier.get() != 0 {
-            let s = self.get_set(cbarrier.get()).unwrap();
-            Set::mark_used(self, s);
-        }
-        if let Some(t) = tmpl {
-            self.context_mark_used(t);
-        }
-        for o in ors {
-            self.context_mark_used(o);
-        }
-        if let Some(l) = linked {
-            self.context_mark_used(l);
+        let mut todo = vec![test];
+        while let Some(test) = todo.pop() {
+            let next = self.mark_one_context_used(test);
+            todo.extend(next);
         }
     }
 
@@ -2230,32 +2132,28 @@ impl GrammarCore {
 
 // [spec:cg3:def:grammar.cg3.trie-index-to-rule-fn]
 // [spec:cg3:sem:grammar.cg3.trie-index-to-rule-fn]
-/// Free fn. Recursively maps every tag (at every depth, incl. non-terminals) to
+/// Free fn. Maps every tag (at every depth, incl. non-terminals) to
 /// rule number `r` via `grammar.indexTagToRule(tag->hash, r)`. The `trie` must be
 /// an EXTERNAL copy (callers clone the set's trie out first) so it does not alias
-/// the `&mut Grammar` borrow.
+/// the `&mut Grammar` borrow. Walks with a [`TrieWalk`] where the C++ recurses.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_index_to_rule(trie: &TagTrie, grammar: &mut GrammarCore, r: u32) {
-    for (k, node) in trie.iter() {
+    crate::tag_trie::TrieWalk::new(trie).each(|k, _| {
         let h = grammar.single_tags_list[k.0].hash;
         grammar.index_tag_to_rule(h.get(), r);
-        if let Some(sub) = &node.trie {
-            trie_index_to_rule(sub, grammar, r);
-        }
-    }
+    });
 }
 
 // [spec:cg3:def:grammar.cg3.trie-index-to-set-fn]
 // [spec:cg3:sem:grammar.cg3.trie-index-to-set-fn]
 /// Free fn. Identical shape to `trie_index_to_rule` but sets bit `r` (a set
 /// number) in `sets_by_tag[tag->hash]` for every tag in the trie.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_index_to_set(trie: &TagTrie, grammar: &mut GrammarCore, r: u32) {
-    for (k, node) in trie.iter() {
+    crate::tag_trie::TrieWalk::new(trie).each(|k, _| {
         let h = grammar.single_tags_list[k.0].hash;
         grammar.index_tag_to_set(h.get(), r);
-        if let Some(sub) = &node.trie {
-            trie_index_to_set(sub, grammar, r);
-        }
-    }
+    });
 }
 
 /// The smallest trie entry in a `.cg3b`: a `u32` tag index, a `u8` terminal

@@ -497,7 +497,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn]
 > inline bool doesSetMatchCohort_testLinked(Cohort& cohort, const Set& theset, dSMC_Context* context = nullptr)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn+1]
 > Runs the LINKed contextual test that follows a set match, memoizing its result
 > in the dSMC_Context. `retval=true` by default. Determine the linked test: if
 > `context->test` has a `linked`, use it; else if `tmpl_cntx.linked` is non-empty,
@@ -511,6 +511,14 @@
 > context->matched_tests`. If `reset`, push the popped `linked` back onto
 > `tmpl_cntx.linked`. If `retval` is false, restore `tmpl_cntx.min/max` to the
 > saved values. Return `retval`.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): the linked test
+> runs one level of nesting deeper. Each is a level of nesting, counted
+> together with every other contextual test, template, `WITH` sub-rule and
+> generated variable tag the rule is evaluating, and one that would take the
+> rule past `MAX_NESTING` (64) levels ends the run with
+> `RunError::NestingTooDeep` naming the rule. The C++ recurses until its stack
+> runs out.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn]
 > bool doesSetMatchReading(const Reading& reading, const uint32_t set, bool bypass_index = false, bool unif_mode = false)
@@ -592,7 +600,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
 > uint32_t doesTagMatchReading(const Reading& reading, const Tag& tag, bool unif_mode = false, bool bypass_index = false)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+1]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+2]
 > Central single-tag matcher: returns the matched hash (nonzero) or 0, and on a
 > match increments `match_single`. Dispatch is a strict if/else-if chain on
 > `tag.type` (ORDER MATTERS): (1) if the tag is NOT T_SPECIAL, OR it is
@@ -642,6 +650,18 @@
 > dereferenced the end iterator; a value hash no interned tag answers to
 > matches nothing. A T_CONTEXT position of 0 names no context rather than
 > indexing before the list.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): a varstring
+> whose expansion is itself a varstring this dispatcher would expand is
+> expanded again in a loop rather than by recursion, and one still expanding
+> after 16 expansions ends the run with `RunError::VarstringLoop` naming the
+> rule, as a rule adding such a tag does; captured text reading `VSTR:$1`
+> makes the C++ recursion endless. The set a `SET:` tag names is tested one
+> level of nesting deeper. Each is a level of nesting, counted together with
+> every other contextual test, template, `WITH` sub-rule and generated
+> variable tag the rule is evaluating, and one that would take the rule past
+> `MAX_NESTING` (64) levels ends the run with `RunError::NestingTooDeep`
+> naming the rule. The C++ recurses until its stack runs out.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-regexp-fn]
 > uint32_t doesTagMatchRegexp(uint32_t test, const Tag& tag, bool bypass_index = false)
@@ -1317,7 +1337,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn]
 > Cohort* runContextualTest(SingleWindow* sWindow, size_t position, const ContextualTest* test, Cohort** deep = nullptr, Cohort* origin = nullptr)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+1]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+2]
 > The main contextual-test dispatcher: locates the anchoring cohort, applies the
 > test, and returns the matched cohort (or nullptr, encoded per the negation
 > rules). If POS_UNKNOWN (`?` with no override), print error and CG3Quit(1).
@@ -1359,11 +1379,20 @@
 > position from the one it jumped to (asserting it in range, and reading out
 > of bounds in a release build). A position the window does not reach fails
 > the probe.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): the test a
+> bag-of-tags test `LINK`s to runs one level of nesting deeper, as the linked
+> test of `doesSetMatchCohort_testLinked` does. Each is a level of nesting,
+> counted together with every other contextual test, template, `WITH` sub-rule
+> and generated variable tag the rule is evaluating, and one that would take
+> the rule past `MAX_NESTING` (64) levels ends the run with
+> `RunError::NestingTooDeep` naming the rule. The C++ recurses until its stack
+> runs out.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-contextual-test-tmpl-fn]
 > Cohort* runContextualTest_tmpl(SingleWindow* sWindow, size_t position, const ContextualTest* test, ContextualTest* tmpl, Cohort*& cdeep, Cohort* origin)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-tmpl-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-tmpl-fn+1]
 > Runs one template (or OR-branch) sub-test `tmpl` on behalf of the outer `test`.
 > Save `tmpl_cntx.min/max/in_template`; set `in_template=true`; if `test->linked`,
 > push it onto `tmpl_cntx.linked`. Save `tmpl`'s original pos/offset/cbarrier/
@@ -1376,6 +1405,15 @@
 > (nonzero offset), null the cohort. If `test->linked`, pop it back off
 > `tmpl_cntx.linked`. If no cohort was found, restore the saved
 > `tmpl_cntx.min/max/in_template`. Return cohort.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): running the
+> template, or an `OR` alternative, is a level of nesting. Each is a level of
+> nesting, counted together with every other contextual test, template, `WITH`
+> sub-rule and generated variable tag the rule is evaluating, and one that
+> would take the rule past `MAX_NESTING` (64) levels ends the run with
+> `RunError::NestingTooDeep` naming the rule. The C++ recurses until its stack
+> runs out. A template that recurses through a later alternative or a `LINK`
+> while no earlier alternative decides is how a valid grammar gets there.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-dependency-test-fn]
 > Cohort* runDependencyTest(SingleWindow* sWindow, Cohort* current, const ContextualTest* test, Cohort** deep = nullptr, Cohort* origin = nullptr, const Cohort...
@@ -1531,7 +1569,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn]
 > uint32_t runRulesOnSingleWindow(SingleWindow& current, const uint32IntervalVector& rules)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2]
 > Applies a set of `rules` (one section's rule numbers) to `current` window and
 > returns an RV_* bitmask (RV_NOTHING=1, RV_SOMETHING=2, RV_DELIMITED=4,
 > RV_TRACERULE=8). Compute `intersects = current.valid_rules.intersect(rules)` —
@@ -1599,6 +1637,14 @@
 > front of a `>>>`. A window rem_cohort empties leaves the stream at once but is
 > freed, with its `>>>`, only when the rule finishes, because the rule's context
 > frames may still name either.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): each `WITH`
+> sub-rule runs one level of nesting deeper. Each is a level of nesting,
+> counted together with every other contextual test, template, `WITH` sub-rule
+> and generated variable tag the rule is evaluating, and one that would take
+> the rule past `MAX_NESTING` (64) levels ends the run with
+> `RunError::NestingTooDeep` naming the rule. The C++ recurses until its stack
+> runs out.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
 > bool runSingleRule(SingleWindow& current, const Rule& rule, RuleCallback reading_cb, RuleCallback cohort_cb)

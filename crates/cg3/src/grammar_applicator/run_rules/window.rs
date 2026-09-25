@@ -7,7 +7,7 @@ use crate::cohort::{CT_ENCLOSED, CT_IGNORED, CT_REMOVED, CohortSet};
 use crate::inlines::ui32;
 use crate::interval_vector::Uint32IntervalVector;
 use crate::reading::Reading;
-use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY, Set};
+use crate::set::Set;
 use crate::tag::TagList;
 use crate::types::{SetNumber, TagHash};
 
@@ -15,6 +15,7 @@ use crate::types::{SetNumber, TagHash};
 // RV_TRACERULE = 8 };` — the return-value bit flags of runRulesOnSingleWindow.
 
 use super::*;
+use crate::grammar_applicator::depth::collapse_repeated_tags;
 
 /// How many times [`Engine::expand_varstring`] re-expands a varstring whose
 /// expansion is itself a varstring before calling it a loop. Real grammars
@@ -483,89 +484,23 @@ impl crate::grammar_applicator::Matcher<'_> {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.get-tag-list-fn]
     /// C++ `void getTagList(const Set& theSet, TagList& theTags, bool unif_mode)
     /// const` — the by-reference overload (appends to `the_tags`).
+    ///
+    /// The C++ recurses into the member sets and removes consecutive repeats
+    /// after each; this keeps the sets still to visit on a heap stack, taken
+    /// in the recursion's order, so a set built from sets however deep costs
+    /// no stack, and removes the repeats once at the end — which leaves the
+    /// same list, since removing them twice is removing them once.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn get_tag_list(&self, the_set: &Set, the_tags: &mut TagList, unif_mode: bool) {
-        if the_set.r#type.intersects(ST_SET_UNIFY) {
-            // usets = (*context_stack.back().unif_sets)[theSet.number]
-            #[expect(
-                clippy::unwrap_used,
-                reason = "tag lists are expanded only inside a rule (its actions, or a varstring tag it matches or adds), and run_single_rule_body gives the frame it pushes unif indices before matching a reading or running a tag-list action on it"
-            )]
-            let unif_sets = self
-                .scratch
-                .context_stack
-                .last()
-                .unwrap()
-                .unif_sets
-                .unwrap();
-            let usets = self.scratch.unif_sets_store[unif_sets].get(&the_set.number.get());
-            let p_set = self.grammar.set_by_number(SetNumber(the_set.sets[0]));
-            for &iter in &p_set.sets {
-                let present = usets.map(|s| s.count(iter) != 0).unwrap_or(false);
-                if present {
-                    self.get_tag_list(self.grammar.set_by_number(SetNumber(iter)), the_tags, false);
-                }
-            }
-        } else if the_set.r#type.intersects(ST_TAG_UNIFY) {
-            for &iter in &the_set.sets {
-                self.get_tag_list(self.grammar.set_by_number(SetNumber(iter)), the_tags, true);
-            }
-        } else if !the_set.sets.is_empty() {
-            for &iter in &the_set.sets {
-                self.get_tag_list(
-                    self.grammar.set_by_number(SetNumber(iter)),
-                    the_tags,
-                    unif_mode,
-                );
-            }
-        } else if unif_mode {
-            #[expect(
-                clippy::unwrap_used,
-                reason = "tag lists are expanded only inside a rule (its actions, or a varstring tag it matches or adds), and run_single_rule_body gives the frame it pushes unif indices before matching a reading or running a tag-list action on it"
-            )]
-            let unif_tags = self
-                .scratch
-                .context_stack
-                .last()
-                .unwrap()
-                .unif_tags
-                .unwrap();
-            let val = self.scratch.unif_tags_store[unif_tags]
-                .get(&the_set.number.get())
-                .cloned();
-            // C++ `trie_getTagList(trie, theTags, node)` / `(trie_special, ...)`
-            // walk both tries by the recorded node ADDRESS, appending the
-            // reconstructed root-to-node tag path. The address-free `UnifKey`
-            // ALREADY carries that path (in root-to-node order — exactly what the
-            // successful DFS branch pushes) plus which trie it lives in, so the
-            // walk collapses to appending `key.path` to `the_tags`.
-            if let Some(key) = val {
-                for tid in key.path {
-                    the_tags.push(tid);
-                }
-            }
-        } else {
-            crate::tag_trie::trie_get_tag_list_append(&the_set.trie, the_tags, self.grammar);
-            crate::tag_trie::trie_get_tag_list_append(
-                &the_set.trie_special,
-                the_tags,
-                self.grammar,
-            );
+        let mut todo: Vec<(&Set, bool)> = vec![(the_set, unif_mode)];
+        while let Some((set, unif_mode)) = todo.pop() {
+            let from = todo.len();
+            self.tag_list_step(set, the_tags, unif_mode, &mut todo);
+            todo[from..].reverse();
         }
-
         // Eliminate CONSECUTIVE duplicates only (non-adjacent dups are kept, for
         // AddCohort/Append repeated tags across readings).
-        let mut oti = 0usize;
-        while the_tags.len() > 1 && oti < the_tags.len() {
-            let mut it = oti + 1;
-            while it < the_tags.len() && it - oti == 1 {
-                if the_tags[oti] == the_tags[it] {
-                    the_tags.remove(it);
-                } else {
-                    it += 1;
-                }
-            }
-            oti += 1;
-        }
+        collapse_repeated_tags(the_tags);
     }
 
     // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.get-sub-reading-fn]

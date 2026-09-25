@@ -747,13 +747,13 @@ fn a_shared_core_cannot_reach_the_writers() {
 // tmpl_context_t::clear for T:NccN/T:V-Prep uses, and its position-overridden
 // uses ((0 T:...), (-1 T:...)) drive posOutputHelper.
 // ===========================================================================
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+1/test]
-// [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+2/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-test-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-single-test-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.get-cohort-in-window-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-tmpl-fn/test]
-// [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-tmpl-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.tmpl-context-t.clear-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pos-output-helper-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.pos-output-helper-fn/test]
@@ -804,8 +804,8 @@ fn engine_contextual_tests() {
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-line-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-regexp-match-reading-fn/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-reading-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+1/test]
-// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+2/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.get-tags-matching-fn/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.get-tags-matching-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-trie-fn/test]
@@ -814,8 +814,8 @@ fn engine_contextual_tests() {
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-tags-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn+1/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn+1/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn/test]
-// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-helper-fn/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-helper-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-normal-fn/test]
@@ -853,8 +853,8 @@ fn engine_match_set() {
 // the IGNORE/PROTECT/DELAY flags; T_Variables SETVARIABLE/REMVARIABLE;
 // T_InputMarkup inline stream markup.
 // ===========================================================================
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1/test]
 // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.update-valid-rules-fn/test]
@@ -1351,8 +1351,8 @@ fn attaching_to_wordform_tags_is_a_run_error() {
 /// no wordform first, or a tag before any baseform. The first used to leave a
 /// cohort with no wordform, which panicked when it was given a reading.
 // [spec:cg3:req:robustness.accepted-grammars-run/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
 #[test]
 fn cohort_tag_list_without_wordform_is_refused() {
     let cases = [
@@ -1397,8 +1397,8 @@ fn cohort_tag_list_without_wordform_is_refused() {
 /// A `SET:` tag resolves through the names `STATIC-SETS` keep for run time;
 /// any other name is a run error rather than a lookup in a cleared table.
 // [spec:cg3:req:robustness.accepted-grammars-run/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+1/test]
-// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+2/test]
 #[test]
 fn set_tag_resolves_only_static_sets() {
     let out = apply(
@@ -1501,8 +1501,8 @@ fn switchparent_leaves_a_parentless_cohort_alone() {
 /// A jump moves the position into the jump target's window; the SELF probe
 /// looked it up in the window the test left, past that window's end.
 // [spec:cg3:req:robustness.accepted-grammars-run/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+1/test]
-// [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+2/test]
 #[test]
 fn jump_self_probe_reads_the_jump_window() {
     let input = "\"<a>\"\n\t\"a\" A\n\"<.>\"\n\t\".\" CLB\n\"<c>\"\n\t\"c\" F\n\"<d>\"\n\t\"d\" F\n\

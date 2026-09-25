@@ -43,7 +43,7 @@ use crate::strings::Keywords;
 use crate::strings::STR_DUMMY;
 use crate::tag::{
     T_CASE_INSENSITIVE, T_DEPENDENCY, T_MAPPING, T_PRESERVE_ESC, T_REGEXP, T_RELATION, T_TEXTUAL,
-    T_VARSTRING, Tag,
+    T_VARSTRING,
 };
 use crate::tag_trie::trie_get_tag_list_append;
 use crate::types::{GlobalNumber, TagHash};
@@ -651,13 +651,18 @@ impl Engine<'_> {
     /// read `this->trace` directly and its two profiling callers force-disabled
     /// it via a `swapper<bool>`; threading the value keeps `self.trace` (config)
     /// immutable.
+    ///
+    /// Prints the one reading, and returns the sub-reading to print after it,
+    /// if the chain goes on; [`Self::print_reading_chain`] prints the whole
+    /// chain, where the C++ recurses.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn print_reading<W: Write>(
         &mut self,
         reading: ReadingId,
         output: &mut W,
         sub: usize,
         trace: bool,
-    ) {
+    ) -> Option<ReadingId> {
         let (noprint, deleted, baseform, parent_cid) = {
             let r = self.doc.store.readings.get(reading.0);
             (
@@ -668,11 +673,11 @@ impl Engine<'_> {
             )
         };
         if noprint {
-            return;
+            return None;
         }
         if deleted {
             if !trace {
-                return;
+                return None;
             }
             write_char(';', output);
         }
@@ -840,8 +845,8 @@ impl Engine<'_> {
         let next = self.doc.store.readings.get(reading.0).next;
         if let Some(next_id) = next {
             self.doc.store.readings.get_mut(next_id.0).deleted = deleted;
-            self.print_reading(next_id, output, sub + 1, trace);
         }
+        next
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.print-cohort-fn]
@@ -930,7 +935,7 @@ impl Engine<'_> {
                 sort_readings(&self.doc.store, &mut readings);
                 self.doc.store.cohorts.get_mut(cohort.0).readings = readings.clone();
                 for r in readings {
-                    self.print_reading(r, output, 1, trace);
+                    self.print_reading_chain(r, output, 1, trace);
                 }
 
                 if trace && !self.cfg.trace_no_removed {
@@ -939,14 +944,14 @@ impl Engine<'_> {
                     sort_readings(&self.doc.store, &mut delayed);
                     self.doc.store.cohorts.get_mut(cohort.0).delayed = delayed.clone();
                     for r in delayed {
-                        self.print_reading(r, output, 1, trace);
+                        self.print_reading_chain(r, output, 1, trace);
                     }
                     let mut del: Vec<ReadingId> =
                         self.doc.store.cohorts.get(cohort.0).deleted.clone();
                     sort_readings(&self.doc.store, &mut del);
                     self.doc.store.cohorts.get_mut(cohort.0).deleted = del.clone();
                     for r in del {
-                        self.print_reading(r, output, 1, trace);
+                        self.print_reading_chain(r, output, 1, trace);
                     }
                 }
             }
@@ -2008,68 +2013,5 @@ impl Matcher<'_> {
                 sources,
             }
         })
-    }
-}
-
-/// The applicator instantiation of the C++ `parser_helpers.hpp`
-/// `template<typename State> parseTag(...)` — used by
-/// [`GrammarApplicator::add_tag`]'s `T_VARSTRING` branch so runtime-generated
-/// tags go through the full parser (regex compile, prefixes, suffixes,
-/// numerics) instead of the raw path. Implemented on the [`Matcher`]
-/// (super::Matcher) sub-view: the varstring branch is reached from the
-/// contextual matcher knot, so `parse_tag(..., self, ...)` threads a
-/// `Matcher`.
-impl crate::parser_helpers::ParseTagState for Matcher<'_> {
-    type Tags = Grammar;
-    fn grammar(&self) -> &Grammar {
-        &*self.grammar
-    }
-
-    /// C++ `GrammarApplicator::filebase` is `nullptr` (never set) — the
-    /// warnings that print it only fire on malformed tags.
-    fn filebase(&self) -> &str {
-        ""
-    }
-
-    // [spec:cg3:req:diagnostics.runtime-input-named]
-    /// C++ `GrammarApplicator::error(str, p)` labelled the failure `RT RULE`
-    /// with the current rule's line, or `RT INPUT` with the input line count.
-    /// That label/line pair is the only position a runtime tag failure has, so
-    /// it becomes the error's `file` and `line`. The C++ printed here and
-    /// returned; the caller now decides.
-    ///
-    /// A failure with no rule in flight belongs to the INPUT, and the line
-    /// counts that stream's lines rather than the grammar's — so it is headed
-    /// with the input's own name
-    /// ([`EngineConfig::input_name`](crate::grammar_applicator::EngineConfig::input_name))
-    /// rather than with `RT INPUT`, which said which counter the number came
-    /// from and nothing about which of several files produced it. `RT RULE`
-    /// stays as the fallback for a rule that cannot be placed in a source;
-    /// `place_in_grammar` replaces it when it can.
-    ///
-    /// No span: the offending text came off the input stream, not out of a
-    /// grammar buffer. `near` is ignored for the same reason the C++ passed
-    /// `p = 0` here.
-    fn error_at(&mut self, _near: crate::parser_helpers::Near<'_>) -> crate::error::ParseError {
-        let (label, line) = if let Some(rid) = self.scratch.current_rule
-            && self.grammar.rule_by_number[rid.0].line != 0
-        {
-            ("RT RULE", self.grammar.rule_by_number[rid.0].line)
-        } else {
-            (self.cfg.input_name.as_str(), *self.num_lines)
-        };
-        crate::error::ParseError {
-            file: label.to_string(),
-            line,
-            near: String::new(),
-            span: None,
-            kind: crate::error::ParseErrorKind::Syntax,
-        }
-    }
-
-    /// C++ `state.addTag(tag)` → `GrammarApplicator::addTag(Tag*)` — the
-    /// seed-probing interner, NOT `Grammar::addTag`.
-    fn add_tag(&mut self, tag: Tag) -> TagId {
-        self.grammar.add_tag(tag)
     }
 }

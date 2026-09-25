@@ -198,6 +198,45 @@ pub enum ParseErrorKind {
     /// loaded, and only this input showed the rule has nothing it can do.
     #[error("{0}")]
     RuleInapplicable(RuleInapplicable),
+    // [spec:cg3:req:robustness.depth-bounded]
+    /// A construct that takes the grammar's nesting past
+    /// [`MAX_NESTING`](crate::nesting::MAX_NESTING) levels, marked where it
+    /// begins. The levels of every kind of nesting count together — see
+    /// [`crate::nesting`].
+    #[error("{what} nests deeper than the limit of {limit} levels")]
+    NestingTooDeep { what: Nesting, limit: usize },
+}
+
+// [spec:cg3:req:robustness.depth-bounded]
+/// What went past the nesting limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Nesting {
+    /// A `LINK`ed contextual test, or an item after the first in a `[...]`
+    /// template list.
+    Link,
+    /// An inline template: a `(...)` alternative inside a test.
+    InlineTemplate,
+    /// A named template, entered at run time.
+    Template,
+    /// A `WITH` block, or a sub-rule it runs.
+    With,
+    /// A variable tag's name or value that is itself a variable tag.
+    VariableTag,
+    /// A `SET:` tag, naming a set that is tested at run time.
+    SetTag,
+}
+
+impl std::fmt::Display for Nesting {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Nesting::Link => "a LINK",
+            Nesting::InlineTemplate => "an inline template",
+            Nesting::Template => "a template",
+            Nesting::With => "a WITH block",
+            Nesting::VariableTag => "a variable tag",
+            Nesting::SetTag => "a SET: tag",
+        })
+    }
 }
 
 // [spec:cg3:req:robustness.accepted-grammars-run]
@@ -610,6 +649,16 @@ pub enum RunError {
     /// reading `VSTR:$1`, say. The C++ expands forever.
     #[error("varstring {tag} in the rule on line {line} keeps expanding into another varstring")]
     VarstringLoop { tag: String, line: u32 },
+    // [spec:cg3:req:robustness.depth-bounded]
+    /// Contextual tests, templates and `WITH` sub-rules evaluating one another
+    /// more than [`MAX_NESTING`](crate::nesting::MAX_NESTING) levels deep while
+    /// the rule on `line` runs. The C++ recurses until the stack runs out.
+    #[error("{what} in the rule on line {line} nests deeper than the limit of {limit} levels")]
+    NestingTooDeep {
+        what: Nesting,
+        line: u32,
+        limit: usize,
+    },
     /// C++ `runContextualTest`: a test with position `?` run with no override
     /// position was `CG3Quit(1)`. A textual grammar is refused at parse for
     /// this; a compiled one reaches here.

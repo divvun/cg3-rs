@@ -299,7 +299,7 @@ fn setops_fixture_eager_operators() {
 // go through parseAnchorish into Grammar::addAnchor; the JUMP maplist is
 // validated at end-of-parse via getTagList_Any against the anchor table.
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.maybe-parse-rule-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn+1/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-flags-fn+1/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.add-rule-to-grammar-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-anchorish-fn/test]
@@ -366,7 +366,7 @@ fn rules_sections_anchors_and_jump() {
 // deferred `T:` references are resolved to the interned templates at the end
 // of the parse (ctx.tmpl wired up).
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-tests-fn/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+1/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+2/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn+1/test]
 // [spec:cg3:sem:grammar.cg3.grammar.allocate-contextual-test-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.add-contextual-test-fn/test]

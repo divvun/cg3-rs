@@ -52,6 +52,7 @@ use crate::contextual_test::{
     POS_RIGHT, POS_RIGHT_PAR, POS_RIGHTMOST, POS_SCANALL, POS_SCANFIRST, POS_SELF, POS_SPAN_BOTH,
     POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, PosJumpPos,
 };
+use crate::error::Nesting;
 use crate::grammar::{GrammarCore, TagSpace};
 use crate::inlines::{hash_value_str, isspace, skiptows_chars, skipws_chars, ui32};
 use crate::parser_helpers::Near;
@@ -75,6 +76,7 @@ use crate::tag_trie::{trie_get_tags, trie_insert};
 use crate::types::SetNumber;
 mod checks;
 mod driver;
+mod nesting;
 mod rules;
 use crate::uextras::{
     S_IGNORE, basename, copy_with_visible_newlines, dir_prefix, is_blank, set_op_code,
@@ -374,8 +376,26 @@ fn accumulate_digits(buf: &[char], pos: &mut usize, acc: i32) -> Option<i32> {
 
 // [spec:cg3:def:textual-parser.cg3.is-mapping-list-fn]
 // [spec:cg3:sem:textual-parser.cg3.is-mapping-list-fn]
+/// The C++ recurses into the member sets. Being a mapping list is a property
+/// every set in the tree must have, so this visits them from a heap stack
+/// instead and stops at the first that does not, so a set built from sets
+/// however deep costs no stack.
+// [spec:cg3:req:robustness.depth-bounded]
 fn is_mapping_list(grammar: &GrammarCore, s: SetId) -> bool {
-    let mut is_list = true;
+    let mut todo = vec![s];
+    while let Some(s) = todo.pop() {
+        if !is_mapping_list_own(grammar, s, &mut todo) {
+            return false;
+        }
+    }
+    true
+}
+
+// [spec:cg3:def:textual-parser.cg3.is-mapping-list-fn]
+// [spec:cg3:sem:textual-parser.cg3.is-mapping-list-fn]
+/// One set of [`is_mapping_list`]'s walk: whether its own tags or operators
+/// rule it out, its member sets pushed onto `todo` to be checked in turn.
+fn is_mapping_list_own(grammar: &GrammarCore, s: SetId, todo: &mut Vec<SetId>) -> bool {
     let st = grammar.sets_list[s.0].r#type;
     let trie_empty = grammar.sets_list[s.0].trie.is_empty();
     let trie_sp_empty = grammar.sets_list[s.0].trie_special.is_empty();
@@ -384,10 +404,10 @@ fn is_mapping_list(grammar: &GrammarCore, s: SetId) -> bool {
         && !st.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY))
     {
         let tries = [
-            grammar.sets_list[s.0].trie.clone(),
-            grammar.sets_list[s.0].trie_special.clone(),
+            &grammar.sets_list[s.0].trie,
+            &grammar.sets_list[s.0].trie_special,
         ];
-        for trie in &tries {
+        for trie in tries {
             if trie.is_empty() {
                 continue;
             }
@@ -403,24 +423,14 @@ fn is_mapping_list(grammar: &GrammarCore, s: SetId) -> bool {
                 }
             }
         }
-        return is_list;
+        return true;
     }
-    let set_ops = grammar.sets_list[s.0].set_ops.clone();
-    for op in set_ops {
-        if op != S_OR {
-            is_list = false;
-            break;
-        }
+    if grammar.sets_list[s.0].set_ops.iter().any(|&op| op != S_OR) {
+        return false;
     }
-    let sets = grammar.sets_list[s.0].sets.clone();
-    for i in sets {
-        let set = grammar.get_set(i).unwrap();
-        if !is_mapping_list(grammar, set) {
-            is_list = false;
-            break;
-        }
-    }
-    is_list
+    let members = &grammar.sets_list[s.0].sets;
+    todo.extend(members.iter().rev().map(|&i| grammar.get_set(i).unwrap()));
+    true
 }
 
 /// Collect a `TagVectorSet` into a `Vec<TagVector>` ordered by `compare_TagVector`
@@ -573,6 +583,9 @@ pub struct TextualParser {
     /// Collector for the WITH-block subrules (the C++ `nested_rule->sub_rules`
     /// target). See `add_rule_to_grammar`.
     nested_subrules: Vec<RuleId>,
+    /// How many levels deep the construct being parsed is nested, every kind
+    /// counted together — see [`crate::nesting::MAX_NESTING`].
+    pub(crate) nesting: usize,
     filename: String,
     /// Shared handle to the grammar buffer currently being parsed — the buffer
     /// each AST node opened here records for its span. Replaces the C++
@@ -618,6 +631,52 @@ pub struct TextualParser {
     pub profiler: Option<crate::profiler::Profiler>,
 }
 
+/// The rule keywords [`TextualParser::maybe_parse_rule`] looks for, in the
+/// order it tries them: longer names first where one is a prefix of another.
+/// The C++ tries `RESTORE` a second time after `MERGECOHORTS`, which can never
+/// match; that test is left out. A table rather than the C++ `else if` chain,
+/// because that chain holds a frame for each of its calls, and a `WITH` block
+/// recurses through this function once per level.
+const RULE_KEYWORDS: [(&str, &str, Keywords); 37] = [
+    ("ADDRELATIONS", "addrelations", Keywords::KAddrelations),
+    ("SETRELATIONS", "setrelations", Keywords::KSetrelations),
+    ("REMRELATIONS", "remrelations", Keywords::KRemrelations),
+    ("ADDRELATION", "addrelation", Keywords::KAddrelation),
+    ("SETRELATION", "setrelation", Keywords::KSetrelation),
+    ("REMRELATION", "remrelation", Keywords::KRemrelation),
+    ("SETVARIABLE", "setvariable", Keywords::KSetvariable),
+    ("REMVARIABLE", "remvariable", Keywords::KRemvariable),
+    ("SETPARENT", "setparent", Keywords::KSetparent),
+    ("SETCHILD", "setchild", Keywords::KSetchild),
+    ("REMPARENT", "remparent", Keywords::KRemparent),
+    ("SWITCHPARENT", "switchparent", Keywords::KSwitchparent),
+    ("RESTORE", "restore", Keywords::KRestore),
+    ("IFF", "iff", Keywords::KIff),
+    ("MAP", "map", Keywords::KMap),
+    ("ADD", "add", Keywords::KAdd),
+    ("APPEND", "append", Keywords::KAppend),
+    ("SELECT", "select", Keywords::KSelect),
+    ("REMOVE", "remove", Keywords::KRemove),
+    ("REPLACE", "replace", Keywords::KReplace),
+    ("SUBSTITUTE", "substitute", Keywords::KSubstitute),
+    ("COPYCOHORT", "copycohort", Keywords::KCopycohort),
+    ("COPY", "copy", Keywords::KCopy),
+    ("UNMAP", "unmap", Keywords::KUnmap),
+    ("PROTECT", "protect", Keywords::KProtect),
+    ("UNPROTECT", "unprotect", Keywords::KUnprotect),
+    ("DELIMIT", "delimit", Keywords::KDelimit),
+    ("JUMP", "jump", Keywords::KJump),
+    ("MOVE", "move", Keywords::KMove),
+    ("SWITCH", "switch", Keywords::KSwitch),
+    ("EXECUTE", "execute", Keywords::KExecute),
+    ("EXTERNAL", "external", Keywords::KExternal),
+    ("REMCOHORT", "remcohort", Keywords::KRemcohort),
+    ("ADDCOHORT", "addcohort", Keywords::KAddcohort),
+    ("SPLITCOHORT", "splitcohort", Keywords::KSplitcohort),
+    ("MERGECOHORTS", "mergecohorts", Keywords::KMergecohorts),
+    ("WITH", "with", Keywords::KWith),
+];
+
 impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.textual-parser-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.textual-parser-fn]
@@ -652,6 +711,7 @@ impl TextualParser {
             safe_setparent: false,
             only_sets: false,
             nested_subrules: Vec::new(),
+            nesting: 0,
             filename: String::new(),
             cur_grammar_buf: crate::ast::SrcBuf::from([] as [char; 0]),
             cur_source: 0,
@@ -1662,7 +1722,8 @@ impl TextualParser {
     ) -> ParseResult<CtxId> {
         let open = *pos;
         *pos += 1;
-        let ored = self.parse_contextual_test_list(buf, pos, rule_flags, true)?;
+        let ored =
+            self.parse_nested_list(buf, pos, rule_flags, true, Some(Nesting::InlineTemplate))?;
         if buf[*pos] == '\0' {
             let mut err = self.error_near(open);
             err.kind = crate::error::ParseErrorKind::UnclosedParenthesis;
@@ -1711,8 +1772,8 @@ impl TextualParser {
         Ok(tmpl_data)
     }
 
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+1]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+1]
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+2]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+2]
     fn parse_contextual_test_list(
         &mut self,
         buf: &[char],
@@ -1787,29 +1848,7 @@ impl TextualParser {
             }
         } else if token.starts_with('[') {
             // (2) Template shorthand [set, set, ...].
-            *pos += 1;
-            self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-            let s = self.parse_set_inline_wrapper(buf, pos)?;
-            self.grammar.contexts_arena[t_cur.0].offset = 1;
-            self.grammar.contexts_arena[t_cur.0].target =
-                SetNumber(self.grammar.sets_list[s.0].hash);
-            self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-            while buf[*pos] == ',' {
-                *pos += 1;
-                self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-                let lnk = self.grammar.allocate_contextual_test();
-                let s2 = self.parse_set_inline_wrapper(buf, pos)?;
-                self.grammar.contexts_arena[lnk.0].offset = 1;
-                self.grammar.contexts_arena[lnk.0].target =
-                    SetNumber(self.grammar.sets_list[s2.0].hash);
-                self.grammar.contexts_arena[t_cur.0].linked = Some(lnk);
-                t_cur = lnk;
-                self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-            }
-            if buf[*pos] != ']' {
-                return Err(self.error_near(*pos));
-            }
-            *pos += 1;
+            t_cur = self.parse_template_list(buf, pos, t_cur)?;
         } else {
             // (3) T: template-ref peek, OR (4) a normal test. `goto_template`
             // reproduces the `goto label_parseTemplateRef` (skips position + first
@@ -1890,7 +1929,7 @@ impl TextualParser {
         self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
 
         if linked {
-            let l = self.parse_contextual_test_list(buf, pos, rule_flags, in_tmpl)?;
+            let l = self.parse_nested_list(buf, pos, rule_flags, in_tmpl, Some(Nesting::Link))?;
             self.grammar.contexts_arena[t_cur.0].linked = Some(l);
             if self.grammar.contexts_arena[t_cur.0]
                 .pos
@@ -1955,7 +1994,7 @@ impl TextualParser {
         rule: &mut Rule,
     ) -> ParseResult {
         let rf = rule.flags;
-        let t = self.parse_contextual_test_list(buf, pos, Some(rf), false)?;
+        let t = self.parse_nested_list(buf, pos, Some(rf), false, None)?;
         if self.option_vislcg_compat && (self.grammar.contexts_arena[t.0].pos.intersects(POS_NOT)) {
             self.grammar.contexts_arena[t.0].pos &= !POS_NOT;
             self.grammar.contexts_arena[t.0].pos |= POS_NEGATE;
@@ -1973,7 +2012,7 @@ impl TextualParser {
         rule: &mut Rule,
     ) -> ParseResult {
         let rf = rule.flags;
-        let t = self.parse_contextual_test_list(buf, pos, Some(rf), false)?;
+        let t = self.parse_nested_list(buf, pos, Some(rf), false, None)?;
         if self.option_vislcg_compat && (self.grammar.contexts_arena[t.0].pos.intersects(POS_NOT)) {
             self.grammar.contexts_arena[t.0].pos &= !POS_NOT;
             self.grammar.contexts_arena[t.0].pos |= POS_NEGATE;
@@ -2083,86 +2122,14 @@ impl TextualParser {
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.maybe-parse-rule-fn]
     fn maybe_parse_rule(&mut self, buf: &[char], pos: &mut usize) -> ParseResult<bool> {
         let p = *pos;
-        // Longer names first; order-sensitive where one is a prefix of another.
-        if is_icase_kw(buf, p, "ADDRELATIONS", "addrelations") != 0 {
-            self.parse_rule(buf, pos, Keywords::KAddrelations)?;
-        } else if is_icase_kw(buf, p, "SETRELATIONS", "setrelations") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSetrelations)?;
-        } else if is_icase_kw(buf, p, "REMRELATIONS", "remrelations") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemrelations)?;
-        } else if is_icase_kw(buf, p, "ADDRELATION", "addrelation") != 0 {
-            self.parse_rule(buf, pos, Keywords::KAddrelation)?;
-        } else if is_icase_kw(buf, p, "SETRELATION", "setrelation") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSetrelation)?;
-        } else if is_icase_kw(buf, p, "REMRELATION", "remrelation") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemrelation)?;
-        } else if is_icase_kw(buf, p, "SETVARIABLE", "setvariable") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSetvariable)?;
-        } else if is_icase_kw(buf, p, "REMVARIABLE", "remvariable") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemvariable)?;
-        } else if is_icase_kw(buf, p, "SETPARENT", "setparent") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSetparent)?;
-        } else if is_icase_kw(buf, p, "SETCHILD", "setchild") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSetchild)?;
-        } else if is_icase_kw(buf, p, "REMPARENT", "remparent") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemparent)?;
-        } else if is_icase_kw(buf, p, "SWITCHPARENT", "switchparent") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSwitchparent)?;
-        } else if is_icase_kw(buf, p, "RESTORE", "restore") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRestore)?;
-        } else if is_icase_kw(buf, p, "IFF", "iff") != 0 {
-            self.parse_rule(buf, pos, Keywords::KIff)?;
-        } else if is_icase_kw(buf, p, "MAP", "map") != 0 {
-            self.parse_rule(buf, pos, Keywords::KMap)?;
-        } else if is_icase_kw(buf, p, "ADD", "add") != 0 {
-            self.parse_rule(buf, pos, Keywords::KAdd)?;
-        } else if is_icase_kw(buf, p, "APPEND", "append") != 0 {
-            self.parse_rule(buf, pos, Keywords::KAppend)?;
-        } else if is_icase_kw(buf, p, "SELECT", "select") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSelect)?;
-        } else if is_icase_kw(buf, p, "REMOVE", "remove") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemove)?;
-        } else if is_icase_kw(buf, p, "REPLACE", "replace") != 0 {
-            self.parse_rule(buf, pos, Keywords::KReplace)?;
-        } else if is_icase_kw(buf, p, "SUBSTITUTE", "substitute") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSubstitute)?;
-        } else if is_icase_kw(buf, p, "COPYCOHORT", "copycohort") != 0 {
-            self.parse_rule(buf, pos, Keywords::KCopycohort)?;
-        } else if is_icase_kw(buf, p, "COPY", "copy") != 0 {
-            self.parse_rule(buf, pos, Keywords::KCopy)?;
-        } else if is_icase_kw(buf, p, "UNMAP", "unmap") != 0 {
-            self.parse_rule(buf, pos, Keywords::KUnmap)?;
-        } else if is_icase_kw(buf, p, "PROTECT", "protect") != 0 {
-            self.parse_rule(buf, pos, Keywords::KProtect)?;
-        } else if is_icase_kw(buf, p, "UNPROTECT", "unprotect") != 0 {
-            self.parse_rule(buf, pos, Keywords::KUnprotect)?;
-        } else if is_icase_kw(buf, p, "DELIMIT", "delimit") != 0 {
-            self.parse_rule(buf, pos, Keywords::KDelimit)?;
-        } else if is_icase_kw(buf, p, "JUMP", "jump") != 0 {
-            self.parse_rule(buf, pos, Keywords::KJump)?;
-        } else if is_icase_kw(buf, p, "MOVE", "move") != 0 {
-            self.parse_rule(buf, pos, Keywords::KMove)?;
-        } else if is_icase_kw(buf, p, "SWITCH", "switch") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSwitch)?;
-        } else if is_icase_kw(buf, p, "EXECUTE", "execute") != 0 {
-            self.parse_rule(buf, pos, Keywords::KExecute)?;
-        } else if is_icase_kw(buf, p, "EXTERNAL", "external") != 0 {
-            self.parse_rule(buf, pos, Keywords::KExternal)?;
-        } else if is_icase_kw(buf, p, "REMCOHORT", "remcohort") != 0 {
-            self.parse_rule(buf, pos, Keywords::KRemcohort)?;
-        } else if is_icase_kw(buf, p, "ADDCOHORT", "addcohort") != 0 {
-            self.parse_rule(buf, pos, Keywords::KAddcohort)?;
-        } else if is_icase_kw(buf, p, "SPLITCOHORT", "splitcohort") != 0 {
-            self.parse_rule(buf, pos, Keywords::KSplitcohort)?;
-        } else if is_icase_kw(buf, p, "MERGECOHORTS", "mergecohorts") != 0 {
-            self.parse_rule(buf, pos, Keywords::KMergecohorts)?;
-        } else if is_icase_kw(buf, p, "RESTORE", "restore") != 0 {
-            // Dead duplicate branch (never reached — the first RESTORE wins).
-            self.parse_rule(buf, pos, Keywords::KRestore)?;
-        } else if is_icase_kw(buf, p, "WITH", "with") != 0 {
-            self.parse_rule(buf, pos, Keywords::KWith)?;
-        } else {
+        let Some(&(_, _, key)) = RULE_KEYWORDS
+            .iter()
+            .find(|(uc, lc, _)| is_icase_kw(buf, p, uc, lc) != 0)
+        else {
             return Ok(false);
+        };
+        if let Some(open) = self.parse_rule(buf, pos, key)? {
+            self.parse_with_block(buf, pos, open)?;
         }
         Ok(true)
     }

@@ -17,10 +17,10 @@ use crate::types::TagHash;
 use super::*;
 
 impl crate::grammar_applicator::Engine<'_> {
-    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1]
-    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1]
+    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2]
+    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2]
     /// C++ `uint32_t runRulesOnSingleWindow(SingleWindow& current, const
     /// uint32IntervalVector& rules)`.
     pub fn run_rules_on_single_window(

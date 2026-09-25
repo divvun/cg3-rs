@@ -11,7 +11,7 @@ use crate::grammar::GrammarCore;
 use crate::inlines::{hash_value, ui32};
 use crate::sorted_vector::{Comparator, SortedVector};
 use crate::tag::{CompareTag, T_MAPPING, T_SPECIAL, TagSortedVector};
-use crate::tag_trie::{trie_delete, trie_markused, trie_rehash};
+use crate::tag_trie::{TrieWalk, trie_delete, trie_markused, trie_rehash};
 use crate::types::{SetNumber, Uint32Vector};
 use std::collections::HashMap;
 
@@ -255,6 +255,7 @@ impl Set {
 
     // [spec:cg3:def:set.cg3.set.reindex-fn]
     // [spec:cg3:sem:set.cg3.set.reindex-fn]
+    // [spec:cg3:req:robustness.depth-bounded]
     /// C++ `void Set::reindex(Grammar& grammar)`. Recomputes the derived
     /// special-type flags on `type`. Associated fn (`grammar`/`id` form)
     /// because it recurses into child sets via `grammar.sets_by_contents` and
@@ -263,34 +264,58 @@ impl Set {
     /// QUIRK reproduced: the child lookup `grammar.sets_by_contents.find(s)->second`
     /// dereferences the iterator with NO presence check (C++ UB when `s` is
     /// absent); the port's `HashMap` index panics on the same missing key.
+    ///
+    /// The C++ recurses into the child sets; [`Set::reindex_members`] walks
+    /// them without recursing.
     pub fn reindex(grammar: &mut GrammarCore, id: SetId) {
+        // find(s)->second — no end-check (see QUIRK above).
+        Set::reindex_members(grammar, id, |grammar, s| grammar.sets_by_contents[&s]);
+    }
+
+    // [spec:cg3:def:set.cg3.set.reindex-fn]
+    // [spec:cg3:sem:set.cg3.set.reindex-fn]
+    // [spec:cg3:req:robustness.depth-bounded]
+    /// `Set::reindex` of `id`, with `member` naming the set each entry of a
+    /// `sets` list stands for. A set built from sets is as deep as the grammar
+    /// makes it, so the sets still being reindexed are kept on a heap stack
+    /// rather than the call stack. A child's flags are merged into its parent
+    /// as soon as the child is done and before the next child is begun, where
+    /// the recursion returns.
+    pub(crate) fn reindex_members(
+        grammar: &mut GrammarCore,
+        id: SetId,
+        member: impl Fn(&GrammarCore, u32) -> SetId,
+    ) {
+        Set::reindex_own(grammar, id);
+        let mut open = vec![(id, 0usize)];
+        while let Some((set, next)) = open.last_mut() {
+            let set = *set;
+            let Some(&s) = grammar.sets_list[set.0].sets.get(*next) else {
+                open.pop();
+                Set::reindex_finish(grammar, set, open.last().map(|&(parent, _)| parent));
+                continue;
+            };
+            *next += 1;
+            let child = member(grammar, s);
+            Set::reindex_own(grammar, child);
+            open.push((child, 0));
+        }
+    }
+
+    /// The part of `Set::reindex` before the child sets: clear the derived
+    /// flags, then take the flags the set's own tags give it.
+    fn reindex_own(grammar: &mut GrammarCore, id: SetId) {
         grammar.sets_list[id.0].r#type &= !ST_SPECIAL;
         grammar.sets_list[id.0].r#type &= !ST_CHILD_UNIFY;
-
-        let trie = grammar.sets_list[id.0].trie.clone();
-        let r_trie = trie_reindex(&trie, grammar);
+        let r_trie = trie_reindex(&grammar.sets_list[id.0].trie, grammar);
         grammar.sets_list[id.0].r#type |= r_trie;
-        let trie_special = grammar.sets_list[id.0].trie_special.clone();
-        let r_special = trie_reindex(&trie_special, grammar);
+        let r_special = trie_reindex(&grammar.sets_list[id.0].trie_special, grammar);
         grammar.sets_list[id.0].r#type |= r_special;
+    }
 
-        let sets = grammar.sets_list[id.0].sets.clone();
-        for s in sets {
-            // find(s)->second — no end-check (see QUIRK above).
-            let set = grammar.sets_by_contents[&s];
-            Set::reindex(grammar, set);
-            let set_type = grammar.sets_list[set.0].r#type;
-            if set_type.intersects(ST_SPECIAL) {
-                grammar.sets_list[id.0].r#type |= ST_SPECIAL;
-            }
-            if set_type.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) {
-                grammar.sets_list[id.0].r#type |= ST_CHILD_UNIFY;
-            }
-            if set_type.intersects(ST_MAPPING) {
-                grammar.sets_list[id.0].r#type |= ST_MAPPING;
-            }
-        }
-
+    /// The part of `Set::reindex` after the child sets, then the parent's
+    /// merge of the flags this set leaves it with.
+    fn reindex_finish(grammar: &mut GrammarCore, id: SetId, parent: Option<SetId>) {
         if grammar.sets_list[id.0]
             .r#type
             .intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY)
@@ -298,10 +323,22 @@ impl Set {
             grammar.sets_list[id.0].r#type |= ST_SPECIAL;
             grammar.sets_list[id.0].r#type |= ST_CHILD_UNIFY;
         }
+        let Some(parent) = parent else { return };
+        let set_type = grammar.sets_list[id.0].r#type;
+        if set_type.intersects(ST_SPECIAL) {
+            grammar.sets_list[parent.0].r#type |= ST_SPECIAL;
+        }
+        if set_type.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) {
+            grammar.sets_list[parent.0].r#type |= ST_CHILD_UNIFY;
+        }
+        if set_type.intersects(ST_MAPPING) {
+            grammar.sets_list[parent.0].r#type |= ST_MAPPING;
+        }
     }
 
     // [spec:cg3:def:set.cg3.set.mark-used-fn]
     // [spec:cg3:sem:set.cg3.set.mark-used-fn]
+    // [spec:cg3:req:robustness.depth-bounded]
     /// C++ `void Set::markUsed(Grammar& grammar)`. Marks this set and everything
     /// it references as used. Associated fn (`grammar`/`id` form) because it
     /// mutates tags (`trie_markused`, `ff_tags`) and recurses into child sets.
@@ -309,11 +346,31 @@ impl Set {
     /// There is NO visited-guard — the full set graph is walked (relies on that
     /// graph being acyclic). The child lookup dereferences
     /// `grammar.sets_by_contents.find(s)->second` with no presence check (same
-    /// QUIRK as `reindex`). The tries are cloned out before `trie_markused` so
-    /// the mutable `&Grammar` borrow does not alias the set's own trie
-    /// (`trie_markused` reads only structure + `TagId`s, mutating the tags, so
-    /// the clone yields identical marking).
+    /// QUIRK as `reindex`).
+    ///
+    /// The C++ recurses into the child sets; this keeps the sets still to mark
+    /// on a heap stack, taking them in the recursion's order.
     pub fn mark_used(grammar: &mut GrammarCore, id: SetId) {
+        let mut todo = vec![id];
+        while let Some(set) = todo.pop() {
+            Set::mark_used_own(grammar, set);
+            // find(s)->second — no end-check.
+            let members = &grammar.sets_list[set.0].sets;
+            let members: Vec<SetId> = members
+                .iter()
+                .rev()
+                .map(|s| grammar.sets_by_contents[s])
+                .collect();
+            todo.extend(members);
+        }
+    }
+
+    /// Mark one set of [`Set::mark_used`]'s walk, and its tags, as used. The
+    /// tries are cloned out before `trie_markused` so the mutable `&Grammar`
+    /// borrow does not alias the set's own trie (`trie_markused` reads only
+    /// structure + `TagId`s, mutating the tags, so the clone yields identical
+    /// marking).
+    fn mark_used_own(grammar: &mut GrammarCore, id: SetId) {
         grammar.sets_list[id.0].r#type |= ST_USED;
 
         let trie = grammar.sets_list[id.0].trie.clone();
@@ -324,13 +381,6 @@ impl Set {
         let ff_tags: Vec<TagId> = grammar.sets_list[id.0].ff_tags.iter().copied().collect();
         for tag in ff_tags {
             grammar.single_tags_list.get_mut(tag.0).mark_used();
-        }
-
-        let sets = grammar.sets_list[id.0].sets.clone();
-        for s in sets {
-            // find(s)->second — no end-check.
-            let set = grammar.sets_by_contents[&s];
-            Set::mark_used(grammar, set);
         }
     }
 }
@@ -359,10 +409,11 @@ impl Drop for Set {
 /// sub-tries. Only `ST_SPECIAL` (2) and `ST_MAPPING` (32) can be set (both <
 /// 256), so the `u8` return is lossless. Order-independent (OR accumulation),
 /// so the `BTreeMap` is iterated directly; `grammar` resolves each `TagId`'s
-/// `Tag::type`.
+/// `Tag::type`. Walks with a [`TrieWalk`] where the C++ recurses.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_reindex(trie: &TagTrie, grammar: &GrammarCore) -> SetType {
     let mut type_ = SetType::empty();
-    for (k, node) in trie.iter() {
+    TrieWalk::new(trie).each(|k, _| {
         let tag_type = grammar.single_tags_list[k.0].r#type;
         if tag_type.intersects(T_SPECIAL) {
             type_ |= ST_SPECIAL;
@@ -370,10 +421,7 @@ pub fn trie_reindex(trie: &TagTrie, grammar: &GrammarCore) -> SetType {
         if tag_type.intersects(T_MAPPING) {
             type_ |= ST_MAPPING;
         }
-        if let Some(sub) = &node.trie {
-            type_ |= trie_reindex(sub, grammar);
-        }
-    }
+    });
     type_
 }
 

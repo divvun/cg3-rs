@@ -147,7 +147,7 @@ fn copy_ctor_fields(r: &Reading) -> Reading {
 }
 
 /// Verbatim field-for-field copy (like `operator=`). Used only to detach a
-/// sub-reading source out of the arena before recursing, so the recursive call
+/// sub-reading source out of the arena before copying it, so the copy
 /// can borrow the store mutably without aliasing. NOT the copy ctor (it does
 /// not bump `number`), and NOT a manifest symbol — port infra. The C++
 /// `operator=` also copies `matched_target`/`matched_tests`; those flags are
@@ -232,22 +232,35 @@ pub fn alloc_reading(store: &mut RuntimeStore, p: Option<CohortId>) -> ReadingId
 /// The parent slot is allocated (and its pooled/new fate decided) BEFORE the
 /// `next` chain is deep-cloned, matching the C++ order (`pool.get()` for the
 /// parent, then recursion for the children).
+///
+/// The C++ recurses once per sub-reading; this copies down the chain in a
+/// loop, allocating in the same order, so a chain of any length costs no
+/// stack.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn alloc_reading_copy(store: &mut RuntimeStore, o: &Reading) -> ReadingId {
+    let head = alloc_one_reading_copy(store, o);
+    let mut copied = head;
+    // if (r->next) { r->next = alloc_reading(*r->next); }
+    while let Some(child_id) = store.readings.get(copied.0).next {
+        let src = clone_verbatim(store.readings.get(child_id.0));
+        let child = alloc_one_reading_copy(store, &src);
+        store.readings.get_mut(copied.0).next = Some(child);
+        copied = child;
+    }
+    head
+}
+
+/// One reading of [`alloc_reading_copy`]'s chain: allocated with the
+/// copy-constructor fields, its `next` still the source's.
+fn alloc_one_reading_copy(store: &mut RuntimeStore, o: &Reading) -> ReadingId {
     let pooled = store.readings.will_reuse();
     let r = copy_ctor_fields(o);
-    let child_src = r.next;
     let idx = store.readings.alloc(r);
     // Pooled reuse (pool.get() returned a cleared object) forces both flags off.
     if pooled {
         let rr = store.readings.get_mut(idx);
         rr.immutable = false;
         rr.active = false;
-    }
-    // if (r->next) { r->next = alloc_reading(*r->next); }
-    if let Some(child_id) = child_src {
-        let src = clone_verbatim(store.readings.get(child_id.0));
-        let new_child = alloc_reading_copy(store, &src);
-        store.readings.get_mut(idx).next = Some(new_child);
     }
     ReadingId(idx)
 }
@@ -277,7 +290,7 @@ pub fn reverse(store: &mut RuntimeStore, head: ReadingId) -> ReadingId {
 ///
 /// Returns the reading (and its whole `next` chain) to the pool. If `r` is
 /// `None`, returns immediately. Otherwise it mirrors `pool_readings.put(r)`:
-/// [`reading_clear`] resets the object and recursively frees its `next` chain
+/// [`reading_clear`] resets the object and frees its `next` chain
 /// back to the pool, then the slot itself is returned to the arena free-list.
 /// Children are freed before the parent (matching the C++ `clear()`-then-
 /// `put()` order). (The C++ `Reading*&` caller-handle null-out is ownership by
@@ -294,7 +307,7 @@ pub fn free_reading(store: &mut RuntimeStore, r: Option<ReadingId>) {
 /// state.
 ///
 /// STORE-TAKING FREE FN (not `&mut self`): `clear` calls `free_reading(next)`,
-/// which recursively returns the `next` chain to the pool — that touches other
+/// which returns the `next` chain to the pool — that touches other
 /// arena slots, so the store is required. Field-reset order matches the C++
 /// exactly: scalars/blooms/`mapping`/`parent`, then `free_reading(next)` (+ the
 /// redundant `next = nullptr`), then the containers and `tags_string_hash`.
@@ -321,9 +334,9 @@ pub fn reading_clear(store: &mut RuntimeStore, id: ReadingId) {
         r.parent = None;
     }
     // free_reading(next): frees the chain and nulls the handle. Copied out to a
-    // local so the store can be borrowed mutably by the recursion.
+    // local so the store can be borrowed mutably while the chain is freed.
     let next = store.readings.get_mut(id.0).next;
-    free_reading(store, next);
+    free_sub_readings(store, next);
     {
         let r = store.readings.get_mut(id.0);
         r.next = None; // redundant `next = nullptr`, reproduced verbatim
@@ -336,6 +349,39 @@ pub fn reading_clear(store: &mut RuntimeStore, id: ReadingId) {
         r.tags_string.clear();
         r.tags_string_hash = 0;
     }
+}
+
+// [spec:cg3:def:reading.cg3.free-reading-fn]
+// [spec:cg3:sem:reading.cg3.free-reading-fn]
+// [spec:cg3:req:robustness.depth-bounded]
+/// `free_reading(next)` of [`reading_clear`]: returns `head` and every reading
+/// after it in its chain to the pool. The C++ recurses down the chain through
+/// `clear()` and frees on the way back up; this collects the chain and frees
+/// it tail first, so the pool hands the slots out again in the same order,
+/// and a chain of any length costs no stack. Clearing a reading's fields
+/// before its slot is dropped is not observable, so that is not repeated.
+fn free_sub_readings(store: &mut RuntimeStore, head: Option<ReadingId>) {
+    let Some(head) = head else { return };
+    for id in sub_reading_chain(&store.readings, head).into_iter().rev() {
+        store.readings.free_slot(id.0);
+    }
+}
+
+// [spec:cg3:req:robustness.depth-bounded]
+/// `head` and the sub-readings after it, following `next`, head first: the
+/// chain every walk that the C++ writes as a recursion on `next` walks
+/// instead, so a chain of any length costs no stack.
+pub fn sub_reading_chain(
+    readings: &crate::arena::GenArena<Reading>,
+    head: ReadingId,
+) -> Vec<ReadingId> {
+    let mut chain = vec![head];
+    let mut cur = readings.get(head.0).next;
+    while let Some(id) = cur {
+        chain.push(id);
+        cur = readings.get(id.0).next;
+    }
+    chain
 }
 
 // [spec:cg3:def:reading.cg3.reading.reading-fn]
@@ -371,10 +417,36 @@ pub fn reading_copy(store: &mut RuntimeStore, r: &Reading) -> Reading {
 /// XOR + bloom rebuild") does not match `Reading::rehash`; the actual algorithm
 /// (per `Reading.cpp` / the `rehash-fn` sem) is the tags-fold + mapping + next
 /// chain below.
+///
+/// The C++ recurses down the `next` chain and folds each sub-reading's hash in
+/// on the way back up. A reading's hash depends only on its own tags and the
+/// hash of the one after it, so this hashes the chain from its tail back to
+/// `id` in a loop instead, and a chain of any length costs no stack.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn reading_rehash(
     readings: &mut crate::arena::GenArena<Reading>,
     grammar: &Grammar,
     id: ReadingId,
+) -> u32 {
+    if readings.get(id.0).next.is_none() {
+        return rehash_one_reading(readings, grammar, id, None);
+    }
+    let mut next_hash = None;
+    for r in sub_reading_chain(readings, id).into_iter().rev() {
+        next_hash = Some(rehash_one_reading(readings, grammar, r, next_hash));
+    }
+    next_hash.unwrap_or_default()
+}
+
+// [spec:cg3:def:reading.cg3.reading.rehash-fn]
+// [spec:cg3:sem:reading.cg3.reading.rehash-fn]
+/// One reading of [`reading_rehash`]'s chain, given the hash of the reading
+/// after it (`None` at the end of the chain).
+fn rehash_one_reading(
+    readings: &mut crate::arena::GenArena<Reading>,
+    grammar: &Grammar,
+    id: ReadingId,
+    next_hash: Option<u32>,
 ) -> u32 {
     // mapping->hash, resolved once (None when there is no mapping tag).
     let mapping = readings.get(id.0).mapping;
@@ -399,10 +471,7 @@ pub fn reading_rehash(
     if let Some(mh) = mapping_hash {
         hash = hash_value(mh.get(), hash);
     }
-    let next = readings.get(id.0).next;
-    if let Some(next_id) = next {
-        reading_rehash(readings, grammar, next_id);
-        let next_hash = readings.get(next_id.0).hash;
+    if let Some(next_hash) = next_hash {
         hash = hash_value(next_hash, hash);
     }
     {

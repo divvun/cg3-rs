@@ -226,7 +226,7 @@
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn]
 > inline bool GrammarApplicator::doesSetMatchCohort_testLinked(Cohort& cohort, const Set& theset, dSMC_Context* context)
 
-> [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn]
+> [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn+1]
 > Runs the "linked" contextual test that follows the current one (the LINK
 > chain), if any, and returns whether it matched. Locals: `retval = true`,
 > `reset = false`, `linked = nullptr`, `min = max = nullptr`. Determine the
@@ -245,6 +245,14 @@
 > `tmpl_cntx.linked` (restore the template stack). If `!retval`, restore
 > `tmpl_cntx.min = min; tmpl_cntx.max = max`. Return `retval`. When there is no
 > linked test at all, `retval` remains its initial true.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): the linked test
+> runs one level of nesting deeper. Each is a level of nesting, counted
+> together with every other contextual test, template, `WITH` sub-rule and
+> generated variable tag the rule is evaluating, and one that would take the
+> rule past `MAX_NESTING` (64) levels ends the run with
+> `RunError::NestingTooDeep` naming the rule. The C++ recurses until its stack
+> runs out.
 
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn]
 > bool GrammarApplicator::doesSetMatchReading(const Reading& reading, const uint32_t set, bool bypass_index, bool unif_mode)
@@ -366,7 +374,7 @@
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn]
 > uint32_t GrammarApplicator::doesTagMatchReading(const Reading& reading, const Tag& tag, bool unif_mode, bool bypass_index)
 
-> [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+1]
+> [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+2]
 > The central "does this single tag match this reading" dispatcher. `retval =
 > 0`, `match = 0`. A cascade of mutually-exclusive branches selected by
 > `tag.type` (first matching branch wins):
@@ -448,6 +456,18 @@
 > dereferenced the end iterator; a value hash no interned tag answers to
 > matches nothing. A T_CONTEXT position of 0 names no context rather than
 > indexing before the list.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): a varstring
+> whose expansion is itself a varstring this dispatcher would expand is
+> expanded again in a loop rather than by recursion, and one still expanding
+> after 16 expansions ends the run with `RunError::VarstringLoop` naming the
+> rule, as a rule adding such a tag does; captured text reading `VSTR:$1`
+> makes the C++ recursion endless. The set a `SET:` tag names is tested one
+> level of nesting deeper. Each is a level of nesting, counted together with
+> every other contextual test, template, `WITH` sub-rule and generated
+> variable tag the rule is evaluating, and one that would take the rule past
+> `MAX_NESTING` (64) levels ends the run with `RunError::NestingTooDeep`
+> naming the rule. The C++ recurses until its stack runs out.
 
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-regexp-fn]
 > uint32_t GrammarApplicator::doesTagMatchRegexp(uint32_t test, const Tag& tag, bool bypass_index)

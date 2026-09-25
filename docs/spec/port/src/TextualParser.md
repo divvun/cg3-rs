@@ -208,7 +208,7 @@ exiting the process. There is no Rust function left for these rules to describe.
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn]
 > ContextualTest* TextualParser::parseContextualTestList(UChar*& p, Rule* rule, bool in_tmpl)
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+1]
+> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+2]
 > Parse a full contextual test (position/target/barriers, plus the
 > template forms and any LINKed continuation) and return the
 > registered `ContextualTest*`. `p` is advanced; `rule` may be null
@@ -293,6 +293,14 @@ exiting the process. There is no Rust function left for these rules to describe.
 >   its target set and a reference has none, so the C++ goes on to strip the
 >   numeric tags from set 0 in `parse_grammar` and dereferences a null set. The
 >   port refuses it at the reference, pointing at its `T:`.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): each `LINK`,
+> each inline-template alternative and each item after the first of a `[...]`
+> list is a level of nesting, counted together with `WITH` blocks and variable
+> tags nested in variable tags. A test that would take the grammar past
+> `MAX_NESTING` (64) levels MUST be refused where the construct begins, with
+> `ParseErrorKind::NestingTooDeep`; the C++ recurses as deep as the text
+> nests.
 
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-contextual-test-position-fn]
 > void TextualParser::parseContextualTestPosition(UChar*& p, ContextualTest& t)
@@ -590,7 +598,7 @@ exiting the process. There is no Rust function left for these rules to describe.
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-fn]
 > void TextualParser::parseRule(UChar*& p, KEYWORDS key)
 
-> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn]
+> [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn+1]
 > Parse a full rule of keyword type `key` and (unless filtered out) add
 > it to the grammar. Allocate `rule`, set `rule->line`,
 > `rule->type=key`.
@@ -671,6 +679,13 @@ exiting the process. There is no Rust function left for these rules to describe.
 > `SKIPWS` to `;`; warn (non-fatal) if not at `;`. If destroy ->
 > `result->destroyRule(rule)`. Else `addRuleToGrammar(rule)` (plus
 > profiler span and AST close with `rule->number+1`).
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): a `WITH` block
+> is a level of nesting, counted together with every other kind (see
+> `parseContextualTestList`), and one that would take the grammar past
+> `MAX_NESTING` (64) levels MUST be refused at its `{`, with
+> `ParseErrorKind::NestingTooDeep`; the C++ nests `WITH` blocks until its
+> stack runs out.
 
 > [spec:cg3:def:textual-parser.cg3.textual-parser.parse-set-fn]
 > Set* TextualParser::parseSet(const UChar* name, const UChar* p)

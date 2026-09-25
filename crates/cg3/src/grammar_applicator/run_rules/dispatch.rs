@@ -737,7 +737,7 @@ impl crate::grammar_applicator::Engine<'_> {
             let sr_flags = self.grammar.rule_by_number.get(sr.0).flags;
             loop {
                 st.readings_changed = false;
-                let result = self.run_single_rule(current, sr, st)?;
+                let result = self.run_nested_rule(current, sr, st)?;
                 any_readings_changed = any_readings_changed || result || st.readings_changed;
                 if !((result || st.readings_changed) && (sr_flags.intersects(RF_REPEAT))) {
                     break;

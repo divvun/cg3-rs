@@ -32,7 +32,7 @@
 > [spec:cg3:def:parser-helpers.cg3.parse-tag-fn]
 > Tag* parseTag(const UChar* to, const UChar* p, State& state, bool unescape=true)
 
-> [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+1]
+> [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+2]
 > Template free function (parameterized on the concrete parser `State`)
 > that turns a raw UTF-16 tag string `to` into a canonical `Tag*`,
 > registered in the grammar. `p` is only near-context for errors;
@@ -161,4 +161,12 @@
 > still parses as in the C++. And when `parseNumeric(true)` reports an
 > expression naming a variable outside `A`-`Z` (`tag.cg3.tag.parse-numeric-fn`),
 > that report is the error for the tag.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): the name or
+> value of a variable tag that is itself parsed as a variable tag
+> (`VAR:a=VAR:b=...`, `VAR:VAR:a`) is a level of nesting, counted together
+> with the state's other nesting — the parser's while a grammar is read, the
+> running rule's while a generated tag is parsed. Past `MAX_NESTING` (64)
+> levels the tag MUST be refused with `ParseErrorKind::NestingTooDeep`; the
+> C++ recurses as deep as the text nests.
 

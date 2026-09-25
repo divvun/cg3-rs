@@ -1393,6 +1393,33 @@ impl ApertiumFormat {
     /// C++ `void ApertiumApplicator::printReading(const Reading* reading,
     /// std::ostream& output, ApertiumCasing casing, int32_t firstlower)`. The
     /// 4-arg core: prints one reading (and its `next` sub-reading chain).
+    ///
+    /// The C++ recurses into the chain first, so the deepest sub-reading
+    /// prints first, each joined to the next by a `+`. This walks the chain in
+    /// a loop instead, printing each reading through [`Self::print_reading_e`],
+    /// so a chain of any length costs no stack.
+    // [spec:cg3:req:robustness.depth-bounded]
+    fn print_reading_chain_e<W: Write>(
+        &self,
+        e: &Engine<'_>,
+        reading: ReadingId,
+        output: &mut W,
+        casing: ApertiumCasing,
+        firstlower: i32,
+    ) {
+        let chain = crate::reading::sub_reading_chain(&e.doc.store.readings, reading);
+        for (i, &r) in chain.iter().rev().enumerate() {
+            if i > 0 {
+                write_char('+', output);
+            }
+            self.print_reading_e(e, r, output, casing, firstlower);
+        }
+    }
+
+    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.print-reading-fn]
+    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-reading-fn]
+    /// One reading of [`Self::print_reading_chain_e`]'s chain, without its
+    /// sub-readings.
     fn print_reading_e<W: Write>(
         &self,
         e: &Engine<'_>,
@@ -1404,11 +1431,6 @@ impl ApertiumFormat {
         let store = &e.doc.store;
         let grammar = &e.grammar;
         let r = store.readings.get(reading.0);
-
-        if let Some(next) = r.next {
-            self.print_reading_e(e, next, output, casing, firstlower);
-            write_char('+', output);
-        }
 
         let baseform = r.baseform.unwrap_or(TagHash(0));
         let parent = r.parent;
@@ -1607,7 +1629,7 @@ impl ApertiumFormat {
                 }
             }
         }
-        self.print_reading_e(e, reading, output, casing, 0);
+        self.print_reading_chain_e(e, reading, output, casing, 0);
     }
 
     // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.print-cohort-fn]

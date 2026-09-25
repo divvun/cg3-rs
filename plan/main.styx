@@ -2929,6 +2929,13 @@ children (
                         kind @note
                         text "From no-panic.grammar-text (2026-09-25): robustness.cycles was amended to +1. A template that recurses through a LATER OR alternative or through a LINK is legitimate repetition (test/T_Templates: `TEMPLATE alts = … OR (T:alts)`, and `another` <-> `alts`), so it loads; only cycles that return to themselves before any test can decide (template refs, the first OR alternative) are refused at parse. Such recursion still has no depth limit at run time: whenever the earlier alternatives keep failing it recurses without bound in run_contextual_test_tmpl / run_contextual_test. This node must bound it (robustness.depth-bounded: an authoring construct, so recurse to a stated limit and report past it). Deep non-cyclic nesting (inline templates, LINK chains, long INCLUDE chains) likewise still recurses without a limit in the parser."
                     }
+
+                    {
+                        at 2026-09-25T15:32:51.627636Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

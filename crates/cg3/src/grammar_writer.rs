@@ -276,72 +276,110 @@ impl GrammarWriter {
     /// (dependencies first). QUIRK reproduced: the SET branch reads `name[0]` /
     /// `name[1]` without a length guard (NUL-terminator semantics via [`byte_at`]);
     /// the LIST branch ends with a single "\n", the SET branch with two.
+    ///
+    /// The C++ recurses into a SET's member sets before printing the SET; the
+    /// SETs whose members are still being printed are kept on a heap stack
+    /// instead, so a set built from sets however deep costs no stack, and the
+    /// sets come out in the recursion's order.
+    // [spec:cg3:req:robustness.depth-bounded]
     fn print_set<W: Write>(&mut self, grammar: &GrammarCore, output: &mut W, id: SetId) {
+        let mut open: Vec<(SetId, usize)> = Vec::new();
+        if self.print_set_begin(grammar, output, id) {
+            open.push((id, 0));
+        }
+        while let Some((set, next)) = open.last_mut() {
+            let set = *set;
+            if let Some(&s) = grammar.sets_list[set.0].sets.get(*next) {
+                *next += 1;
+                // printSet(*grammar->sets_list[s]) — `s` is a set NUMBER.
+                let member = grammar.set_id_by_number(SetNumber(s));
+                if self.print_set_begin(grammar, output, member) {
+                    open.push((member, 0));
+                }
+                continue;
+            }
+            open.pop();
+            self.print_set_of_sets(grammar, output, set);
+        }
+    }
+
+    // [spec:cg3:def:grammar-writer.cg3.grammar-writer.print-set-fn]
+    // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.print-set-fn]
+    /// The start of `printSet` for `id`: nothing if it is printed already;
+    /// otherwise mark it printed, and print it whole if it is a LIST. Says
+    /// whether it is a SET, whose members come next.
+    fn print_set_begin<W: Write>(
+        &mut self,
+        grammar: &GrammarCore,
+        output: &mut W,
+        id: SetId,
+    ) -> bool {
         let number = grammar.sets_list[id.0].number.get();
         if self.used_sets.find(number) != self.used_sets.end() {
-            return;
+            return false;
         }
-
-        let sets_empty = grammar.sets_list[id.0].sets.is_empty();
-        if sets_empty {
-            self.used_sets.insert(number);
-            if grammar.sets_list[id.0].r#type.intersects(ST_ORDERED) {
-                w!(output, "O");
-            }
-            w!(output, "LIST {} = ", grammar.sets_list[id.0].name);
-            let tagsets = [
-                trie_get_tags_ordered(&grammar.sets_list[id.0].trie, grammar),
-                trie_get_tags_ordered(&grammar.sets_list[id.0].trie_special, grammar),
-            ];
-            for tvs in &tagsets {
-                for tags in tvs {
-                    if tags.len() > 1 {
-                        w!(output, "(");
-                    }
-                    for &tag in tags {
-                        self.print_tag(output, &grammar.single_tags_list[tag.0]);
-                        w!(output, " ");
-                    }
-                    if tags.len() > 1 {
-                        w!(output, ") ");
-                    }
+        self.used_sets.insert(number);
+        if !grammar.sets_list[id.0].sets.is_empty() {
+            return true;
+        }
+        if grammar.sets_list[id.0].r#type.intersects(ST_ORDERED) {
+            w!(output, "O");
+        }
+        w!(output, "LIST {} = ", grammar.sets_list[id.0].name);
+        let tagsets = [
+            trie_get_tags_ordered(&grammar.sets_list[id.0].trie, grammar),
+            trie_get_tags_ordered(&grammar.sets_list[id.0].trie_special, grammar),
+        ];
+        for tvs in &tagsets {
+            for tags in tvs {
+                if tags.len() > 1 {
+                    w!(output, "(");
+                }
+                for &tag in tags {
+                    self.print_tag(output, &grammar.single_tags_list[tag.0]);
+                    w!(output, " ");
+                }
+                if tags.len() > 1 {
+                    w!(output, ") ");
                 }
             }
-            w!(output, " ;\n");
-        } else {
-            self.used_sets.insert(number);
-            let sets = grammar.sets_list[id.0].sets.clone();
-            for &s in &sets {
-                // printSet(*grammar->sets_list[s]) — `s` is a set NUMBER.
-                self.print_set(grammar, output, grammar.set_id_by_number(SetNumber(s)));
-            }
-            let name = grammar.sets_list[id.0].name.clone();
-            // n = curset.name.data(); n[0]/n[1] read without a guard.
-            let n0 = byte_at(&name, 0);
-            let n1 = byte_at(&name, 1);
-            if (n0 == b'$' && n1 == b'$') || (n0 == b'&' && n1 == b'&') {
-                w!(output, "# ");
-            }
-            if grammar.sets_list[id.0].r#type.intersects(ST_ORDERED) {
-                w!(output, "O");
-            }
-            w!(output, "SET {} = ", name);
+        }
+        w!(output, " ;\n");
+        false
+    }
+
+    // [spec:cg3:def:grammar-writer.cg3.grammar-writer.print-set-fn]
+    // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.print-set-fn]
+    /// The end of `printSet` for a SET, once its members are printed: the SET
+    /// itself.
+    fn print_set_of_sets<W: Write>(&mut self, grammar: &GrammarCore, output: &mut W, id: SetId) {
+        let sets = &grammar.sets_list[id.0].sets;
+        let name = &grammar.sets_list[id.0].name;
+        // n = curset.name.data(); n[0]/n[1] read without a guard.
+        let n0 = byte_at(name, 0);
+        let n1 = byte_at(name, 1);
+        if (n0 == b'$' && n1 == b'$') || (n0 == b'&' && n1 == b'&') {
+            w!(output, "# ");
+        }
+        if grammar.sets_list[id.0].r#type.intersects(ST_ORDERED) {
+            w!(output, "O");
+        }
+        w!(output, "SET {} = ", name);
+        w!(
+            output,
+            "{} ",
+            grammar.set_by_number(SetNumber(sets[0])).name
+        );
+        let set_ops = &grammar.sets_list[id.0].set_ops;
+        for i in 0..sets.len() - 1 {
             w!(
                 output,
-                "{} ",
-                grammar.set_by_number(SetNumber(sets[0])).name
+                "{} {} ",
+                STRINGBITS[set_ops[i] as usize],
+                grammar.set_by_number(SetNumber(sets[i + 1])).name
             );
-            let set_ops = grammar.sets_list[id.0].set_ops.clone();
-            for i in 0..sets.len() - 1 {
-                w!(
-                    output,
-                    "{} {} ",
-                    STRINGBITS[set_ops[i] as usize],
-                    grammar.set_by_number(SetNumber(sets[i + 1])).name
-                );
-            }
-            w!(output, " ;\n\n");
         }
+        w!(output, " ;\n\n");
     }
 
     // [spec:cg3:def:grammar-writer.cg3.grammar-writer.write-grammar-fn]
@@ -473,7 +511,7 @@ impl GrammarWriter {
                     w!(output, "\nBEFORE-SECTIONS\n");
                     found = true;
                 }
-                self.print_rule(grammar, output, &grammar.rule_by_number[rid.0]);
+                self.print_rule_tree(grammar, output, &grammar.rule_by_number[rid.0]);
                 w!(output, " ;\n");
             }
         }
@@ -485,7 +523,7 @@ impl GrammarWriter {
                         w!(output, "\nSECTION\n");
                         found = true;
                     }
-                    self.print_rule(grammar, output, &grammar.rule_by_number[rid.0]);
+                    self.print_rule_tree(grammar, output, &grammar.rule_by_number[rid.0]);
                     w!(output, " ;\n");
                 }
             }
@@ -497,7 +535,7 @@ impl GrammarWriter {
                     w!(output, "\nAFTER-SECTIONS\n");
                     found = true;
                 }
-                self.print_rule(grammar, output, &grammar.rule_by_number[rid.0]);
+                self.print_rule_tree(grammar, output, &grammar.rule_by_number[rid.0]);
                 w!(output, " ;\n");
             }
         }
@@ -508,7 +546,7 @@ impl GrammarWriter {
                     w!(output, "\nNULL-SECTION\n");
                     found = true;
                 }
-                self.print_rule(grammar, output, &grammar.rule_by_number[rid.0]);
+                self.print_rule_tree(grammar, output, &grammar.rule_by_number[rid.0]);
                 w!(output, " ;\n");
             }
         }
@@ -524,9 +562,12 @@ impl GrammarWriter {
     /// keyword, dep-target + dep-tests, and (for `WITH`) the brace-wrapped
     /// sub-rules. QUIRK reproduced: `rule.name[1]`/`name[2]` read without a length
     /// guard (NUL-terminator semantics via [`byte_at`]).
-    fn print_rule<W: Write>(&mut self, grammar: &GrammarCore, to: &mut W, rule: &Rule) {
+    ///
+    /// Prints all but a `WITH` rule's block, which [`Self::print_rule_tree`]
+    /// prints; says whether the rule was printed, rather than seen already.
+    fn print_rule<W: Write>(&mut self, grammar: &GrammarCore, to: &mut W, rule: &Rule) -> bool {
         if self.seen_rules.count(rule.number) != 0 {
-            return;
+            return false;
         }
         self.seen_rules.insert(rule.number);
 
@@ -693,16 +734,27 @@ impl GrammarWriter {
             self.print_contextual_test(grammar, to, &grammar.contexts_arena[it.0]);
             w!(to, ") ");
         }
+        true
+    }
 
-        if rule.r#type == Keywords::KWith {
-            w!(to, "{{\n");
-            let sub_rules = rule.sub_rules.clone();
-            for r in sub_rules {
-                w!(to, "\t");
-                self.print_rule(grammar, to, &grammar.rule_by_number[r.0]);
-                w!(to, " ;\n");
+    // [spec:cg3:def:grammar-writer.cg3.grammar-writer.print-rule-fn]
+    // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.print-rule-fn]
+    // [spec:cg3:req:robustness.depth-bounded]
+    /// A rule through [`Self::print_rule`], then, for a `WITH` rule, its block:
+    /// `{`, each sub-rule on its own line, `}`. The C++ recurses into the
+    /// sub-rules, which a `.cg3b` can nest to any depth; the parts still to
+    /// print are queued on a heap stack instead, in the same order.
+    fn print_rule_tree<W: Write>(&mut self, grammar: &GrammarCore, to: &mut W, rule: &Rule) {
+        let mut todo = vec![RulePart::Rule(rule)];
+        while let Some(part) = todo.pop() {
+            match part {
+                RulePart::Text(text) => w!(to, "{text}"),
+                RulePart::Rule(rule) => {
+                    if self.print_rule(grammar, to, rule) {
+                        push_with_block(&mut todo, grammar, rule);
+                    }
+                }
             }
-            w!(to, "}}\n");
         }
     }
 
@@ -713,7 +765,37 @@ impl GrammarWriter {
     /// `POS_TMPL_OVERRIDE` is set OR the test has neither a template nor ORs; the
     /// reference part prints the template, the OR-group, the target, the
     /// (C)BARRIER, and recurses into `linked`.
-    fn print_contextual_test<W: Write>(
+    ///
+    /// The C++ recurses into the OR-group and `linked`; the parts still to
+    /// print are queued on a heap stack instead (see [`push_test_parts`]), so
+    /// a test from a `.cg3b` nested or chained to any depth costs no stack.
+    // [spec:cg3:req:robustness.depth-bounded]
+    fn print_contextual_test<'g, W: Write>(
+        &mut self,
+        grammar: &'g GrammarCore,
+        to: &mut W,
+        test: &'g ContextualTest,
+    ) {
+        // What is left to print, last first.
+        let mut todo = vec![TestPart::Test(test)];
+        while let Some(part) = todo.pop() {
+            match part {
+                TestPart::Text(text) => w!(to, "{text}"),
+                TestPart::Sets(test) => self.print_test_sets(grammar, to, test),
+                TestPart::Test(test) => {
+                    self.print_test_position(grammar, to, test);
+                    push_test_parts(&mut todo, grammar, test);
+                }
+            }
+        }
+    }
+
+    // [spec:cg3:def:grammar-writer.cg3.grammar-writer.print-contextual-test-fn]
+    // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.print-contextual-test-fn]
+    /// The start of a test: `NEGATE`, the position atom — when
+    /// `POS_TMPL_OVERRIDE` is set or the test has neither a template nor ORs —
+    /// and the template it names.
+    fn print_test_position<W: Write>(
         &mut self,
         grammar: &GrammarCore,
         to: &mut W,
@@ -724,168 +806,182 @@ impl GrammarWriter {
         }
         if (test.pos.intersects(POS_TMPL_OVERRIDE)) || (test.tmpl.is_none() && test.ors.is_empty())
         {
-            if test.pos.intersects(POS_ALL) {
-                w!(to, "ALL ");
-            }
-            if test.pos.intersects(POS_NONE) {
-                w!(to, "NONE ");
-            }
-            if test.pos.intersects(POS_NOT) {
-                w!(to, "NOT ");
-            }
-            if test.pos.intersects(POS_ABSOLUTE) {
-                w!(to, "@");
-            }
-            if test.pos.intersects(POS_SCANALL) {
-                w!(to, "**");
-            } else if test.pos.intersects(POS_SCANFIRST | POS_DEP_DEEP) {
-                w!(to, "*");
-            }
-
-            if test.pos.intersects(POS_LEFTMOST) {
-                w!(to, "ll");
-            }
-            if test.pos.intersects(POS_LEFT) {
-                w!(to, "l");
-            }
-            if test.pos.intersects(POS_RIGHTMOST) {
-                w!(to, "rr");
-            }
-            if test.pos.intersects(POS_RIGHT) {
-                w!(to, "r");
-            }
-            if test.pos.intersects(POS_DEP_CHILD) {
-                w!(to, "c");
-            }
-            if test.pos.intersects(POS_DEP_PARENT) {
-                if test.pos.intersects(POS_DEP_GLOB) {
-                    w!(to, "p");
-                }
-                w!(to, "p");
-            } else if test.pos.intersects(POS_DEP_GLOB) {
-                w!(to, "cc");
-            }
-            if test.pos.intersects(POS_DEP_SIBLING) {
-                w!(to, "s");
-            }
-            if test.pos.intersects(POS_SELF) {
-                w!(to, "S");
-            }
-            if test.pos.intersects(POS_NO_BARRIER) {
-                w!(to, "N");
-            }
-
-            if test.pos.intersects(POS_UNKNOWN) {
-                w!(to, "?");
-            } else if !test.pos.intersects(
-                POS_DEP_CHILD
-                    | POS_DEP_SIBLING
-                    | POS_DEP_PARENT
-                    | POS_DEP_GLOB
-                    | POS_LEFT_PAR
-                    | POS_RIGHT_PAR
-                    | POS_RELATION
-                    | POS_BAG_OF_TAGS,
-            ) {
-                w!(to, "{}", test.offset);
-            }
-
-            if test.pos.intersects(POS_CAREFUL) {
-                w!(to, "C");
-            }
-            if test.pos.intersects(POS_SPAN_BOTH) {
-                w!(to, "W");
-            }
-            if test.pos.intersects(POS_SPAN_LEFT) {
-                w!(to, "<");
-            }
-            if test.pos.intersects(POS_SPAN_RIGHT) {
-                w!(to, ">");
-            }
-            if test.pos.intersects(POS_PASS_ORIGIN) {
-                w!(to, "o");
-            }
-            if test.pos.intersects(POS_NO_PASS_ORIGIN) {
-                w!(to, "O");
-            }
-            if test.pos.intersects(POS_LEFT_PAR) {
-                w!(to, "L");
-            }
-            if test.pos.intersects(POS_RIGHT_PAR) {
-                w!(to, "R");
-            }
-            if test.pos.intersects(POS_MARK_SET) {
-                w!(to, "X");
-            }
-            if test.pos.intersects(POS_JUMP) {
-                if test.jump_pos == PosJumpPos::JumpMark as i8 {
-                    w!(to, "x");
-                } else if test.jump_pos == PosJumpPos::JumpAttach as i8 {
-                    w!(to, "jA");
-                } else if test.jump_pos == PosJumpPos::JumpTarget as i8 {
-                    w!(to, "jT");
-                } else {
-                    w!(to, "jC{}", test.jump_pos);
-                }
-            }
-            if test.pos.intersects(POS_LOOK_DELETED) {
-                w!(to, "D");
-            }
-            if test.pos.intersects(POS_LOOK_DELAYED) {
-                w!(to, "d");
-            }
-            if test.pos.intersects(POS_ACTIVE) {
-                w!(to, "T");
-            }
-            if test.pos.intersects(POS_INACTIVE) {
-                w!(to, "t");
-            }
-            if test.pos.intersects(POS_LOOK_IGNORED) {
-                w!(to, "I");
-            }
-            if test.pos.intersects(POS_ATTACH_TO) {
-                w!(to, "A");
-            }
-            if test.pos.intersects(POS_WITH) {
-                w!(to, "w");
-            }
-            if test.pos.intersects(POS_BAG_OF_TAGS) {
-                w!(to, "B");
-            }
-            if test.pos.intersects(POS_RELATION) {
-                w!(to, "r:");
-                let tid = grammar.single_tags().find(test.relation).get().1;
-                self.print_tag(to, &grammar.single_tags_list[tid.0]);
-            }
-            if test.offset_sub != 0 {
-                if test.offset_sub == GsrSpecials::GsrAny as i32 {
-                    w!(to, "/*");
-                } else {
-                    w!(to, "/{}", test.offset_sub);
-                }
-            }
-
-            w!(to, " ");
+            self.print_test_scan(to, test);
+            self.print_test_flags(grammar, to, test);
         }
-
         if let Some(t) = test.tmpl {
             w!(to, "T:{} ", grammar.contexts_arena[t.0].hash);
-        } else if !test.ors.is_empty() {
-            let ors = test.ors.clone();
-            let mut i = 0;
-            while i < ors.len() {
-                w!(to, "(");
-                self.print_contextual_test(grammar, to, &grammar.contexts_arena[ors[i].0]);
-                w!(to, ")");
-                i += 1;
-                if i != ors.len() {
-                    w!(to, " OR ");
-                } else {
-                    w!(to, " ");
-                }
+        }
+    }
+
+    // [spec:cg3:def:grammar-writer.cg3.grammar-writer.print-contextual-test-fn]
+    // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.print-contextual-test-fn]
+    /// The position atom up to its offset: the scan and dependency letters.
+    fn print_test_scan<W: Write>(&mut self, to: &mut W, test: &ContextualTest) {
+        if test.pos.intersects(POS_ALL) {
+            w!(to, "ALL ");
+        }
+        if test.pos.intersects(POS_NONE) {
+            w!(to, "NONE ");
+        }
+        if test.pos.intersects(POS_NOT) {
+            w!(to, "NOT ");
+        }
+        if test.pos.intersects(POS_ABSOLUTE) {
+            w!(to, "@");
+        }
+        if test.pos.intersects(POS_SCANALL) {
+            w!(to, "**");
+        } else if test.pos.intersects(POS_SCANFIRST | POS_DEP_DEEP) {
+            w!(to, "*");
+        }
+
+        if test.pos.intersects(POS_LEFTMOST) {
+            w!(to, "ll");
+        }
+        if test.pos.intersects(POS_LEFT) {
+            w!(to, "l");
+        }
+        if test.pos.intersects(POS_RIGHTMOST) {
+            w!(to, "rr");
+        }
+        if test.pos.intersects(POS_RIGHT) {
+            w!(to, "r");
+        }
+        if test.pos.intersects(POS_DEP_CHILD) {
+            w!(to, "c");
+        }
+        if test.pos.intersects(POS_DEP_PARENT) {
+            if test.pos.intersects(POS_DEP_GLOB) {
+                w!(to, "p");
+            }
+            w!(to, "p");
+        } else if test.pos.intersects(POS_DEP_GLOB) {
+            w!(to, "cc");
+        }
+        if test.pos.intersects(POS_DEP_SIBLING) {
+            w!(to, "s");
+        }
+        if test.pos.intersects(POS_SELF) {
+            w!(to, "S");
+        }
+        if test.pos.intersects(POS_NO_BARRIER) {
+            w!(to, "N");
+        }
+
+        if test.pos.intersects(POS_UNKNOWN) {
+            w!(to, "?");
+        } else if !test.pos.intersects(
+            POS_DEP_CHILD
+                | POS_DEP_SIBLING
+                | POS_DEP_PARENT
+                | POS_DEP_GLOB
+                | POS_LEFT_PAR
+                | POS_RIGHT_PAR
+                | POS_RELATION
+                | POS_BAG_OF_TAGS,
+        ) {
+            w!(to, "{}", test.offset);
+        }
+    }
+
+    // [spec:cg3:def:grammar-writer.cg3.grammar-writer.print-contextual-test-fn]
+    // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.print-contextual-test-fn]
+    /// The rest of the position atom: the letters after the offset, the jump,
+    /// the relation and the sub-reading.
+    fn print_test_flags<W: Write>(
+        &mut self,
+        grammar: &GrammarCore,
+        to: &mut W,
+        test: &ContextualTest,
+    ) {
+        if test.pos.intersects(POS_CAREFUL) {
+            w!(to, "C");
+        }
+        if test.pos.intersects(POS_SPAN_BOTH) {
+            w!(to, "W");
+        }
+        if test.pos.intersects(POS_SPAN_LEFT) {
+            w!(to, "<");
+        }
+        if test.pos.intersects(POS_SPAN_RIGHT) {
+            w!(to, ">");
+        }
+        if test.pos.intersects(POS_PASS_ORIGIN) {
+            w!(to, "o");
+        }
+        if test.pos.intersects(POS_NO_PASS_ORIGIN) {
+            w!(to, "O");
+        }
+        if test.pos.intersects(POS_LEFT_PAR) {
+            w!(to, "L");
+        }
+        if test.pos.intersects(POS_RIGHT_PAR) {
+            w!(to, "R");
+        }
+        if test.pos.intersects(POS_MARK_SET) {
+            w!(to, "X");
+        }
+        if test.pos.intersects(POS_JUMP) {
+            if test.jump_pos == PosJumpPos::JumpMark as i8 {
+                w!(to, "x");
+            } else if test.jump_pos == PosJumpPos::JumpAttach as i8 {
+                w!(to, "jA");
+            } else if test.jump_pos == PosJumpPos::JumpTarget as i8 {
+                w!(to, "jT");
+            } else {
+                w!(to, "jC{}", test.jump_pos);
+            }
+        }
+        if test.pos.intersects(POS_LOOK_DELETED) {
+            w!(to, "D");
+        }
+        if test.pos.intersects(POS_LOOK_DELAYED) {
+            w!(to, "d");
+        }
+        if test.pos.intersects(POS_ACTIVE) {
+            w!(to, "T");
+        }
+        if test.pos.intersects(POS_INACTIVE) {
+            w!(to, "t");
+        }
+        if test.pos.intersects(POS_LOOK_IGNORED) {
+            w!(to, "I");
+        }
+        if test.pos.intersects(POS_ATTACH_TO) {
+            w!(to, "A");
+        }
+        if test.pos.intersects(POS_WITH) {
+            w!(to, "w");
+        }
+        if test.pos.intersects(POS_BAG_OF_TAGS) {
+            w!(to, "B");
+        }
+        if test.pos.intersects(POS_RELATION) {
+            w!(to, "r:");
+            let tid = grammar.single_tags().find(test.relation).get().1;
+            self.print_tag(to, &grammar.single_tags_list[tid.0]);
+        }
+        if test.offset_sub != 0 {
+            if test.offset_sub == GsrSpecials::GsrAny as i32 {
+                w!(to, "/*");
+            } else {
+                w!(to, "/{}", test.offset_sub);
             }
         }
 
+        w!(to, " ");
+    }
+
+    // [spec:cg3:def:grammar-writer.cg3.grammar-writer.print-contextual-test-fn]
+    // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.print-contextual-test-fn]
+    /// A test's target, `CBARRIER` and `BARRIER`.
+    fn print_test_sets<W: Write>(
+        &mut self,
+        grammar: &GrammarCore,
+        to: &mut W,
+        test: &ContextualTest,
+    ) {
         if test.target.get() != 0 {
             w!(to, "{} ", grammar.set_by_number(test.target).name);
         }
@@ -899,11 +995,6 @@ impl GrammarWriter {
         if test.barrier.get() != 0 {
             w!(to, "BARRIER {} ", grammar.set_by_number(test.barrier).name);
         }
-
-        if let Some(l) = test.linked {
-            w!(to, "LINK ");
-            self.print_contextual_test(grammar, to, &grammar.contexts_arena[l.0]);
-        }
     }
 
     // [spec:cg3:def:grammar-writer.cg3.grammar-writer.print-tag-fn]
@@ -915,4 +1006,64 @@ impl GrammarWriter {
         let str = tag.to_text(true);
         w!(to, "{str}");
     }
+}
+
+/// What [`GrammarWriter::print_contextual_test`] has still to print of a test
+/// and the tests inside it.
+enum TestPart<'g> {
+    /// A test, from its start.
+    Test(&'g ContextualTest),
+    /// A test's target and barriers.
+    Sets(&'g ContextualTest),
+    /// Fixed text between the parts.
+    Text(&'static str),
+}
+
+// [spec:cg3:req:robustness.depth-bounded]
+/// Queue what follows the start of `test`: its `OR` alternatives, each in
+/// parentheses, its sets, then `LINK` and its linked test. The C++ recurses
+/// into the alternatives and the linked test, which a `.cg3b` can nest or
+/// chain to any depth; queued on a heap stack, they print in the same order
+/// at no cost in stack.
+fn push_test_parts<'g>(
+    todo: &mut Vec<TestPart<'g>>,
+    grammar: &'g GrammarCore,
+    test: &'g ContextualTest,
+) {
+    if let Some(l) = test.linked {
+        todo.push(TestPart::Test(&grammar.contexts_arena[l.0]));
+        todo.push(TestPart::Text("LINK "));
+    }
+    todo.push(TestPart::Sets(test));
+    if test.tmpl.is_some() {
+        return;
+    }
+    let n = test.ors.len();
+    for (i, or) in test.ors.iter().enumerate().rev() {
+        todo.push(TestPart::Text(if i + 1 != n { " OR " } else { " " }));
+        todo.push(TestPart::Text(")"));
+        todo.push(TestPart::Test(&grammar.contexts_arena[or.0]));
+        todo.push(TestPart::Text("("));
+    }
+}
+
+/// What [`GrammarWriter::print_rule_tree`] has still to print.
+enum RulePart<'g> {
+    Rule(&'g Rule),
+    Text(&'static str),
+}
+
+/// Queue a `WITH` rule's block, last part first: `{`, then `\t`, each
+/// sub-rule and ` ;` on a line of its own, then `}`.
+fn push_with_block<'g>(todo: &mut Vec<RulePart<'g>>, grammar: &'g GrammarCore, rule: &'g Rule) {
+    if rule.r#type != Keywords::KWith {
+        return;
+    }
+    todo.push(RulePart::Text("}\n"));
+    for r in rule.sub_rules.iter().rev() {
+        todo.push(RulePart::Text(" ;\n"));
+        todo.push(RulePart::Rule(&grammar.rule_by_number[r.0]));
+        todo.push(RulePart::Text("\t"));
+    }
+    todo.push(RulePart::Text("{\n"));
 }

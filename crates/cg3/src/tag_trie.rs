@@ -61,7 +61,9 @@ use crate::tag::{T_USED, TagList, TagVector, TagVectorSet};
 /// C++ `struct trie_node_t { bool terminal = false; std::unique_ptr<trie_t> trie; }`.
 ///
 /// `std::unique_ptr<trie_t>` (a nullable owning child) → `Option<Box<TagTrie>>`.
-#[derive(Default, Clone, Debug)]
+///
+/// `Clone` is written out, beside [`trie_copy_helper`], rather than derived.
+#[derive(Default, Debug)]
 pub struct TrieNode {
     /// `bool terminal = false;`
     pub terminal: bool,
@@ -105,6 +107,94 @@ fn ordered_entries<'a>(trie: &'a TagTrie, grammar: &GrammarCore) -> Vec<(TagId, 
     v
 }
 
+/// One level of a [`TrieWalk`]: the entries of one trie map still to visit.
+enum Level<'a> {
+    /// In `BTreeMap` (`TagId`) order, for walks whose result is order-free.
+    Keys(std::collections::btree_map::Iter<'a, TagId, TrieNode>),
+    /// In the C++ `compare_Tag` order, from [`ordered_entries`].
+    Ordered(std::vec::IntoIter<(TagId, &'a TrieNode)>),
+}
+
+impl<'a> Iterator for Level<'a> {
+    type Item = (TagId, &'a TrieNode);
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Level::Keys(it) => it.next().map(|(k, n)| (*k, n)),
+            Level::Ordered(it) => it.next(),
+        }
+    }
+}
+
+// [spec:cg3:req:robustness.depth-bounded]
+/// A pre-order walk over a trie that keeps its path on the heap. A trie is as
+/// deep as the longest composite tag in its set, and a `.cg3b` can make that
+/// any depth at all, so the C++'s recursive walks would let the input choose
+/// how much stack they take.
+///
+/// [`next_entry`](Self::next_entry) yields each entry of the level being
+/// walked, with its depth (0 for the trie itself), and picks the level above
+/// back up where it left off once a level runs out — where a recursive walk
+/// returns to its caller. It enters a sub-trie only when told to: the caller
+/// calls [`descend`](Self::descend) exactly where the recursion it replaces
+/// recurses, so each walk visits in the order of its C++ original.
+pub struct TrieWalk<'a> {
+    levels: Vec<Level<'a>>,
+    /// Orders each level by hash, as [`ordered_entries`] does, when set.
+    grammar: Option<&'a GrammarCore>,
+}
+
+impl<'a> TrieWalk<'a> {
+    /// A walk visiting each level in `TagId` order.
+    pub fn new(trie: &'a TagTrie) -> Self {
+        TrieWalk {
+            levels: vec![Level::Keys(trie.iter())],
+            grammar: None,
+        }
+    }
+
+    /// A walk visiting each level in ascending `Tag::hash` order.
+    pub fn ordered(trie: &'a TagTrie, grammar: &'a GrammarCore) -> Self {
+        TrieWalk {
+            levels: vec![Level::Ordered(ordered_entries(trie, grammar).into_iter())],
+            grammar: Some(grammar),
+        }
+    }
+
+    /// The next entry and its depth, or `None` once the whole trie is walked.
+    pub fn next_entry(&mut self) -> Option<(TagId, &'a TrieNode, usize)> {
+        loop {
+            let depth = self.levels.len().checked_sub(1)?;
+            match self.levels[depth].next() {
+                Some((k, node)) => return Some((k, node, depth)),
+                None => {
+                    self.levels.pop();
+                }
+            }
+        }
+    }
+
+    /// Walk `sub`, the sub-trie of the entry just yielded, before the rest of
+    /// that entry's level.
+    pub fn descend(&mut self, sub: &'a TagTrie) {
+        let level = match self.grammar {
+            Some(grammar) => Level::Ordered(ordered_entries(sub, grammar).into_iter()),
+            None => Level::Keys(sub.iter()),
+        };
+        self.levels.push(level);
+    }
+
+    /// Visit every entry, entering every sub-trie: the walk of the functions
+    /// that only need to see each tag once.
+    pub fn each(mut self, mut visit: impl FnMut(TagId, &'a TrieNode)) {
+        while let Some((k, node, _)) = self.next_entry() {
+            visit(k, node);
+            if let Some(sub) = &node.trie {
+                self.descend(sub);
+            }
+        }
+    }
+}
+
 /// `std::sort(tv.begin(), tv.end(), compare_Tag())` — sort a tag vector ascending
 /// by `Tag->hash`. (Stable here vs C++ `std::sort`'s unstable; only differs on
 /// equal-hash ties, which do not occur with unique tag hashes.)
@@ -124,20 +214,26 @@ fn sort_tv_by_hash(tv: &mut TagVector, grammar: &GrammarCore) {
 /// key), so no grammar/hash ordering is needed. EDGE: an empty `tv` makes
 /// `tv.len() - 1` underflow — in C++ this reaches `tv[0]` OOB (UB); here it
 /// panics. Callers must pass a non-empty vector.
+///
+/// The C++ recurses once per tag of `tv`; this descends in a loop, so a long
+/// composite tag costs no stack.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_insert(trie: &mut TagTrie, tv: &TagVector, w: usize) -> bool {
-    let node = trie.entry(tv[w]).or_default();
-    if node.terminal {
-        return false;
-    }
-    if w < tv.len() - 1 {
-        if node.trie.is_none() {
-            node.trie = Some(Box::new(TagTrie::new()));
+    let mut level = trie;
+    let mut w = w;
+    loop {
+        let node = level.entry(tv[w]).or_default();
+        if node.terminal {
+            return false;
         }
-        return trie_insert(node.trie.as_deref_mut().unwrap(), tv, w + 1);
+        if w + 1 >= tv.len() {
+            node.terminal = true;
+            node.trie = None; // node.trie.reset()
+            return true;
+        }
+        w += 1;
+        level = node.trie.get_or_insert_with(Box::default);
     }
-    node.terminal = true;
-    node.trie = None; // node.trie.reset()
-    true
 }
 
 // [spec:cg3:def:tag-trie.cg3.trie-copy-helper-fn]
@@ -146,16 +242,86 @@ pub fn trie_insert(trie: &mut TagTrie, tv: &TagVector, w: usize) -> bool {
 /// `Tag` keys are shared (`TagId`s copied, tags not cloned); only node structure
 /// and terminal flags are duplicated. Order-independent (a keyed rebuild), so no
 /// grammar needed.
+///
+/// The C++ recurses per level; this copies each level on a heap stack and
+/// hangs the copy under its parent's entry once the level is complete, so the
+/// copy costs no stack however deep the trie is.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_copy_helper(trie: &TagTrie) -> Box<TagTrie> {
-    let mut nt = Box::new(TagTrie::new());
-    for (k, node) in trie.iter() {
-        let n = nt.entry(*k).or_default();
-        n.terminal = node.terminal;
-        if let Some(sub) = &node.trie {
-            n.trie = Some(trie_copy_helper(sub));
+    let mut levels = vec![CopyLevel::of(trie)];
+    let mut copy = None;
+    while copy.is_none() {
+        copy = copy_step(&mut levels);
+    }
+    copy.unwrap_or_default()
+}
+
+/// One step of [`trie_copy_helper`]: copy the next entry of the innermost
+/// level being copied, or, once that level is done, hang its copy under the
+/// entry it was copied for. Returns the whole copy when the outermost level
+/// is done.
+fn copy_step(levels: &mut Vec<CopyLevel<'_>>) -> Option<Box<TagTrie>> {
+    let Some(top) = levels.last_mut() else {
+        return Some(Box::default());
+    };
+    if let Some((k, node)) = top.src.next() {
+        match &node.trie {
+            Some(sub) => {
+                top.open = Some((*k, node.terminal));
+                levels.push(CopyLevel::of(sub));
+            }
+            None => {
+                let leaf = TrieNode {
+                    terminal: node.terminal,
+                    trie: None,
+                };
+                top.out.insert(*k, leaf);
+            }
+        }
+        return None;
+    }
+    let done = levels.pop()?;
+    let Some(parent) = levels.last_mut() else {
+        return Some(Box::new(done.out));
+    };
+    if let Some((k, terminal)) = parent.open.take() {
+        let branch = TrieNode {
+            terminal,
+            trie: Some(Box::new(done.out)),
+        };
+        parent.out.insert(k, branch);
+    }
+    None
+}
+
+/// A level [`trie_copy_helper`] is copying: its source entries still to copy,
+/// the copy so far, and the entry whose sub-trie is being copied beneath it.
+struct CopyLevel<'a> {
+    src: std::collections::btree_map::Iter<'a, TagId, TrieNode>,
+    out: TagTrie,
+    open: Option<(TagId, bool)>,
+}
+
+impl<'a> CopyLevel<'a> {
+    fn of(src: &'a TagTrie) -> Self {
+        CopyLevel {
+            src: src.iter(),
+            out: TagTrie::new(),
+            open: None,
         }
     }
-    nt
+}
+
+// [spec:cg3:req:robustness.depth-bounded]
+/// A deep copy through [`trie_copy_helper`]. The derived `Clone` recursed once
+/// per level through `BTreeMap::clone`, and sets clone their tries freely.
+impl Clone for TrieNode {
+    fn clone(&self) -> Self {
+        TrieNode {
+            terminal: self.terminal,
+            trie: self.trie.as_deref().map(trie_copy_helper),
+        }
+    }
 }
 
 // [spec:cg3:def:tag-trie.cg3.trie-copy-fn]
@@ -193,19 +359,28 @@ pub fn trie_delete(trie: &mut TagTrie) {
 // [spec:cg3:sem:tag-trie.cg3.trie-singular-fn]
 /// C++ `trie_singular` — true iff the trie is a single non-branching chain that
 /// ends in a terminal. Only inspects the sole entry, so order-independent.
+/// Follows the chain in a loop where the C++ recurses.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_singular(trie: &TagTrie) -> bool {
-    if trie.len() != 1 {
-        return false;
-    }
-    // trie.begin()->second — the sole entry's node.
-    let node = trie.values().next().unwrap();
-    if node.terminal {
-        return true;
-    }
-    if let Some(sub) = &node.trie {
-        return trie_singular(sub);
+    let mut level = trie;
+    while let Some(node) = sole_entry(level) {
+        if node.terminal {
+            return true;
+        }
+        let Some(sub) = &node.trie else {
+            return false;
+        };
+        level = sub;
     }
     false
+}
+
+/// `trie.begin()->second` when the trie has exactly one entry.
+fn sole_entry(trie: &TagTrie) -> Option<&TrieNode> {
+    if trie.len() != 1 {
+        return None;
+    }
+    trie.values().next()
 }
 
 // [spec:cg3:def:tag-trie.cg3.trie-rehash-fn]
@@ -215,16 +390,36 @@ pub fn trie_singular(trie: &TagTrie) -> bool {
 /// (`hash_value` is non-commutative), so entries are visited in ascending-hash
 /// order via [`ordered_entries`] and `grammar` is required. Terminal flags are
 /// NOT hashed (parity note).
+///
+/// Each level's running value is kept on a heap stack beside the walk, and a
+/// finished sub-trie's value is folded into its parent's before the parent's
+/// next entry, where the C++ recursion returns it.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_rehash(trie: &TagTrie, grammar: &GrammarCore) -> u32 {
-    let mut retval: u32 = 0;
-    for (k, node) in ordered_entries(trie, grammar) {
+    let mut walk = TrieWalk::ordered(trie, grammar);
+    let mut retvals: Vec<u32> = vec![0];
+    while let Some((k, node, depth)) = walk.next_entry() {
+        fold_finished_levels(&mut retvals, depth + 1);
         let h = grammar.single_tags_list[k.0].hash;
-        retval = hash_value(h.get(), retval);
+        retvals[depth] = hash_value(h.get(), retvals[depth]);
         if let Some(sub) = &node.trie {
-            retval = hash_value(trie_rehash(sub, grammar), retval);
+            walk.descend(sub);
+            retvals.push(0);
         }
     }
-    retval
+    fold_finished_levels(&mut retvals, 1);
+    retvals[0]
+}
+
+/// Fold the values of the levels [`trie_rehash`] has finished, innermost
+/// first, each into the level above it, until `live` levels are left.
+fn fold_finished_levels(retvals: &mut Vec<u32>, live: usize) {
+    while retvals.len() > live {
+        let Some(sub) = retvals.pop() else { return };
+        if let Some(parent) = retvals.last_mut() {
+            *parent = hash_value(sub, *parent);
+        }
+    }
 }
 
 // [spec:cg3:def:tag-trie.cg3.trie-markused-fn]
@@ -235,14 +430,10 @@ pub fn trie_rehash(trie: &TagTrie, grammar: &GrammarCore) -> u32 {
 /// MUTATES the tags, so this takes `grammar: &mut Grammar`. (Lead: at the call
 /// site the trie lives inside a `Set` owned by the same `Grammar`; the borrow of
 /// `grammar.single_tags_list` and the immutable borrow of the set's trie must be
-/// split — restructure or clone as needed.)
+/// split — restructure or clone as needed.) Walks with a [`TrieWalk`].
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_markused(trie: &TagTrie, grammar: &mut GrammarCore) {
-    for (k, node) in trie.iter() {
-        grammar.single_tags_list.get_mut(k.0).r#type |= T_USED;
-        if let Some(sub) = &node.trie {
-            trie_markused(sub, grammar);
-        }
-    }
+    TrieWalk::new(trie).each(|k, _| grammar.single_tags_list.get_mut(k.0).r#type |= T_USED);
 }
 
 // [spec:cg3:def:tag-trie.cg3.trie-has-type-fn]
@@ -250,16 +441,16 @@ pub fn trie_markused(trie: &TagTrie, grammar: &mut GrammarCore) {
 /// C++ `trie_hasType` — true iff any tag anywhere has any bit of `type_` set in
 /// its own `type` mask. Order-independent for the boolean result, but reads
 /// `Tag::type`, so `grammar` is required. (C++ takes `trie_t&`; the port takes
-/// `&trie_t` since it never mutates.)
+/// `&trie_t` since it never mutates.) Walks with a [`TrieWalk`].
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_has_type(trie: &TagTrie, type_: crate::tag::TagType, grammar: &GrammarCore) -> bool {
-    for (k, node) in trie.iter() {
+    let mut walk = TrieWalk::new(trie);
+    while let Some((k, node, _)) = walk.next_entry() {
         if grammar.single_tags_list[k.0].r#type.intersects(type_) {
             return true;
         }
-        if let Some(sub) = &node.trie
-            && trie_has_type(sub, type_, grammar)
-        {
-            return true;
+        if let Some(sub) = &node.trie {
+            walk.descend(sub);
         }
     }
     false
@@ -268,14 +459,11 @@ pub fn trie_has_type(trie: &TagTrie, type_: crate::tag::TagType, grammar: &Gramm
 // Unspecced C++ overload `trie_getTagList(const trie_t&, TagList&)` (void): appends
 // every tag of every path onto `the_tags` (no node search). Output order matches
 // the C++ flat_map hash order, so `grammar` is required.
-/// See [`trie_get_tag_list_find`] for the spec'd sibling overload.
+/// See [`trie_get_tag_list_find`] for the spec'd sibling overload. Walks with a
+/// [`TrieWalk`].
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_get_tag_list_append(trie: &TagTrie, the_tags: &mut TagList, grammar: &GrammarCore) {
-    for (k, node) in ordered_entries(trie, grammar) {
-        the_tags.push(k);
-        if let Some(sub) = &node.trie {
-            trie_get_tag_list_append(sub, the_tags, grammar);
-        }
-    }
+    TrieWalk::ordered(trie, grammar).each(|k, _| the_tags.push(k));
 }
 
 // [spec:cg3:def:tag-trie.cg3.trie-get-tag-list-fn]
@@ -294,24 +482,29 @@ pub fn trie_get_tag_list_append(trie: &TagTrie, the_tags: &mut TagList, grammar:
 /// with the address-free `UnifKey` (`(special, root-to-node TagId path)`), which
 /// `getTagList` resolves by appending `path` directly (same output order as this
 /// walk's successful branch).
+///
+/// Walks with a [`TrieWalk`]: cutting `the_tags` back to the depth of each
+/// entry before pushing it is the C++'s `pop_back` after each subtree.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_get_tag_list_find(
     trie: &TagTrie,
     the_tags: &mut TagList,
     node: *const core::ffi::c_void,
     grammar: &GrammarCore,
 ) -> bool {
-    for (k, n) in ordered_entries(trie, grammar) {
+    let base = the_tags.len();
+    let mut walk = TrieWalk::ordered(trie, grammar);
+    while let Some((k, n, depth)) = walk.next_entry() {
+        the_tags.truncate(base + depth);
         the_tags.push(k);
         if node == (n as *const TrieNode as *const core::ffi::c_void) {
             return true;
         }
-        if let Some(sub) = &n.trie
-            && trie_get_tag_list_find(sub, the_tags, node, grammar)
-        {
-            return true;
+        if let Some(sub) = &n.trie {
+            walk.descend(sub);
         }
-        the_tags.pop(); // theTags.pop_back()
     }
+    the_tags.truncate(base);
     false
 }
 
@@ -331,14 +524,17 @@ pub fn trie_get_tag_list(trie: &TagTrie, grammar: &GrammarCore) -> TagVector {
 
 // Unspecced C++ shared-`tv` helper `trie_getTags(const trie_t&, TagVectorSet&,
 // TagVector&)`. Extends `tv` one level deeper; on a terminal it reproduces the
-// SORT-THEN-POP BUG (see [`trie_get_tags`]).
+// SORT-THEN-POP BUG (see [`trie_get_tags`]). Walks with a [`TrieWalk`]; the
+// C++ does nothing to `tv` on returning from a sub-trie, so neither does this.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_get_tags_into(
     trie: &TagTrie,
     rv: &mut TagVectorSet,
     tv: &mut TagVector,
     grammar: &GrammarCore,
 ) {
-    for (k, node) in ordered_entries(trie, grammar) {
+    let mut walk = TrieWalk::ordered(trie, grammar);
+    while let Some((k, node, _)) = walk.next_entry() {
         tv.push(k);
         if node.terminal {
             // BUG (bug-for-bug): sort `tv` in place by hash, insert, then pop the
@@ -350,7 +546,7 @@ pub fn trie_get_tags_into(
             continue;
         }
         if let Some(sub) = &node.trie {
-            trie_get_tags_into(sub, rv, tv, grammar);
+            walk.descend(sub);
         }
     }
 }
@@ -383,14 +579,17 @@ pub fn trie_get_tags(trie: &TagTrie, grammar: &GrammarCore) -> TagVectorSet {
 
 // Unspecced C++ shared-`tv` helper `trie_getTagsOrdered(const trie_t&,
 // TagVectorSet&, TagVector&)`. Like [`trie_get_tags_into`] but WITHOUT sorting,
-// so backtracking (`pop`) correctly removes the just-pushed tag.
+// so backtracking (`pop`) correctly removes the just-pushed tag. Walks with a
+// [`TrieWalk`], as [`trie_get_tags_into`] does.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_get_tags_ordered_into(
     trie: &TagTrie,
     rv: &mut TagVectorSet,
     tv: &mut TagVector,
     grammar: &GrammarCore,
 ) {
-    for (k, node) in ordered_entries(trie, grammar) {
+    let mut walk = TrieWalk::ordered(trie, grammar);
+    while let Some((k, node, _)) = walk.next_entry() {
         tv.push(k);
         if node.terminal {
             rv.insert(tv.clone());
@@ -398,7 +597,7 @@ pub fn trie_get_tags_ordered_into(
             continue;
         }
         if let Some(sub) = &node.trie {
-            trie_get_tags_ordered_into(sub, rv, tv, grammar);
+            walk.descend(sub);
         }
     }
 }
@@ -434,14 +633,18 @@ pub fn trie_get_tags_ordered(trie: &TagTrie, grammar: &GrammarCore) -> TagVector
 /// BYTE-PARITY: the emitted identifier is `Tag->number` while the iteration/order
 /// key is `Tag->hash` (they need not correlate) — hence `grammar` supplies both
 /// the ordering AND `number`, and entries are visited in ascending-hash order.
+///
+/// Walks with a [`TrieWalk`], so the bytes come out in the C++'s order.
+// [spec:cg3:req:robustness.depth-bounded]
 pub fn trie_serialize<W: Write>(trie: &TagTrie, out: &mut W, grammar: &GrammarCore) {
-    for (k, node) in ordered_entries(trie, grammar) {
+    let mut walk = TrieWalk::ordered(trie, grammar);
+    while let Some((k, node, _)) = walk.next_entry() {
         let number = grammar.single_tags_list[k.0].number;
         write_be(out, number); // writeBE<uint32_t>(out, kv.first->number)
         write_be(out, node.terminal as u8); // writeBE<uint8_t>(out, kv.second.terminal)
         if let Some(sub) = &node.trie {
             write_be(out, sub.len() as u32); // writeBE<uint32_t>(out, UI32(sub->size()))
-            trie_serialize(sub, out, grammar);
+            walk.descend(sub);
         } else {
             write_be(out, 0u32); // writeBE<uint32_t>(out, 0)
         }

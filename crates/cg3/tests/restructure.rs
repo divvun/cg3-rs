@@ -51,8 +51,8 @@ fn run_in_process(grammar: &str, input: &str, trace: bool) -> String {
 const TWO_WINDOWS: &[&str] = &["a X", ". PU", "x X", "y X", "w X", "z X", ". PU"];
 
 // [spec:cg3:req:robustness.cross-window-actions/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
 #[test]
 fn addcohort_inserts_into_the_attached_cohorts_window() {
     let grammar = "DELIMITERS = \"<.>\" ;\nSECTION\n\
@@ -187,8 +187,8 @@ fn a_window_emptied_mid_rule_outlives_the_rule() {
     );
 }
 
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
 #[test]
 fn actions_never_displace_the_window_start() {
     let input = cg_stream(&["p X", "y X", "q X", ". PU", "a X", "b X", ". PU"]);

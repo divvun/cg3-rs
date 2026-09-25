@@ -18,6 +18,14 @@ use crate::types::SetNumber;
 
 use super::*;
 
+/// A rule [`TextualParser::parse_rule`] has parsed up to its `WITH` block,
+/// with the AST node it opened and where its text began.
+pub(super) struct OpenRule {
+    rule: Rule,
+    ast_rule: ASTHelper,
+    ast_rule_b: usize,
+}
+
 impl TextualParser {
     // [spec:cg3:def:textual-parser.cg3.textual-parser.add-rule-to-grammar-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.add-rule-to-grammar-fn]
@@ -42,17 +50,17 @@ impl TextualParser {
         }
     }
 
-    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-fn]
-    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn]
-    pub(crate) fn parse_rule(
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn+1]
+    pub(super) fn parse_rule(
         &mut self,
         buf: &[char],
         pos: &mut usize,
         key: Keywords,
-    ) -> ParseResult {
+    ) -> ParseResult<Option<OpenRule>> {
         // C++ `AST_OPEN(Rule)` — also the profiler's rule span start.
         let ast_rule_b = *pos;
-        let mut ast_rule = ASTHelper::new(
+        let ast_rule = ASTHelper::new(
             &mut self.ast,
             ASTType::AstRule,
             self.grammar.lines as usize,
@@ -485,31 +493,36 @@ impl TextualParser {
             rule.flags |= RF_KEEPORDER;
             self.grammar.lines += skipws_chars(buf, pos, '{', ';', false);
             if buf[*pos] == '{' {
-                *pos += 1;
-                let prev_in_nested = self.in_nested_rule;
-                let prev_sub = std::mem::take(&mut self.nested_subrules);
-                self.in_nested_rule = true;
-                self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-                loop {
-                    if !self.maybe_parse_rule(buf, pos)? {
-                        return Err(self.error_near(*pos));
-                    }
-                    self.grammar.lines += skipws_chars(buf, pos, '}', ';', false);
-                    if buf[*pos] == ';' {
-                        *pos += 1;
-                        self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
-                    }
-                    if buf[*pos] == '}' {
-                        break;
-                    }
-                }
-                *pos += 1;
-                rule.sub_rules = std::mem::take(&mut self.nested_subrules);
-                self.nested_subrules = prev_sub;
-                self.in_nested_rule = prev_in_nested;
+                return Ok(Some(OpenRule {
+                    rule,
+                    ast_rule,
+                    ast_rule_b,
+                }));
             }
         }
+        self.finish_rule(
+            buf,
+            pos,
+            OpenRule {
+                rule,
+                ast_rule,
+                ast_rule_b,
+            },
+        );
+        Ok(None)
+    }
 
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn+1]
+    /// The end of `parseRule`, after the rule's `WITH` block if it has one:
+    /// the rule is added to the grammar, unless a filter drops it, and its
+    /// AST node closed.
+    pub(super) fn finish_rule(&mut self, buf: &[char], pos: &mut usize, open: OpenRule) {
+        let OpenRule {
+            mut rule,
+            mut ast_rule,
+            ast_rule_b,
+        } = open;
         rule.reverse_contextual_tests();
 
         let mut destroy = self.only_sets;
@@ -560,11 +573,68 @@ impl TextualParser {
             let rnum = self.grammar.rule_by_number.get(rid.0).number;
             ast_rule.close_id(&mut self.ast, *pos, rnum + 1);
         }
-        Ok(())
     }
 }
 
 impl TextualParser {
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn+1]
+    // [spec:cg3:req:robustness.depth-bounded]
+    /// The `{ ... }` block of a `WITH` rule, from its `{` to past its `}`: the
+    /// rules in it become the rule's sub-rules, and the rule is then finished.
+    /// [`Self::parse_rule`] hands the rule back open rather than parsing its
+    /// block itself, so the recursion through the block does not hold
+    /// `parse_rule`'s large frame once per level.
+    ///
+    /// DIVERGENCE: the block is a level of nesting, and one that would take the
+    /// grammar past [`crate::nesting::MAX_NESTING`] is refused at its `{`; the
+    /// C++ nests `WITH` blocks until its stack runs out.
+    pub(super) fn parse_with_block(
+        &mut self,
+        buf: &[char],
+        pos: &mut usize,
+        mut open: OpenRule,
+    ) -> ParseResult {
+        let saved = self.nesting;
+        let parsed = self
+            .enter_nesting(*pos, crate::error::Nesting::With)
+            .and_then(|()| self.parse_with_rules(buf, pos, &mut open.rule));
+        self.nesting = saved;
+        parsed?;
+        self.finish_rule(buf, pos, open);
+        Ok(())
+    }
+
+    // [spec:cg3:def:textual-parser.cg3.textual-parser.parse-rule-fn+1]
+    // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-rule-fn+1]
+    /// The rules of a `WITH` block, once [`Self::parse_with_block`] has gone a
+    /// level deeper for it.
+    fn parse_with_rules(&mut self, buf: &[char], pos: &mut usize, rule: &mut Rule) -> ParseResult {
+        *pos += 1;
+        let prev_in_nested = self.in_nested_rule;
+        let prev_sub = std::mem::take(&mut self.nested_subrules);
+        self.in_nested_rule = true;
+        self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
+        loop {
+            if !self.maybe_parse_rule(buf, pos)? {
+                return Err(self.error_near(*pos));
+            }
+            self.grammar.lines += skipws_chars(buf, pos, '}', ';', false);
+            if buf[*pos] == ';' {
+                *pos += 1;
+                self.grammar.lines += skipws_chars(buf, pos, '\0', '\0', false);
+            }
+            if buf[*pos] == '}' {
+                break;
+            }
+        }
+        *pos += 1;
+        rule.sub_rules = std::mem::take(&mut self.nested_subrules);
+        self.nested_subrules = prev_sub;
+        self.in_nested_rule = prev_in_nested;
+        Ok(())
+    }
+
     /// One iteration of the `parse_source` main loop (the C++ `try { ... }`
     /// body): progress print, leading `SKIPWS`, and the keyword dispatch chain.
     pub(crate) fn parse_directive(
@@ -959,7 +1029,7 @@ impl TextualParser {
             *pos += 1;
             let saved = self.no_itmpls;
             self.no_itmpls = false;
-            let t = self.parse_contextual_test_list(buf, pos, None, true)?;
+            let t = self.parse_nested_list(buf, pos, None, true, None)?;
             self.no_itmpls = saved;
             self.grammar.contexts_arena[t.0].line = line;
             self.add_template_def(t, &name)?;

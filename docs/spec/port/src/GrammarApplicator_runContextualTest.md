@@ -50,7 +50,7 @@
 > [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn]
 > Cohort* GrammarApplicator::runContextualTest(SingleWindow* sWindow, size_t position, const ContextualTest* test, Cohort** deep, Cohort* origin)
 
-> [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+1]
+> [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+2]
 > The central contextual-test dispatcher. Returns the matched cohort on success
 > or nullptr on failure; when the test succeeds but has no natural cohort (e.g.
 > NONE tests) it returns the window's cohort[0] as a truthy sentinel. Steps:
@@ -138,11 +138,20 @@
 > position from the one it jumped to (asserting it in range, and reading out
 > of bounds in a release build). A position the window does not reach fails
 > the probe.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): the test a
+> bag-of-tags test `LINK`s to runs one level of nesting deeper, as the linked
+> test of `doesSetMatchCohort_testLinked` does. Each is a level of nesting,
+> counted together with every other contextual test, template, `WITH` sub-rule
+> and generated variable tag the rule is evaluating, and one that would take
+> the rule past `MAX_NESTING` (64) levels ends the run with
+> `RunError::NestingTooDeep` naming the rule. The C++ recurses until its stack
+> runs out.
 
 > [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn]
 > Cohort* GrammarApplicator::runContextualTest_tmpl(SingleWindow* sWindow, size_t position, const ContextualTest* test, ContextualTest* tmpl, Cohort*& cdeep, C...
 
-> [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn]
+> [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn+1]
 > Runs one template (`tmpl`) on behalf of the outer `test`, optionally imposing
 > the outer test's position onto the template, then validating the result.
 > Snapshot `tmpl_cntx.min`, `.max`, and `.in_template` into locals; set
@@ -162,6 +171,15 @@
 > reject the match by setting cohort=nullptr. If the outer test had a linked
 > continuation, pop tmpl_cntx.linked. If no cohort resulted (failure), roll back
 > `tmpl_cntx.min/max/in_template` to the snapshots. Return cohort.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): running the
+> template, or an `OR` alternative, is a level of nesting. Each is a level of
+> nesting, counted together with every other contextual test, template, `WITH`
+> sub-rule and generated variable tag the rule is evaluating, and one that
+> would take the rule past `MAX_NESTING` (64) levels ends the run with
+> `RunError::NestingTooDeep` naming the rule. The C++ recurses until its stack
+> runs out. A template that recurses through a later alternative or a `LINK`
+> while no earlier alternative decides is how a valid grammar gets there.
 
 > [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-dependency-test-fn]
 > Cohort* GrammarApplicator::runDependencyTest(SingleWindow* sWindow, Cohort* current, const ContextualTest* test, Cohort** deep, Cohort* origin, const Cohort*...

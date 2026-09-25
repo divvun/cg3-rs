@@ -44,6 +44,7 @@ use regex::Regex;
 use crate::arena::{SetId, TagId};
 use crate::grammar::{GrammarCore, TagSpace};
 use crate::inlines::hash_value_str;
+use crate::nesting::MAX_NESTING;
 use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY};
 use crate::tag::{
     COps, MASK_TAG_SPECIAL, T_ANY, T_ATTACHTO, T_BASEFORM, T_CASE_INSENSITIVE, T_CONTEXT, T_ENCL,
@@ -131,6 +132,11 @@ pub trait ParseTagState {
     fn error_at(&mut self, near: Near<'_>) -> crate::error::ParseError;
     /// `state.addTag(tag)` — intern the freshly-built tag, return canonical id.
     fn add_tag(&mut self, tag: Tag) -> TagId;
+    // [spec:cg3:req:robustness.depth-bounded]
+    /// How many levels deep the state is nested — the parser's count while a
+    /// grammar is read, the rule's while it runs — which a variable tag inside
+    /// a variable tag adds to. No C++ counterpart.
+    fn nesting(&mut self) -> &mut usize;
 }
 
 impl ParseTagState for TextualParser {
@@ -147,10 +153,41 @@ impl ParseTagState for TextualParser {
     fn add_tag(&mut self, tag: Tag) -> TagId {
         TextualParser::add_tag(self, tag)
     }
+    fn nesting(&mut self) -> &mut usize {
+        &mut self.nesting
+    }
 }
 
-// [spec:cg3:def:parser-helpers.cg3.parse-tag-fn+1]
-// [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+1]
+// [spec:cg3:def:parser-helpers.cg3.parse-tag-fn+2]
+// [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+2]
+// [spec:cg3:req:robustness.depth-bounded]
+/// `parseTag` of the name or the value of a variable tag, one level deeper
+/// than the tag holding it.
+///
+/// DIVERGENCE: a variable tag whose name or value is a variable tag is a level
+/// of nesting, and one that would pass [`MAX_NESTING`] is refused; the C++
+/// recurses through `VAR:a=VAR:a=...` as deep as it is written.
+fn parse_nested_tag<S: ParseTagState>(
+    to: &str,
+    near: Near<'_>,
+    state: &mut S,
+) -> Result<TagId, crate::error::ParseError> {
+    if *state.nesting() >= MAX_NESTING {
+        let mut err = state.error_at(near);
+        err.kind = crate::error::ParseErrorKind::NestingTooDeep {
+            what: crate::error::Nesting::VariableTag,
+            limit: MAX_NESTING,
+        };
+        return Err(err);
+    }
+    *state.nesting() += 1;
+    let parsed = parse_tag(to, near, state, false);
+    *state.nesting() -= 1;
+    parsed
+}
+
+// [spec:cg3:def:parser-helpers.cg3.parse-tag-fn+2]
+// [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+2]
 pub fn parse_tag<S: ParseTagState>(
     to: &str,
     near: Near<'_>,
@@ -434,19 +471,19 @@ pub fn parse_tag<S: ParseTagState>(
                     tag.comparison_op = COps::OpEquals;
                     let after: String = tag_tag[bpos + 1..].to_string();
                     let vh = {
-                        let t = parse_tag(&after, near, state, false)?;
+                        let t = parse_nested_tag(&after, near, state)?;
                         state.grammar().tag(t).hash
                     };
                     tag.set_variable_hash(vh.get());
                     let before: String = tag_tag[..bpos].to_string();
                     let ch = {
-                        let t = parse_tag(&before, near, state, false)?;
+                        let t = parse_nested_tag(&before, near, state)?;
                         state.grammar().tag(t).hash
                     };
                     tag.comparison_hash = ch.get();
                 } else {
                     let ch = {
-                        let t = parse_tag(&tag_tag, near, state, false)?;
+                        let t = parse_nested_tag(&tag_tag, near, state)?;
                         state.grammar().tag(t).hash
                     };
                     tag.comparison_hash = ch.get();
@@ -760,7 +797,7 @@ mod tests {
     // vs baseform vs plain tags, consumes the `^` failfast prefix, recognizes the
     // `*` special (T_ANY), and dedups (same text -> same TagId). Drives the whole
     // helper on non-error inputs (no `error_near` panic).
-    // [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+1/test]
+    // [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+2/test]
     #[test]
     fn parse_tag_classifies_and_dedups() {
         let mut p = parser();
@@ -815,7 +852,7 @@ mod tests {
     // kind saying what is missing: a lone fail-fast marker, a regex or
     // case-insensitive tag whose single `/` is both delimiters, and a numeric
     // expression naming a variable outside A-Z. `//r` still parses, as in the C++.
-    // [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+1/test]
+    // [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+2/test]
     #[test]
     fn parse_tag_refuses_tags_without_text() {
         use crate::error::ParseErrorKind as K;

@@ -18,6 +18,7 @@ pub mod flat_unordered_set;
 pub mod inlines;
 pub mod interval_vector;
 pub mod math_parser;
+pub mod nesting;
 pub mod pool;
 pub mod scoped_stack;
 pub mod sorted_vector;

@@ -626,7 +626,14 @@ impl MatxinApplicator {
     // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.proc-node-fn]
     /// C++ `void MatxinApplicator::procNode(int& depth, std::map<int, Node>& nodes,
     /// std::map<int, std::vector<int>>& deps, int n, std::ostream& output)`.
-    /// Recursive depth-first printer of the dependency tree.
+    /// Depth-first printer of the dependency tree.
+    ///
+    /// The C++ recurses once per level of the tree, which is as deep as the
+    /// input's dependency chain. Here each node whose children are being
+    /// printed is a level on a heap stack: [`Self::proc_node_open`] prints a
+    /// node as the C++ does on entry, the loop walks its children, and
+    /// [`Self::proc_node_close`] prints what the C++ prints after them.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn proc_node<W: Write>(
         &self,
         depth: &mut i32,
@@ -635,11 +642,42 @@ impl MatxinApplicator {
         n: i32,
         output: &mut W,
     ) {
+        let mut open: Vec<(i32, std::slice::Iter<'_, i32>)> = Vec::new();
+        if let Some(children) = self.proc_node_open(depth, nodes, deps, n, output) {
+            open.push((n, children.iter()));
+        }
+        while let Some((node, children)) = open.last_mut() {
+            match children.next() {
+                Some(&child) => {
+                    if let Some(grand) = self.proc_node_open(depth, nodes, deps, child, output) {
+                        open.push((child, grand.iter()));
+                    }
+                }
+                None => {
+                    let node = *node;
+                    open.pop();
+                    self.proc_node_close(depth, node, output);
+                }
+            }
+        }
+    }
+
+    // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.proc-node-fn]
+    // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.proc-node-fn]
+    /// What `procNode` prints for node `n` before its children, which it
+    /// returns when it has any to print.
+    fn proc_node_open<'d, W: Write>(
+        &self,
+        depth: &mut i32,
+        nodes: &BTreeMap<i32, Node>,
+        deps: &'d BTreeMap<i32, Vec<i32>>,
+        n: i32,
+        output: &mut W,
+    ) -> Option<&'d [i32]> {
         // node = nodes[n]; v = deps[n]; (operator[] default-constructs on miss).
         let default_node = Node::default();
         let node = nodes.get(&n).unwrap_or(&default_node);
-        let empty_v: Vec<i32> = Vec::new();
-        let v = deps.get(&n).unwrap_or(&empty_v);
+        let v: &[i32] = deps.get(&n).map_or(&[], |v| v.as_slice());
         *depth += 1;
 
         // si = node.si.data() + !node.si.empty() — skip the leading '@'.
@@ -672,12 +710,15 @@ impl MatxinApplicator {
         // found = any deps entry with first == n and a non-empty vector.
         let found = deps.iter().any(|(&k, val)| k == n && !val.is_empty());
         if !found {
-            return;
+            return None;
         }
-        for &it in v.iter() {
-            self.proc_node(depth, nodes, deps, it, output);
-        }
+        Some(v)
+    }
 
+    // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.proc-node-fn]
+    // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.proc-node-fn]
+    /// What `procNode` prints for node `n` after its children.
+    fn proc_node_close<W: Write>(&self, depth: &mut i32, n: i32, output: &mut W) {
         if n != 0 {
             for _ in 0..(*depth * 2) {
                 let _ = write!(output, " ");

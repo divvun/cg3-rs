@@ -65,7 +65,7 @@ fn empty_tag_list_is_refused() {
 }
 
 // [spec:cg3:req:robustness.grammar-text-errors/test]
-// [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+1/test]
+// [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+2/test]
 #[test]
 fn slash_tags_without_body_are_refused() {
     for tag in ["/r", "/i", "/l", "/ri"] {
@@ -80,7 +80,7 @@ fn slash_tags_without_body_are_refused() {
 }
 
 // [spec:cg3:req:robustness.grammar-text-errors/test]
-// [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+1/test]
+// [spec:cg3:sem:parser-helpers.cg3.parse-tag-fn+2/test]
 #[test]
 fn bare_failfast_marker_is_refused() {
     for src in ["LIST X = ^ ;\n", "LIST X = a ^^ ;\n"] {
@@ -125,7 +125,7 @@ fn math_variable_outside_a_to_z_is_refused() {
 }
 
 // [spec:cg3:req:robustness.grammar-text-errors/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+1/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+2/test]
 #[test]
 fn numeric_branch_on_template_reference_is_refused() {
     for pos in ["f", "-1f", "1*f"] {
@@ -142,12 +142,12 @@ fn numeric_branch_on_template_reference_is_refused() {
 }
 
 // [spec:cg3:req:robustness.grammar-text-errors/test]
-// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+1/test]
+// [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-contextual-test-list-fn+2/test]
 #[test]
 fn unclosed_inline_template_is_refused() {
     // Past the buffer's 40 NULs of padding, where the cursor used to walk off
     // the end, and well short of it.
-    for depth in [2, 45, 200] {
+    for depth in [2, 45, 60] {
         let src = format!("LIST A = a ;\nSELECT A IF {}-1 A", "(".repeat(depth));
         let (e, marked) = refusal(&src);
         assert!(matches!(e.kind, K::UnclosedParenthesis), "{depth}: {e:?}");

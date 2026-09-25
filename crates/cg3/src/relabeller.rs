@@ -55,8 +55,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::arena::{SetId, TagId};
 use crate::grammar::{GrammarCore, TagSpace};
-use crate::set::trie_reindex;
-use crate::set::{ST_CHILD_UNIFY, ST_MAPPING, ST_SET_UNIFY, ST_SPECIAL, ST_TAG_UNIFY};
+use crate::set::Set;
 use crate::strings::Keywords;
 use crate::tag::{T_SPECIAL, TagVector, TagVectorSet};
 use crate::tag_trie::{
@@ -135,6 +134,16 @@ impl<'a> FreqSorter<'a> {
             std::cmp::Ordering::Equal
         }
     }
+}
+
+/// A set [`Relabeller::copy_relabel_set_to_grammar`] is copying: the
+/// relabel grammar's set, its copy, the numbers of the source's child sets,
+/// and the numbers of the child sets copied so far.
+struct RelabelCopy {
+    s_r: SetId,
+    s_g: SetId,
+    children_r: Vec<u32>,
+    sets_g: Vec<u32>,
 }
 
 // [spec:cg3:def:relabeller.cg3.trie-copy-fn]
@@ -519,49 +528,15 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     ///
     /// ARENA NOTE: distinct from [`crate::set::Set::reindex`] — children are resolved by set
     /// NUMBER (`sets_list[i]`), not by content hash (`sets_by_contents`).
+    ///
+    /// The C++ recurses into the child sets; this is the same walk as
+    /// [`crate::set::Set::reindex`], kept on a heap stack.
+    // [spec:cg3:req:robustness.depth-bounded]
     fn reindex_set(&mut self, s: SetId) {
-        {
-            let node = self.grammar.sets_list.get_mut(s.0);
-            node.r#type &= !ST_SPECIAL;
-            node.r#type &= !ST_CHILD_UNIFY;
-        }
-
-        let trie = self.grammar.sets_list[s.0].trie.clone();
-        let r_trie = trie_reindex(&trie, self.grammar);
-        let trie_special = self.grammar.sets_list[s.0].trie_special.clone();
-        let r_special = trie_reindex(&trie_special, self.grammar);
-        {
-            let node = self.grammar.sets_list.get_mut(s.0);
-            node.r#type |= r_trie;
-            node.r#type |= r_special;
-        }
-
-        let sets = self.grammar.sets_list[s.0].sets.clone();
-        for i in sets {
-            // Set* set = grammar->sets_list[i]; — i is a set NUMBER.
-            let set = self.grammar.set_id_by_number(SetNumber(i));
-            self.reindex_set(set);
-            let set_type = self.grammar.sets_list[set.0].r#type;
-            let node = self.grammar.sets_list.get_mut(s.0);
-            if set_type.intersects(ST_SPECIAL) {
-                node.r#type |= ST_SPECIAL;
-            }
-            if set_type.intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY) {
-                node.r#type |= ST_CHILD_UNIFY;
-            }
-            if set_type.intersects(ST_MAPPING) {
-                node.r#type |= ST_MAPPING;
-            }
-        }
-
-        let node = self.grammar.sets_list.get_mut(s.0);
-        if node
-            .r#type
-            .intersects(ST_TAG_UNIFY | ST_SET_UNIFY | ST_CHILD_UNIFY)
-        {
-            node.r#type |= ST_SPECIAL;
-            node.r#type |= ST_CHILD_UNIFY;
-        }
+        // Set* set = grammar->sets_list[i]; — i is a set NUMBER.
+        Set::reindex_members(self.grammar, s, |grammar, i| {
+            grammar.set_id_by_number(SetNumber(i))
+        });
     }
 
     // [spec:cg3:def:relabeller.cg3.relabeller.add-set-to-grammar-fn]
@@ -594,23 +569,69 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     /// copies the tries WITH tag transfer via the two-arg [`trie_copy`], copies
     /// `ff_tags` by value (raw source ids — no re-intern, flagged quirk), then
     /// `addSetToGrammar`.
+    ///
+    /// The C++ recurses into the child sets; this keeps the sets still being
+    /// copied on a heap stack. Each copy is allocated when it is begun and
+    /// added to the grammar once its children are, the order the recursion
+    /// allocates and adds them in.
+    // [spec:cg3:req:robustness.depth-bounded]
     fn copy_relabel_set_to_grammar(&mut self, s_r: SetId) -> u32 {
-        // s_g = grammar->allocateSet()
-        let s_g = self.grammar.allocate_set();
+        let mut open = vec![self.copy_relabel_begin(s_r)];
+        let mut number = None;
+        while number.is_none() {
+            number = self.copy_relabel_step(&mut open);
+        }
+        number.unwrap_or_default()
+    }
 
-        // Copy child-set references, recursing first.
-        let child_nums_r: Vec<u32> = self.relabels.sets_list[s_r.0].sets.clone();
-        let nsets = child_nums_r.len();
-        // s_g->sets.resize(nsets) then fill.
-        let mut s_g_sets: Vec<u32> = vec![0u32; nsets];
-        for i in 0..nsets {
-            let child_num_r = child_nums_r[i];
+    // [spec:cg3:def:relabeller.cg3.relabeller.copy-relabel-set-to-grammar-fn]
+    // [spec:cg3:sem:relabeller.cg3.relabeller.copy-relabel-set-to-grammar-fn]
+    /// One step of [`Self::copy_relabel_set_to_grammar`]: begin copying the
+    /// next child of the innermost set being copied, or, once it has none
+    /// left, finish that set and hand its number to its parent. Returns the
+    /// number of the outermost set once it is finished.
+    fn copy_relabel_step(&mut self, open: &mut Vec<RelabelCopy>) -> Option<u32> {
+        let top = open.last_mut()?;
+        if let Some(&child_num_r) = top.children_r.get(top.sets_g.len()) {
             // relabels->sets_list[child_num_r] — child_num_r is a set NUMBER.
             let child_r = self.relabels.set_id_by_number(SetNumber(child_num_r));
-            let child_num_g = self.copy_relabel_set_to_grammar(child_r);
-            s_g_sets[i] = child_num_g;
+            open.push(self.copy_relabel_begin(child_r));
+            return None;
         }
-        self.grammar.sets_list.get_mut(s_g.0).sets = s_g_sets;
+        let done = open.pop()?;
+        let number = self.copy_relabel_finish(done);
+        match open.last_mut() {
+            Some(parent) => {
+                parent.sets_g.push(number);
+                None
+            }
+            None => Some(number),
+        }
+    }
+
+    // [spec:cg3:def:relabeller.cg3.relabeller.copy-relabel-set-to-grammar-fn]
+    // [spec:cg3:sem:relabeller.cg3.relabeller.copy-relabel-set-to-grammar-fn]
+    /// Begin copying `s_r`: allocate its copy in the target grammar.
+    fn copy_relabel_begin(&mut self, s_r: SetId) -> RelabelCopy {
+        // s_g = grammar->allocateSet()
+        let s_g = self.grammar.allocate_set();
+        RelabelCopy {
+            s_r,
+            s_g,
+            children_r: self.relabels.sets_list[s_r.0].sets.clone(),
+            sets_g: Vec::new(),
+        }
+    }
+
+    // [spec:cg3:def:relabeller.cg3.relabeller.copy-relabel-set-to-grammar-fn]
+    // [spec:cg3:sem:relabeller.cg3.relabeller.copy-relabel-set-to-grammar-fn]
+    /// Finish a copy whose children are copied: fill in everything else and
+    /// add it to the grammar, returning its number.
+    fn copy_relabel_finish(&mut self, copy: RelabelCopy) -> u32 {
+        let RelabelCopy {
+            s_r, s_g, sets_g, ..
+        } = copy;
+        self.grammar.sets_list.get_mut(s_g.0).sets = sets_g;
 
         // Copy set operators verbatim (same enum values across grammars).
         let set_ops = self.relabels.sets_list[s_r.0].set_ops.clone();

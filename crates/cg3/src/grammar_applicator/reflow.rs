@@ -1758,10 +1758,24 @@ impl Matcher<'_> {
     /// C++ `void reflowTextuals_Reading(Reading& r)` — re-derives a reading's
     /// `tags_textual` (and its bloom) by scanning `r.tags`, recursing into the
     /// `next` sub-reading chain first. ADD-only (does not clear first).
+    ///
+    /// The C++ recurses down the chain; this collects it and re-derives each
+    /// reading from the tail back to `r`, the order the recursion reaches
+    /// them in, so a chain of any length costs no stack.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn reflow_textuals_reading(&mut self, r: ReadingId) {
-        if let Some(next) = self.readings.get(r.0).next {
-            self.reflow_textuals_reading(next);
+        let chain = crate::reading::sub_reading_chain(self.readings, r);
+        for sub in chain.into_iter().rev() {
+            self.reflow_textuals_one_reading(sub);
         }
+    }
+
+    // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.reflow-textuals-reading-fn]
+    // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-textuals-reading-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.reflow-textuals-reading-fn]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-textuals-reading-fn]
+    /// One reading of [`Self::reflow_textuals_reading`]'s chain.
+    fn reflow_textuals_one_reading(&mut self, r: ReadingId) {
         let tags: Vec<u32> = self.readings.get(r.0).tags.as_slice().to_vec();
         for it in tags {
             let tid = self.grammar.single_tags().find(it).get().1;

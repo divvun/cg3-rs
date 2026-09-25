@@ -75,7 +75,7 @@ use crate::grammar::Grammar;
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value_str, make_64};
 use crate::math_parser::MathParser;
 use crate::rule::RF_CAPTURE_UNIF;
-use crate::set::{ST_ANY, ST_CHILD_UNIFY, ST_SET_UNIFY, ST_SPECIAL, ST_TAG_UNIFY};
+use crate::set::{ST_CHILD_UNIFY, ST_SPECIAL};
 use crate::sorted_vector::Uint32SortedVector;
 use crate::tag::{
     COps, T_ATTACHTO, T_BASEFORM, T_CASE_INSENSITIVE, T_CONTEXT, T_ENCL, T_FAILFAST,
@@ -87,14 +87,36 @@ use crate::tag_trie::{TagTrie, TrieNode};
 use crate::types::{SetNumber, TagHash};
 use crate::uextras::eq_ignore_case;
 
+use super::set_ops::SetStep;
 use super::{CohortMatchContext, Matcher, RegexGroups, UnifKey};
 
 // C++ Strings.hpp set-operator enum values (`S_IGNORE, S_OR=3, S_PLUS, S_MINUS,
 // ... S_FAILFAST=8`). Only the four `doesSetMatchReading` uses are reproduced.
-const S_OR: u32 = 3;
-const S_PLUS: u32 = 4;
-const S_MINUS: u32 = 5;
-const S_FAILFAST: u32 = 8;
+pub(super) const S_OR: u32 = 3;
+pub(super) const S_PLUS: u32 = 4;
+pub(super) const S_MINUS: u32 = 5;
+pub(super) const S_FAILFAST: u32 = 8;
+
+/// The trie a [`Matcher::does_set_match_reading_trie`] walk is in, and how it
+/// matches.
+#[derive(Clone, Copy)]
+struct TrieStep {
+    set_number: u32,
+    set: u32,
+    special: bool,
+    unif_mode: bool,
+}
+
+/// What one trie entry means for a [`Matcher::does_set_match_reading_trie`]
+/// walk.
+enum TrieEntry {
+    /// The reading lacks the tag, or it is fail-fast: go on to the next entry.
+    Skip,
+    /// A whole path ends here and matches.
+    Matched,
+    /// Walk the entry's sub-trie next, its tag pushed onto the path.
+    Descend,
+}
 
 // ===========================================================================
 // Free helpers (this file's namespace, matching the C++ translation unit).
@@ -322,10 +344,10 @@ fn group_count(tag: &Tag) -> i32 {
 // forwarders in mod.rs.
 // ===========================================================================
 impl Matcher<'_> {
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+1]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+1]
-    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+1]
-    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+1]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+2]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+2]
+    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+2]
+    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+2]
     // [spec:cg3:req:robustness.accepted-grammars-run]
     /// The central single-tag dispatcher. Mutually-exclusive branches on
     /// `tag.type` (first match wins). `reading` is an id (arena model); `tag` is an
@@ -365,7 +387,7 @@ impl Matcher<'_> {
             m = self.does_set_tag_match(reading, tag, bypass_index, unif_mode)?;
         } else if ttype.intersects(T_VARSTRING) {
             // (3) varstring: generate the concrete tag, recurse
-            let nt = self.generate_varstring_tag(tag_id, tag)?;
+            let nt = self.expand_matched_varstring(tag_id, tag)?;
             let nt_tag = self.grammar.single_tags_list[nt.0].clone();
             m = self.does_tag_match_reading(reading, nt, &nt_tag, unif_mode, bypass_index)?;
         } else if ttype.intersects(T_META) {
@@ -708,7 +730,7 @@ impl Matcher<'_> {
             return Err(self.rule_inapplicable(why));
         }
         let set = it.get().1;
-        Ok(self.does_set_match_reading(reading, set, bypass_index, unif_mode)? as u32)
+        Ok(self.does_named_set_match(reading, set, bypass_index, unif_mode)? as u32)
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-trie-fn]
@@ -722,6 +744,13 @@ impl Matcher<'_> {
     /// `&mut self` re-entry — `path` is threaded (push on descend, pop on backtrack),
     /// giving each terminal its root-to-node path for the address-free [`UnifKey`].
     /// Entries are visited in ascending-`Tag::hash` order (the C++ flat_map order).
+    ///
+    /// The C++ recurses per trie level. Here each level being walked is kept
+    /// on a heap stack instead: descending pushes the child level, and a level
+    /// that runs out without a match pops back to its parent, dropping the tag
+    /// the parent pushed onto `path` — where the recursion would return false.
+    /// A match at any depth leaves `path` as the caller passed it.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn does_set_match_reading_trie(
         &mut self,
         reading: ReadingId,
@@ -731,59 +760,97 @@ impl Matcher<'_> {
         path: &mut Vec<TagId>,
         unif_mode: bool,
     ) -> Result<bool, crate::error::RunError> {
-        // Snapshot this level's entries (ascending Tag::hash) with a short borrow;
-        // the trie borrow is released before any `&mut self` call below. `path`
-        // names the node whose child-trie is walked here — an empty `path` walks
-        // the root trie directly (the C++ top-level `doesSetMatchReading_trie`).
-        let mut entries: Vec<(TagId, u32)> = {
-            match self.trie_level_at(set, special, path) {
-                Some(t) => t
-                    .keys()
-                    .map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
-                    .collect(),
-                None => return Ok(false),
-            }
-        };
-        entries.sort_by_key(|e| e.1);
-        for (tid, _h) in entries {
-            let tagv = self.grammar.single_tags_list[tid.0].clone();
-            let matched = self.does_tag_match_reading(reading, tid, &tagv, unif_mode, false)? != 0;
-            if matched {
-                if self.grammar.tag_type(tid).intersects(T_FAILFAST) {
-                    continue;
-                }
-                path.push(tid);
-                // Re-borrow the node fresh to read its flags (short borrow).
-                let (terminal, has_child) = {
-                    let n = self.trie_node_at(set, special, path).unwrap();
-                    (n.terminal, n.trie.is_some())
-                };
-                if terminal {
-                    if unif_mode {
-                        let key = UnifKey {
-                            special,
-                            path: path.clone(),
-                        };
-                        if !self.check_unif_tags(set_number, key) {
-                            path.pop();
-                            continue;
-                        }
-                    }
+        let base = path.len();
+        let mut levels = vec![self.trie_level_entries(set, special, path)];
+        loop {
+            let Some(level) = levels.last_mut() else {
+                return Ok(false);
+            };
+            let Some(tid) = level.next() else {
+                levels.pop();
+                if !levels.is_empty() {
                     path.pop();
+                }
+                continue;
+            };
+            let step = TrieStep {
+                set_number,
+                set,
+                special,
+                unif_mode,
+            };
+            match self.trie_entry_step(reading, step, path, tid)? {
+                TrieEntry::Skip => {}
+                TrieEntry::Matched => {
+                    path.truncate(base);
                     return Ok(true);
                 }
-                if has_child
-                    && self.does_set_match_reading_trie(
-                        reading, set_number, set, special, path, unif_mode,
-                    )?
-                {
-                    path.pop();
-                    return Ok(true);
-                }
-                path.pop();
+                TrieEntry::Descend => levels.push(self.trie_level_entries(set, special, path)),
             }
         }
-        Ok(false)
+    }
+
+    /// The entries of the trie level [`Self::does_set_match_reading_trie`]
+    /// walks at `path`, in ascending `Tag::hash` order, snapshot with a short
+    /// borrow; none when `path` names no level.
+    fn trie_level_entries(
+        &self,
+        set: u32,
+        special: bool,
+        path: &[TagId],
+    ) -> std::vec::IntoIter<TagId> {
+        let mut entries: Vec<(TagId, u32)> = match self.trie_level_at(set, special, path) {
+            Some(t) => t
+                .keys()
+                .map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
+                .collect(),
+            None => Vec::new(),
+        };
+        entries.sort_by_key(|e| e.1);
+        let tids: Vec<TagId> = entries.into_iter().map(|(tid, _)| tid).collect();
+        tids.into_iter()
+    }
+
+    /// One entry of a trie level: test the reading for the tag, and say
+    /// whether the walk skips it, has matched a whole path through it, or
+    /// goes on into its sub-trie (with the tag left pushed onto `path`).
+    fn trie_entry_step(
+        &mut self,
+        reading: ReadingId,
+        step: TrieStep,
+        path: &mut Vec<TagId>,
+        tid: TagId,
+    ) -> Result<TrieEntry, crate::error::RunError> {
+        let tagv = self.grammar.single_tags_list[tid.0].clone();
+        let matched = self.does_tag_match_reading(reading, tid, &tagv, step.unif_mode, false)? != 0;
+        if !matched || self.grammar.tag_type(tid).intersects(T_FAILFAST) {
+            return Ok(TrieEntry::Skip);
+        }
+        path.push(tid);
+        // Re-borrow the node fresh to read its flags (short borrow).
+        let (terminal, has_child) = match self.trie_node_at(step.set, step.special, path) {
+            Some(n) => (n.terminal, n.trie.is_some()),
+            None => (false, false),
+        };
+        if terminal {
+            let unified = !step.unif_mode || {
+                let key = UnifKey {
+                    special: step.special,
+                    path: path.clone(),
+                };
+                self.check_unif_tags(step.set_number, key)
+            };
+            if !unified {
+                path.pop();
+                return Ok(TrieEntry::Skip);
+            }
+            return Ok(TrieEntry::Matched);
+        }
+        if has_child {
+            return Ok(TrieEntry::Descend);
+        }
+        path.pop();
+        Ok(TrieEntry::Skip)
     }
 
     /// Resolve `set`'s `trie`/`trie_special` (per `special`) down `path` (a
@@ -930,61 +997,6 @@ impl Matcher<'_> {
         Ok(retval)
     }
 
-    // [spec:cg3:req:robustness.accepted-grammars-run]
-    /// Case (c) of [`Self::does_set_match_reading`], a `&&`-unified set: its
-    /// first evaluation in a rule records each sub-set of `sets[0]` the reading
-    /// matches (tested with `first_unif`), and later ones match only against the
-    /// recorded sub-sets.
-    ///
-    /// DIVERGENCE: with no rule in flight there is no unification frame to
-    /// record in — a `SET:` tag in DELIMITERS reaches one while the stream is
-    /// read — and the set matches when any of its sub-sets does, recording
-    /// nothing. The C++ read the back of an empty context stack.
-    fn does_unified_set_match(
-        &mut self,
-        reading: ReadingId,
-        set: u32,
-        bypass_index: bool,
-        unif_mode: bool,
-        first_unif: bool,
-    ) -> Result<bool, crate::error::RunError> {
-        let snumber = self.grammar.set_by_number(SetNumber(set)).number.get();
-        let usets_idx = self.scratch.context_stack.last().and_then(|f| f.unif_sets);
-        let recorded: Vec<u32> = usets_idx
-            .and_then(|i| self.scratch.unif_sets_store[i].get(&snumber))
-            .map(|v| v.as_slice().to_vec())
-            .unwrap_or_default();
-        if !recorded.is_empty() {
-            // Subsequent evaluations: test the previously-stored sets.
-            let mut sets = self.scratch.ss_u32sv.get();
-            for usi in recorded {
-                if self.does_set_match_reading(reading, usi, bypass_index, unif_mode)? {
-                    sets.insert(usi);
-                }
-            }
-            return Ok(!sets.empty());
-        }
-        // First evaluation: gather all matching sub-sets of sets[0].
-        let uset_sets = {
-            let sets0 = self.grammar.set_by_number(SetNumber(set)).sets[0];
-            self.grammar.set_by_number(SetNumber(sets0)).sets.clone()
-        };
-        let mut any = false;
-        for tset_ref in uset_sets {
-            let tnum = self.grammar.set_by_number(SetNumber(tset_ref)).number.get();
-            if self.does_set_match_reading(reading, tnum, bypass_index, first_unif)? {
-                any = true;
-                if let Some(i) = usets_idx {
-                    self.scratch.unif_sets_store[i]
-                        .entry(snumber)
-                        .or_default()
-                        .insert(tnum);
-                }
-            }
-        }
-        Ok(any)
-    }
-
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn+1]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn+1]
     // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn+1]
@@ -992,6 +1004,12 @@ impl Matcher<'_> {
     // [spec:cg3:req:robustness.accepted-grammars-run]
     /// Tests whether a reading matches a LIST or SET set, evaluating operators
     /// recursively with a yes/no memo cache.
+    ///
+    /// The C++ recurses into the member sets of a set built from sets. Here
+    /// each such set part way through its members is a frame on a heap stack
+    /// (see `set_ops`), stepping through them in the C++ order, so a set built
+    /// from sets however deep costs no stack.
+    // [spec:cg3:req:robustness.depth-bounded]
     pub fn does_set_match_reading(
         &mut self,
         reading: ReadingId,
@@ -999,140 +1017,39 @@ impl Matcher<'_> {
         bypass_index: bool,
         unif_mode: bool,
     ) -> Result<bool, crate::error::RunError> {
-        if !bypass_index && !unif_mode {
-            let rhash = self.readings.get(reading.0).hash;
-            if self.scratch.index_reading_set_no[set as usize].contains(rhash) {
+        let mut open: Vec<super::set_ops::SetFrame> = Vec::new();
+        let mut decided = self.set_match_begin(&mut open, reading, set, bypass_index, unif_mode)?;
+        loop {
+            // A set that is decided hands its result to the set it is a member
+            // of, where the recursion would return it.
+            if let Some(matched) = decided.take() {
+                let Some(frame) = open.last_mut() else {
+                    return Ok(matched);
+                };
+                self.set_frame_take(frame, matched);
+            }
+            let Some(frame) = open.last_mut() else {
                 return Ok(false);
-            }
-            if self.scratch.index_reading_set_yes[set as usize].contains(rhash) {
-                return Ok(true);
-            }
-        }
-
-        let mut retval = false;
-
-        let (stype, snumber, ssets_empty) = {
-            let s = self.grammar.set_by_number(SetNumber(set)); // grammar->sets_list[set]
-            (s.r#type, s.number.get(), s.sets.is_empty())
-        };
-        let tagunif = stype.intersects(ST_TAG_UNIFY);
-
-        if stype.intersects(ST_ANY) {
-            // (a) the (*) set
-            retval = true;
-        } else if ssets_empty {
-            // (b) LIST set. `does_set_match_reading_tags` navigates the set's
-            // `ff_tags`/`trie`/`trie_special` fresh from `self.grammar` at each
-            // step (short borrows), so no grammar borrow aliases the `&mut self`
-            // re-entry — the C++ `&kv` node identity is carried as an address-free
-            // `UnifKey` (`(special, TagId path)`), leaving this case plain safe code.
-            retval = self.does_set_match_reading_tags(reading, snumber, tagunif || unif_mode)?;
-        } else if stype.intersects(ST_SET_UNIFY) {
-            // (c) &&-unified set
-            let first_unif = tagunif || unif_mode;
-            retval =
-                self.does_unified_set_match(reading, set, bypass_index, unif_mode, first_unif)?;
-        } else {
-            // (d) SET set: apply operators (non-OR binds tighter than OR)
-            let ssets = self.grammar.set_by_number(SetNumber(set)).sets.clone();
-            let sset_ops = self.grammar.set_by_number(SetNumber(set)).set_ops.clone();
-            let size = ssets.len();
-            let mut i = 0usize;
-            while i < size {
-                let mut m = self.does_set_match_reading(
-                    reading,
-                    ssets[i],
-                    bypass_index,
-                    tagunif || unif_mode,
-                )?;
-                let mut failfast = false;
-                while i < size - 1 && sset_ops[i] != S_OR {
-                    match sset_ops[i] {
-                        x if x == S_PLUS => {
-                            if m {
-                                m = self.does_set_match_reading(
-                                    reading,
-                                    ssets[i + 1],
-                                    bypass_index,
-                                    tagunif || unif_mode,
-                                )?;
-                            }
-                        }
-                        x if x == S_FAILFAST => {
-                            if self.does_set_match_reading(
-                                reading,
-                                ssets[i + 1],
-                                bypass_index,
-                                tagunif || unif_mode,
-                            )? {
-                                m = false;
-                                failfast = true;
-                            }
-                        }
-                        x if x == S_MINUS => {
-                            if m && self.does_set_match_reading(
-                                reading,
-                                ssets[i + 1],
-                                bypass_index,
-                                tagunif || unif_mode,
-                            )? {
-                                m = false;
-                            }
-                        }
-                        _ => panic!("Set operator not implemented!"),
-                    }
-                    i += 1;
+            };
+            match frame.step() {
+                SetStep::Test(member, unif) => {
+                    decided =
+                        self.set_match_begin(&mut open, reading, member, bypass_index, unif)?;
                 }
-                if m {
-                    retval = true;
-                    break;
-                }
-                if failfast {
-                    retval = false;
-                    break;
-                }
-                i += 1;
-            }
-            // Propagate a unified tag across the set's members.
-            if (unif_mode || tagunif) && !self.scratch.context_stack.is_empty() {
-                let ut_idx = self
-                    .scratch
-                    .context_stack
-                    .last()
-                    .unwrap()
-                    .unif_tags
-                    .unwrap();
-                let ut = &mut self.scratch.unif_tags_store[ut_idx];
-                let mut tag: Option<UnifKey> = None;
-                for &s in ssets.iter().take(size) {
-                    if let Some(t) = ut.get(&s) {
-                        tag = Some(t.clone());
-                        break;
-                    }
-                }
-                if let Some(t) = tag {
-                    for &s in ssets.iter().take(size) {
-                        ut.insert(s, t.clone());
-                    }
+                SetStep::Done(retval) => {
+                    let Some(frame) = open.pop() else {
+                        return Ok(retval);
+                    };
+                    decided = Some(self.set_match_finish(reading, frame, retval));
                 }
             }
         }
-
-        // Cache the result.
-        if retval {
-            let rhash = self.readings.get(reading.0).hash;
-            self.scratch.index_reading_set_yes[set as usize].insert(rhash);
-        } else if !stype.intersects(ST_TAG_UNIFY) && !unif_mode {
-            let rhash = self.readings.get(reading.0).hash;
-            self.scratch.index_reading_set_no[set as usize].insert(rhash);
-        }
-        Ok(retval)
     }
 
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn]
-    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn]
-    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn+1]
+    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn+1]
+    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn+1]
     /// Runs the LINK-chain test that follows the current one, if any, returning
     /// whether it matched (true when there is no linked test).
     pub fn does_set_match_cohort_test_linked(
@@ -1170,7 +1087,7 @@ impl Matcher<'_> {
                     (c.parent, c.local_number)
                 };
                 let res = if lpos.intersects(POS_NO_PASS_ORIGIN) {
-                    self.run_contextual_test(
+                    self.run_linked_test(
                         cparent,
                         clocal,
                         lref,
@@ -1178,7 +1095,7 @@ impl Matcher<'_> {
                         Some(cohort),
                     )?
                 } else {
-                    self.run_contextual_test(
+                    self.run_linked_test(
                         cparent,
                         clocal,
                         lref,

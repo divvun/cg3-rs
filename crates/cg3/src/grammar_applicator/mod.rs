@@ -48,13 +48,16 @@ use crate::types::{TagHash, Uint32Vector};
 
 pub mod context;
 pub mod core;
+mod depth;
 pub mod external;
 pub mod match_set;
 pub mod reflow;
 pub mod run_contextual_test;
 pub mod run_grammar;
 pub mod run_rules;
+mod set_ops;
 pub mod stream_format;
+mod tag_state;
 
 /// C++ `cg3.h` `enum cg3_sformat` — the stream serialisation format tag used
 /// by `fmt_input` / `fmt_output`; the variants camel-case the C++ `CG3SF_*`
@@ -635,6 +638,11 @@ pub struct RuleScratch {
     pub finish_reading_loop: bool,
     pub finish_cohort_loop: bool,
     pub in_nested: bool,
+    /// ADDED — no C++ member. How many levels deep the contextual tests,
+    /// templates, `WITH` sub-rules and generated variable tags now being
+    /// evaluated are nested, all counted together; see
+    /// [`crate::nesting::MAX_NESTING`].
+    pub nesting: usize,
     pub used_regex: usize,
 
     /// C++ `std::deque<Reading> subs_any` — the amalgamated sub-reading arena
@@ -722,6 +730,7 @@ impl RuleScratch {
             finish_reading_loop: true,
             finish_cohort_loop: true,
             in_nested: false,
+            nesting: 0,
             used_regex: 0,
 
             subs_any: Vec::new(),

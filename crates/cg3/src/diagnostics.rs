@@ -113,7 +113,8 @@ fn marked(kind: &crate::error::ParseErrorKind) -> &'static str {
         | K::EmptyTagList
         | K::EmptyListItem
         | K::UnclosedParenthesis
-        | K::NumberOutOfRange { .. } => "the parse stopped here",
+        | K::NumberOutOfRange { .. }
+        | K::NestingTooDeep { .. } => "the parse stopped here",
         K::TagRegex { .. }
         | K::EmptyTag
         | K::TagStartsWithParen { .. }

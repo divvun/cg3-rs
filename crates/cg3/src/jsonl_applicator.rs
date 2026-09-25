@@ -1062,7 +1062,32 @@ impl JsonlFormat {
     /// present (empty string when no baseform); `"ts"`/`"s"` only when non-empty.
     /// Recurses on `reading->next`. The returned `Map` preserves insertion order
     /// (l, ts, s).
+    ///
+    /// The C++ recurses down the chain; this builds each sub-reading's object
+    /// from the tail of the chain back to `reading`, nesting each under the
+    /// one before it, so a chain of any length costs no stack.
+    // [spec:cg3:req:robustness.depth-bounded]
     fn build_json_reading_e(&self, e: &Engine<'_>, reading: ReadingId) -> Map<String, Value> {
+        let chain = crate::reading::sub_reading_chain(&e.doc.store.readings, reading);
+        let mut sub: Option<Map<String, Value>> = None;
+        for r in chain.into_iter().rev() {
+            let mut reading_json = self.build_one_json_reading_e(e, r);
+            // Subreading ("s").
+            if let Some(sub) = sub.take()
+                && !sub.is_empty()
+            {
+                reading_json.insert("s".to_string(), Value::Object(sub));
+            }
+            sub = Some(reading_json);
+        }
+        sub.unwrap_or_default()
+    }
+
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn]
+    /// One reading of [`Self::build_json_reading_e`]'s chain: its `"l"` and
+    /// `"ts"`, without its sub-reading.
+    fn build_one_json_reading_e(&self, e: &Engine<'_>, reading: ReadingId) -> Map<String, Value> {
         let mut reading_json = Map::new();
 
         // Baseform ("l").
@@ -1096,15 +1121,6 @@ impl JsonlFormat {
         let tags_json = self.build_json_tags_e(e, reading);
         if !tags_json.is_empty() {
             reading_json.insert("ts".to_string(), Value::Array(tags_json));
-        }
-
-        // Subreading ("s").
-        let next = e.doc.store.readings.get(reading.0).next;
-        if let Some(next) = next {
-            let sub = self.build_json_reading_e(e, next);
-            if !sub.is_empty() {
-                reading_json.insert("s".to_string(), Value::Object(sub));
-            }
         }
 
         reading_json
@@ -1306,7 +1322,9 @@ impl JsonlFormat {
             }
         }
 
-        let s = serde_json::to_string(&Value::Object(doc)).unwrap();
+        let doc = Value::Object(doc);
+        let s = json_to_line(&doc);
+        drop_json(doc);
         let _ = writeln!(output, "{s}");
         let _ = output.flush();
     }
@@ -1435,6 +1453,76 @@ impl crate::grammar_applicator::stream_format::StreamFormat for JsonlFormat {
 /// that fits in `u32`. serde_json numbers are queried via `as_u64`; reject
 /// negatives / non-integers / out-of-range (RapidJSON `IsUint` is a 32-bit
 /// unsigned check).
+/// An object or array a [`json_to_line`] walk is inside, and whether it has
+/// written a member yet.
+enum JsonLevel<'a> {
+    Object(serde_json::map::Iter<'a>, bool),
+    Array(std::slice::Iter<'a, Value>, bool),
+}
+
+// [spec:cg3:req:robustness.depth-bounded]
+/// `v` as serde_json's compact writer spells it, walked on a heap stack: a
+/// cohort's object nests one level per sub-reading, and serde_json's own
+/// writer recurses once per level. Scalars and keys are still written by
+/// serde_json, so every byte is the one it writes.
+fn json_to_line(v: &Value) -> String {
+    let mut out = String::new();
+    let mut levels: Vec<JsonLevel<'_>> = Vec::new();
+    let mut pending = Some(v);
+    loop {
+        match pending.take() {
+            Some(Value::Object(m)) => {
+                out.push('{');
+                levels.push(JsonLevel::Object(m.iter(), false));
+            }
+            Some(Value::Array(a)) => {
+                out.push('[');
+                levels.push(JsonLevel::Array(a.iter(), false));
+            }
+            Some(scalar) => out.push_str(&serde_json::to_string(scalar).unwrap_or_default()),
+            None => {}
+        }
+        let Some(level) = levels.last_mut() else {
+            return out;
+        };
+        pending = match level {
+            JsonLevel::Object(members, written) => members.next().map(|(k, v)| {
+                if std::mem::replace(written, true) {
+                    out.push(',');
+                }
+                out.push_str(&serde_json::to_string(k).unwrap_or_default());
+                out.push(':');
+                v
+            }),
+            JsonLevel::Array(items, written) => items.next().inspect(|_| {
+                if std::mem::replace(written, true) {
+                    out.push(',');
+                }
+            }),
+        };
+        if pending.is_none() {
+            out.push(match levels.pop() {
+                Some(JsonLevel::Object(..)) => '}',
+                _ => ']',
+            });
+        }
+    }
+}
+
+// [spec:cg3:req:robustness.depth-bounded]
+/// Drop `v` a level at a time: serde_json's `Value` drops its members by
+/// recursion, one level per sub-reading of a cohort's object.
+fn drop_json(v: Value) {
+    let mut values = vec![v];
+    while let Some(v) = values.pop() {
+        match v {
+            Value::Object(m) => values.extend(m.into_iter().map(|(_, v)| v)),
+            Value::Array(a) => values.extend(a),
+            _ => {}
+        }
+    }
+}
+
 fn as_uint(v: &Value) -> Option<u32> {
     v.as_u64().and_then(|u| u32::try_from(u).ok())
 }

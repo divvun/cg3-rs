@@ -87,7 +87,7 @@
 > [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn]
 > uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const uint32IntervalVector& rules)
 
-> [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1]
+> [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2]
 > Applies a set of rules to one window, driving runSingleRule per rule and
 > supplying the per-rule-type action callbacks. Returns a bitmask over
 > {RV_NOTHING=1, RV_SOMETHING=2, RV_DELIMITED=4, RV_TRACERULE=8}. Init
@@ -215,6 +215,14 @@
 > front of a `>>>`. A window rem_cohort empties leaves the stream at once but is
 > freed, with its `>>>`, only when the rule finishes, because the rule's context
 > frames may still name either.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.depth-bounded]`): each `WITH`
+> sub-rule runs one level of nesting deeper. Each is a level of nesting,
+> counted together with every other contextual test, template, `WITH` sub-rule
+> and generated variable tag the rule is evaluating, and one that would take
+> the rule past `MAX_NESTING` (64) levels ends the run with
+> `RunError::NestingTooDeep` naming the rule. The C++ recurses until its stack
+> runs out.
 
 > [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
 > bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, RuleCallback reading_cb, RuleCallback cohort_cb)

@@ -928,31 +928,67 @@ impl BinaryGrammar {
     /// mask + buffer; bit0 hash is REQUIRED (hash 0 → fatal). The trailing `ors`
     /// count + hashes and `linked->hash` come AFTER the fixed buffer (bit12
     /// jump_pos is inside the buffer).
+    ///
+    /// The C++ recurses to write the dependencies first. A `LINK` chain or
+    /// nest of alternatives from a `.cg3b` is as deep as the input makes it, so
+    /// the tests whose dependencies are still being written are kept on a heap
+    /// stack instead, and each is written once its dependencies are, in the
+    /// order the recursion writes them.
+    // [spec:cg3:req:robustness.depth-bounded]
     fn write_contextual_test<W: Write>(
         &mut self,
         t: CtxId,
         output: &mut W,
     ) -> Result<(), crate::error::Cg3Error> {
+        let mut open: Vec<(CtxId, Vec<CtxId>, usize)> = Vec::new();
+        self.begin_contextual_test(&mut open, t);
+        while let Some((test, deps, next)) = open.last_mut() {
+            if let Some(&dep) = deps.get(*next) {
+                *next += 1;
+                self.begin_contextual_test(&mut open, dep);
+                continue;
+            }
+            let test = *test;
+            open.pop();
+            self.write_contextual_test_record(test, output)?;
+        }
+        Ok(())
+    }
+
+    // [spec:cg3:def:binary-grammar-write.cg3.binary-grammar.write-contextual-test-fn]
+    // [spec:cg3:sem:binary-grammar-write.cg3.binary-grammar.write-contextual-test-fn]
+    /// Begin writing `t`, unless it is written already (`seen_uint32`): its
+    /// dependencies go onto `open`, to be written before it — `tmpl`, each
+    /// `ors`, then `linked`.
+    fn begin_contextual_test(&mut self, open: &mut Vec<(CtxId, Vec<CtxId>, usize)>, t: CtxId) {
         let hash = self.grammar.contexts_arena[t.0].hash;
         if self.seen_uint32.contains(hash) {
-            return Ok(());
+            return;
         }
         self.seen_uint32.insert(hash);
+        let ct = &self.grammar.contexts_arena[t.0];
+        let deps: Vec<CtxId> = ct
+            .tmpl
+            .into_iter()
+            .chain(ct.ors.iter().copied())
+            .chain(ct.linked)
+            .collect();
+        open.push((t, deps, 0));
+    }
 
-        // Snapshot child ids so the recursive `&mut self` calls can re-borrow.
+    // [spec:cg3:def:binary-grammar-write.cg3.binary-grammar.write-contextual-test-fn]
+    // [spec:cg3:sem:binary-grammar-write.cg3.binary-grammar.write-contextual-test-fn]
+    /// The record of one test, once its dependencies are written: a `u32`
+    /// field mask, the fixed buffer, then the `ors` hashes and `linked->hash`.
+    fn write_contextual_test_record<W: Write>(
+        &mut self,
+        t: CtxId,
+        output: &mut W,
+    ) -> Result<(), crate::error::Cg3Error> {
         let (tmpl, ors, linked) = {
             let ct = &self.grammar.contexts_arena[t.0];
             (ct.tmpl, ct.ors.clone(), ct.linked)
         };
-        if let Some(tm) = tmpl {
-            self.write_contextual_test(tm, output)?;
-        }
-        for o in &ors {
-            self.write_contextual_test(*o, output)?;
-        }
-        if let Some(l) = linked {
-            self.write_contextual_test(l, output)?;
-        }
 
         // Snapshot this node's scalar fields.
         let (hash, pos, offset, target, line, relation, barrier, cbarrier, offset_sub, jump_pos) = {

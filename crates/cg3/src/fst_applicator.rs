@@ -1016,21 +1016,42 @@ impl FstFormat {
     /// `Reading*`/`Cohort*` resolve through `e.doc.store`; the store is
     /// threaded as a parameter so the caller can split the `&mut store` borrows
     /// (matching the base print methods).
+    ///
+    /// The C++ recurses into the chain before printing the reading itself, and
+    /// stops at a sub-reading that is not printed (`noprint` or deleted),
+    /// though the reading above it still writes its delimiter. This walks the
+    /// chain in a loop instead, printing each reading through
+    /// [`Self::print_reading_e`], so a chain of any length costs no stack.
+    // [spec:cg3:req:robustness.depth-bounded]
+    fn print_reading_chain_e<W: Write>(&self, e: &Engine<'_>, reading: ReadingId, output: &mut W) {
+        let readings = &e.doc.store.readings;
+        let chain = crate::reading::sub_reading_chain(readings, reading);
+        let printed = chain
+            .iter()
+            .take_while(|&&r| !readings.get(r.0).noprint && !readings.get(r.0).deleted)
+            .count();
+        for (i, &r) in chain[..printed].iter().enumerate().rev() {
+            if i + 1 < chain.len() {
+                let _ = write!(output, "{}", self.sub_delims);
+            }
+            self.print_reading_e(e, r, output);
+        }
+    }
+
+    // [spec:cg3:def:fst-applicator.cg3.fst-applicator.print-reading-fn]
+    // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-reading-fn]
+    /// One reading of [`Self::print_reading_chain_e`]'s chain, without its
+    /// sub-readings.
     fn print_reading_e<W: Write>(&self, e: &Engine<'_>, reading: ReadingId, output: &mut W) {
-        let (noprint, deleted, next, baseform, parent) = {
+        let (noprint, deleted, baseform, parent) = {
             let r = e.doc.store.readings.get(reading.0);
-            (r.noprint, r.deleted, r.next, r.baseform, r.parent)
+            (r.noprint, r.deleted, r.baseform, r.parent)
         };
         if noprint {
             return;
         }
         if deleted {
             return;
-        }
-
-        if let Some(next_id) = next {
-            self.print_reading_e(e, next_id, output);
-            let _ = write!(output, "{}", self.sub_delims);
         }
 
         if let Some(baseform) = baseform {
@@ -1155,7 +1176,7 @@ impl FstFormat {
                 // applicator) — iterate the current vector order verbatim.
                 for rter in readings {
                     let _ = write!(output, "{wform_inner}\t");
-                    self.print_reading_e(e, rter, output);
+                    self.print_reading_chain_e(e, rter, output);
                     write_char('\n', output);
                 }
             }
