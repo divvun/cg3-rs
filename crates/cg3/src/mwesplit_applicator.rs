@@ -201,8 +201,54 @@ impl Engine<'_> {
         None
     }
 
-    // [spec:cg3:def:mwe-split-applicator.cg3.mwe-split-applicator.split-mwe-fn]
-    // [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.split-mwe-fn]
+    /// The C++ eligibility check, and more: whether the head readings of an
+    /// MWE cohort can be split — every one carries a wordform tag, and no
+    /// wordform tag on a reading with a sub-reading is blank inside.
+    fn mwe_splittable(&self, heads: &[ReadingId]) -> bool {
+        let n_wftags = heads
+            .iter()
+            .filter(|&&r| self.mwe_maybe_wf_tag(r).is_some())
+            .count();
+        if n_wftags < heads.len() {
+            // "Some but not all main-readings ... not splitting." warning
+            // (when n_wftags > 0): deferred.
+            return false;
+        }
+        !self.mwe_inner_word_blank(heads)
+    }
+
+    // [spec:cg3:req:robustness.stream-text]
+    /// Whether a reading that has a sub-reading carries a wordform tag whose
+    /// text between `"<` and `>"` is all blank.
+    ///
+    /// DIVERGENCE: the C++ trims such a tag to a span that starts past its
+    /// end, and the substring it takes then runs on into the closing `>"`,
+    /// building a garbage wordform. There is no word to split out, so the
+    /// cohort is left whole, as the C++ leaves one whose readings disagree.
+    fn mwe_inner_word_blank(&self, heads: &[ReadingId]) -> bool {
+        const RTRIMBLANK: &[char] = &[' ', '\n', '\r', '\t'];
+        for &r in heads {
+            let mut sub = Some(r);
+            while let Some(s) = sub {
+                let next = self.doc.store.readings.get(s.0).next;
+                if next.is_some()
+                    && let Some(wf) = self.mwe_maybe_wf_tag(s)
+                {
+                    let chars: Vec<char> =
+                        self.grammar.single_tags_list[wf.0].tag.chars().collect();
+                    let inner = chars.get(2..chars.len().saturating_sub(2)).unwrap_or(&[]);
+                    if !inner.is_empty() && inner.iter().all(|c| RTRIMBLANK.contains(c)) {
+                        return true;
+                    }
+                }
+                sub = next;
+            }
+        }
+        false
+    }
+
+    // [spec:cg3:def:mwe-split-applicator.cg3.mwe-split-applicator.split-mwe-fn+1]
+    // [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.split-mwe-fn+1]
     /// C++ `std::vector<Cohort*> MweSplitApplicator::splitMwe(Cohort* cohort)`.
     /// Splits one MWE cohort into a vector of new cohorts (one per component
     /// word), or returns the original cohort unchanged if it cannot/should not be
@@ -219,19 +265,7 @@ impl Engine<'_> {
 
         // Eligibility check.
         let head_readings = self.doc.store.cohorts.get(cohort.0).readings.clone();
-        let mut n_wftags = 0usize;
-        let mut n_goodreadings = 0usize;
-        for &rter1 in &head_readings {
-            if self.mwe_maybe_wf_tag(rter1).is_some() {
-                n_wftags += 1;
-            }
-            n_goodreadings += 1;
-        }
-
-        if n_wftags < n_goodreadings {
-            if n_wftags > 0 {
-                // "Some but not all main-readings ... not splitting." warning: deferred.
-            }
+        if !self.mwe_splittable(&head_readings) {
             cos.push(cohort);
             return Ok(cos);
         }

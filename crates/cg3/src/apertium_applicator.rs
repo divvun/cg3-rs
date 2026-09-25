@@ -38,7 +38,7 @@ use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
 use crate::single_window::{SingleWindow, append_cohort};
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_WORDFORM, TagList};
 use crate::types::{DynBitset, TagHash};
-use crate::uextras::{EOF_CHAR, read_char, strip_bom, write_char};
+use crate::uextras::{CharReader, strip_bom, write_char};
 
 // C++ `esc_lt = '\1'` — the sentinel the reading scanner
 // substitutes for an escaped `\<` so it becomes literal baseform text rather
@@ -136,8 +136,38 @@ where
         }
     }
 
-    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn]
-    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn]
+    // [spec:cg3:req:robustness.empty-tag]
+    /// One bare SETVAR identifier — a name with no `=value`: set it to `*` in
+    /// the pending deltas, and in the live `variables` too when `global`.
+    ///
+    /// DIVERGENCE: an empty identifier (`[<STREAMCMD:SETVAR:>]`, or after a
+    /// trailing `,`) is skipped, as REMVAR skips one; the C++ interned an
+    /// empty tag.
+    fn setvar_bare(
+        &mut self,
+        ident: &str,
+        variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
+        variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
+        variables_output: &mut crate::sorted_vector::Uint32SortedVector,
+        global: bool,
+    ) -> Result<(), crate::error::RunError> {
+        if ident.is_empty() {
+            return Ok(());
+        }
+        let tag_any = self.base.grammar.tag_any;
+        let tag = self.base.add_tag(ident, crate::tag::TagType::empty())?;
+        let hash = self.base.grammar.single_tags_list.get(tag.0).hash.get();
+        variables_set.insert((hash, tag_any));
+        variables_rem.erase(hash);
+        variables_output.insert(hash);
+        if global {
+            self.base.doc.variables.insert((hash, tag_any));
+        }
+        Ok(())
+    }
+
+    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn+1]
+    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn+1]
     /// C++ `ApertiumApplicator::parseStreamVar`.
     ///
     /// `cleaned` is a `Vec<char>` (the C++ mutates it in place with NUL
@@ -178,15 +208,13 @@ where
 
             if c.is_none() && d.is_none() {
                 // Case (a): single bare identifier.
-                let ident = slice_str(s0, len);
-                let tag = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
-                let hash = self.base.grammar.single_tags_list.get(tag.0).hash.get();
-                variables_set.insert((hash, tag_any));
-                variables_rem.erase(hash);
-                variables_output.insert(hash);
-                if c_swindow.is_none() {
-                    self.base.doc.variables.insert((hash, tag_any));
-                }
+                self.setvar_bare(
+                    &slice_str(s0, len),
+                    variables_set,
+                    variables_rem,
+                    variables_output,
+                    c_swindow.is_none(),
+                )?;
             } else {
                 // Case (b): comma/`=` list. Walk `s` re-computing `c`/`d`.
                 let mut s = Some(s0);
@@ -281,12 +309,13 @@ where
                         d = find_from(ss, '=');
                         if c.is_none() && d.is_none() {
                             // final bare identifier.
-                            let ident = slice_str(ss, len);
-                            let t = self.base.add_tag(&ident, crate::tag::TagType::empty())?;
-                            a = self.base.grammar.single_tags_list.get(t.0).hash.get();
-                            variables_set.insert((a, tag_any));
-                            variables_rem.erase(a);
-                            variables_output.insert(a);
+                            self.setvar_bare(
+                                &slice_str(ss, len),
+                                variables_set,
+                                variables_rem,
+                                variables_output,
+                                false,
+                            )?;
                             s = None;
                         }
                     }
@@ -533,8 +562,8 @@ where
         Ok(())
     }
 
-    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.run-grammar-on-text-fn]
-    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.run-grammar-on-text-fn]
+    // [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.run-grammar-on-text-fn+1]
+    // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.run-grammar-on-text-fn+1]
     /// C++ `void ApertiumApplicator::runGrammarOnText(std::istream& input,
     /// std::ostream& output)`. The Apertium stream driver (char-by-char state
     /// machine). Validation `CG3Quit(1)` diagnostics + no-delimiter warnings are
@@ -640,26 +669,33 @@ where
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
         strip_bom(input);
+        let mut rd = CharReader::new(input, &self.base.cfg.input_name);
 
-        // Main character loop: until `read_char` returns `EOF_CHAR`.
+        // Main character loop: until the reader reports end of stream. At end
+        // of stream `c` is left NUL, which `flush` prints nothing for (the C++
+        // left U_EOF).
         loop {
-            c = read_char(input);
-            if c == EOF_CHAR {
+            // [spec:cg3:req:robustness.stream-invalid-utf8]
+            let Some(next) = rd.next_char()? else {
+                c = '\0';
                 break;
-            }
+            };
+            c = next;
 
             if c == '\n' {
                 self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
             }
 
             if c == '\\' {
-                let n = read_char(input);
+                // DIVERGENCE: a backslash ending the input escapes nothing; the
+                // C++ appended U_EOF.
+                let n = rd.next_char()?;
                 if !st.in_cohort {
                     st.blank.push(c);
-                    st.blank.push(n);
+                    st.blank.extend(n);
                 } else {
                     st.token.push(c);
-                    st.token.push(n);
+                    st.token.extend(n);
                 }
                 continue;
             }
@@ -688,22 +724,7 @@ where
                 st.in_wblank = false;
             } else if st.in_blank && c == ']' {
                 st.in_blank = false;
-                let bchars: Vec<char> = st.blank.chars().collect();
-                if bchars.len() > 14
-                    && bchars.get(1) == Some(&'<')
-                    && bchars.get(bchars.len() - 2) == Some(&'>')
-                {
-                    // cleaned = blank.substr(1, size-3): drop leading '[' and
-                    // trailing '>]' (no trailing '>').
-                    let cleaned: Vec<char> = bchars[1..bchars.len() - 2].to_vec();
-                    self.parse_stream_var(
-                        st.c_swindow,
-                        &cleaned,
-                        &mut st.variables_set,
-                        &mut st.variables_rem,
-                        &mut st.variables_output,
-                    )?;
-                }
+                self.blank_stream_var(&mut st)?;
             } else if !st.in_blank && c == '$' {
                 if !st.in_cohort {
                     tracing::error!(
@@ -1068,6 +1089,32 @@ where
         Ok(())
     }
 
+    /// A superblank that just closed: if it looks like `[<STREAMCMD:...>]`,
+    /// hand its command to [`parse_stream_var`](Self::parse_stream_var). The
+    /// text stays in `blank`, to be printed with it.
+    fn blank_stream_var(
+        &mut self,
+        st: &mut ApertiumStreamState,
+    ) -> Result<(), crate::error::RunError> {
+        let bchars: Vec<char> = st.blank.chars().collect();
+        if bchars.len() > 14
+            && bchars.get(1) == Some(&'<')
+            && bchars.get(bchars.len() - 2) == Some(&'>')
+        {
+            // cleaned = blank.substr(1, size-3): drop leading '[' and
+            // trailing '>]' (no trailing '>').
+            let cleaned: Vec<char> = bchars[1..bchars.len() - 2].to_vec();
+            self.parse_stream_var(
+                st.c_swindow,
+                &cleaned,
+                &mut st.variables_set,
+                &mut st.variables_rem,
+                &mut st.variables_output,
+            )?;
+        }
+        Ok(())
+    }
+
     /// C++ `flush(bool n)` lambda from `runGrammarOnText`. Drains all pending
     /// windows, prints them, and resets the driver state (the lambda's
     /// by-reference captures, passed as [`ApertiumStreamState`]).
@@ -1153,7 +1200,7 @@ where
             self.base.doc.stream.previous.remove(0);
         }
 
-        if c != '\0' && c != '\u{FFFF}' {
+        if c != '\0' {
             fmt.print_plain_text_line(&mut self.base.engine(), &c.to_string(), output);
         }
 

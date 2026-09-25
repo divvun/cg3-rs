@@ -38,10 +38,15 @@
 > contains `from` cannot loop forever), and increment `rv`. Return `rv`.
 > Sizes are cast to `int32_t` for the ICU calls.
 
-> [spec:cg3:def:uextras.cg3.get-line-clean-fn]
+> [spec:cg3:def:uextras.cg3.get-line-clean-fn+1]
 > size_t get_line_clean(UString& line, UString& cleaned, std::istream& input, bool keep_tabs)
+>
+> PORT DIVERGENCE: the port's readers return a `Result`, whose error is the
+> invalid UTF-8 the C++ decoder threw on; the scalar-buffer form used by the
+> lexers returns `Option` inside it, `None` at end of stream, since a line can
+> begin with the NUL the lexers otherwise read as "nothing here".
 
-> [spec:cg3:sem:uextras.cg3.get-line-clean-fn]
+> [spec:cg3:sem:uextras.cg3.get-line-clean-fn+1]
 > Reads one logical line of UTF-16 from `input` into the caller-provided
 > buffer `line`, and writes a whitespace-collapsed copy into `cleaned`;
 > returns the number of code units written to `cleaned` (its length,
@@ -83,6 +88,18 @@
 > triggers on malformed input where U+0085 (NEL) is mistaken for an
 > ellipsis, because NEL is treated as an ordinary character, not
 > whitespace, by `ISSPACE`.
+>
+> PORT DIVERGENCE: the port MUST read each line whole and only that line
+> (`[spec:cg3:req:robustness.stream-text]`). The doubling above tests the
+> COLLAPSED length, so a line longer than the buffer that is mostly
+> whitespace never grows it: the buffer fills, `u_fgets` is asked for a
+> negative count and returns null, and the rest of the line is read as the
+> next line. A NUL in a line makes the next `u_fgets` write the following
+> line over the rest of this one, joining the two. And a blank line or end
+> of stream returns before anything is written to `cleaned`, leaving the
+> previous line there for the caller to read again. The port reads the line
+> into a buffer grown to fit before collapsing it, a NUL ends only its own
+> line's text, and a blank line or end of stream leaves `cleaned` empty.
 
 > [spec:cg3:def:uextras.cg3.substr-fn]
 > inline substr_t<Str> substr(const Str& str, size_t offset = 0, size_t count = 0)
@@ -265,7 +282,7 @@
 > [spec:cg3:def:uextras.read-utf8-fn]
 > std::string read_utf8(std::istream& input, size_t BUF_SIZE)
 
-> [spec:cg3:sem:uextras.read-utf8-fn]
+> [spec:cg3:sem:uextras.read-utf8-fn+1]
 > Reads a block of bytes from `input` and returns it as a `std::string`,
 > extending the read as needed so the returned bytes end on a complete
 > UTF-8 character boundary (assuming the input is valid UTF-8). `BUF_SIZE`
@@ -294,6 +311,17 @@
 > out-of-bounds; and the backward scan has no lower-bound guard, so
 > malformed UTF-8 with no lead byte would run `i` below 0 — both are
 > latent for empty or invalid input.
+>
+> PORT DIVERGENCE: the port MUST NOT fail here
+> (`[spec:cg3:req:robustness.stream-invalid-utf8]`). Its only caller is the
+> stream format sniff, which decodes the block lossily to look at it; the
+> block is then replayed to the reader the sniff picks, and that reader
+> reports any invalid UTF-8 with its line. So a short read completing the
+> trailing sequence keeps what it got instead of throwing; the backward scan
+> looks no further than three bytes back and stops at the first byte that is
+> not a continuation byte; and when that byte is no lead, or the sequence
+> already has as many continuation bytes as its lead asks for (or more —
+> where `3 - k` would go negative), nothing more is read.
 
 > [spec:cg3:def:uextras.u-fflush-fn]
 > void u_fflush(std::ostream& output)
@@ -304,10 +332,14 @@
 > via `output->flush()`.) No return value, no error handling beyond
 > whatever the stream itself does.
 
-> [spec:cg3:def:uextras.u-fgetc-fn]
+> [spec:cg3:def:uextras.u-fgetc-fn+1]
 > UChar u_fgetc(std::istream& input)
+>
+> PORT DIVERGENCE: the port returns `Result<Option<char>, InvalidUtf8>` — a
+> whole scalar value rather than a UTF-16 code unit, `None` at end of stream,
+> and the offending bytes where the C++ throws.
 
-> [spec:cg3:sem:uextras.u-fgetc-fn]
+> [spec:cg3:sem:uextras.u-fgetc-fn+1]
 > Reads and returns the next single UTF-16 code unit (`UChar`) from the
 > UTF-8 byte stream `input`. Handles non-BMP code points by splitting the
 > surrogate pair across two successive calls, using a per-thread cache of
@@ -338,11 +370,27 @@
 > Notes: returns are 16-bit code units, so callers see surrogate pairs one
 > unit at a time; `U_EOF` (0xFFFF) is the end sentinel. The lead-byte masks
 > use the same nesting order (0xF0/0xE0/0xC0) as `read_utf8`.
+>
+> PORT DIVERGENCE: invalid UTF-8 — a byte that cannot lead a sequence, a
+> sequence cut short by a byte that does not continue it or by the end of
+> the stream, an overlong form, an encoded surrogate, a value past U+10FFFF —
+> MUST be returned as an error carrying the bytes read, for the stream driver
+> to report with the input's name and the line
+> (`[spec:cg3:req:robustness.stream-invalid-utf8]`); the C++ throws and the
+> process terminates. Each continuation byte is checked as it is read, so a
+> sequence cut short by a newline reports the bytes before it. End of stream
+> MUST be signalled apart from the characters: the port returns `None`
+> there, and a U+FFFF in the input is returned as the character it is
+> (`[spec:cg3:req:robustness.stream-text]`) where the C++ reads it as the end
+> of the stream.
 
-> [spec:cg3:def:uextras.u-fgets-fn]
+> [spec:cg3:def:uextras.u-fgets-fn+1]
 > UChar* u_fgets(UChar* s, int32_t n, std::istream& input)
+>
+> PORT DIVERGENCE: the port takes a growable `Vec<char>` and returns
+> `Result<usize, InvalidUtf8>`: the count read, 0 at end of stream.
 
-> [spec:cg3:sem:uextras.u-fgets-fn]
+> [spec:cg3:sem:uextras.u-fgets-fn+1]
 > Reads UTF-16 code units from `input` into buffer `s` (capacity `n`),
 > stopping at end-of-stream or after storing a newline, and returns `s`
 > or null. Set `s[0] = 0`. Loop `i` from 0 while `i < n`: read a code unit
@@ -362,6 +410,14 @@
 > as EOF — callers such as `get_line_clean` treat it as "read nothing".
 > (3) If the buffer fills exactly (`i` reaches `n` with no break), no
 > terminator is written.
+>
+> PORT DIVERGENCE: the port MUST read the whole line and only that line
+> (`[spec:cg3:req:robustness.stream-text]`). It grows the buffer as the line
+> needs instead of stopping at `n`, and terminates at the count read, so a
+> last line with no newline does not keep a stale character from a longer
+> line before it (quirk 1) — `"<abcdefgh>"` then `\t"x" N` at end of stream
+> read the tag `Ne`. It returns that count, 1 for a blank line, so a blank
+> line is not reported as end of stream (quirk 2); quirk 3 cannot arise.
 
 > [spec:cg3:def:uextras.u-fprintf-fn]
 > inline int32_t _u_fprintf(std::ostream& output, const Char* fmt, va_list args)

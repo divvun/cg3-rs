@@ -207,7 +207,7 @@
 > [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn]
 > void MatxinApplicator::runGrammarOnText(std::istream& input, std::ostream& output)
 
-> [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn]
+> [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn+1]
 > Parses an Apertium-style stream and emits a Matxin XML `<corpus>` of
 > dependency-tree `<SENTENCE>` blocks. Character-by-character; the inner reading
 > loops call `u_fgetc` directly.
@@ -284,6 +284,17 @@
 > runGrammarOnWindow`); `shuffleWindowsDown()`; while `gWindow->previous`:
 > `printSingleWindow(front)`, `free_swindow`, erase. If `inchar && inchar !=
 > 0xffff`, print `inchar` (e.g. a final newline). Print `</corpus>\n` and flush.
+>
+> PORT DIVERGENCE: the reader MUST tell end of stream apart from the text
+> (`[spec:cg3:req:robustness.stream-text]`): it returns `None` there and
+> reads U+FFFF as text, and the main loop leaves `inchar` NUL when it ends,
+> so the final print is skipped as it was for `U_EOF`. The wordform, static
+> reading and readings loops stop only at their delimiters, so input that
+> ends inside a cohort has the C++ append `U_EOF` to them forever; in the
+> port, end of stream ends the wordform as `/` would, the static reading and
+> the last reading as `$` would, and a backslash that ends the input escapes
+> nothing. Invalid UTF-8 is a run error naming the input and the line
+> (`[spec:cg3:req:robustness.stream-invalid-utf8]`), where the C++ throws.
 
 > [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-wrapper-null-flush-fn]
 > void MatxinApplicator::runGrammarOnTextWrapperNullFlush(std::istream& input, std::ostream& output)

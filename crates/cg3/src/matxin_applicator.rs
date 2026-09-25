@@ -10,7 +10,8 @@
 //! ARENA MODEL. Pointers become arena ids resolved through `self.base.doc.store`
 //! (`Cohort*`→`CohortId`, `Reading*`→`ReadingId`, `SingleWindow*`→`SwId`) and
 //! `self.base.grammar.single_tags_list` (`Tag*`→`TagId`). Char-by-char C++ walks
-//! (UTF-16 code units) become UTF-8 char reads via `uextras::read_char`.
+//! (UTF-16 code units) become UTF-8 char reads via `uextras::CharReader`,
+//! which reports invalid UTF-8 with its line and end of stream as `None`.
 //!
 //! OUTPUT SINK. C++ `std::ostream& output` → generic `output: &mut W`
 //! (`W: std::io::Write`).
@@ -37,7 +38,7 @@ use crate::single_window::append_cohort;
 use crate::store::RuntimeStore;
 use crate::tag::{T_BASEFORM, T_MAPPING, T_WORDFORM, TagVector};
 use crate::types::TagHash;
-use crate::uextras::{EOF_CHAR, read_char, strip_bom, write_char};
+use crate::uextras::{CharReader, strip_bom, write_char};
 
 // C++ `Strings.hpp` string constants.
 const STR_BEGINTAG: &str = ">>>";
@@ -710,8 +711,8 @@ impl MatxinApplicator {
         Ok(())
     }
 
-    // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn]
-    // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn]
+    // [spec:cg3:def:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn+1]
+    // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn+1]
     /// C++ `void MatxinApplicator::runGrammarOnText(std::istream& input,
     /// std::ostream& output)`.
     pub fn run_grammar_on_text<R, W>(
@@ -792,13 +793,15 @@ impl MatxinApplicator {
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
         strip_bom(input);
+        let mut rd = CharReader::new(input, &self.base.cfg.input_name);
 
         loop {
             // C++: loop while the char read is not 0, then `if (input.eof())
-            // break;`. A read of '\0' terminates the loop (the `!= 0` guard); an
-            // EOF (EOF_CHAR) also terminates it (the `input.eof()` break).
-            inchar = read_char(input);
-            if inchar == '\0' || inchar == EOF_CHAR {
+            // break;`. A read of '\0' terminates the loop (the `!= 0` guard), and
+            // so does end of stream, which leaves `inchar` NUL too.
+            // [spec:cg3:req:robustness.stream-invalid-utf8]
+            inchar = rd.next_char()?.unwrap_or('\0');
+            if inchar == '\0' {
                 break;
             }
 
@@ -810,10 +813,11 @@ impl MatxinApplicator {
             }
 
             if inchar == '\\' && !incohort && !superblank {
-                let n = read_char(input);
+                // A backslash ending the input escapes nothing.
+                let n: String = rd.next_char()?.into_iter().collect();
                 if let Some(cc) = c_cohort {
                     self.base.doc.store.cohorts.get_mut(cc.0).text.push(inchar);
-                    self.base.doc.store.cohorts.get_mut(cc.0).text.push(n);
+                    self.base.doc.store.cohorts.get_mut(cc.0).text.push_str(&n);
                 } else if let Some(ls) = l_swindow {
                     self.base
                         .doc
@@ -828,7 +832,7 @@ impl MatxinApplicator {
                         .single_windows
                         .get_mut(ls.0)
                         .text
-                        .push(n);
+                        .push_str(&n);
                 } else {
                     let _ = write!(output, "{inchar}");
                     let _ = write!(output, "{n}");
@@ -995,64 +999,18 @@ impl MatxinApplicator {
             let gn = self.base.doc.cohorts.next_cohort_number();
             self.base.doc.store.cohorts.get_mut(cc.0).global_number = gn;
 
-            // Read the wordform.
-            let mut wordform: String = String::from("\"<");
-            loop {
-                inchar = read_char(input);
-                if inchar == '/' || inchar == '<' {
-                    break;
-                } else if inchar == '\\' {
-                    inchar = read_char(input);
-                    wordform.push(inchar);
-                } else {
-                    wordform.push(inchar);
-                }
-            }
-            wordform.push_str(">\"");
-            let wf_tid = self.base.add_tag(&wordform, crate::tag::TagType::empty())?;
-            self.base.doc.store.cohorts.get_mut(cc.0).wordform = Some(wf_tid);
-            self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
+            // Read the wordform, and the static reading if one follows.
+            self.read_wordform(&mut rd, cc)?;
 
             let mut current_reading: Vec<char> = Vec::new();
             c_reading = None;
 
-            // Static reading.
-            if inchar == '<' {
-                let wread = alloc_reading(&mut self.base.doc.store, Some(cc));
-                self.base.doc.store.cohorts.get_mut(cc.0).wread = Some(wread);
-                let mut tagbuf: String = String::new();
-                loop {
-                    inchar = read_char(input);
-                    if inchar == '\\' {
-                        inchar = read_char(input);
-                        tagbuf.push(inchar);
-                        continue;
-                    }
-                    if inchar == '<' {
-                        continue;
-                    }
-                    if inchar == '>' {
-                        let t = self.base.add_tag(&tagbuf, crate::tag::TagType::empty())?;
-                        self.base.engine().add_tag_to_reading(wread, t)?;
-                        tagbuf.clear();
-                        continue;
-                    }
-                    if inchar == '/' || inchar == '$' {
-                        break;
-                    }
-                    tagbuf.push(inchar);
-                    if inchar == '/' || inchar == '$' {
-                        break;
-                    }
-                }
-            }
-
-            // Read the readings.
+            // Read the readings. DIVERGENCE: end of input ends the last reading
+            // as `$` would; the C++ read U_EOF into it forever.
             while incohort {
-                inchar = read_char(input);
+                inchar = rd.next_char()?.unwrap_or('$');
                 if inchar == '\\' {
-                    inchar = read_char(input);
-                    current_reading.push(inchar);
+                    current_reading.extend(rd.next_char()?);
                     continue;
                 }
                 if inchar == '$' {
@@ -1151,7 +1109,7 @@ impl MatxinApplicator {
             self.base.doc.stream.previous.remove(0);
         }
 
-        if inchar != '\0' && inchar != '\u{FFFF}' {
+        if inchar != '\0' {
             let _ = write!(output, "{inchar}");
         }
         let _ = writeln!(output, "</corpus>");
@@ -1165,6 +1123,62 @@ impl MatxinApplicator {
         for r in readings {
             let et = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
             self.base.engine().add_tag_to_reading(r, et)?;
+        }
+        Ok(())
+    }
+
+    /// The wordform of cohort `cc`, read off `rd` up to its `/` or `<`, and
+    /// the static reading that a `<` opens, read up to its `/` or `$`. A
+    /// backslash escapes the next character.
+    ///
+    /// DIVERGENCE: end of input ends the wordform as `/` would and the static
+    /// reading as `$` would; the C++ read U_EOF into them forever.
+    fn read_wordform<R: std::io::Read>(
+        &mut self,
+        rd: &mut CharReader<'_, R>,
+        cc: CohortId,
+    ) -> Result<(), crate::error::RunError> {
+        let mut inchar;
+        let mut wordform: String = String::from("\"<");
+        loop {
+            inchar = rd.next_char()?.unwrap_or('/');
+            if inchar == '/' || inchar == '<' {
+                break;
+            } else if inchar == '\\' {
+                wordform.extend(rd.next_char()?);
+            } else {
+                wordform.push(inchar);
+            }
+        }
+        wordform.push_str(">\"");
+        let wf_tid = self.base.add_tag(&wordform, crate::tag::TagType::empty())?;
+        self.base.doc.store.cohorts.get_mut(cc.0).wordform = Some(wf_tid);
+        self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
+
+        if inchar == '<' {
+            let wread = alloc_reading(&mut self.base.doc.store, Some(cc));
+            self.base.doc.store.cohorts.get_mut(cc.0).wread = Some(wread);
+            let mut tagbuf: String = String::new();
+            loop {
+                inchar = rd.next_char()?.unwrap_or('$');
+                if inchar == '\\' {
+                    tagbuf.extend(rd.next_char()?);
+                    continue;
+                }
+                if inchar == '<' {
+                    continue;
+                }
+                if inchar == '>' {
+                    let t = self.base.add_tag(&tagbuf, crate::tag::TagType::empty())?;
+                    self.base.engine().add_tag_to_reading(wread, t)?;
+                    tagbuf.clear();
+                    continue;
+                }
+                if inchar == '/' || inchar == '$' {
+                    break;
+                }
+                tagbuf.push(inchar);
+            }
         }
         Ok(())
     }

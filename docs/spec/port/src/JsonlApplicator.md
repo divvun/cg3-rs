@@ -209,7 +209,7 @@
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn]
 > void JsonlApplicator::runGrammarOnText(std::istream& input, std::ostream& output)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn]
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+1]
 > Reads JSON-Lines input (one JSON object per line), builds windows, runs the
 > grammar, and prints JSONL output. Each input object is one of: a command
 > (`{"cmd": ...}`), a plain-text line (`{"t": ...}` with no `"w"`), or a cohort
@@ -298,6 +298,17 @@
 > `verbosity_level > 0` print a final "Progress: ... - Done." line to stderr.
 > Note: no regex is used; commands are matched by exact string equality or
 > `u_strncmp` prefix comparison.
+>
+> PORT DIVERGENCE: a line that is not UTF-8 MUST be a run error naming the
+> input and the line (`[spec:cg3:req:robustness.stream-invalid-utf8]`), not
+> the end of the stream. No empty tag may be interned
+> (`[spec:cg3:req:robustness.empty-tag]`): a SETVAR or REMVAR with nothing
+> after its prefix is skipped, and an empty key or value beside a SETVAR's
+> `=` is `*`, with the warning the CG reader gives for the same command,
+> where the C++ `addTag`s the empty string. And with `--num-windows 0` a
+> delimiter shuffles the only window out, leaving `gWindow->current` null
+> for the `runGrammarOnWindow` that follows, which the C++ dereferences; the
+> port runs nothing when there is no current window.
 
 `[spec:cg3:def:jsonl-applicator.cg3.ustring-to-utf8-fn]` and its `sem` rule
 stood here, naming `std::string ustring_to_utf8(UStringView ustr)`. They are

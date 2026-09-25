@@ -35,8 +35,11 @@
 //!   lone surrogate, so this port decodes each UTF-8 sequence to a single
 //!   `char` and the surrogate-cache machinery is elided. Observable divergence:
 //!   a non-BMP code point occupies ONE `char` slot here vs TWO UTF-16 code
-//!   units in C++. The 0xFFFF end-of-stream sentinel is preserved as
-//!   `'\u{FFFF}'`.
+//!   units in C++.
+//!
+//! * **End of stream is `None`.** The C++ reader returns 0xFFFF at end of
+//!   stream, so a U+FFFF in the text ended the input there. The readers here
+//!   return `Option<char>`, and U+FFFF is text like any other character.
 //!
 //! * **Formatted output.** Rust has no C `va_list`, and the C++ printf engine
 //!   (plus its 500-unit / 1500-byte two-pass stack-buffer resize dance) has no
@@ -45,11 +48,17 @@
 //!   preserved. The narrow- vs UTF-16-format overloads collapse (all format
 //!   strings are Rust/UTF-8).
 //!
-//! * **`throw` → `panic!`.** Every C++ `throw std::runtime_error(...)` becomes a
-//!   `panic!` with the same message. The case-insensitive compare's error path
-//!   (which in C++ `throw`s a *pointer*, uncatchable by
+//! * **`throw` → `Result`.** The C++ stream readers throw on input that is not
+//!   UTF-8 and the process terminates. The readers here return
+//!   [`InvalidUtf8`] with the offending bytes, and the stream drivers report it
+//!   as a run error naming the input and the line
+//!   (`[spec:cg3:req:robustness.stream-invalid-utf8]`); the bytes are never
+//!   replaced with U+FFFD. The format sniffer's reader does not fail at all:
+//!   it leaves bad bytes for the reader it picks. The case-insensitive
+//!   compare's error path (which in C++ `throw`s a *pointer*, uncatchable by
 //!   `catch(const std::exception&)`) is unreachable in the std approximation
-//!   and documented at the site.
+//!   and documented at the site. `write_char` keeps the C++ panic for code
+//!   points past 0x7FFF; it is only ever handed ASCII literals.
 
 use std::io::{Read, Seek, SeekFrom, Write};
 
@@ -73,10 +82,6 @@ pub const S_FAILFAST: i32 = 8;
 pub const S_SET_DIFF: i32 = 9;
 pub const S_SET_ISECT_U: i32 = 10;
 pub const S_SET_SYMDIFF_U: i32 = 11;
-
-/// End-of-stream sentinel (0xFFFF). U+FFFF is a noncharacter, so it never
-/// appears in valid text — matching how C++ overloads it as the EOF marker.
-pub const EOF_CHAR: char = '\u{FFFF}';
 
 /// `Str::npos` (`SIZE_MAX`).
 pub const NPOS: usize = usize::MAX;
@@ -187,81 +192,138 @@ pub fn strip_bom<S: Read + Seek>(stream: &mut S) -> bool {
 // std::istream input wrappers (uextras.cpp)
 // ===========================================================================
 
-// [spec:cg3:def:uextras.u-fgets-fn]
-// [spec:cg3:sem:uextras.u-fgets-fn]
-//
-// Returns `bool` (`true` ≈ the C++'s non-null `s`, `false` ≈ `nullptr`).
-// QUIRKS reproduced: (1) the terminator is written at `s[i+1]`, not `s[i]`;
-// (2) a line that is just a newline stores `s[0]` then returns `false`
-// (`i == 0`) — indistinguishable from EOF, so callers treat an empty line as
-// "read nothing"; (3) an exactly-full buffer writes no terminator. The caller
-// must provide `s.len() >= n + 1` (so the `s[i+1]` write stays in bounds), as
-// `get_line_clean` does.
-pub fn read_line_chars<R: Read>(s: &mut [char], n: i32, input: &mut R) -> bool {
-    s[0] = '\0';
-    let mut i: i32 = 0;
-    while i < n {
-        let c = read_char(input);
-        if c == EOF_CHAR {
-            break; // EOF: nothing stored at s[i]
-        }
-        s[i as usize] = c;
-        if isnl(c) {
-            break; // newline stored at s[i]
-        }
-        i += 1;
-    }
-    if i < n {
-        s[(i + 1) as usize] = '\0';
-    }
-
-    if i == 0 {
-        return false;
-    }
-    true
+/// Bytes in an input stream that do not decode as UTF-8: a byte that cannot
+/// start a sequence, or a sequence that is cut short, overlong, an encoded
+/// surrogate or past U+10FFFF.
+///
+/// Carries only the offending bytes. Where they were is the reader's to say,
+/// which [`at`](Self::at) adds.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("invalid UTF-8 {}", describe_bytes(&self.bytes))]
+pub struct InvalidUtf8 {
+    /// The lead byte and whichever continuation bytes followed it.
+    pub bytes: Vec<u8>,
 }
 
-// [spec:cg3:def:uextras.u-fgetc-fn]
-// [spec:cg3:sem:uextras.u-fgetc-fn]
+impl InvalidUtf8 {
+    /// This failure as the run error a stream reader reports: `input` is what
+    /// the stream is called and `line` the 1-based line it was reading.
+    pub fn at(self, input: &str, line: u32) -> crate::error::RunError {
+        crate::error::RunError::InvalidUtf8 {
+            input: input.to_string(),
+            line,
+            source: self,
+        }
+    }
+}
+
+/// `byte 0x80` / `bytes 0xE0 0x80`, for [`InvalidUtf8`]'s message.
+fn describe_bytes(bytes: &[u8]) -> String {
+    let hex: Vec<String> = bytes.iter().map(|b| format!("0x{b:02X}")).collect();
+    let noun = if bytes.len() == 1 { "byte" } else { "bytes" };
+    format!("{noun} {}", hex.join(" "))
+}
+
+// [spec:cg3:def:uextras.u-fgets-fn+1]
+// [spec:cg3:sem:uextras.u-fgets-fn+1]
+// [spec:cg3:req:robustness.stream-text]
 //
-// Reads one UTF-8 sequence and returns it as a single `char`. See the module
-// note: the UTF-16 surrogate-pair cache (`cps[4]`) is elided because a `char`
-// is a full scalar (no lone surrogates). Returns `EOF_CHAR` on end-of-stream and
-// `'\0'` when the first byte read is a NUL. The lead-byte masks (0xF0/0xE0/0xC0,
-// widest first) and the short-read `panic!`s mirror the source.
-pub fn read_char<R: Read>(input: &mut R) -> char {
-    let c = match read_byte(input) {
-        Some(v) => v,
-        None => return EOF_CHAR, // i == 0 && c == EOF
+// Reads one whole line into `s` from index 0 — every character up to and
+// including the first newline (`isnl`), or to end of stream — growing `s` as
+// the line needs, and NUL-terminates it at `s[n]`. Returns `n`, the characters
+// read: 0 is end of stream (with `s[0]` NUL), and a blank line reads as its
+// newline. `s` keeps a second NUL past the terminator for the lexers'
+// one-ahead reads.
+pub fn read_line_chars<R: Read>(s: &mut Vec<char>, input: &mut R) -> Result<usize, InvalidUtf8> {
+    let mut n = 0usize;
+    while let Some(c) = read_char(input)? {
+        if n + 2 >= s.len() {
+            let grown = (s.len() * 2).max(n + 3);
+            s.resize(grown, '\0');
+        }
+        s[n] = c;
+        n += 1;
+        if isnl(c) {
+            break;
+        }
+    }
+    if s.len() < n + 2 {
+        s.resize(n + 2, '\0');
+    }
+    s[n] = '\0';
+    Ok(n)
+}
+
+/// A [`read_char`] stream that counts the lines it has read, so a decoding
+/// failure can say which line it was on — for the readers that take their
+/// input a character at a time rather than a line at a time.
+pub struct CharReader<'a, R> {
+    input: &'a mut R,
+    newlines: u32,
+    name: String,
+}
+
+impl<'a, R: Read> CharReader<'a, R> {
+    /// Reads from `input`, which diagnostics call `name`.
+    pub fn new(input: &'a mut R, name: &str) -> Self {
+        CharReader {
+            input,
+            newlines: 0,
+            name: name.to_string(),
+        }
+    }
+
+    // [spec:cg3:req:robustness.stream-invalid-utf8]
+    /// The next character, `None` at end of stream. Invalid UTF-8 is a run
+    /// error naming the input and the line it is on.
+    pub fn next_char(&mut self) -> Result<Option<char>, crate::error::RunError> {
+        let line = self.newlines.saturating_add(1);
+        let c = read_char(self.input).map_err(|e| e.at(&self.name, line))?;
+        if c == Some('\n') {
+            self.newlines = line;
+        }
+        Ok(c)
+    }
+}
+
+// [spec:cg3:def:uextras.u-fgetc-fn+1]
+// [spec:cg3:sem:uextras.u-fgetc-fn+1]
+// [spec:cg3:req:robustness.stream-invalid-utf8]
+// [spec:cg3:req:robustness.stream-text]
+//
+// Reads one UTF-8 sequence and returns it as a single `char`, or `None` at end
+// of stream. See the module note: the UTF-16 surrogate-pair cache (`cps[4]`)
+// is elided because a `char` is a full scalar. A NUL byte is `'\0'`, and
+// U+FFFF is itself — text, not end of stream. The sequence length comes from
+// the lead byte and each continuation byte is checked as it is read, so a
+// sequence cut short by a newline is reported as the bytes it did have.
+pub fn read_char<R: Read>(input: &mut R) -> Result<Option<char>, InvalidUtf8> {
+    let Some(c) = read_byte(input) else {
+        return Ok(None);
     };
-
-    let mut buf = [0u8; 4];
-    buf[0] = c;
-    let mut i = 1usize;
-    if (c & 0xF0) == 0xF0 {
-        if input.read_exact(&mut buf[1..4]).is_err() {
-            panic!("Could not read 3 expected bytes from stream");
+    let len = match c {
+        0x00..=0x7F => return Ok(Some(char::from(c))),
+        0xC0..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF7 => 4,
+        _ => return Err(InvalidUtf8 { bytes: vec![c] }),
+    };
+    let mut buf = [c, 0, 0, 0];
+    for i in 1..len {
+        match read_byte(input) {
+            Some(b) if b & 0xC0 == 0x80 => buf[i] = b,
+            _ => {
+                return Err(InvalidUtf8 {
+                    bytes: buf[..i].to_vec(),
+                });
+            }
         }
-        i = 4;
-    } else if (c & 0xE0) == 0xE0 {
-        if input.read_exact(&mut buf[1..3]).is_err() {
-            panic!("Could not read 2 expected bytes from stream");
-        }
-        i = 3;
-    } else if (c & 0xC0) == 0xC0 {
-        if input.read_exact(&mut buf[1..2]).is_err() {
-            panic!("Could not read 1 expected byte from stream");
-        }
-        i = 2;
     }
-
-    if c == 0 {
-        return '\0';
-    }
-
-    match std::str::from_utf8(&buf[0..i]) {
-        Ok(s) => s.chars().next().unwrap_or('\0'),
-        Err(_) => panic!("Failed to convert from UTF-8 to UTF-16"),
+    match std::str::from_utf8(&buf[..len]) {
+        Ok(s) => Ok(s.chars().next()),
+        Err(_) => Err(InvalidUtf8 {
+            bytes: buf[..len].to_vec(),
+        }),
     }
 }
 
@@ -281,52 +343,38 @@ fn read_some<R: Read>(input: &mut R, buf: &mut [u8]) -> usize {
     total
 }
 
-// [spec:cg3:def:uextras.read-utf8-fn]
-// [spec:cg3:sem:uextras.read-utf8-fn]
+// [spec:cg3:def:uextras.read-utf8-fn+1]
+// [spec:cg3:sem:uextras.read-utf8-fn+1]
+// [spec:cg3:req:robustness.stream-invalid-utf8]
 //
 // `std::string` (raw bytes) → `Vec<u8>`; the function is byte-oriented and does
-// not validate, so `Vec<u8>` is the faithful return (NOTE for the lead: some
-// callers may want `String`). `BUF_SIZE` has no default in Rust — pass `1000`
-// to match the header default. The `sz == 0` and no-lower-bound backward-scan
-// out-of-bounds reads are latent UB in C++; safe Rust guards them (`sz != 0`
-// and an `i == 0` break) rather than reproducing the OOB.
+// not validate, so `Vec<u8>` is the faithful return. `BUF_SIZE` has no default
+// in Rust — pass `1000` to match the header default. Only format detection
+// reads this way, and it only sniffs: bytes that are not UTF-8 are left for
+// the reader it picks to report, so nothing here fails. The trailing sequence
+// is completed only as far as its lead byte asks and the stream allows.
 pub fn read_utf8<R: Read>(input: &mut R, buf_size: usize) -> Vec<u8> {
     let mut buf8 = vec![0u8; buf_size];
 
     let mut sz = read_some(input, &mut buf8[0..buf_size - 4]);
     if sz != 0 && (buf8[sz - 1] & 0x80) != 0 {
-        let mut i = sz - 1;
-        loop {
-            if (buf8[i] & 0xF0) == 0xF0 {
-                let k = sz - 1 - i; // continuation bytes already present
-                let need = 3 - k;
-                if input.read_exact(&mut buf8[sz..sz + need]).is_err() {
-                    panic!("Could not read expected bytes from stream");
-                }
-                sz += need;
-                break;
-            } else if (buf8[i] & 0xE0) == 0xE0 {
-                let k = sz - 1 - i;
-                let need = 2 - k;
-                if input.read_exact(&mut buf8[sz..sz + need]).is_err() {
-                    panic!("Could not read expected bytes from stream");
-                }
-                sz += need;
-                break;
-            } else if (buf8[i] & 0xC0) == 0xC0 {
-                let k = sz - 1 - i;
-                let need = 1 - k;
-                if input.read_exact(&mut buf8[sz..sz + need]).is_err() {
-                    panic!("Could not read expected bytes from stream");
-                }
-                sz += need;
-                break;
+        // The trailing sequence's first byte, no further back than a lead can be.
+        let first = (sz.saturating_sub(4)..sz)
+            .rev()
+            .find(|&i| buf8[i] & 0xC0 != 0x80);
+        if let Some(i) = first
+            && buf8[i] & 0xC0 == 0xC0
+        {
+            let want = if buf8[i] & 0xF0 == 0xF0 {
+                3
+            } else if buf8[i] & 0xE0 == 0xE0 {
+                2
             } else {
-                // continuation byte (10xxxxxx): keep scanning backward.
-                if i == 0 {
-                    break; // safe lower-bound guard (C++ has none: latent UB)
-                }
-                i -= 1;
+                1
+            };
+            let have = sz - 1 - i;
+            if have < want {
+                sz += read_some(input, &mut buf8[sz..sz + want - have]);
             }
         }
     }
@@ -471,8 +519,9 @@ pub fn find_and_replace(str: &mut String, from: &str, to: &str) -> usize {
     rv
 }
 
-// [spec:cg3:def:uextras.cg3.get-line-clean-fn]
-// [spec:cg3:sem:uextras.cg3.get-line-clean-fn]
+// [spec:cg3:def:uextras.cg3.get-line-clean-fn+1]
+// [spec:cg3:sem:uextras.cg3.get-line-clean-fn+1]
+// [spec:cg3:req:robustness.stream-text]
 //
 // Wave 4 (w4-utf8-native-strings): native-`String` form. `line` receives the
 // raw line exactly as read (newline INCLUDED, original spacing kept); `cleaned`
@@ -483,22 +532,19 @@ pub fn find_and_replace(str: &mut String, from: &str, to: &str) -> usize {
 // (the C++ line reader's nullptr-on-lone-newline quirk); true EOF yields an empty
 // `line` — callers distinguish the two exactly as the C++ did via `line[0]`.
 // The C++ fixed-buffer doubling and NUL terminators are buffer management with
-// no observable effect and are not reproduced.
+// no observable effect and are not reproduced. Invalid UTF-8 is the caller's
+// to place and report.
 pub fn get_line_clean<R: Read>(
     line: &mut String,
     cleaned: &mut String,
     input: &mut R,
     keep_tabs: bool,
-) -> usize {
+) -> Result<usize, InvalidUtf8> {
     line.clear();
     cleaned.clear();
 
     // As the C++ line reader: read chars (UTF-8-decoded) until a stored newline or EOF.
-    loop {
-        let c = read_char(input);
-        if c == EOF_CHAR {
-            break;
-        }
+    while let Some(c) = read_char(input)? {
         line.push(c);
         if isnl(c) {
             break;
@@ -508,7 +554,7 @@ pub fn get_line_clean<R: Read>(
     // nothing is copied to `cleaned` (the C++ broke before the copy loop).
     if line == "\n" || (line.chars().count() == 1 && line.chars().next().map(isnl).unwrap_or(false))
     {
-        return 0;
+        return Ok(0);
     }
 
     // Copy to `cleaned`, collapsing whitespace runs; stop at newline/NUL.
@@ -537,84 +583,72 @@ pub fn get_line_clean<R: Read>(
         cleaned.push(c);
         it.next();
     }
-    cleaned.len()
+    Ok(cleaned.len())
 }
 
+// [spec:cg3:def:uextras.cg3.get-line-clean-fn+1]
+// [spec:cg3:sem:uextras.cg3.get-line-clean-fn+1]
+// [spec:cg3:req:robustness.stream-text]
+//
 // Scalar-buffer (`Vec<char>`) form of [`get_line_clean`], retained for the
-// reading/grammar LEXERS (`run_grammar_on_text`, the FST applicator, and the
-// `TextualParser`) that scan their working buffer with `Char*`-style cursors and
-// NUL-cut it in place, then rebuild the slices into `String` tags — the wave-4
-// "symbols later rebuilt into a string" carve-out. Line-oriented stream readers
-// (Niceline/Plaintext) use the native-`String` [`get_line_clean`]. Byte-for-byte
-// identical to the wave-2/3 buffer semantics (fixed buffer, doubling, trailing
-// NUL padding that the cursor loops rely on for out-of-range reads).
+// reading LEXERS (`run_grammar_on_text`, the FST applicator) that scan their
+// working buffer with `Char*`-style cursors and NUL-cut it in place, then
+// rebuild the slices into `String` tags — the wave-4 "symbols later rebuilt
+// into a string" carve-out. Line-oriented stream readers (Niceline/Plaintext)
+// use the native-`String` [`get_line_clean`]. `line` receives the whole raw
+// line and `cleaned` its collapsed copy, both NUL-terminated with a second NUL
+// after for the lexers' one-ahead reads, and both grown to fit the line.
+// Returns the collapsed length, or `None` at end of stream — an explicit
+// signal, since a line can start with a NUL.
+//
+// DIVERGENCE: the C++ reads into a fixed buffer it doubles only when the
+// COLLAPSED copy passes half of it, so a long line of mostly whitespace was
+// cut in two and read as two lines; an embedded NUL joined the next line on;
+// and a blank line or end of stream left `cleaned` holding the previous line.
+// Each line is read whole here, a NUL ends only its own line's text, and a
+// blank line or end of stream leaves `cleaned` empty.
 pub fn get_line_clean_chars<R: Read>(
     line: &mut Vec<char>,
     cleaned: &mut Vec<char>,
     input: &mut R,
     keep_tabs: bool,
-) -> usize {
-    let mut offset = 0usize;
-    let mut packoff = 0usize;
-
-    // Read as much of the next line as will fit in the current buffer
-    loop {
-        if offset >= line.len() {
-            break;
-        }
-        let n = line.len() as i32 - offset as i32 - 1;
-        if !read_line_chars(&mut line[offset..], n, input) {
-            break;
-        }
-
-        // Copy the segment just read to cleaned
-        while offset < line.len() {
-            // Only copy one space character, regardless of how many are in input
-            if isspace(line[offset]) && !isnl(line[offset]) {
-                let mut space = if line[offset] == '\t' { '\t' } else { ' ' };
-                while offset < line.len() && isspace(line[offset]) && !isnl(line[offset]) {
-                    if line[offset] == '\t' {
-                        space = line[offset];
-                    }
-                    offset += 1;
-                }
-                if !keep_tabs {
-                    space = ' ';
-                }
-                cleaned[packoff] = space;
-                packoff += 1;
-            }
-            // (safety) a run may have consumed to the buffer end; re-check
-            if offset >= line.len() {
-                break;
-            }
-            // Break if there is a newline
-            if isnl(line[offset]) {
-                cleaned[packoff + 1] = '\0';
-                cleaned[packoff] = '\0';
-                return packoff;
-            }
-            if line[offset] == '\0' {
-                cleaned[packoff + 1] = '\0';
-                cleaned[packoff] = '\0';
-                break;
-            }
-            cleaned[packoff] = line[offset];
-            packoff += 1;
-            offset += 1;
-        }
-
-        // Either buffer wasn't big enough, or someone fed us malformed data
-        // thinking U+0085 is ellipsis when it in fact is Next Line (NEL)
-        if packoff > line.len() / 2 {
-            // Buffer wasn't big enough. Double it and try again.
-            let newlen = line.len() * 2;
-            line.resize(newlen, '\0');
-            cleaned.resize(line.len() + 1, '\0');
-        }
+) -> Result<Option<usize>, InvalidUtf8> {
+    let n = read_line_chars(line, input)?;
+    if cleaned.len() < line.len() + 1 {
+        cleaned.resize(line.len() + 1, '\0');
     }
 
-    packoff
+    let mut offset = 0usize;
+    let mut packoff = 0usize;
+    while offset < n {
+        let c = line[offset];
+        // Only copy one space character, regardless of how many are in input
+        if isspace(c) && !isnl(c) {
+            let mut space = if c == '\t' { '\t' } else { ' ' };
+            while offset < n && isspace(line[offset]) && !isnl(line[offset]) {
+                if line[offset] == '\t' {
+                    space = '\t';
+                }
+                offset += 1;
+            }
+            if !keep_tabs {
+                space = ' ';
+            }
+            cleaned[packoff] = space;
+            packoff += 1;
+            continue;
+        }
+        if isnl(c) || c == '\0' {
+            break;
+        }
+        cleaned[packoff] = c;
+        packoff += 1;
+        offset += 1;
+    }
+    cleaned[packoff] = '\0';
+    cleaned[packoff + 1] = '\0';
+
+    Ok((n != 0).then_some(packoff))
 }
 
 // [spec:cg3:def:uextras.cg3.ux-is-set-op-fn]
@@ -878,18 +912,16 @@ mod tests {
         assert_eq!(s3, "abc");
     }
 
-    // get_line_clean reads a line via read_line_chars/read_char, collapsing runs of spaces
-    // to a single space and stopping at a newline; it returns the cleaned length.
-    // Drives get_line_clean -> read_line_chars -> read_char together.
-    // [spec:cg3:sem:uextras.cg3.get-line-clean-fn/test]
-    // [spec:cg3:sem:uextras.u-fgets-fn/test]
-    // [spec:cg3:sem:uextras.u-fgetc-fn/test]
+    // get_line_clean reads a line via read_char, collapsing runs of spaces to a
+    // single space and stopping at a newline; it returns the cleaned length.
+    // [spec:cg3:sem:uextras.cg3.get-line-clean-fn+1/test]
+    // [spec:cg3:sem:uextras.u-fgetc-fn+1/test]
     #[test]
     fn get_line_clean_collapses_spaces() {
         let mut input = Cursor::new("a  \t b\tc\nnext".as_bytes().to_vec());
         let mut line = String::new();
         let mut cleaned = String::new();
-        let n = get_line_clean(&mut line, &mut cleaned, &mut input, false);
+        let n = get_line_clean(&mut line, &mut cleaned, &mut input, false).unwrap();
         assert_eq!(cleaned, "a b c");
         assert_eq!(n, cleaned.len());
         assert!(
@@ -899,26 +931,111 @@ mod tests {
 
         // keep_tabs: a run containing a tab collapses to the tab.
         let mut input = Cursor::new("x \t y\n".as_bytes().to_vec());
-        let n = get_line_clean(&mut line, &mut cleaned, &mut input, true);
+        let n = get_line_clean(&mut line, &mut cleaned, &mut input, true).unwrap();
         assert_eq!(cleaned, "x\ty");
         assert_eq!(n, cleaned.len());
 
         // Blank line: raw newline in `line`, empty cleaned, 0 (NOT EOF).
         let mut input = Cursor::new("\nz\n".as_bytes().to_vec());
-        let n = get_line_clean(&mut line, &mut cleaned, &mut input, false);
+        let n = get_line_clean(&mut line, &mut cleaned, &mut input, false).unwrap();
         assert_eq!(n, 0);
         assert_eq!(line, "\n");
 
         // EOF: empty line distinguishes it from a blank line.
         let mut input = Cursor::new(Vec::<u8>::new());
-        let n = get_line_clean(&mut line, &mut cleaned, &mut input, false);
+        let n = get_line_clean(&mut line, &mut cleaned, &mut input, false).unwrap();
         assert_eq!(n, 0);
         assert!(line.is_empty());
+
+        // U+FFFF is text, not the end of the line or the stream.
+        let mut input = Cursor::new("a\u{FFFF}b\n".as_bytes().to_vec());
+        get_line_clean(&mut line, &mut cleaned, &mut input, false).unwrap();
+        assert_eq!(cleaned, "a\u{FFFF}b");
+    }
+
+    /// Reads every line of `text` with the lexers' reader into buffers of the
+    /// size the drivers start with, returning the collapsed copies up to their
+    /// terminator.
+    fn clean_lines(text: &str) -> Vec<String> {
+        let mut input = Cursor::new(text.as_bytes().to_vec());
+        let mut line = vec!['\0'; 1024];
+        let mut cleaned = vec!['\0'; 1025];
+        let mut out = Vec::new();
+        while let Some(n) =
+            get_line_clean_chars(&mut line, &mut cleaned, &mut input, false).unwrap()
+        {
+            assert_eq!(cleaned[n], '\0', "terminated at the returned length");
+            out.push(cleaned[..n].iter().collect());
+        }
+        out
+    }
+
+    // The lexers' reader takes each line whole, whatever its length and
+    // however much of it is whitespace, and a last line with no newline reads
+    // only itself — nothing left over from the longer line before it.
+    // [spec:cg3:sem:uextras.u-fgets-fn+1/test]
+    // [spec:cg3:sem:uextras.cg3.get-line-clean-fn+1/test]
+    // [spec:cg3:req:robustness.stream-text/test]
+    #[test]
+    fn get_line_clean_chars_reads_lines_whole() {
+        let spaced = format!("a{}b", " ".repeat(3000));
+        assert_eq!(clean_lines(&format!("{spaced}\nc\n")), ["a b", "c"]);
+
+        let long = "é".repeat(5000);
+        assert_eq!(clean_lines(&format!("{long}\n")), [long]);
+
+        assert_eq!(
+            clean_lines("\"<abcdefgh>\"\n\t\"x\" N"),
+            ["\"<abcdefgh>\"", " \"x\" N"]
+        );
+
+        // A blank line is read, and is empty; end of stream is `None`.
+        assert_eq!(clean_lines("a\n\nb"), ["a", "", "b"]);
+        assert!(clean_lines("").is_empty());
+
+        // A line that starts with a NUL is a line, not the end of the stream.
+        assert_eq!(clean_lines("\0x\nlast\n"), ["", "last"]);
+    }
+
+    // The decoder refuses every kind of invalid UTF-8 with the offending bytes,
+    // reads U+FFFF and NUL as the characters they are, and reports end of
+    // stream as `None`.
+    // [spec:cg3:sem:uextras.u-fgetc-fn+1/test]
+    // [spec:cg3:req:robustness.stream-invalid-utf8/test]
+    // [spec:cg3:req:robustness.stream-text/test]
+    #[test]
+    fn read_char_refuses_invalid_utf8() {
+        let read = |bytes: &[u8]| read_char(&mut Cursor::new(bytes.to_vec()));
+        let bad = |bytes: &[u8]| {
+            Err(InvalidUtf8 {
+                bytes: bytes.to_vec(),
+            })
+        };
+
+        assert_eq!(read(b"\x80"), bad(b"\x80"), "stray continuation byte");
+        assert_eq!(read(b"\xFF"), bad(b"\xFF"), "byte that never starts one");
+        assert_eq!(read(b"\xE9\n"), bad(b"\xE9"), "cut short by a newline");
+        assert_eq!(read(b"\xE2\x86"), bad(b"\xE2\x86"), "cut short by the end");
+        assert_eq!(read(b"\xC0\xAF"), bad(b"\xC0\xAF"), "overlong");
+        assert_eq!(read(b"\xED\xA0\x80"), bad(b"\xED\xA0\x80"), "surrogate");
+        assert_eq!(
+            read(b"\xF4\x90\x80\x80"),
+            bad(b"\xF4\x90\x80\x80"),
+            "past U+10FFFF"
+        );
+
+        assert_eq!(read("\u{FFFF}".as_bytes()), Ok(Some('\u{FFFF}')));
+        assert_eq!(read("\u{1F600}".as_bytes()), Ok(Some('\u{1F600}')));
+        assert_eq!(read(b"\0"), Ok(Some('\0')));
+        assert_eq!(read(b""), Ok(None));
+
+        let e = bad(b"\xE9").unwrap_err().at("in.txt", 3).to_string();
+        assert_eq!(e, "in.txt: invalid UTF-8 byte 0xE9 on line 3");
     }
 
     // read_utf8 reads a byte block but never splits a multi-byte UTF-8 sequence:
     // it completes the trailing sequence, so the returned bytes are valid UTF-8.
-    // [spec:cg3:sem:uextras.read-utf8-fn/test]
+    // [spec:cg3:sem:uextras.read-utf8-fn+1/test]
     #[test]
     fn read_utf8_completes_trailing_sequence() {
         // Small text that fits entirely in the buffer.
@@ -928,6 +1045,35 @@ mod tests {
         assert_eq!(out, text.as_bytes());
         // The result is valid UTF-8 (no split sequence).
         assert_eq!(std::str::from_utf8(&out).unwrap(), text);
+
+        // A sequence split at the block boundary is completed from the stream.
+        let text = format!("{}é!", "a".repeat(995));
+        let mut input = Cursor::new(text.as_bytes().to_vec());
+        let out = read_utf8(&mut input, 1000);
+        assert_eq!(out, &text.as_bytes()[..997]);
+    }
+
+    // Sniffing only reads: bytes that are not UTF-8 come back as they are, for
+    // the reader the sniff picks to report, however the trailing sequence is
+    // broken.
+    // [spec:cg3:sem:uextras.read-utf8-fn+1/test]
+    // [spec:cg3:req:robustness.stream-invalid-utf8/test]
+    #[test]
+    fn read_utf8_keeps_invalid_bytes() {
+        for bytes in [
+            &b"caf\xE9"[..],
+            b"abc\xE0\x80\x80\x80",
+            b"\x80\x80\x80\x80\x80",
+            b"\xF0",
+        ] {
+            let out = read_utf8(&mut Cursor::new(bytes.to_vec()), 1000);
+            assert_eq!(out, bytes);
+        }
+        // A lead byte cut short at the block boundary takes what the stream has.
+        let mut text = vec![b'a'; 995];
+        text.extend_from_slice(b"\xF0\x9F");
+        let out = read_utf8(&mut Cursor::new(text.clone()), 1000);
+        assert_eq!(out, text);
     }
 
     // strip_bom consumes a leading UTF-8 BOM (EF BB BF) and returns true; on

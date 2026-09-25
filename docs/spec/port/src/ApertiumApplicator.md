@@ -43,7 +43,7 @@
 > [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn]
 > void ApertiumApplicator::parseStreamVar(const SingleWindow* cSWindow, UString& cleaned, uint32FlatHashMap& variables_set, uint32FlatHashSet& variables_rem, u...
 
-> [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn]
+> [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn+1]
 > Parses a stream-command variable directive out of `cleaned` (a UString like
 > `<STREAMCMD:SETVAR:a=b,c` with NO trailing `>`; the caller already stripped
 > the surrounding `[` and `>]`). The function MUTATES `cleaned` in place by
@@ -86,6 +86,12 @@
 > identifier the same way (erase from set, insert into rem and output).
 >
 > If `cleaned` matches neither prefix, the function does nothing.
+>
+> PORT DIVERGENCE: a bare identifier that is empty — case (a) for
+> `[<STREAMCMD:SETVAR:>]`, or the final one after a trailing `,` — MUST be
+> skipped, as REMVAR's `s[0]` test skips one, rather than passed to `addTag`,
+> which the C++ does and which interns a tag with no text
+> (`[spec:cg3:req:robustness.empty-tag]`).
 
 > [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.print-cohort-fn]
 > void ApertiumApplicator::printCohort(Cohort* cohort, std::ostream& output, bool profiling)
@@ -260,7 +266,7 @@
 > [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.run-grammar-on-text-fn]
 > void ApertiumApplicator::runGrammarOnText(std::istream& input, std::ostream& output)
 
-> [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.run-grammar-on-text-fn]
+> [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.run-grammar-on-text-fn+1]
 > Parses an Apertium stream (`^wordform/reading.../reading$` cohorts with
 > superblanks between them) and runs the constraint grammar over it, streaming
 > results to `output`. Character-by-character state machine.
@@ -369,6 +375,16 @@
 >   `resetIndexes()`. Clear `token`.
 >
 > After the input loop, call `flush()` (with `n = false`).
+>
+> PORT DIVERGENCE: the reader MUST tell end of stream apart from the text
+> (`[spec:cg3:req:robustness.stream-text]`). `u_fgetc` returns 0xFFFF for
+> both, so a U+FFFF in the input ends the C++ loop there; the port's reader
+> returns `None` at end of stream, reads U+FFFF as text, and leaves `c` NUL
+> when the loop ends, which `flush` prints nothing for, as it printed nothing
+> for `U_EOF`. A backslash that is the last character of the input escapes
+> nothing, where the C++ appends `U_EOF` after it. Invalid UTF-8 is a run
+> error naming the input and the line
+> (`[spec:cg3:req:robustness.stream-invalid-utf8]`), where the C++ throws.
 
 > [spec:cg3:def:apertium-applicator.cg3.apertium-applicator.test-pr-fn]
 > void ApertiumApplicator::testPR(std::ostream& output)

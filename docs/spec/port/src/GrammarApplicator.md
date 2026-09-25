@@ -251,7 +251,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
 > Tag* GrammarApplicator::addTag(const UChar* txt, uint32_t type)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-fn+1]
 > Interns a tag from a UChar* string and returns the canonical Tag*. First a
 > fast path: compute `thash = hash_value(txt)`, look it up in
 > `grammar->single_tags`; if found and that Tag's `tag` is non-empty and equals
@@ -275,6 +275,17 @@
 > `ux_strCaseCompare(titer.tag, iter.tag)` (full-string case-insensitive equal);
 > on match set `T_TEXTUAL` and `reflow=true`. If `reflow` is true, call
 > `reflowTextuals()`. Return `tag`.
+>
+> PORT DIVERGENCE: empty text on the raw path MUST be refused with a run
+> error rather than interned (`[spec:cg3:req:robustness.empty-tag]`).
+> `parseTagRaw` asserts its text is not empty, so a debug build aborts, and a
+> release build interns a tag with no text. Every tag the input streams and
+> `EXTERNAL` replies name comes through here, so this is the one place the
+> refusal needs to be: the error names the rule in flight when there is one
+> (an `EXTERNAL` reply), else the input and the line being read. The readers
+> skip the empty items the C++ produces nothing sensible for before they get
+> here (an empty `SETVAR` or `REMVAR` name); what reaches this check, such as
+> an empty `<>` in an Apertium reading, is an error.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn]
 > uint32_t addTagToReading(Reading& reading, uint32_t tag, bool rehash = true)

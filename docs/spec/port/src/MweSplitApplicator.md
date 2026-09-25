@@ -82,7 +82,7 @@
 > [spec:cg3:def:mwe-split-applicator.cg3.mwe-split-applicator.split-mwe-fn]
 > std::vector<Cohort*> MweSplitApplicator::splitMwe(Cohort* cohort)
 
-> [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.split-mwe-fn]
+> [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.split-mwe-fn+1]
 > Splits one multi-word-expression cohort into a vector of new cohorts, one
 > per component word, or returns the original cohort unchanged if it cannot
 > or should not be split. A component word is encoded as a wordform tag
@@ -157,4 +157,12 @@
 > reading = the LAST word, so the original cohort's trailing text moves onto
 > it). Then std::reverse(cos) so the returned order runs first-word to
 > last-word. Return cos.
+>
+> PORT DIVERGENCE: a reading with a sub-reading whose wordform tag is blank
+> between `"<` and `>"` (e.g. `"< >"`) MUST leave the cohort unsplit, decided
+> with the eligibility check before any cohort is allocated
+> (`[spec:cg3:req:robustness.stream-text]`). spBeg then lands on the `>`,
+> past spEnd, and the C++ `substr(spBeg, spEnd-spBeg)` wraps its count and
+> copies the closing `>"` into the middle of a garbage wordform. There is no
+> word to split out, as there is none when the readings disagree.
 

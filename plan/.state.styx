@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-09-25T12:45:46.215436Z
+last_sync_at 2026-09-25T12:49:53.336739Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -347,6 +347,19 @@ impl_evidence (
     ), rule_versions_seen (
         {id main.divvun-version-banner, version 2}
     )}
+    {id no-panic.binary-stream, covered_rules (
+        robustness.binary-stream-validated
+        robustness.external-validated
+    ), covered_claims (
+        {impl_name target-impl, rule robustness.binary-stream-validated}
+        {impl_name target-impl, rule robustness.external-validated}
+    ), rule_versions_seen (
+        {id robustness.allocation-bounded, version 0}
+        {id robustness.binary-stream-validated, version 0}
+        {id robustness.checked-arithmetic, version 0}
+        {id robustness.external-validated, version 0}
+        {id robustness.reserved-keys, version 0}
+    )}
     {id no-panic.cli, covered_rules (
         robustness.cli-arguments
         robustness.cli-output
@@ -433,11 +446,13 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
-    {id no-panic.binary-stream, covered_rules (
-        robustness.binary-stream-validated
-        robustness.external-validated
+    {id no-panic.stream-text, covered_rules (
+        robustness.empty-tag
+        robustness.stream-invalid-utf8
+        robustness.stream-text
     ), covered_claims (
-        {impl_name target-impl, rule robustness.binary-stream-validated}
-        {impl_name target-impl, rule robustness.external-validated}
+        {impl_name target-impl, rule robustness.empty-tag}
+        {impl_name target-impl, rule robustness.stream-invalid-utf8}
+        {impl_name target-impl, rule robustness.stream-text}
     )}
 )

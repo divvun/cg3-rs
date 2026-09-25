@@ -36,7 +36,7 @@
 > [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn]
 > void GrammarApplicator::runGrammarOnText(std::istream& input, std::ostream& output)
 
-> [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn]
+> [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+1]
 > The main CG stream driver: reads the standard "VISL CG-3" text format line by
 > line, builds Windows -> Cohorts -> Readings, runs the grammar window by window
 > as enough windows accumulate, and writes results. Setup: store `&input` in
@@ -160,6 +160,16 @@
 > is tag_any) or `<REMVAR:key>` stream command reflecting the final state of
 > variables_set. CGCMD_EXIT label: if verbose, print the "Did N lines, N
 > windows, N cohorts, N readings" summary.
+>
+> PORT DIVERGENCE: a bare SETVAR identifier that is empty — the whole of
+> `<STREAMCMD:SETVAR:>`, the item after a trailing `,`, or the remnant of a
+> SETVAR line with no closing `>`, whose last character the parse cuts —
+> MUST be skipped, as REMVAR skips an empty name, rather than passed to
+> `addTag`, which the C++ does and which interns a tag with no text
+> (`[spec:cg3:req:robustness.empty-tag]`). The lines themselves come from a
+> reader that reads each whole and reports invalid UTF-8 as a run error
+> naming the input and `lines`
+> (`[spec:cg3:sem:uextras.cg3.get-line-clean-fn+1]`).
 
 > [spec:cg3:def:grammar-applicator-run-grammar.cg3.test-string-against-fn]
 > inline bool testStringAgainst(const UString& str, std::vector<URegularExpression*>& rxs)

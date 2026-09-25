@@ -117,7 +117,7 @@ fn conv_base() -> cg3::grammar_applicator::GrammarApplicator {
 // covers wordbound-blank `[[...]]` handling and T_SubReadings_Apertium the
 // `+`-joined subreading chains (grammar has SUBREADINGS = RTL).
 // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.apertium-applicator-fn/test]
-// [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.run-grammar-on-text-fn/test]
+// [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.run-grammar-on-text-fn+1/test]
 // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.process-reading-fn/test]
 // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-reading-fn/test]
 // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-cohort-fn/test]
@@ -151,7 +151,7 @@ fn apertium_cg_proc_fixtures() {
 // `key=value` list forms are fed; the blanks are preserved verbatim in the
 // output and the cohorts still disambiguate, proving the command was consumed
 // by parseStreamVar rather than the normal blank path breaking on it.
-// [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn/test]
+// [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn+1/test]
 #[test]
 fn apertium_stream_setvar() {
     let root = repo_root();
@@ -258,7 +258,7 @@ fn apertium_test_pr_roundtrip() {
 // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.get-null-flush-fn/test]
 // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.set-null-flush-fn/test]
 // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-wrapper-null-flush-fn/test]
-// [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn/test]
+// [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.run-grammar-on-text-fn+1/test]
 // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.process-reading-fn/test]
 // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.print-reading-fn/test]
 // [spec:cg3:sem:matxin-applicator.cg3.matxin-applicator.print-single-window-fn/test]
@@ -460,7 +460,7 @@ fn fst_applicator_in_process() {
 // [spec:cg3:sem:jsonl-applicator.cg3.json-to-ustring-fn/test]
 // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn/test]
 // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+1/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+1/test]
 // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn/test]
 // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn/test]
 // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn/test]
@@ -962,7 +962,7 @@ fn plaintext_applicator_in_process() {
 // [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.mwe-split-applicator-fn/test]
 // [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.run-grammar-on-text-fn/test]
 // [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.maybe-wf-tag-fn/test]
-// [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.split-mwe-fn/test]
+// [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.split-mwe-fn+1/test]
 // [spec:cg3:sem:mwe-split-applicator.cg3.mwe-split-applicator.print-single-window-fn/test]
 #[test]
 fn mwesplit_fixture() {

@@ -369,6 +369,25 @@ pub enum RunError {
         source: Box<ParseError>,
         sources: Vec<ParseSource>,
     },
+    // [spec:cg3:req:robustness.stream-invalid-utf8]
+    /// Bytes in the input stream that are not UTF-8, with the input and the
+    /// 1-based line they were read on. The C++ threw from its decoder and the
+    /// process terminated; the port keeps the refusal, and never replaces the
+    /// bytes with U+FFFD, since the author may not know they are there.
+    #[error("{input}: {source} on line {line}")]
+    InvalidUtf8 {
+        input: String,
+        line: u32,
+        #[source]
+        source: crate::uextras::InvalidUtf8,
+    },
+    // [spec:cg3:req:robustness.empty-tag]
+    /// A tag with empty text reached the interner, which no tag may have: the
+    /// C++ asserted against it in debug builds and interned it in release.
+    /// `file` and `line` are the input and the line being read, or `RT RULE`
+    /// and the rule's line when a rule was in flight (an `EXTERNAL` reply).
+    #[error("{file}: empty tag on line {line}")]
+    EmptyTag { file: String, line: u32 },
     /// C++ `addTagToReading`: a reading may carry at most one mapping tag, and
     /// a second distinct one was `CG3Quit(1)` — a fatal from the middle of the
     /// hot loop. `line` is the grammar line in flight.

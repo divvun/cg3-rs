@@ -154,13 +154,17 @@ impl<'a> NicelineApplicator<'a> {
 
         // C++ `while (!input.eof())`: loop until get_line_clean stops producing.
         loop {
-            let mut packoff = get_line_clean(&mut line, &mut cleaned, input, true);
+            // [spec:cg3:req:robustness.stream-invalid-utf8]
+            get_line_clean(&mut line, &mut cleaned, input, true).map_err(|e| {
+                let line_no = self.base.doc.num_lines.saturating_add(1);
+                e.at(&self.base.cfg.input_name, line_no)
+            })?;
 
-            // C++ `while (!input.eof())`: a blank line (packoff == 0 but
-            // `line[0]` holds the newline) is NOT end-of-stream; only a read
-            // that stores nothing is. Sampled here, acted on at the bottom
-            // (matches the base run_grammar_on_text driver).
-            let hit_eof = packoff == 0 && line.is_empty();
+            // C++ `while (!input.eof())`: a blank line (nothing cleaned, but
+            // `line` holds the newline) is NOT end-of-stream; only a read that
+            // stores nothing is. Sampled here, acted on at the bottom (matches
+            // the base run_grammar_on_text driver).
+            let hit_eof = line.is_empty();
 
             // Trim trailing whitespace.
             while let Some(c) = cleaned.chars().next_back() {
@@ -168,7 +172,6 @@ impl<'a> NicelineApplicator<'a> {
                     break;
                 }
                 cleaned.pop();
-                packoff = cleaned.len();
             }
 
             let mut is_text = false;
@@ -385,10 +388,11 @@ impl<'a> NicelineApplicator<'a> {
                         loop {
                             // advance space to next ' ' within this reading region.
                             let mut sp = space;
+                            // [spec:cg3:req:robustness.stream-text]
                             while crate::inlines::char_at(seg, sp) != '\0'
                                 && crate::inlines::char_at(seg, sp) != ' '
                             {
-                                sp += 1;
+                                crate::inlines::step(seg, &mut sp);
                             }
                             if crate::inlines::char_at(seg, sp) != ' ' {
                                 break;

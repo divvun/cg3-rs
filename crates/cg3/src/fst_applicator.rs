@@ -183,7 +183,7 @@ where
         }
 
         let mut line: Vec<char> = vec!['\0'; 1024];
-        let mut cleaned: Vec<char> = vec!['\0'; line.len()];
+        let mut cleaned: Vec<char> = vec!['\0'; line.len() + 1];
         let ignoreinput = false;
 
         self.base.index();
@@ -203,18 +203,21 @@ where
 
         strip_bom(input);
 
-        // C++ `while (!input.eof())`: reproduced by breaking when a read makes no
-        // progress (get_line_clean returns 0 and the line buffer stays empty).
+        // C++ `while (!input.eof())`: reproduced by breaking once the reader
+        // reports end of stream.
         'mainloop: loop {
-            let mut packoff = get_line_clean_chars(&mut line, &mut cleaned, input, true);
+            // [spec:cg3:req:robustness.stream-invalid-utf8]
+            let read = get_line_clean_chars(&mut line, &mut cleaned, input, true).map_err(|e| {
+                let line_no = self.base.doc.num_lines.saturating_add(1);
+                e.at(&self.base.cfg.input_name, line_no)
+            })?;
 
             // C++ `while (!input.eof())`: eofbit is set when a read attempt hits
-            // end-of-stream. `read_line_chars` distinguishes a blank line (packoff == 0
-            // but `line[0]` holds the newline) from true EOF (nothing stored, so
-            // `line[0]` keeps the '\0' it was reset to) — only the latter ends
-            // the loop. Sampled here, acted on at the bottom of the iteration
+            // end-of-stream, which the reader reports as `None` — a blank line
+            // is not it. Sampled here, acted on at the bottom of the iteration
             // (matches the base run_grammar_on_text driver).
-            let hit_eof = packoff == 0 && line[0] == '\0';
+            let hit_eof = read.is_none();
+            let mut packoff = read.unwrap_or(0);
 
             // Trim trailing whitespace.
             while cleaned[0] != '\0' && packoff > 0 && isspace(cleaned[packoff - 1]) {

@@ -538,6 +538,36 @@ impl super::Engine<'_> {
         }
     }
 
+    // [spec:cg3:req:robustness.empty-tag]
+    /// One bare `<STREAMCMD:SETVAR:...>` item — a name with no `=value` — read
+    /// from `name` up to its NUL: set it to `*` in the pending deltas, and in
+    /// the global variables too when `global` (no window exists yet).
+    ///
+    /// DIVERGENCE: an empty name (`<STREAMCMD:SETVAR:>`, or after a trailing
+    /// `,`) is skipped, as REMVAR skips one; the C++ interned an empty tag.
+    fn setvar_bare(
+        &mut self,
+        name: &[char],
+        variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
+        variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
+        variables_output: &mut crate::sorted_vector::Uint32SortedVector,
+        global: bool,
+    ) -> Result<(), crate::error::RunError> {
+        let text: String = name.iter().take_while(|&&ch| ch != '\0').collect();
+        if text.is_empty() {
+            return Ok(());
+        }
+        let tag = self.add_tag(&text, crate::tag::TagType::empty())?;
+        let h = self.grammar.single_tags_list[tag.0].hash.get();
+        *variables_set.index_or_insert(h) = self.grammar.tag_any;
+        variables_rem.erase(h);
+        variables_output.insert(h);
+        if global {
+            *self.doc.variables.index_or_insert(h) = self.grammar.tag_any;
+        }
+        Ok(())
+    }
+
     fn run_grammar_on_text_with_impl<F, R, W>(
         &mut self,
         fmt: &mut F,
@@ -600,19 +630,19 @@ impl super::Engine<'_> {
             l_swindow = Some(sw);
         }
 
-        // C++ `while (!input.eof())`: the port loops until get_line_clean reports
-        // no more progress (the `packoff == 0` check at the bottom).
+        // C++ `while (!input.eof())`: the port loops until get_line_clean_chars
+        // reports end of stream (the `hit_eof` check at the bottom).
         'mainloop: loop {
             lines += 1;
-            let mut packoff =
-                crate::uextras::get_line_clean_chars(&mut line, &mut cleaned, input, false);
+            // [spec:cg3:req:robustness.stream-invalid-utf8]
+            let read = crate::uextras::get_line_clean_chars(&mut line, &mut cleaned, input, false)
+                .map_err(|e| e.at(&self.cfg.input_name, lines))?;
 
             // C++ `while (!input.eof())`: eofbit is set when a read attempt hits
-            // end-of-stream. `read_line_chars` distinguishes a blank line (packoff == 0
-            // but `line[0]` holds the newline) from true EOF (nothing stored, so
-            // `line[0]` keeps the '\0' it was reset to) — only the latter ends
-            // the loop. Sampled here, acted on at the bottom of the iteration.
-            let hit_eof = packoff == 0 && line[0] == '\0';
+            // end-of-stream, which the reader reports as `None` — a blank line
+            // is not it. Sampled here, acted on at the bottom of the iteration.
+            let hit_eof = read.is_none();
+            let mut packoff = read.unwrap_or(0);
 
             // Trim trailing whitespace from `cleaned`.
             while cleaned[0] != '\0' && packoff > 0 && crate::inlines::isspace(cleaned[packoff - 1])
@@ -1004,18 +1034,13 @@ impl super::Engine<'_> {
                         let mut c = find_char_before_nul(&cleaned, s.unwrap(), ',');
                         let mut d = find_char_before_nul(&cleaned, s.unwrap(), '=');
                         if c.is_none() && d.is_none() {
-                            let s_text: String = cleaned[s.unwrap()..]
-                                .iter()
-                                .take_while(|&&ch| ch != '\0')
-                                .collect();
-                            let tag = self.add_tag(&s_text, crate::tag::TagType::empty())?;
-                            let h = self.grammar.single_tags_list[tag.0].hash.get();
-                            *variables_set.index_or_insert(h) = self.grammar.tag_any;
-                            variables_rem.erase(h);
-                            variables_output.insert(h);
-                            if c_swindow.is_none() {
-                                *self.doc.variables.index_or_insert(h) = self.grammar.tag_any;
-                            }
+                            self.setvar_bare(
+                                &cleaned[s.unwrap()..],
+                                &mut variables_set,
+                                &mut variables_rem,
+                                &mut variables_output,
+                                c_swindow.is_none(),
+                            )?;
                         } else {
                             let mut a: u32;
                             let mut b: u32;
@@ -1082,16 +1107,13 @@ impl super::Engine<'_> {
                                     c = find_char_before_nul(&cleaned, si, ',');
                                     d = find_char_before_nul(&cleaned, si, '=');
                                     if c.is_none() && d.is_none() {
-                                        let s_text: String = cleaned[si..]
-                                            .iter()
-                                            .take_while(|&&ch| ch != '\0')
-                                            .collect();
-                                        let atag =
-                                            self.add_tag(&s_text, crate::tag::TagType::empty())?;
-                                        a = self.grammar.single_tags_list[atag.0].hash.get();
-                                        *variables_set.index_or_insert(a) = self.grammar.tag_any;
-                                        variables_rem.erase(a);
-                                        variables_output.insert(a);
+                                        self.setvar_bare(
+                                            &cleaned[si..],
+                                            &mut variables_set,
+                                            &mut variables_rem,
+                                            &mut variables_output,
+                                            false,
+                                        )?;
                                         s = None;
                                     }
                                 }
@@ -1400,8 +1422,8 @@ impl super::Engine<'_> {
 // setup-owned `cfg` the split view holds read-only) BEFORE splitting into the
 // `Engine<'_>` view that runs the driver body.
 impl super::GrammarApplicator {
-    // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn]
-    // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn]
+    // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+1]
+    // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+1]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-text-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-text-fn]
     /// C++ `void GrammarApplicator::runGrammarOnText(std::istream& input,

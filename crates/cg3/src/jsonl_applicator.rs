@@ -420,8 +420,8 @@ impl<'a> JsonlApplicator<'a> {
     // runGrammarOnText — the JSONL stream driver
     // =======================================================================
 
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn]
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+1]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+1]
     /// C++ `void runGrammarOnText(std::istream& input, std::ostream& output)`.
     /// Reads JSON-Lines input (one JSON object per line), builds windows, runs the
     /// grammar, and prints JSONL output.
@@ -490,15 +490,11 @@ impl<'a> JsonlApplicator<'a> {
         let mut exit_requested = false;
 
         'mainloop: loop {
-            let mut line_str = String::new();
-            match reader.read_line(&mut line_str) {
-                Ok(0) | Err(_) => break 'mainloop, // EOF: getline fails, loop ends.
-                Ok(_) => {}
-            }
-            // std::getline strips the trailing '\n' (but keeps '\r' etc).
-            if line_str.ends_with('\n') {
-                line_str.pop();
-            }
+            let line_no = self.base.doc.num_lines.saturating_add(1);
+            let Some(line_str) = read_jsonl_line(&mut reader, &self.base.cfg.input_name, line_no)?
+            else {
+                break 'mainloop; // EOF: getline fails, loop ends.
+            };
 
             self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
 
@@ -609,30 +605,20 @@ impl<'a> JsonlApplicator<'a> {
                     } else if cmd.starts_with(STR_CMD_SETVAR) {
                         // payload = cmd.substr(SETVAR.size(), size - SETVAR.size() - 1)
                         let payload = substr_strip_prefix_and_last(&cmd, STR_CMD_SETVAR);
-                        let key_tag: TagId;
-                        let value_hash: u32;
-                        if let Some(eq) = payload.find('=') {
-                            let key_str = &payload[..eq];
-                            let value_str = &payload[eq + '='.len_utf8()..];
-                            key_tag = self.base.add_tag(key_str, crate::tag::TagType::empty())?;
-                            let vt = self.base.add_tag(value_str, crate::tag::TagType::empty())?;
-                            value_hash = self.base.grammar.single_tags_list.get(vt.0).hash.get();
-                        } else {
-                            key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty())?;
-                            value_hash = self.base.grammar.tag_any;
-                        }
-                        let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash.get();
-                        // variables_set[key_hash] = value_hash; (operator[] overwrites)
-                        *variables_set.index_or_insert(key_hash) = value_hash;
-                        variables_rem.erase(key_hash);
-                        variables_output.insert(key_hash);
+                        self.setvar_command(
+                            &payload,
+                            &mut variables_set,
+                            &mut variables_rem,
+                            &mut variables_output,
+                        )?;
                     } else if cmd.starts_with(STR_CMD_REMVAR) {
                         let payload = substr_strip_prefix_and_last(&cmd, STR_CMD_REMVAR);
-                        let key_tag = self.base.add_tag(&payload, crate::tag::TagType::empty())?;
-                        let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash.get();
-                        variables_set.erase(key_hash);
-                        variables_rem.insert(key_hash);
-                        variables_output.insert(key_hash);
+                        self.remvar_command(
+                            &payload,
+                            &mut variables_set,
+                            &mut variables_rem,
+                            &mut variables_output,
+                        )?;
                     }
                 } else {
                     tracing::warn!(
@@ -779,12 +765,7 @@ impl<'a> JsonlApplicator<'a> {
 
                 if did_delim || self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize
                 {
-                    self.base.engine().shuffle_windows_down();
-                    self.base.engine().run_grammar_on_window_with(fmt, output)?;
-                    if self.base.doc.num_windows.is_multiple_of(reset_after) {
-                        self.base.reset_indexes();
-                    }
-                    // verbose progress: deferred.
+                    self.run_next_window(fmt, output, reset_after)?;
                 }
             }
         }
@@ -874,6 +855,132 @@ impl<'a> JsonlApplicator<'a> {
         self.base.engine().add_tag_to_reading(reading, endtag_id)?;
         Ok(())
     }
+
+    /// The hash of `text` interned as a tag, or of `*` when `text` is empty,
+    /// with the CG reader's warning for the SETVAR `side` left empty.
+    fn setvar_side_hash(&mut self, text: &str, side: &str) -> Result<u32, crate::error::RunError> {
+        if text.is_empty() {
+            tracing::warn!(
+                "Warning: SETVAR on line {} had no {side}! Defaulting to *.",
+                self.base.doc.num_lines
+            );
+            return Ok(self.base.grammar.tag_any);
+        }
+        let tag = self.base.add_tag(text, crate::tag::TagType::empty())?;
+        Ok(self.base.grammar.single_tags_list.get(tag.0).hash.get())
+    }
+
+    // [spec:cg3:req:robustness.empty-tag]
+    /// `<STREAMCMD:SETVAR:key[=value]>` with its prefix and closing `>`
+    /// stripped: set `key` to `value`, or to `*` when there is no `=`.
+    ///
+    /// DIVERGENCE: the C++ interned an empty tag for an empty key or value.
+    /// An empty key or value beside an `=` defaults to `*`, as the CG and
+    /// Apertium readers' C++ does; a command with neither is skipped.
+    fn setvar_command(
+        &mut self,
+        payload: &str,
+        variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
+        variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
+        variables_output: &mut Uint32SortedVector,
+    ) -> Result<(), crate::error::RunError> {
+        let (key_hash, value_hash) = match payload.split_once('=') {
+            Some((key, value)) => (
+                self.setvar_side_hash(key, "identifier before the =")?,
+                self.setvar_side_hash(value, "value after the =")?,
+            ),
+            None if payload.is_empty() => return Ok(()),
+            None => (
+                self.setvar_side_hash(payload, "identifier")?,
+                self.base.grammar.tag_any,
+            ),
+        };
+        // variables_set[key_hash] = value_hash; (operator[] overwrites)
+        *variables_set.index_or_insert(key_hash) = value_hash;
+        variables_rem.erase(key_hash);
+        variables_output.insert(key_hash);
+        Ok(())
+    }
+
+    // [spec:cg3:req:robustness.empty-tag]
+    /// `<STREAMCMD:REMVAR:key>` with its prefix and closing `>` stripped.
+    ///
+    /// DIVERGENCE: an empty key is skipped, as the CG and Apertium readers'
+    /// C++ skips one; the JSONL C++ interned an empty tag.
+    fn remvar_command(
+        &mut self,
+        payload: &str,
+        variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
+        variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
+        variables_output: &mut Uint32SortedVector,
+    ) -> Result<(), crate::error::RunError> {
+        if payload.is_empty() {
+            return Ok(());
+        }
+        let key_tag = self.base.add_tag(payload, crate::tag::TagType::empty())?;
+        let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash.get();
+        variables_set.erase(key_hash);
+        variables_rem.insert(key_hash);
+        variables_output.insert(key_hash);
+        Ok(())
+    }
+
+    /// Shuffle the windows down one and run the grammar on the new current
+    /// window, resetting the indexes every `reset_after` windows.
+    ///
+    /// DIVERGENCE: with `--num-windows 0` a delimiter can shuffle the only
+    /// window out, leaving none current; the C++ ran the grammar on the null
+    /// window and crashed. There is nothing to run, so nothing runs.
+    fn run_next_window<F, W>(
+        &mut self,
+        fmt: &mut F,
+        output: &mut W,
+        reset_after: u32,
+    ) -> Result<(), crate::error::RunError>
+    where
+        F: crate::grammar_applicator::stream_format::StreamFormat,
+        W: Write,
+    {
+        self.base.engine().shuffle_windows_down();
+        if self.base.doc.stream.current.is_none() {
+            return Ok(());
+        }
+        self.base.engine().run_grammar_on_window_with(fmt, output)?;
+        if self.base.doc.num_windows.is_multiple_of(reset_after) {
+            self.base.reset_indexes();
+        }
+        // verbose progress: deferred.
+        Ok(())
+    }
+}
+
+// [spec:cg3:req:robustness.stream-invalid-utf8]
+/// C++ `std::getline`: the next line of `reader` without its `'\n'`, or `None`
+/// at end of stream (or on a read error, which ends `getline` too). A line
+/// that is not UTF-8 is a run error naming `input` and `line`, not the end of
+/// the stream.
+fn read_jsonl_line<R: BufRead>(
+    reader: &mut R,
+    input: &str,
+    line: u32,
+) -> Result<Option<String>, crate::error::RunError> {
+    let mut buf = Vec::new();
+    match reader.read_until(b'\n', &mut buf) {
+        Ok(0) | Err(_) => return Ok(None),
+        Ok(_) => {}
+    }
+    if buf.last() == Some(&b'\n') {
+        buf.pop();
+    }
+    String::from_utf8(buf).map(Some).map_err(|e| {
+        let bad = e.utf8_error();
+        let start = bad.valid_up_to();
+        let end = bad.error_len().map_or(e.as_bytes().len(), |n| start + n);
+        crate::uextras::InvalidUtf8 {
+            bytes: e.as_bytes()[start..end].to_vec(),
+        }
+        .at(input, line)
+    })
 }
 
 /// Jsonl print-vtable strategy (no persistent state).
