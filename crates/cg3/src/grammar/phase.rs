@@ -21,7 +21,93 @@ mod sealed {
 }
 
 // [spec:cg3:req:grammar-phases.loaders]
+// [spec:cg3:req:grammar-phases.finish/test]
+// [spec:cg3:req:grammar-phases.indexed-only/test]
 /// A phase of a grammar's load. Sealed: the three phases are the whole set.
+///
+/// A grammar is loaded, finished once, and only then written or run:
+///
+/// ```
+/// use cg3::binary_grammar::BinaryGrammar;
+/// use cg3::grammar::{Grammar, GrammarDraft, GrammarNumbered};
+/// use cg3::textual_parser::TextualParser;
+///
+/// let mut parser = TextualParser::new(GrammarDraft::default(), false);
+/// parser.parse_grammar_utf8(b"DELIMITERS = \"<.>\" ; LIST N = n ; SELECT N ;")?;
+/// let indexed = parser.grammar.finish()?;
+///
+/// let mut cg3b = Vec::new();
+/// BinaryGrammar::new(indexed).write_binary_grammar(&mut cg3b)?;
+///
+/// let mut reader = BinaryGrammar::new(GrammarNumbered::default());
+/// reader.parse_grammar_buffer(&cg3b)?;
+/// let run: Grammar = reader.grammar.finish()?.into();
+/// # let _ = run;
+/// # Ok::<(), cg3::error::Cg3Error>(())
+/// ```
+///
+/// A draft or a numbered grammar has none of the indexes a run reads, so it
+/// is not a run's grammar:
+///
+/// ```compile_fail,E0277
+/// use cg3::grammar::{Grammar, GrammarDraft};
+///
+/// let run: Grammar = GrammarDraft::default().into();
+/// ```
+///
+/// ```compile_fail,E0277
+/// use cg3::grammar::{Grammar, GrammarNumbered};
+///
+/// let run: Grammar = GrammarNumbered::default().into();
+/// ```
+///
+/// Neither writer takes one:
+///
+/// ```compile_fail,E0599
+/// use cg3::binary_grammar::BinaryGrammar;
+/// use cg3::grammar::GrammarNumbered;
+///
+/// let mut cg3b = Vec::new();
+/// BinaryGrammar::new(GrammarNumbered::default()).write_binary_grammar(&mut cg3b);
+/// ```
+///
+/// ```compile_fail,E0308
+/// use cg3::grammar::GrammarDraft;
+/// use cg3::grammar_writer::GrammarWriter;
+///
+/// let draft = GrammarDraft::default();
+/// let _writer = GrammarWriter::new(&draft);
+/// ```
+///
+/// A grammar is finished once. Finishing consumes it, and an indexed grammar
+/// has no `finish`:
+///
+/// ```compile_fail,E0382
+/// use cg3::grammar::GrammarDraft;
+///
+/// let draft = GrammarDraft::default();
+/// let _once = draft.finish();
+/// let _twice = draft.finish();
+/// ```
+///
+/// ```compile_fail,E0599
+/// use cg3::grammar::GrammarDraft;
+///
+/// let indexed = GrammarDraft::default().finish()?;
+/// let _again = indexed.finish();
+/// # Ok::<(), cg3::error::Cg3Error>(())
+/// ```
+///
+/// And the lookups by content hash, which resolving empties the map of, exist
+/// only on a draft:
+///
+/// ```compile_fail,E0599
+/// use cg3::grammar::GrammarDraft;
+///
+/// let indexed = GrammarDraft::default().finish()?;
+/// let _set = indexed.get_set(0);
+/// # Ok::<(), cg3::error::Cg3Error>(())
+/// ```
 pub trait Phase: sealed::Sealed + Send + Sync + 'static {}
 
 /// A phase whose set references are numbers: [`Numbered`] and [`Indexed`].

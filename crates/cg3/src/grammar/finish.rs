@@ -207,7 +207,7 @@ impl GrammarCore<Draft> {
             {
                 #[expect(
                     clippy::unwrap_used,
-                    reason = "a textual rule's target and child sets are the hashes of sets the parser registered with add_set, and sets_by_contents keeps them until resolving ends"
+                    reason = "this is resolving's step (7), on a draft, whose rule targets and child sets are the hashes of sets the parser registered with add_set; only resolving's step (16) empties sets_by_contents, and finish consumes the draft, so it never runs twice"
                 )]
                 let s = self.get_set(target).unwrap();
                 Set::mark_used(self, s);
@@ -215,7 +215,7 @@ impl GrammarCore<Draft> {
             for child in child_sets.into_iter().filter(|&c| c != 0) {
                 #[expect(
                     clippy::unwrap_used,
-                    reason = "a textual rule's target and child sets are the hashes of sets the parser registered with add_set, and sets_by_contents keeps them until resolving ends"
+                    reason = "this is resolving's step (7), on a draft, whose rule targets and child sets are the hashes of sets the parser registered with add_set; only resolving's step (16) empties sets_by_contents, and finish consumes the draft, so it never runs twice"
                 )]
                 let s = self.get_set(child).unwrap();
                 Set::mark_used(self, s);

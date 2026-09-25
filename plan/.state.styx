@@ -205,6 +205,7 @@ assertions (
     {id grammar-phases.core-type, kind @complete, author "brendan@necessary.nu", at 2026-09-25T00:06:49.538486Z}
     {id grammar-phases.parser-trait, kind @complete, author "brendan@necessary.nu", at 2026-09-24T22:59:14.946256Z}
     {id deicu-finish, kind @complete, author "brendan@necessary.nu", at 2026-09-24T23:36:44.823534Z}
+    {id grammar-phases.load-hardening, kind @complete, author "brendan@necessary.nu", at 2026-09-25T20:07:23.768433941Z}
 )
 
 impl_evidence (

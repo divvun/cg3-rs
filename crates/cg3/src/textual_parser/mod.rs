@@ -431,7 +431,7 @@ fn is_mapping_list_own(grammar: &GrammarDraft, s: SetId, todo: &mut Vec<SetId>) 
     let members = &grammar.sets_list[s.0].sets;
     #[expect(
         clippy::unwrap_used,
-        reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties"
+        reason = "get_set exists only on a draft, and a draft's set members are the hashes of sets add_set registered in sets_by_contents: only resolving numbers them and empties that map, and resolving runs in finish, which consumes the draft"
     )]
     todo.extend(members.iter().rev().map(|&i| grammar.get_set(i).unwrap()));
     true

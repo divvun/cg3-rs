@@ -153,7 +153,7 @@ impl TextualParser {
         {
             #[expect(
                 clippy::unwrap_used,
-                reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties"
+                reason = "get_set exists only on a draft, and a draft's set members are the hashes of sets add_set registered in sets_by_contents: only resolving numbers them and empties that map, and resolving runs in finish, which consumes the draft"
             )]
             let tmp = self.grammar.get_set(back).unwrap();
             self.grammar.maybe_used_sets.insert(tmp);

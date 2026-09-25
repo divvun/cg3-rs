@@ -2755,6 +2755,22 @@ children (
                 title "The load order is checked where it can break: compile_fail doctests for running, writing and re-finishing the wrong phase, the reindex-once justifications restated as type facts, and a relabel of a text-origin grammar"
                 kind @test
                 deps (grammar-phases.load-types)
+                sealed true
+                log (
+                    {
+                        at 2026-09-25T19:56:14.19172579Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-09-25T20:07:23.768433941Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
         )
     }

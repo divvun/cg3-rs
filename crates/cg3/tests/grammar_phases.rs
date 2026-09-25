@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 use cg3::binary_grammar::BinaryGrammar;
 use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered};
+use cg3::grammar_applicator::GrammarApplicator;
+use cg3::relabeller::Relabeller;
 use cg3::textual_parser::TextualParser;
 
 /// `crates/cg3` -> repo root (holds `test/`).
@@ -193,4 +195,56 @@ fn refinishing_rebuilds_the_same_indexes() {
             );
         }
     }
+}
+
+/// `grammar` run over `input`, as CG text.
+fn run(grammar: GrammarCore, input: &[u8]) -> String {
+    let mut app = GrammarApplicator::new(grammar.into());
+    app.set_grammar().unwrap();
+    let mut out: Vec<u8> = Vec::new();
+    app.run_grammar_on_text(&mut std::io::Cursor::new(input.to_vec()), &mut out)
+        .unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+/// The lines of `s` that are not blank, as `diff -B` compares them.
+fn nonblank(s: &str) -> Vec<&str> {
+    s.lines().filter(|l| !l.trim().is_empty()).collect()
+}
+
+// A grammar that came from text relabels as the same grammar read from its
+// `.cg3b` does. cg-relabel refuses text, so only the library can hand the
+// relabeller one: its indexes are given up and rebuilt whatever it was loaded
+// from. The T_RelabelList protocol, relabelling in-process.
+// [spec:cg3:req:grammar-phases.index-rebuilds/test]
+// [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn/test]
+#[test]
+fn text_grammar_relabels_like_its_cg3b() {
+    let dir = repo_root().join("test/T_RelabelList");
+    let relabels = load_text(&dir.join("relabel.cg3r"));
+    let input = std::fs::read(dir.join("input.txt")).unwrap();
+
+    let from_text = load_text(&dir.join("grammar.cg3"));
+    assert!(!from_text.is_binary, "the grammar came from text");
+    let relabelled_text = Relabeller::new(from_text, &relabels, ())
+        .unwrap()
+        .relabel()
+        .unwrap();
+
+    let blob = write(load_text(&dir.join("grammar.cg3")));
+    let from_cg3b = read_binary(&blob).finish().unwrap();
+    let relabelled_cg3b = Relabeller::new(from_cg3b, &relabels, ())
+        .unwrap()
+        .relabel()
+        .unwrap();
+
+    let got_text = run(relabelled_text, &input);
+    let got_cg3b = run(relabelled_cg3b, &input);
+    assert_eq!(
+        nonblank(&got_text),
+        nonblank(&got_cg3b),
+        "the text grammar relabelled differently"
+    );
+    let want = std::fs::read_to_string(dir.join("expected.txt")).unwrap();
+    assert_eq!(nonblank(&got_text), nonblank(&want));
 }

@@ -618,7 +618,7 @@ impl GrammarCore<Draft> {
                 // C++ addSetToList(getSet(sit)); getSet null → deref crash.
                 #[expect(
                     clippy::unwrap_used,
-                    reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties, after this runs in its step (10)"
+                    reason = "add_set_to_list exists only on a draft and runs in resolving's step (10), before its step (16) empties sets_by_contents; until then a draft's set members are the hashes of sets add_set registered there, and finish consumes the draft, so resolving runs once"
                 )]
                 let child = self.get_set(sit).unwrap();
                 if self.set_unlisted(child) {
@@ -943,7 +943,7 @@ impl GrammarCore<Draft> {
                 }
                 #[expect(
                     clippy::unwrap_used,
-                    reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties"
+                    reason = "get_set exists only on a draft, and a draft's set members are the hashes of sets add_set registered in sets_by_contents: only resolving numbers them and empties that map, and resolving runs in finish, which consumes the draft"
                 )]
                 let s = self.get_set(to_sets[i]).unwrap();
                 members.push(s);
@@ -1191,7 +1191,7 @@ impl GrammarCore<Draft> {
             let first_hash = self.sets_list[tset.0].sets[0];
             #[expect(
                 clippy::unwrap_used,
-                reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties"
+                reason = "get_set exists only on a draft, and a draft's set members are the hashes of sets add_set registered in sets_by_contents: only resolving numbers them and empties that map, and resolving runs in finish, which consumes the draft"
             )]
             let fset = self.get_set(first_hash).unwrap();
             let fname = self.sets_list[fset.0].name.clone();
@@ -1233,7 +1233,7 @@ impl GrammarCore<Draft> {
                 let second_hash = self.sets_list[tset.0].sets[1];
                 #[expect(
                     clippy::unwrap_used,
-                    reason = "until set_adjust_sets numbers them, a set's members are the hashes of sets add_set registered in sets_by_contents, which only reindex's step (16) empties"
+                    reason = "get_set exists only on a draft, and a draft's set members are the hashes of sets add_set registered in sets_by_contents: only resolving numbers them and empties that map, and resolving runs in finish, which consumes the draft"
                 )]
                 let set1 = self.get_set(second_hash).unwrap();
                 let ntrie = self.sets_list[set1.0].trie.clone();
