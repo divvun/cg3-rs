@@ -208,14 +208,14 @@ impl Matcher<'_> {
     ) -> Result<(Option<CohortId>, bool), crate::error::RunError> {
         let mut retval_v = false;
         let retval = &mut retval_v;
-        let mut cohort: Option<CohortId> = Some(cohort);
-        let cid = cohort.unwrap();
+        let cid = cohort;
+        let mut cohort: Option<CohortId> = Some(cid);
 
-        let regexgrpz = if self.scratch.context_stack.is_empty() {
-            0
-        } else {
-            self.scratch.context_stack.last().unwrap().regexgrp_ct
-        };
+        let regexgrpz = self
+            .scratch
+            .context_stack
+            .last()
+            .map_or(0, |f| f.regexgrp_ct);
 
         let (test_pos, test_target, test_offset, test_barrier, test_cbarrier) = {
             let c = &self.grammar.contexts_arena;
@@ -341,8 +341,8 @@ impl Matcher<'_> {
         if !broken && (*rvs & TRV_BARRIER != 0) && test_pos.contains(MASK_SELF_NB) {
             *rvs &= !(TRV_BREAK | TRV_BARRIER);
         }
-        if !*retval && !self.scratch.context_stack.is_empty() {
-            self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = regexgrpz;
+        if !*retval && let Some(f) = self.scratch.context_stack.last_mut() {
+            f.regexgrp_ct = regexgrpz;
         }
         Ok((cohort, retval_v))
     }
@@ -557,6 +557,10 @@ impl Matcher<'_> {
             && let (Some(c), Some(cd)) = (cohort, *cdeep)
             && test_offset != 0
         {
+            #[expect(
+                clippy::expect_used,
+                reason = "a contextual test runs in a cohort's window: callers pass a cohort's parent or the current window, a jump moves it to its target cohort's, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
+            )]
             let sw_id = sw.expect(
                 "runContextualTest_tmpl: posOutputHelper needs a window but sWindow is null",
             );
@@ -683,12 +687,15 @@ impl Matcher<'_> {
             cohort = self.get_cohort_in_window(&mut sw, position, test, &mut pos);
         }
 
+        // A template or OR test is done; a plain one goes on from its cohort.
+        let plain = cohort.filter(|_| test_tmpl.is_none() && !has_ors);
         if cohort.is_none() {
             retval = false;
-        } else if test_tmpl.is_some() || has_ors {
-            // nothing...
-        } else {
-            let cid = cohort.unwrap();
+        } else if let Some(cid) = plain {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "get_cohort_in_window found cid in sw: it expects the window the test runs in, and moves sw only to a neighbouring window it found"
+            )]
             let sw_id = sw.unwrap();
 
             if test_pos.intersects(POS_PASS_ORIGIN) {
@@ -782,16 +789,17 @@ impl Matcher<'_> {
                     let mut left = self.single_windows.get(sw_id.0).previous;
                     let mut right = self.single_windows.get(sw_id.0).next;
                     while left.is_some() || right.is_some() {
-                        if left.is_some() && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) {
-                            let lw = left.unwrap();
+                        if let Some(lw) = left
+                            && test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)
+                        {
                             m = self.match_bag_of_tags(lw, test_target)?;
                             left = self.single_windows.get(lw.0).previous;
                         } else {
                             left = None;
                         }
-                        if right.is_some() && (test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT))
+                        if let Some(rw) = right
+                            && test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)
                         {
-                            let rw = right.unwrap();
                             m = self.match_bag_of_tags(rw, test_target)?;
                             right = self.single_windows.get(rw.0).next;
                         } else {
@@ -890,6 +898,10 @@ impl Matcher<'_> {
             cohort = None;
         } else if cohort.is_none() {
             // Truthy success with no natural cohort: window's cohort[0].
+            #[expect(
+                clippy::expect_used,
+                reason = "a contextual test runs in a cohort's window: callers pass a cohort's parent or the current window, a jump moves it to its target cohort's, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
+            )]
             let sw_id = sw.expect("runContextualTest: sentinel needs a window");
             cohort = Some(self.single_windows.get(sw_id.0).cohorts[0]);
         }
@@ -899,32 +911,27 @@ impl Matcher<'_> {
     /// C++ `tmpl_cntx.min`/`.max` extension for a matched cohort (the inline
     /// `make_64(parent->number, local_number)` bound update).
     fn extend_tmpl_bounds(&mut self, c: CohortId) {
-        let (cwin, cln) = {
-            let co = self.cohorts.get(c.0);
-            let win = self.single_windows.get(co.parent.unwrap().0).number;
-            (win, co.local_number)
-        };
-        let gpos = make_64(cwin, cln);
-        let min_gpos = self.scratch.tmpl_cntx.min.map(|m| {
-            let mo = self.cohorts.get(m.0);
-            make_64(
-                self.single_windows.get(mo.parent.unwrap().0).number,
-                mo.local_number,
-            )
-        });
-        if min_gpos.is_none() || gpos < min_gpos.unwrap() {
+        let gpos = self.global_pos(c);
+        let min_gpos = self.scratch.tmpl_cntx.min.map(|m| self.global_pos(m));
+        if min_gpos.is_none_or(|min| gpos < min) {
             self.scratch.tmpl_cntx.min = Some(c);
         }
-        let max_gpos = self.scratch.tmpl_cntx.max.map(|m| {
-            let mo = self.cohorts.get(m.0);
-            make_64(
-                self.single_windows.get(mo.parent.unwrap().0).number,
-                mo.local_number,
-            )
-        });
-        if max_gpos.is_none() || gpos > max_gpos.unwrap() {
+        let max_gpos = self.scratch.tmpl_cntx.max.map(|m| self.global_pos(m));
+        if max_gpos.is_none_or(|max| gpos > max) {
             self.scratch.tmpl_cntx.max = Some(c);
         }
+    }
+
+    /// A cohort's position across windows, C++ `make_64(parent->number,
+    /// local_number)`.
+    fn global_pos(&self, c: CohortId) -> u64 {
+        let co = self.cohorts.get(c.0);
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a cohort a contextual test matched is in a window, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+        )]
+        let win = co.parent.unwrap();
+        make_64(self.single_windows.get(win.0).number, co.local_number)
     }
 
     /// Split `self` into the [`IterArenas`] view the dep iterators dereference
@@ -1258,23 +1265,30 @@ impl Matcher<'_> {
         };
         *pos = si32(position).saturating_add(test_offset);
 
-        let cur = sw.expect("getCohortInWindow: sWindow is null");
+        #[expect(
+            clippy::expect_used,
+            reason = "a contextual test runs in a cohort's window: callers pass a cohort's parent or the current window, a jump moves it to its target cohort's, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
+        )]
+        let mut cur = sw.expect("getCohortInWindow: sWindow is null");
 
         if (test_pos.intersects(POS_ABSOLUTE))
             && (test_pos.intersects(POS_SPAN_LEFT | POS_SPAN_RIGHT))
         {
             let prev = self.single_windows.get(cur.0).previous;
             let next = self.single_windows.get(cur.0).next;
-            if prev.is_some() && (test_pos.intersects(POS_SPAN_LEFT)) {
-                *sw = prev;
-            } else if next.is_some() && (test_pos.intersects(POS_SPAN_RIGHT)) {
-                *sw = next;
+            if let Some(p) = prev
+                && test_pos.intersects(POS_SPAN_LEFT)
+            {
+                cur = p;
+            } else if let Some(n) = next
+                && test_pos.intersects(POS_SPAN_RIGHT)
+            {
+                cur = n;
             } else {
                 return cohort;
             }
+            *sw = Some(cur);
         }
-
-        let mut cur = sw.unwrap();
 
         if test_pos.intersects(POS_ABSOLUTE) {
             if test_offset < 0 {
@@ -1288,17 +1302,17 @@ impl Matcher<'_> {
         if *pos >= 0 {
             if *pos >= cur_len
                 && (test_pos.intersects(POS_SPAN_RIGHT | POS_SPAN_BOTH))
-                && self.single_windows.get(cur.0).next.is_some()
+                && let Some(next) = self.single_windows.get(cur.0).next
             {
-                cur = self.single_windows.get(cur.0).next.unwrap();
+                cur = next;
                 *sw = Some(cur);
                 *pos = 0;
             }
         } else {
             if (test_pos.intersects(POS_SPAN_LEFT | POS_SPAN_BOTH))
-                && self.single_windows.get(cur.0).previous.is_some()
+                && let Some(previous) = self.single_windows.get(cur.0).previous
             {
-                cur = self.single_windows.get(cur.0).previous.unwrap();
+                cur = previous;
                 *sw = Some(cur);
                 *pos = self.single_windows.get(cur.0).cohorts.len() as i32 - 1;
             }
@@ -1466,6 +1480,10 @@ impl Matcher<'_> {
             return Some(self.cohorts.get(current.0).dep_children.as_slice().to_vec());
         }
         if self.cohorts.get(current.0).dep_parent == Some(GlobalNumber(0)) {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a dependency test walks from a cohort in a window, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+            )]
             let parent_sw = self.cohorts.get(current.0).parent.unwrap();
             let root = self.single_windows.get(parent_sw.0).cohorts[0];
             return Some(self.cohorts.get(root.0).dep_children.as_slice().to_vec());
@@ -1612,8 +1630,14 @@ impl Matcher<'_> {
         if cur_parent == coh_parent {
             return true;
         }
-        let cur_win = self.single_windows.get(cur_parent.unwrap().0).number;
-        let coh_win = self.single_windows.get(coh_parent.unwrap().0).number;
+        #[expect(
+            clippy::unwrap_used,
+            reason = "both are cohorts in windows (current walked from, cohort found in cohort_map, which free_cohort prunes), and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+        )]
+        let (cur_win, coh_win) = (
+            self.single_windows.get(cur_parent.unwrap().0).number,
+            self.single_windows.get(coh_parent.unwrap().0).number,
+        );
         !(((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) && coh_win < cur_win)
             || ((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) && coh_win > cur_win))
     }
@@ -1679,6 +1703,10 @@ impl Matcher<'_> {
         }
 
         let mut rels: Vec<CohortId> = Vec::new();
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a contextual test runs only inside a rule, under the frame run_single_rule_body pushes for its cohort, which it pops only after the actions"
+        )]
         let regexgrpz = self.scratch.context_stack.last().unwrap().regexgrp_ct;
 
         let test_relation = self.grammar.contexts_arena[test.id.0].relation;
@@ -1728,15 +1756,17 @@ impl Matcher<'_> {
             let rtag = self.grammar.single_tags_list[rtag_id.0].clone();
             for (name, targets) in &relations {
                 for &citer in targets {
-                    if self.registry.cohort_map.contains_key(&GlobalNumber(citer))
+                    if let Some(&c) = self.registry.cohort_map.get(&GlobalNumber(citer))
                         && self.does_tag_match_regexp(*name, &rtag, caps != 0) != 0
                     {
-                        let c = *self.registry.cohort_map.get(&GlobalNumber(citer)).unwrap();
                         cs_insert(self.cohorts, self.single_windows, &mut rels, c);
-                        let cur = self.scratch.context_stack.last().unwrap().regexgrp_ct;
                         let capped = (regexgrpz as i32 + caps).clamp(0, u8::MAX as i32) as u8;
-                        self.scratch.context_stack.last_mut().unwrap().regexgrp_ct =
-                            cur.min(capped);
+                        #[expect(
+                            clippy::unwrap_used,
+                            reason = "a contextual test runs only inside a rule, under the frame run_single_rule_body pushes for its cohort, which it pops only after the actions"
+                        )]
+                        let frame = self.scratch.context_stack.last_mut().unwrap();
+                        frame.regexgrp_ct = frame.regexgrp_ct.min(capped);
                     }
                 }
             }
@@ -1767,8 +1797,9 @@ impl Matcher<'_> {
             rels.clear();
             rels.push(c);
         }
-        if (test_pos.intersects(POS_RIGHTMOST)) && !rels.is_empty() {
-            let c = *rels.last().unwrap();
+        if test_pos.intersects(POS_RIGHTMOST)
+            && let Some(&c) = rels.last()
+        {
             rels.clear();
             rels.push(c);
         }
@@ -1792,7 +1823,12 @@ impl Matcher<'_> {
         }
 
         if rv.is_none() {
-            self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = regexgrpz;
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a contextual test runs only inside a rule, under the frame run_single_rule_body pushes for its cohort, which it pops only after the actions"
+            )]
+            let frame = self.scratch.context_stack.last_mut().unwrap();
+            frame.regexgrp_ct = regexgrpz;
         }
         Ok(rv)
     }

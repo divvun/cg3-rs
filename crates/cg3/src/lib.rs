@@ -8,6 +8,22 @@
 //! Type names are idiomatic Rust CamelCase; each renamed type's doc comment
 //! carries the original C++ name so the 1:1 mapping stays greppable.
 
+// [spec:cg3:req:robustness.panic-sites-justified]
+// [spec:cg3:req:robustness.no-input-panics+1]
+// A panic site that remains is allowed where it stands, with the invariant
+// that keeps input from reaching it. The binaries are shims over `tools`.
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented
+    )
+)]
+
 // --- Wave 2 foundation layer (pointer-agnostic: containers + utilities) ---
 pub mod arena;
 pub mod bloomish;

@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-09-25T15:34:06.620319Z
+last_sync_at 2026-09-25T16:18:09.904351Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -436,8 +436,10 @@ impl_evidence (
         {id robustness.reserved-keys, version 0}
     )}
     {id no-panic.lint-guard, covered_rules (
+        robustness.no-input-panics
         robustness.panic-sites-justified
     ), covered_claims (
+        {impl_name target-impl, rule robustness.no-input-panics}
         {impl_name target-impl, rule robustness.panic-sites-justified}
     )}
     {id no-panic.loops, covered_rules (

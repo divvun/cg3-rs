@@ -684,6 +684,10 @@ impl Engine<'_> {
         for _ in 0..sub {
             write_char('\t', output);
         }
+        #[expect(
+            clippy::expect_used,
+            reason = "a printed reading or sub-reading belongs to a cohort: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was"
+        )]
         let parent_cid = parent_cid.expect("reading has no parent cohort");
         let wordform_hash = {
             let wf = self.doc.store.cohorts.get(parent_cid.0).wordform;
@@ -898,6 +902,10 @@ impl Engine<'_> {
 
             if !removed_goto {
                 let (wf_tag, wf_hash) = {
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+                    )]
                     let wf = self
                         .doc
                         .store
@@ -1099,6 +1107,10 @@ impl Engine<'_> {
             write_utf8_raw(&mut ss, &self.grammar.single_tags_list[tid.0].tag);
         }
 
+        #[expect(
+            clippy::expect_used,
+            reason = "pipe_out_cohort passes the readings of its cohort, and a reading or sub-reading belongs to a cohort: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was"
+        )]
         let wordform_hash = self
             .doc
             .store
@@ -1162,6 +1174,10 @@ impl Engine<'_> {
             write_raw(&mut ss, dp.get());
         }
 
+        #[expect(
+            clippy::expect_used,
+            reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+        )]
         let wf = c.wordform.expect("cohort wordform");
         write_utf8_raw(&mut ss, &self.grammar.single_tags_list[wf.0].tag);
 
@@ -1231,6 +1247,10 @@ impl Engine<'_> {
         input: &mut Reply<'_>,
         force: bool,
     ) -> Result<(), crate::error::RunError> {
+        #[expect(
+            clippy::expect_used,
+            reason = "pipe_in_cohort passes the readings of its cohort, and a reading or sub-reading belongs to a cohort: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was"
+        )]
         let parent = self
             .doc
             .store
@@ -1774,6 +1794,10 @@ impl Engine<'_> {
             self.print_single_window(s, &mut buf, true, false);
         }
 
+        #[expect(
+            clippy::unwrap_used,
+            reason = "both callers hold the profiler they matched: profile_rule_context returns without one, and run_single_rule_body calls this inside its if-let on it"
+        )]
         let p = self.diag.profiler.as_mut().unwrap();
         let sz = p.add_string(&String::from_utf8_lossy(&buf));
         if let Some(e) = p.entries.get_mut(&key) {
@@ -1793,9 +1817,9 @@ impl Engine<'_> {
     ///
     /// [`add_profiling_example`]: GrammarApplicator::add_profiling_example
     pub fn profile_rule_context(&mut self, test_good: bool, rule: RuleId, test: CtxId) {
-        if self.diag.profiler.is_none() {
+        let Some(p) = self.diag.profiler.as_mut() else {
             return;
-        }
+        };
         let test_hash = self.grammar.contexts_arena[test.0].hash;
         let test_pos = self.grammar.contexts_arena[test.0].pos;
         let rule_number = self.grammar.rule_by_number.get(rule.0).number;
@@ -1803,7 +1827,6 @@ impl Engine<'_> {
             r#type: crate::profiler::ET_CONTEXT,
             id: test_hash,
         };
-        let p = self.diag.profiler.as_mut().unwrap();
         let Some(t) = p.entries.get_mut(&key) else {
             return;
         };

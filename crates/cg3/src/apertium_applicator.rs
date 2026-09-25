@@ -37,7 +37,7 @@ use crate::cohort::{
 use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{hash_value, insert_if_exists};
 use crate::reading::{Reading, ReadingList, alloc_reading, free_reading};
-use crate::single_window::{SingleWindow, append_cohort};
+use crate::single_window::{SingleWindow, alloc_swindow, append_cohort, free_swindow};
 use crate::tag::{T_BASEFORM, T_DEPENDENCY, T_MAPPING, T_WORDFORM, TagList};
 use crate::types::{DynBitset, TagHash};
 use crate::uextras::{CharReader, strip_bom, write_char};
@@ -533,9 +533,10 @@ where
     /// C++ `void ApertiumApplicator::testPR(std::ostream& output)`. Round-trips six
     /// hard-coded analysis strings through `processReading`/`printReading`.
     ///
-    /// DIVERGENCE: each fixture reading belongs to a scratch cohort, freed with
-    /// it. The C++ gives it none, and dereferences that missing cohort once a
-    /// fixture tag is in one of the grammar's sets or is a mapping tag.
+    /// DIVERGENCE: each fixture reading belongs to a scratch cohort in a
+    /// scratch window, freed with it. The C++ gives it no cohort, and
+    /// dereferences that missing cohort once a fixture tag is in one of the
+    /// grammar's sets or is a mapping tag.
     pub fn test_pr<W: Write>(&mut self, output: &mut W) -> Result<(), crate::error::RunError> {
         let texts = [
             "venir<vblex><imp><p2><sg>",
@@ -546,7 +547,8 @@ where
             "aux3<tag>+aux2<tag>+aux1<tag>+main<tag>",
         ];
         for text in texts {
-            let cohort = alloc_cohort(&mut self.base.doc.store, None);
+            let window = alloc_swindow(&mut self.base.doc.store, None);
+            let cohort = alloc_cohort(&mut self.base.doc.store, Some(window));
             let reading = alloc_reading(&mut self.base.doc.store, Some(cohort));
             let wform = tag_by_hash(&self.base.grammar, TagHash(self.base.grammar.tag_any));
             self.process_reading_str(reading, text, wform)?;
@@ -568,6 +570,13 @@ where
             let opt = Some(reading);
             free_reading(&mut self.base.doc.store, opt);
             free_cohort(&mut self.base.doc.store, None, Some(cohort));
+            let doc = &mut self.base.doc;
+            free_swindow(
+                &mut doc.store,
+                &mut doc.cohorts,
+                &mut doc.deps,
+                Some(window),
+            );
         }
         Ok(())
     }

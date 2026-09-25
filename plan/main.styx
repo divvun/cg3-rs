@@ -2990,7 +2990,7 @@ children (
                 title "Deny unwrap, expect, panic and friends outside tests, and allow each surviving site only with the invariant that makes it unreachable, so input-reachable panics cannot creep back"
                 kind @refactor
                 implements {
-                    target-impl ([spec:cg3:req:robustness.panic-sites-justified] [spec:cg3:req:robustness.no-input-panics])
+                    target-impl ([spec:cg3:req:robustness.panic-sites-justified] [spec:cg3:req:robustness.no-input-panics+1])
                 }
                 deps (
                     no-panic.stream-text
@@ -3015,6 +3015,13 @@ children (
 
                     {
                         at 2026-09-25T15:40:26.416062Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-09-25T16:34:15.283288Z
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"

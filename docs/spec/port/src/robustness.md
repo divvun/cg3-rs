@@ -14,13 +14,18 @@ source and the files it includes, compiled grammars, the input stream in every
 format, the command line and the environment, and replies from an `EXTERNAL`
 process. Having written a file does not make it trusted when it is read back.
 
-> [spec:cg3:req:robustness.no-input-panics]
+> [spec:cg3:req:robustness.no-input-panics+1]
 > No input MAY cause this crate to panic, abort, overflow its stack, exhaust
 > memory by an amount the input chose, or loop without end. Each input is
 > either processed or refused with an error value that says what was wrong and
 > where (`[spec:cg3:req:errors.context]`). This holds in every build profile:
 > an overflow that only a debug build traps is still input the crate failed to
-> handle, and in a release build it is silent corruption instead.
+> handle, and in a release build it is silent corruption instead. The one
+> exception is a loop the grammar itself asks for, which
+> `[spec:cg3:req:robustness.terminates]` leaves to the grammar together with
+> whatever it allocates: a `JUMP` back, a `REPEAT`, or a rule whose target
+> matches what it produces, such as an `ADDCOHORT` after the last cohort that
+> does not exclude the cohort it adds.
 
 ## The input stream
 

@@ -1553,3 +1553,30 @@ fn relations_resolve_beside_a_bare_window() {
     .expect("the run completes");
     assert!(out.contains("\"<z>\""), "{out}");
 }
+
+/// A `B` test reads the window's bag of tags, which belongs to no cohort: a
+/// tag that asks about the cohort of the reading it tests is a run error
+/// naming the rule, and a numerical comparison that needs no cohort runs.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.test-tag-numerical-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+2/test]
+#[test]
+fn bag_of_tags_belongs_to_no_cohort() {
+    let input = "\"<a>\"\n\t\"a\" N <x=5>\n\"<b>\"\n\t\"b\" V <x=7>\n";
+    let out = apply("ADD (@x) (N) (B (<x>6>)) ;", input).expect("a plain comparison runs");
+    assert!(out.contains("\t\"a\" N <x=5> @x\n"), "{out}");
+    for tag in ["\"<.*>\"r", "<x=MAX>", "VAR:foo", "LVAR:foo", "_ENCL_"] {
+        let (why, line) = inapplicable(apply(&format!("\nADD (@x) (N) (B ({tag})) ;"), input));
+        assert!(why.starts_with("BagOfTagsCohort"), "{tag}: {why}");
+        assert_eq!(line, 2, "{tag}: the error names the rule's line");
+    }
+    let enclosed =
+        "\"<a>\"\n\t\"a\" N\n\"<(>\"\n\t\"(\" L\n\"<b>\"\n\t\"b\" N\n\"<)>\"\n\t\")\" R\n";
+    for tag in ["_LEFT_", "_RIGHT_"] {
+        let grammar = format!("PARENTHESES = (\"<(>\" \"<)>\") ;\nADD (@x) (N) (B ({tag})) ;");
+        let (why, line) = inapplicable(apply(&grammar, enclosed));
+        assert!(why.starts_with("BagOfTagsCohort"), "{tag}: {why}");
+        assert_eq!(line, 2, "{tag}: the error names the rule's line");
+    }
+}

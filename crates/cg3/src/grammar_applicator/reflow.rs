@@ -55,6 +55,7 @@
 use super::{Engine, Matcher};
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::cohort::{CT_DEP_DONE, CT_ENCLOSED, CT_IGNORED, CT_REMOVED};
+use crate::error::RunError;
 use crate::inlines::{erase, hash_value, insert_if_exists, ui32};
 use crate::reading::{Reading, ReadingList, alloc_reading_copy, free_reading, reading_rehash};
 use crate::tag::{
@@ -209,11 +210,11 @@ impl Engine<'_> {
             let mut inner = child;
             while i < 1000 {
                 let inner_dp = self.doc.store.cohorts.get(inner.0).dep_parent;
-                if inner_dp == Some(GlobalNumber(0)) || inner_dp.is_none() {
+                let Some(inner_dp) = inner_dp.filter(|&dp| dp != GlobalNumber(0)) else {
                     retval = false;
                     break;
-                }
-                match self.doc.cohorts.cohort_map.get(&inner_dp.unwrap()).copied() {
+                };
+                match self.doc.cohorts.cohort_map.get(&inner_dp).copied() {
                     Some(next) => inner = next,
                     None => break,
                 }
@@ -258,11 +259,11 @@ impl Engine<'_> {
             let mut inner = parent;
             while i < 1000 {
                 let inner_dp = self.doc.store.cohorts.get(inner.0).dep_parent;
-                if inner_dp == Some(GlobalNumber(0)) || inner_dp.is_none() {
+                let Some(inner_dp) = inner_dp.filter(|&dp| dp != GlobalNumber(0)) else {
                     retval = false;
                     break;
-                }
-                match self.doc.cohorts.cohort_map.get(&inner_dp.unwrap()).copied() {
+                };
+                match self.doc.cohorts.cohort_map.get(&inner_dp).copied() {
                     Some(next) => inner = next,
                     None => break,
                 }
@@ -407,47 +408,45 @@ impl Engine<'_> {
         if self.cfg.dep_delimit != 0
             && max == 0
             && !self.doc.input_eof
-            && !self.doc.stream.next.is_empty()
+            && let Some(&back) = self.doc.stream.next.last()
+            && self.doc.store.single_windows.get(back.0).cohorts.len() > 1
         {
-            let back = *self.doc.stream.next.last().unwrap();
-            if self.doc.store.single_windows.get(back.0).cohorts.len() > 1 {
-                let c1 = self.doc.store.single_windows.get(back.0).cohorts[1];
-                max = self.doc.store.cohorts.get(c1.0).global_number.get();
-            }
+            let c1 = self.doc.store.single_windows.get(back.0).cohorts[1];
+            max = self.doc.store.cohorts.get(c1.0).global_number.get();
         }
 
-        // Ensure a root entry at dep_window[0]. C++ dereferences
-        // `gWindow->current` lazily inside the branches that need it (it is
-        // null while the input stream is still being parsed, when those
-        // branches are not taken), so the unwrap must stay lazy too.
-        if self.doc.deps.dep_window.is_empty() || {
-            let first = *self.doc.deps.dep_window.values().next().unwrap();
-            self.doc.store.cohorts.get(first.0).parent.is_none()
-        } {
-            let cur = self.doc.stream.current.unwrap();
-            let c0 = self.doc.store.single_windows.get(cur.0).cohorts[0];
+        // Ensure a root entry at dep_window[0]: the `>>>` of the first entry's
+        // window, or of the current window when there is no windowed entry.
+        let first_sw = self
+            .doc
+            .deps
+            .dep_window
+            .values()
+            .next()
+            .and_then(|first| self.doc.store.cohorts.get(first.0).parent);
+        if let Some(sw) = first_sw {
+            if !self.doc.deps.dep_window.contains_key(&GlobalNumber(0)) {
+                let tmp = self.doc.store.single_windows.get(sw.0).cohorts[0];
+                self.doc.deps.dep_window.insert(GlobalNumber(0), tmp);
+            }
+        } else {
+            let c0 = self.current_root_cohort();
             self.doc.deps.dep_window.insert(GlobalNumber(0), c0);
-        } else if !self.doc.deps.dep_window.contains_key(&GlobalNumber(0)) {
-            let first = *self.doc.deps.dep_window.values().next().unwrap();
-            let tmp = {
-                let sw = self.doc.store.cohorts.get(first.0).parent.unwrap();
-                self.doc.store.single_windows.get(sw.0).cohorts[0]
-            };
-            self.doc.deps.dep_window.insert(GlobalNumber(0), tmp);
         }
         // Ensure cohort_map[0].
-        if self.doc.cohorts.cohort_map.is_empty() {
-            let cur = self.doc.stream.current.unwrap();
-            let c0 = self.doc.store.single_windows.get(cur.0).cohorts[0];
-            self.doc.cohorts.cohort_map.insert(GlobalNumber(0), c0);
-        } else if !self.doc.cohorts.cohort_map.contains_key(&GlobalNumber(0)) {
-            let cur = self.doc.stream.current.unwrap();
-            let mut tmp = self.doc.store.single_windows.get(cur.0).cohorts[0];
-            let first = *self.doc.cohorts.cohort_map.values().next().unwrap();
-            if let Some(sw) = self.doc.store.cohorts.get(first.0).parent {
-                tmp = self.doc.store.single_windows.get(sw.0).cohorts[0];
+        let first = self.doc.cohorts.cohort_map.values().next().copied();
+        if let Some(first) = first {
+            if !self.doc.cohorts.cohort_map.contains_key(&GlobalNumber(0)) {
+                let tmp = if let Some(sw) = self.doc.store.cohorts.get(first.0).parent {
+                    self.doc.store.single_windows.get(sw.0).cohorts[0]
+                } else {
+                    self.current_root_cohort()
+                };
+                self.doc.cohorts.cohort_map.insert(GlobalNumber(0), tmp);
             }
-            self.doc.cohorts.cohort_map.insert(GlobalNumber(0), tmp);
+        } else {
+            let c0 = self.current_root_cohort();
+            self.doc.cohorts.cohort_map.insert(GlobalNumber(0), c0);
         }
 
         // Snapshot dep_window in id order (BTreeMap iteration == C++ std::map).
@@ -524,12 +523,12 @@ impl Engine<'_> {
                 if max != 0 && gn.get() >= max {
                     break;
                 }
-                if dp.is_none() {
+                let Some(dp) = dp else {
                     b += 1;
                     continue;
-                }
+                };
                 if ds == Some(gn) {
-                    let dpv = dp.unwrap().get();
+                    let dpv = dp.get();
                     let dp_present = self.doc.deps.dep_map.find(dpv) != self.doc.deps.dep_map.end();
                     if !ty.intersects(CT_DEP_DONE) && !dp_present {
                         if self.cfg.verbosity_level > 0 {
@@ -542,6 +541,10 @@ impl Engine<'_> {
                             self.doc.store.cohorts.get_mut(cohort.0).dep_parent =
                                 Some(GlobalNumber(dep_real));
                         }
+                        #[expect(
+                            clippy::unwrap_used,
+                            reason = "dep_window holds cohorts put in a window (append_cohort and the restructuring rules), which free_cohort drops from it, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
+                        )]
                         let par = self.doc.store.cohorts.get(cohort.0).parent.unwrap();
                         let c0 = self.doc.store.single_windows.get(par.0).cohorts[0];
                         self.doc.cohorts.cohort_map.insert(GlobalNumber(0), c0);
@@ -574,6 +577,19 @@ impl Engine<'_> {
 
         self.doc.deps.dep_map.clear(0);
         self.doc.deps.dep_window.clear();
+    }
+
+    /// The `>>>` cohort of the current window, the dependency root when no
+    /// entry of `dep_window` or `cohort_map` has a window to take one from.
+    /// There is no current window while the stream is still being read,
+    /// which is why an entry's own window comes first.
+    fn current_root_cohort(&self) -> CohortId {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "rules run in the current window; the stream reader reflows only once append_cohort has put a windowed cohort in dep_window and cohort_map (dep_highest_seen is non-zero only then), with cohort_map[0] for the window's >>>, so it never needs this"
+        )]
+        let cur = self.doc.stream.current.unwrap();
+        self.doc.store.single_windows.get(cur.0).cohorts[0]
     }
 
     // =======================================================================
@@ -610,12 +626,12 @@ impl Engine<'_> {
     /// passes no argument), so this takes none.
     pub fn reflow_relation_window(&mut self) {
         let mut max = 0u32;
-        if !self.doc.input_eof && !self.doc.stream.next.is_empty() {
-            let back = *self.doc.stream.next.last().unwrap();
-            if self.doc.store.single_windows.get(back.0).cohorts.len() > 1 {
-                let c0 = self.doc.store.single_windows.get(back.0).cohorts[0];
-                max = self.doc.store.cohorts.get(c0.0).global_number.get();
-            }
+        if !self.doc.input_eof
+            && let Some(&back) = self.doc.stream.next.last()
+            && self.doc.store.single_windows.get(back.0).cohorts.len() > 1
+        {
+            let c0 = self.doc.store.single_windows.get(back.0).cohorts[0];
+            max = self.doc.store.cohorts.get(c0.0).global_number.get();
         }
 
         let mut cohort = self.leftmost_linked_cohort();
@@ -712,6 +728,10 @@ impl Engine<'_> {
         }
 
         // insert_if_exists(reading.parent->possible_sets, grammar->sets_any)
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a reflowed reading is a cohort's (rules, EXTERNAL replies, the reader's bag-of-tags pass), and a reading or sub-reading belongs to a cohort: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was"
+        )]
         let parent = self.doc.store.readings.get(reading.0).parent.unwrap();
         insert_if_exists(
             &mut self.doc.store.cohorts.get_mut(parent.0).possible_sets,
@@ -789,13 +809,13 @@ impl Engine<'_> {
         let _ = tplain;
 
         // C++ dereferences `reading.parent` only INSIDE the branches below;
-        // a parentless reading (e.g. testPR fixtures) is fine as long as no
-        // branch actually fires (unwrap only at the touch points, faithfully).
+        // a parentless reading (testPR's fixtures) is fine as long as no
+        // branch fires, and refused by `tagged_cohort` when one does.
         let parent = self.doc.store.readings.get(reading.0).parent;
 
         // possible_sets |= grammar->sets_by_tag[tag->hash]
         if let Some(bits) = self.grammar.sets_by_tag.get(&thash.get()) {
-            let parent = parent.unwrap();
+            let parent = self.tagged_cohort(parent, tag)?;
             let ps = &mut self.doc.store.cohorts.get_mut(parent.0).possible_sets;
             if ps.len() < bits.len() {
                 ps.resize(bits.len(), false);
@@ -826,10 +846,12 @@ impl Engine<'_> {
         }
 
         if self.grammar.parentheses.contains_key(&thash.get()) {
-            self.doc.store.cohorts.get_mut(parent.unwrap().0).is_pleft = thash.get();
+            let cohort = self.tagged_cohort(parent, tag)?;
+            self.doc.store.cohorts.get_mut(cohort.0).is_pleft = thash.get();
         }
         if self.grammar.parentheses_reverse.contains_key(&thash.get()) {
-            self.doc.store.cohorts.get_mut(parent.unwrap().0).is_pright = thash.get();
+            let cohort = self.tagged_cohort(parent, tag)?;
+            self.doc.store.cohorts.get_mut(cohort.0).is_pright = thash.get();
         }
 
         if ttype.intersects(T_MAPPING) || first_char == self.grammar.mapping_prefix {
@@ -866,54 +888,13 @@ impl Engine<'_> {
         {
             self.doc.store.readings.get_mut(reading.0).baseform = Some(thash);
         }
-        if self.cfg.parse_dep
-            && (ttype.intersects(T_DEPENDENCY))
-            && (!self
-                .doc
-                .store
-                .cohorts
-                .get(parent.unwrap().0)
-                .r#type
-                .intersects(CT_DEP_DONE))
-        {
-            let c = self.doc.store.cohorts.get_mut(parent.unwrap().0);
-            c.dep_self = if tds == 0 {
-                None
-            } else {
-                Some(GlobalNumber(tds))
-            };
-            // The raw C++ copy: a parent of `-1` IS `DEP_NO_PARENT`.
-            c.dep_parent = (tdp != crate::cohort::DEP_NO_PARENT).then_some(GlobalNumber(tdp));
-            if tdp == tds {
-                c.dep_parent = None;
-            }
-            self.doc.deps.has_dep = true;
+        if self.cfg.parse_dep && (ttype.intersects(T_DEPENDENCY)) {
+            self.add_dependency_tag(parent, tag, tds, tdp)?;
         }
         if (self.grammar.has_relations || self.cfg.stream_relations)
             && (ttype.intersects(T_RELATION))
         {
-            if tdp != 0 && tch != 0 {
-                self.doc
-                    .store
-                    .cohorts
-                    .get_mut(parent.unwrap().0)
-                    .relations_input
-                    .entry(tch)
-                    .or_default()
-                    .insert(tdp);
-            }
-            if tds != 0 {
-                let gn = self
-                    .doc
-                    .store
-                    .cohorts
-                    .get(parent.unwrap().0)
-                    .global_number
-                    .get();
-                self.doc.deps.relation_map.insert((tds, gn));
-            }
-            self.doc.deps.has_relations = true;
-            crate::cohort::set_related(&mut self.doc.store, parent.unwrap());
+            self.add_relation_tag(parent, tag, (tds, tdp, tch))?;
         }
         if !ttype.intersects(T_SPECIAL) {
             let r = self.doc.store.readings.get_mut(reading.0);
@@ -925,63 +906,150 @@ impl Engine<'_> {
         }
 
         if self.grammar.has_bag_of_tags {
-            // bot = reading.parent->parent->bag_of_tags
-            let sw = self
-                .doc
-                .store
-                .cohorts
-                .get(parent.unwrap().0)
-                .parent
-                .unwrap();
-            // NOTE quirk: `!reading.baseform` is tested AFTER reading.baseform was
-            // set above, so bot.baseform is written only when the reading ALREADY
-            // had a baseform (likely-bug, reproduced).
-            let reading_baseform = self.doc.store.readings.get(reading.0).baseform;
-            let bot = &mut self.doc.store.single_windows.get_mut(sw.0).bag_of_tags;
-            bot.tags.insert(thash.get());
-            bot.tags_list.push(thash.get());
-            bot.tags_bloom.insert(thash.get());
-            if ttype.intersects(T_TEXTUAL | T_WORDFORM | T_BASEFORM) {
-                bot.tags_textual.insert(thash.get());
-                bot.tags_textual_bloom.insert(thash.get());
-            }
-            if ttype.intersects(T_NUMERICAL) {
-                bot.tags_numerical.insert(thash.get(), tag);
-            }
-            if reading_baseform.is_none() && (ttype.intersects(T_BASEFORM)) {
-                bot.baseform = Some(thash);
-            }
-            if !ttype.intersects(T_SPECIAL) {
-                bot.tags_plain.insert(thash.get());
-                bot.tags_plain_bloom.insert(thash.get());
-            }
-            if rehash {
-                // bot.rehash(): the bag-of-tags is an embedded `Reading` VALUE
-                // (not an arena object, so it has no ReadingId `reading_rehash`
-                // could take). Reproduce `Reading::rehash` inline — a bag never
-                // holds a `next` chain, and its `mapping` is always null, so the
-                // fold is just over `tags`.
-                let bot = &mut self.doc.store.single_windows.get_mut(sw.0).bag_of_tags;
-                let mapping_hash = bot.mapping.map(|m| self.grammar.single_tags_list[m.0].hash);
-                let mut h: u32 = 0;
-                for &iter in bot.tags.iter() {
-                    let fold = match mapping_hash {
-                        None => true,
-                        Some(mh) => mh.get() != iter,
-                    };
-                    if fold {
-                        h = hash_value(iter, h);
-                    }
-                }
-                bot.hash_plain = h;
-                if let Some(mh) = mapping_hash {
-                    h = hash_value(mh.get(), h);
-                }
-                bot.hash = h;
-            }
+            self.add_tag_to_bag_of_tags(parent, reading, tag, ttype, rehash)?;
         }
 
         Ok(thash)
+    }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// The cohort of a reading given `tag`, for the tag's effect on it.
+    ///
+    /// DIVERGENCE: the readers and rules give every reading a cohort, but a
+    /// library caller can tag one that has none, and a tag with an effect on
+    /// its cohort is refused; the C++ followed the null cohort.
+    fn tagged_cohort(&self, parent: Option<CohortId>, tag: TagId) -> Result<CohortId, RunError> {
+        match parent {
+            Some(cohort) => Ok(cohort),
+            None => Err(RunError::ReadingWithoutCohort {
+                tag: self.grammar.single_tags_list[tag.0].tag.to_string(),
+            }),
+        }
+    }
+
+    /// A dependency tag's effect on its reading's cohort: the cohort takes
+    /// the tag's numbers, unless its dependencies are already resolved.
+    fn add_dependency_tag(
+        &mut self,
+        parent: Option<CohortId>,
+        tag: TagId,
+        tds: u32,
+        tdp: u32,
+    ) -> Result<(), RunError> {
+        let cohort = self.tagged_cohort(parent, tag)?;
+        let c = self.doc.store.cohorts.get_mut(cohort.0);
+        if c.r#type.intersects(CT_DEP_DONE) {
+            return Ok(());
+        }
+        c.dep_self = if tds == 0 {
+            None
+        } else {
+            Some(GlobalNumber(tds))
+        };
+        // The raw C++ copy: a parent of `-1` IS `DEP_NO_PARENT`.
+        c.dep_parent = (tdp != crate::cohort::DEP_NO_PARENT).then_some(GlobalNumber(tdp));
+        if tdp == tds {
+            c.dep_parent = None;
+        }
+        self.doc.deps.has_dep = true;
+        Ok(())
+    }
+
+    /// A relation tag's effect on its reading's cohort: the named relation
+    /// to resolve, and the cohort's own relation number. `ids` is the tag's
+    /// `(dep_self, dep_parent, comparison_hash)`.
+    fn add_relation_tag(
+        &mut self,
+        parent: Option<CohortId>,
+        tag: TagId,
+        ids: (u32, u32, u32),
+    ) -> Result<(), RunError> {
+        let (tds, tdp, tch) = ids;
+        let cohort = self.tagged_cohort(parent, tag)?;
+        if tdp != 0 && tch != 0 {
+            self.doc
+                .store
+                .cohorts
+                .get_mut(cohort.0)
+                .relations_input
+                .entry(tch)
+                .or_default()
+                .insert(tdp);
+        }
+        if tds != 0 {
+            let gn = self.doc.store.cohorts.get(cohort.0).global_number.get();
+            self.doc.deps.relation_map.insert((tds, gn));
+        }
+        self.doc.deps.has_relations = true;
+        crate::cohort::set_related(&mut self.doc.store, cohort);
+        Ok(())
+    }
+
+    /// `tag`, just added to `reading`, added to the bag of tags of the
+    /// reading's window as well.
+    fn add_tag_to_bag_of_tags(
+        &mut self,
+        parent: Option<CohortId>,
+        reading: ReadingId,
+        tag: TagId,
+        ttype: crate::tag::TagType,
+        rehash: bool,
+    ) -> Result<(), RunError> {
+        let thash = self.grammar.single_tags_list[tag.0].hash;
+        // bot = reading.parent->parent->bag_of_tags
+        let cohort = self.tagged_cohort(parent, tag)?;
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a cohort whose reading is given tags is in a window: alloc_cohort(Some(sw)) and append_cohort set its parent, and only cohort_clear, on free, resets it"
+        )]
+        let sw = self.doc.store.cohorts.get(cohort.0).parent.unwrap();
+        // NOTE quirk: `!reading.baseform` is tested AFTER reading.baseform was
+        // set above, so bot.baseform is written only when the reading ALREADY
+        // had a baseform (likely-bug, reproduced).
+        let reading_baseform = self.doc.store.readings.get(reading.0).baseform;
+        let bot = &mut self.doc.store.single_windows.get_mut(sw.0).bag_of_tags;
+        bot.tags.insert(thash.get());
+        bot.tags_list.push(thash.get());
+        bot.tags_bloom.insert(thash.get());
+        if ttype.intersects(T_TEXTUAL | T_WORDFORM | T_BASEFORM) {
+            bot.tags_textual.insert(thash.get());
+            bot.tags_textual_bloom.insert(thash.get());
+        }
+        if ttype.intersects(T_NUMERICAL) {
+            bot.tags_numerical.insert(thash.get(), tag);
+        }
+        if reading_baseform.is_none() && (ttype.intersects(T_BASEFORM)) {
+            bot.baseform = Some(thash);
+        }
+        if !ttype.intersects(T_SPECIAL) {
+            bot.tags_plain.insert(thash.get());
+            bot.tags_plain_bloom.insert(thash.get());
+        }
+        if rehash {
+            // bot.rehash(): the bag-of-tags is an embedded `Reading` VALUE
+            // (not an arena object, so it has no ReadingId `reading_rehash`
+            // could take). Reproduce `Reading::rehash` inline — a bag never
+            // holds a `next` chain, and its `mapping` is always null, so the
+            // fold is just over `tags`.
+            let bot = &mut self.doc.store.single_windows.get_mut(sw.0).bag_of_tags;
+            let mapping_hash = bot.mapping.map(|m| self.grammar.single_tags_list[m.0].hash);
+            let mut h: u32 = 0;
+            for &iter in bot.tags.iter() {
+                let fold = match mapping_hash {
+                    None => true,
+                    Some(mh) => mh.get() != iter,
+                };
+                if fold {
+                    h = hash_value(iter, h);
+                }
+            }
+            bot.hash_plain = h;
+            if let Some(mh) = mapping_hash {
+                h = hash_value(mh.get(), h);
+            }
+            bot.hash = h;
+        }
+        Ok(())
     }
 
     // =======================================================================
@@ -1103,6 +1171,10 @@ impl Engine<'_> {
         }
 
         // Reuse the last mapping for the original reading.
+        #[expect(
+            clippy::unwrap_used,
+            reason = "every caller passes a non-empty list of tags it took as mappings (T_MAPPING or the mapping prefix, varstrings expanded), which the pass above keeps"
+        )]
         let tag = mappings.pop().unwrap();
         let mut i = mappings.len();
 
@@ -1389,7 +1461,6 @@ impl Engine<'_> {
         current: SwId,
         cohort: CohortId,
     ) -> Result<CohortId, crate::error::RunError> {
-        let mut cohort = cohort;
         let mut nwin: Option<SwId> = None;
         if self.doc.stream.current == Some(current) {
             nwin = Some(
@@ -1418,6 +1489,10 @@ impl Engine<'_> {
                 .rebuild_single_window_links(&mut self.doc.store);
         }
 
+        #[expect(
+            clippy::expect_used,
+            reason = "every caller splits a window of the stream: DELIMIT one rr_removable_window found there (rr_in_stream), and the stream readers the one they fill, which alloc_append_single_window put in next"
+        )]
         let nwin = nwin.expect("delimitAt: nwin != 0");
 
         // Move window-trailing state onto nwin (std::swap flush_after/text_post,
@@ -1536,7 +1611,11 @@ impl Engine<'_> {
         }
 
         // cohort = current.cohorts.back(); addTagToReading(*reading, endtag).
-        cohort = *self
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a window in the stream keeps its >>> cohort (robustness.enclosures), so its cohort list is never empty"
+        )]
+        let cohort = *self
             .doc
             .store
             .single_windows

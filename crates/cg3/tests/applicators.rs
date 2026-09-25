@@ -246,15 +246,43 @@ fn apertium_test_pr_roundtrip() {
     assert!(text.contains("be"), "testPR lost baseform text:\n{text}");
 }
 
-// A grammar that names a testPR fixture tag in a set, or whose mapping prefix
-// makes one a mapping tag, has testPR reach the cohort the fixture reading
-// belongs to. The C++ gives the reading no cohort and dereferences it.
-// [spec:cg3:req:robustness.no-input-panics/test]
+// A library caller can build a reading with no cohort. A tag with an effect
+// on the cohort is refused on it; the C++ followed the null cohort.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+#[test]
+fn cohortless_reading_refuses_cohort_tags() {
+    let mut p =
+        cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
+    p.parse_grammar_utf8(b"DELIMITERS = \".\" ;\nSELECT (vblex) ;\n")
+        .expect("the grammar parses");
+    let mut g = p.grammar;
+    let _ = g.reindex(false, false).unwrap();
+    let mut base = cg3::grammar_applicator::GrammarApplicator::new(g.into());
+    base.set_grammar().unwrap();
+    let tag = base.add_tag("vblex", cg3::tag::TagType::empty()).unwrap();
+    let reading = cg3::reading::alloc_reading(&mut base.doc.store, None);
+    let result = base.engine().add_tag_to_reading(reading, tag);
+    assert!(
+        matches!(
+            result,
+            Err(cg3::error::RunError::ReadingWithoutCohort { .. })
+        ),
+        "{result:?}"
+    );
+}
+
+// A grammar that names a testPR fixture tag in a set, an enclosure or a bag
+// of tags, or whose mapping prefix makes one a mapping tag, has testPR reach
+// the cohort the fixture reading belongs to. The C++ gives the reading no
+// cohort and dereferences it.
+// [spec:cg3:req:robustness.no-input-panics+1/test]
 #[test]
 fn apertium_test_pr_with_grammar_tags() {
     for grammar in [
         "DELIMITERS = \".\" ;\nSELECT (vblex) ;\n",
         "DELIMITERS = \".\" ;\nMAPPING-PREFIX = v ;\nSELECT (foo) ;\n",
+        "DELIMITERS = \".\" ;\nPARENTHESES = (vblex inf) ;\nSELECT (foo) ;\n",
+        "DELIMITERS = \".\" ;\nSELECT (foo) (B (vblex)) ;\n",
     ] {
         let mut p =
             cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);

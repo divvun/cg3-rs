@@ -261,6 +261,11 @@ pub enum RuleInapplicable {
     /// which belong to no reading the rule could select, remove or copy.
     #[error("{rule} attached to a cohort by its wordform tags, which are no reading it can act on")]
     AttachedToWordformTags { rule: &'static str },
+    /// A `B` test matched the window's bag of tags against a tag that asks
+    /// about the cohort of the reading it tests, and the bag belongs to no
+    /// cohort; the C++ followed a null cohort.
+    #[error("`{tag}` asks about a cohort, and the bag of tags a `B` test reads belongs to none")]
+    BagOfTagsCohort { tag: Box<str> },
 }
 
 impl ParseErrorKind {
@@ -629,6 +634,13 @@ pub enum RunError {
     /// hot loop. `line` is the grammar line in flight.
     #[error("cannot add a mapping tag to a reading which already is mapped, on line {line}")]
     MappingTagConflict { line: u32 },
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// A tag the grammar gives an effect on a reading's cohort — a set it
+    /// indexes, an enclosure, a dependency, a relation, the bag of tags — added
+    /// to a reading that belongs to no cohort, as a library caller can build
+    /// with `alloc_reading(store, None)`. The C++ followed the null cohort.
+    #[error("tag {tag} changes the cohort of its reading, and the reading belongs to none")]
+    ReadingWithoutCohort { tag: String },
     /// A number in the stream that the hash tables reserve, refused as it was
     /// read. `input` and `line` name the stream and its line.
     #[error("{input}: {source}, on line {line}")]

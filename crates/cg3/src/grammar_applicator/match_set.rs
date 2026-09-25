@@ -71,6 +71,7 @@ use crate::contextual_test::{
     MASK_POS_DEPREL, POS_ACTIVE, POS_ATTACH_TO, POS_CAREFUL, POS_INACTIVE, POS_LOOK_DELAYED,
     POS_LOOK_DELETED, POS_LOOK_IGNORED, POS_NO_PASS_ORIGIN, POS_NOT,
 };
+use crate::error::{RuleInapplicable, RunError};
 use crate::grammar::Grammar;
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value_str, make_64};
 use crate::math_parser::MathParser;
@@ -224,7 +225,8 @@ pub fn tag_set_subset_of_t_set(
 /// against a reading's numeric tag, returning `itag.hash` on a match else 0.
 /// `compval` derives from the query `tag`; the threshold `V` and operator `B`
 /// from the reading's `itag`. `tag_id` names `tag` in the arena, so its type
-/// flags come from the run (`Grammar::tag_type`).
+/// flags come from the run (`Grammar::tag_type`). `None` when `compval` needs
+/// the reading's cohort and the reading belongs to none (see `numeric_compval`).
 pub fn test_tag_numerical(
     cohorts: &GenArena<crate::cohort::Cohort>,
     readings: &GenArena<crate::reading::Reading>,
@@ -233,44 +235,13 @@ pub fn test_tag_numerical(
     tag_id: TagId,
     tag: &Tag,
     itag: &Tag,
-) -> TagHash {
+) -> Option<TagHash> {
     use COps::*;
     let mut m = TagHash(0);
     if tag.comparison_hash != itag.comparison_hash {
-        return TagHash(0);
+        return Some(TagHash(0));
     }
-    let parent = readings.get(reading.0).parent.unwrap();
-    let mut compval = tag.comparison_val;
-    // `tag.comparison_offset` shares the tag's union with `variable_hash`, so
-    // it is read only under T_NUMERIC_MATH, as the C++ `&&` does: a
-    // `VAR:<x=5>` tag is numerical too, and holds its variable value there.
-    let comparison_offset = if grammar.tag_type(tag_id).intersects(T_NUMERIC_MATH) {
-        tag.comparison_offset() as usize
-    } else {
-        0
-    };
-    if comparison_offset != 0 {
-        let mn = cohort::get_min(cohorts, readings, grammar, parent, tag.comparison_hash);
-        let mx = cohort::get_max(cohorts, readings, grammar, parent, tag.comparison_hash);
-        let mut mp = MathParser::new(mn, mx);
-        // exp = view(tag.tag).remove_prefix(comparison_offset).remove_suffix(1)
-        let chars: Vec<char> = tag.tag.chars().collect();
-        if comparison_offset < chars.len() {
-            let exp: String = chars[comparison_offset..chars.len() - 1].iter().collect();
-            // C++ `mp.eval(exp)` threw here and nothing caught it, so the
-            // process terminated. Leaving `compval` at the query value is the
-            // safe analog; the expression and offset are reported rather than
-            // discarded.
-            match mp.eval(&exp) {
-                Ok(v) => compval = v,
-                Err(e) => tracing::warn!("Warning: numeric comparison failed: {e}"),
-            }
-        }
-    } else if compval <= NUMERIC_MIN {
-        compval = cohort::get_min(cohorts, readings, grammar, parent, tag.comparison_hash);
-    } else if compval >= NUMERIC_MAX {
-        compval = cohort::get_max(cohorts, readings, grammar, parent, tag.comparison_hash);
-    }
+    let compval = numeric_compval(cohorts, readings, grammar, reading, tag_id, tag)?;
 
     let a = tag.comparison_op;
     let b = itag.comparison_op;
@@ -316,7 +287,76 @@ pub fn test_tag_numerical(
         (OpGreaterequals, OpLessequals) if compval <= v => m = itag.hash,
         _ => {}
     }
-    m
+    Some(m)
+}
+
+// [spec:cg3:req:robustness.accepted-grammars-run]
+/// The value [`test_tag_numerical`] compares with: the query tag's own, the
+/// least or greatest value of its key on the reading's cohort for `MIN` and
+/// `MAX`, or a math expression over those two.
+///
+/// DIVERGENCE: `None` when that needs the cohort and the reading belongs to
+/// none — the bag of tags a `B` test reads — where the C++ followed a null
+/// cohort.
+fn numeric_compval(
+    cohorts: &GenArena<crate::cohort::Cohort>,
+    readings: &GenArena<crate::reading::Reading>,
+    grammar: &Grammar,
+    reading: ReadingId,
+    tag_id: TagId,
+    tag: &Tag,
+) -> Option<f64> {
+    let parent = readings.get(reading.0).parent;
+    let compval = tag.comparison_val;
+    // `tag.comparison_offset` shares the tag's union with `variable_hash`, so
+    // it is read only under T_NUMERIC_MATH, as the C++ `&&` does: a
+    // `VAR:<x=5>` tag is numerical too, and holds its variable value there.
+    let comparison_offset = if grammar.tag_type(tag_id).intersects(T_NUMERIC_MATH) {
+        tag.comparison_offset() as usize
+    } else {
+        0
+    };
+    if comparison_offset != 0 {
+        let parent = parent?;
+        let mn = cohort::get_min(cohorts, readings, grammar, parent, tag.comparison_hash);
+        let mx = cohort::get_max(cohorts, readings, grammar, parent, tag.comparison_hash);
+        let mut mp = MathParser::new(mn, mx);
+        // exp = view(tag.tag).remove_prefix(comparison_offset).remove_suffix(1)
+        let chars: Vec<char> = tag.tag.chars().collect();
+        if comparison_offset >= chars.len() {
+            return Some(compval);
+        }
+        let exp: String = chars[comparison_offset..chars.len() - 1].iter().collect();
+        // C++ `mp.eval(exp)` threw here and nothing caught it, so the process
+        // terminated. Leaving `compval` at the query value is the safe analog;
+        // the expression and offset are reported rather than discarded.
+        return match mp.eval(&exp) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                tracing::warn!("Warning: numeric comparison failed: {e}");
+                Some(compval)
+            }
+        };
+    }
+    if compval <= NUMERIC_MIN {
+        return Some(cohort::get_min(
+            cohorts,
+            readings,
+            grammar,
+            parent?,
+            tag.comparison_hash,
+        ));
+    }
+    if compval >= NUMERIC_MAX {
+        return Some(cohort::get_max(
+            cohorts,
+            readings,
+            grammar,
+            parent?,
+            tag.comparison_hash,
+        ));
+    }
+    Some(compval)
 }
 
 /// Collect a `Uint32FlatHashMap`'s live `(key, value)` entries in physical slot
@@ -405,28 +445,7 @@ impl Matcher<'_> {
                         m = tag.hash.get();
                     }
                     if m != 0 {
-                        let gc = group_count(tag);
-                        if gc > 0
-                            && !self.scratch.context_stack.is_empty()
-                            && self
-                                .scratch
-                                .context_stack
-                                .last()
-                                .unwrap()
-                                .regexgrps
-                                .is_some()
-                        {
-                            let idx = self
-                                .scratch
-                                .context_stack
-                                .last()
-                                .unwrap()
-                                .regexgrps
-                                .unwrap();
-                            let frame = self.scratch.context_stack.last_mut().unwrap();
-                            let rg = &mut self.scratch.regexgrps_store[idx];
-                            capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &text);
-                        }
+                        self.capture_groups(group_count(tag), tag, &text);
                     }
                 }
             }
@@ -462,21 +481,7 @@ impl Matcher<'_> {
                     }
                 }
             } else if ttype.intersects(T_WORDFORM) {
-                let wf_hash = {
-                    let cid = self.readings.get(reading.0).parent.unwrap();
-                    let wf = self.cohorts.get(cid.0).wordform.unwrap();
-                    self.grammar.single_tags_list[wf.0].hash
-                };
-                m = wf_hash.get();
-                if unif_mode {
-                    if self.scratch.unif_last_wordform != TagHash(0) {
-                        if self.scratch.unif_last_wordform != wf_hash {
-                            m = 0;
-                        }
-                    } else {
-                        self.scratch.unif_last_wordform = wf_hash;
-                    }
-                }
+                m = self.match_any_wordform(reading, tag, unif_mode)?;
             } else {
                 let textual: Vec<u32> = self
                     .readings
@@ -512,39 +517,11 @@ impl Matcher<'_> {
             }
         } else if ttype.intersects(T_NUMERICAL) {
             // (8) numerical — LAST matching numerical tag wins (no break)
-            let nums: Vec<TagId> = self
-                .readings
-                .get(reading.0)
-                .tags_numerical
-                .values()
-                .copied()
-                .collect();
-            for tid in nums {
-                let itag = self.grammar.single_tags_list[tid.0].clone();
-                let rv = test_tag_numerical(
-                    self.cohorts,
-                    self.readings,
-                    self.grammar,
-                    reading,
-                    tag_id,
-                    tag,
-                    &itag,
-                );
-                if rv != TagHash(0) {
-                    m = rv.get();
-                }
-            }
+            m = self.match_numerical(reading, tag_id, tag)?;
         } else if ttype.intersects(T_VARIABLE | T_LOCAL_VARIABLE) {
             // (9) variable existence / value comparison
             m = 0;
-            let cid = self.readings.get(reading.0).parent.unwrap();
-            let sw_opt = self.cohorts.get(cid.0).parent;
-            let use_global = sw_opt == self.stream.current || (!ttype.intersects(T_LOCAL_VARIABLE));
-            let var_entries: Vec<(u32, u32)> = if use_global {
-                collect_fum(self.variables)
-            } else {
-                collect_fum(&self.single_windows.get(sw_opt.unwrap().0).variables_set)
-            };
+            let var_entries = self.tag_variables(reading, ttype, tag)?;
 
             let key_info = {
                 let it = self.grammar.single_tags().find(tag.comparison_hash);
@@ -590,47 +567,15 @@ impl Matcher<'_> {
             }
         } else if ttype.intersects(T_PAR_LEFT) {
             // (10)
-            if self.scratch.par_left_tag != TagHash(0) {
-                let (ln, has) = {
-                    let r = self.readings.get(reading.0);
-                    let cid = r.parent.unwrap();
-                    let has = r.tags.find(self.scratch.par_left_tag.get()) != r.tags.end();
-                    (self.cohorts.get(cid.0).local_number, has)
-                };
-                if ln == self.scratch.par_left_pos && has {
-                    m = self.grammar.tag_any;
-                }
-            }
+            let edge = (self.scratch.par_left_tag, self.scratch.par_left_pos);
+            m = self.match_par_edge(reading, tag, edge)?;
         } else if ttype.intersects(T_PAR_RIGHT) {
             // (11)
-            if self.scratch.par_right_tag != TagHash(0) {
-                let (ln, has) = {
-                    let r = self.readings.get(reading.0);
-                    let cid = r.parent.unwrap();
-                    let has = r.tags.find(self.scratch.par_right_tag.get()) != r.tags.end();
-                    (self.cohorts.get(cid.0).local_number, has)
-                };
-                if ln == self.scratch.par_right_pos && has {
-                    m = self.grammar.tag_any;
-                }
-            }
+            let edge = (self.scratch.par_right_tag, self.scratch.par_right_pos);
+            m = self.match_par_edge(reading, tag, edge)?;
         } else if ttype.intersects(T_ENCL) {
             // (12) enclosure: the cohort right after reading.parent is enclosed
-            let cid = self.readings.get(reading.0).parent.unwrap();
-            let (sw_id, local_number) = {
-                let c = self.cohorts.get(cid.0);
-                (c.parent.unwrap(), c.local_number as usize)
-            };
-            let all = self.single_windows.get(sw_id.0).all_cohorts.clone();
-            // std::find(begin + local_number, end, reading.parent), then ++c.
-            let mut idx = local_number;
-            while idx < all.len() && all[idx] != cid {
-                idx += 1;
-            }
-            let cpos = idx + 1;
-            if cpos < all.len() && self.cohorts.get(all[cpos].0).enclosed != 0 {
-                m = 1;
-            }
+            m = self.match_enclosure(reading, tag)?;
         } else if ttype.intersects(T_TARGET) {
             // (13)
             let pc = self.readings.get(reading.0).parent;
@@ -673,6 +618,174 @@ impl Matcher<'_> {
             retval = m;
         }
         Ok(retval)
+    }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// The cohort `reading` belongs to, for a `tag` that asks about it.
+    ///
+    /// DIVERGENCE: the bag of tags a `B` test reads belongs to no cohort, and
+    /// such a tag is a run error naming the rule; the C++ followed the bag's
+    /// null cohort.
+    fn reading_cohort(&mut self, reading: ReadingId, tag: &Tag) -> Result<CohortId, RunError> {
+        match self.readings.get(reading.0).parent {
+            Some(cohort) => Ok(cohort),
+            None => Err(self.rule_inapplicable(RuleInapplicable::BagOfTagsCohort {
+                tag: tag.tag.clone(),
+            })),
+        }
+    }
+
+    /// Capture `tag`'s `gc` groups in `text` into the current context frame,
+    /// when there are groups and the frame collects them. Returns whether the
+    /// frame collects them: a match that captures is not memoised.
+    fn capture_groups(&mut self, gc: i32, tag: &Tag, text: &str) -> bool {
+        let frame = self
+            .scratch
+            .context_stack
+            .last_mut()
+            .and_then(|f| f.regexgrps.map(|idx| (idx, &mut f.regexgrp_ct)))
+            .filter(|_| gc > 0);
+        let Some((idx, regexgrp_ct)) = frame else {
+            return false;
+        };
+        if let Some(re) = &tag.regexp {
+            let rg = &mut self.scratch.regexgrps_store[idx];
+            capture_regex(gc, regexgrp_ct, rg, re, text);
+        }
+        true
+    }
+
+    /// Case (7) of [`Self::does_tag_match_reading`] for `"<.*>"`: the wordform
+    /// of the reading's cohort, the same one throughout a unification.
+    fn match_any_wordform(
+        &mut self,
+        reading: ReadingId,
+        tag: &Tag,
+        unif_mode: bool,
+    ) -> Result<u32, RunError> {
+        let cid = self.reading_cohort(reading, tag)?;
+        #[expect(
+            clippy::unwrap_used,
+            reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+        )]
+        let wf = self.cohorts.get(cid.0).wordform.unwrap();
+        let wf_hash = self.grammar.single_tags_list[wf.0].hash;
+        let mut m = wf_hash.get();
+        if unif_mode {
+            if self.scratch.unif_last_wordform != TagHash(0) {
+                if self.scratch.unif_last_wordform != wf_hash {
+                    m = 0;
+                }
+            } else {
+                self.scratch.unif_last_wordform = wf_hash;
+            }
+        }
+        Ok(m)
+    }
+
+    /// Case (8) of [`Self::does_tag_match_reading`], a numerical tag: the
+    /// last of the reading's numerical tags it matches wins.
+    fn match_numerical(
+        &mut self,
+        reading: ReadingId,
+        tag_id: TagId,
+        tag: &Tag,
+    ) -> Result<u32, RunError> {
+        let nums: Vec<TagId> = self
+            .readings
+            .get(reading.0)
+            .tags_numerical
+            .values()
+            .copied()
+            .collect();
+        let mut m = 0;
+        for tid in nums {
+            let itag = self.grammar.single_tags_list[tid.0].clone();
+            let rv = test_tag_numerical(
+                self.cohorts,
+                self.readings,
+                self.grammar,
+                reading,
+                tag_id,
+                tag,
+                &itag,
+            );
+            let Some(rv) = rv else {
+                let why = RuleInapplicable::BagOfTagsCohort {
+                    tag: tag.tag.clone(),
+                };
+                return Err(self.rule_inapplicable(why));
+            };
+            if rv != TagHash(0) {
+                m = rv.get();
+            }
+        }
+        Ok(m)
+    }
+
+    /// The variables a `VAR:` or `LVAR:` tag reads for `reading`: the global
+    /// ones, or for `LVAR:` outside the current window, its own window's.
+    fn tag_variables(
+        &mut self,
+        reading: ReadingId,
+        ttype: crate::tag::TagType,
+        tag: &Tag,
+    ) -> Result<Vec<(u32, u32)>, RunError> {
+        let cid = self.reading_cohort(reading, tag)?;
+        let sw_opt = self.cohorts.get(cid.0).parent;
+        if sw_opt == self.stream.current || !ttype.intersects(T_LOCAL_VARIABLE) {
+            return Ok(collect_fum(self.variables));
+        }
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+        )]
+        let sw = sw_opt.unwrap();
+        Ok(collect_fum(&self.single_windows.get(sw.0).variables_set))
+    }
+
+    /// Cases (10) and (11) of [`Self::does_tag_match_reading`], `_LEFT_` and
+    /// `_RIGHT_`: the reading is the enclosure's `edge` — its tag, at its
+    /// position — while one is being run.
+    fn match_par_edge(
+        &mut self,
+        reading: ReadingId,
+        tag: &Tag,
+        edge: (TagHash, u32),
+    ) -> Result<u32, RunError> {
+        let (edge_tag, edge_pos) = edge;
+        if edge_tag == TagHash(0) {
+            return Ok(0);
+        }
+        let cid = self.reading_cohort(reading, tag)?;
+        let r = self.readings.get(reading.0);
+        let has = r.tags.find(edge_tag.get()) != r.tags.end();
+        let at = self.cohorts.get(cid.0).local_number == edge_pos;
+        Ok(if at && has { self.grammar.tag_any } else { 0 })
+    }
+
+    /// Case (12) of [`Self::does_tag_match_reading`], `_ENCL_`: the cohort
+    /// after the reading's own in its window is enclosed.
+    fn match_enclosure(&mut self, reading: ReadingId, tag: &Tag) -> Result<u32, RunError> {
+        let cid = self.reading_cohort(reading, tag)?;
+        let (sw_id, local_number) = {
+            let c = self.cohorts.get(cid.0);
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it, and only cohort_clear, on free, resets it"
+            )]
+            let sw = c.parent.unwrap();
+            (sw, c.local_number as usize)
+        };
+        let all = &self.single_windows.get(sw_id.0).all_cohorts;
+        // std::find(begin + local_number, end, reading.parent), then ++c.
+        let mut idx = local_number;
+        while idx < all.len() && all[idx] != cid {
+            idx += 1;
+        }
+        let cpos = idx + 1;
+        let enclosed = cpos < all.len() && self.cohorts.get(all[cpos].0).enclosed != 0;
+        Ok(u32::from(enclosed))
     }
 
     // [spec:cg3:req:robustness.accepted-grammars-run]
@@ -917,15 +1030,18 @@ impl Matcher<'_> {
 
         // Main fast path: merge-intersect the reading's plain tags with the trie's
         // first-level keys (both ascending by hash). `entries` is snapshotted with
-        // a short borrow; node flags are re-read fresh per hit (never held across a
+        // a short borrow, each key with its node's flags (never held across a
         // `&mut self` re-entry). `path` is the root-to-node key of the [`UnifKey`].
         let plain: Vec<u32> = self.readings.get(reading.0).tags_plain.as_slice().to_vec();
-        let entries: Vec<(TagId, u32)> = {
+        let entries: Vec<(TagId, u32, bool, bool)> = {
             match self.trie_level_at(set_number, false, &[]) {
                 Some(t) if !plain.is_empty() => {
-                    let mut e: Vec<(TagId, u32)> = t
-                        .keys()
-                        .map(|k| (*k, self.grammar.single_tags_list[k.0].hash.get()))
+                    let mut e: Vec<(TagId, u32, bool, bool)> = t
+                        .iter()
+                        .map(|(k, n)| {
+                            let hash = self.grammar.single_tags_list[k.0].hash.get();
+                            (*k, hash, n.terminal, n.trie.is_some())
+                        })
                         .collect();
                     e.sort_by_key(|x| x.1);
                     e
@@ -941,13 +1057,9 @@ impl Matcher<'_> {
             let mut path: Vec<TagId> = Vec::new();
             while oi < plain.len() && ii < entries.len() {
                 if plain[oi] == entries[ii].1 {
-                    let tid = entries[ii].0;
+                    let (tid, _, terminal, has_child) = entries[ii];
                     path.clear();
                     path.push(tid);
-                    let (terminal, has_child) = {
-                        let n = self.trie_node_at(set_number, false, &path).unwrap();
-                        (n.terminal, n.trie.is_some())
-                    };
                     if terminal {
                         if unif_mode {
                             let key = UnifKey {
@@ -1059,7 +1171,8 @@ impl Matcher<'_> {
         context: &mut CohortMatchContext,
     ) -> Result<bool, crate::error::RunError> {
         let mut retval = true;
-        let mut reset = false;
+        // The template link taken off `tmpl_cntx.linked`, to put back.
+        let mut reset: Option<crate::arena::CtxId> = None;
         let mut linked: Option<crate::arena::CtxId> = None;
         let mut min: Option<CohortId> = None;
         let mut max: Option<CohortId> = None;
@@ -1074,7 +1187,7 @@ impl Matcher<'_> {
             max = self.scratch.tmpl_cntx.max;
             linked = self.scratch.tmpl_cntx.linked.last().copied();
             self.scratch.tmpl_cntx.linked.pop();
-            reset = true;
+            reset = linked;
         }
         if let Some(l) = linked {
             if !context.did_test {
@@ -1115,8 +1228,8 @@ impl Matcher<'_> {
             }
             retval = context.matched_tests;
         }
-        if reset {
-            self.scratch.tmpl_cntx.linked.push(linked.unwrap());
+        if let Some(l) = reset {
+            self.scratch.tmpl_cntx.linked.push(l);
         }
         if !retval {
             self.scratch.tmpl_cntx.min = min;
@@ -1141,11 +1254,11 @@ impl Matcher<'_> {
         let mut retval = false;
         let mut utags = self.scratch.ss_utags.get();
         let mut usets = self.scratch.ss_usets.get();
-        let orz = if self.scratch.context_stack.is_empty() {
-            0
-        } else {
-            self.scratch.context_stack.last().unwrap().regexgrp_ct
-        };
+        let orz = self
+            .scratch
+            .context_stack
+            .last()
+            .map_or(0, |f| f.regexgrp_ct);
 
         let (stype, snumber) = {
             let s = self.grammar.set_by_number(SetNumber(set)); // grammar->sets_list[set]
@@ -1159,11 +1272,16 @@ impl Matcher<'_> {
         let child_unify = stype.intersects(ST_CHILD_UNIFY);
         let cap_unif = cur_flags.intersects(RF_CAPTURE_UNIF);
 
-        if context.is_some() && !cap_unif && child_unify && !self.scratch.context_stack.is_empty() {
-            let (ut_idx, us_idx) = {
-                let f = self.scratch.context_stack.last().unwrap();
-                (f.unif_tags.unwrap(), f.unif_sets.unwrap())
-            };
+        if context.is_some()
+            && !cap_unif
+            && child_unify
+            && let Some(f) = self.scratch.context_stack.last()
+        {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a set is matched under a context frame only while run_single_rule_body matches a reading, after giving the frame its unif_tags and unif_sets indices (fresh, or from the plain-signature cache), or while an action runs under a saved copy of such a frame"
+            )]
+            let (ut_idx, us_idx) = (f.unif_tags.unwrap(), f.unif_sets.unwrap());
             utags = self.scratch.unif_tags_store[ut_idx].clone();
             usets = self.scratch.unif_sets_store[us_idx].clone();
         }
@@ -1189,28 +1307,20 @@ impl Matcher<'_> {
         }
 
         // Linked test + attach-to.
-        if retval {
-            let in_barrier = context.as_deref().map(|c| c.in_barrier).unwrap_or(false);
-            if context.is_some() && !in_barrier {
-                let attach = context
-                    .as_deref()
-                    .unwrap()
-                    .options
-                    .intersects(POS_ATTACH_TO);
-                {
-                    let ctx = context.as_deref_mut().unwrap();
-                    retval = self.does_set_match_cohort_test_linked(cohort, set, ctx)?;
-                }
-                if attach {
-                    // reading.matched_tests = retval — retval can be FALSE, so
-                    // this is a real bool store (insert-or-remove), not a mark.
-                    self.scratch.set_matched_tests(reading, retval);
-                    if retval && !self.scratch.context_stack.is_empty() {
-                        let f = self.scratch.context_stack.last_mut().unwrap();
-                        f.attach_to.cohort = Some(cohort);
-                        f.attach_to.reading = None; // set by doesSetMatchCohortNormal
-                        f.attach_to.subreading = Some(reading);
-                    }
+        if retval
+            && let Some(ctx) = context.as_deref_mut()
+            && !ctx.in_barrier
+        {
+            let attach = ctx.options.intersects(POS_ATTACH_TO);
+            retval = self.does_set_match_cohort_test_linked(cohort, set, ctx)?;
+            if attach {
+                // reading.matched_tests = retval — retval can be FALSE, so
+                // this is a real bool store (insert-or-remove), not a mark.
+                self.scratch.set_matched_tests(reading, retval);
+                if retval && let Some(f) = self.scratch.context_stack.last_mut() {
+                    f.attach_to.cohort = Some(cohort);
+                    f.attach_to.reading = None; // set by doesSetMatchCohortNormal
+                    f.attach_to.subreading = Some(reading);
                 }
             }
         }
@@ -1220,42 +1330,26 @@ impl Matcher<'_> {
             && context.is_some()
             && !cap_unif
             && child_unify
-            && !self.scratch.context_stack.is_empty()
+            && let Some(f) = self.scratch.context_stack.last()
         {
-            let ut_idx = self
-                .scratch
-                .context_stack
-                .last()
-                .unwrap()
-                .unif_tags
-                .unwrap();
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a set is matched under a context frame only while run_single_rule_body matches a reading, after giving the frame its unif_tags and unif_sets indices (fresh, or from the plain-signature cache), or while an action runs under a saved copy of such a frame"
+            )]
+            let (ut_idx, us_idx) = (f.unif_tags.unwrap(), f.unif_sets.unwrap());
             let entry = &mut self.scratch.unif_tags_store[ut_idx];
             let differs = utags.len() != entry.len() || utags != *entry;
             if differs {
                 std::mem::swap(entry, &mut utags);
             }
-        }
-        if !retval
-            && context.is_some()
-            && !cap_unif
-            && child_unify
-            && !self.scratch.context_stack.is_empty()
-        {
-            let us_idx = self
-                .scratch
-                .context_stack
-                .last()
-                .unwrap()
-                .unif_sets
-                .unwrap();
             let entry = &mut self.scratch.unif_sets_store[us_idx];
             let differs = usets.len() != entry.len();
             if differs {
                 std::mem::swap(entry, &mut usets);
             }
         }
-        if !retval && !self.scratch.context_stack.is_empty() {
-            self.scratch.context_stack.last_mut().unwrap().regexgrp_ct = orz;
+        if !retval && let Some(f) = self.scratch.context_stack.last_mut() {
+            f.regexgrp_ct = orz;
         }
         Ok(retval)
     }
@@ -1355,12 +1449,8 @@ impl Matcher<'_> {
         }
 
         // POS_NOT: run the linked test even though nothing matched.
-        let do_tl = context
-            .as_deref()
-            .map(|c| !c.matched_target && c.options.intersects(POS_NOT))
-            .unwrap_or(false);
-        if do_tl {
-            let ctx = context.unwrap();
+        let do_tl = context.filter(|c| !c.matched_target && c.options.intersects(POS_NOT));
+        if let Some(ctx) = do_tl {
             retval = self.does_set_match_cohort_test_linked(cohort, set, ctx)?;
         }
 
@@ -1446,12 +1536,8 @@ impl Matcher<'_> {
             }
         }
 
-        let do_tl = context
-            .as_deref()
-            .map(|c| !c.matched_target && c.options.intersects(POS_NOT))
-            .unwrap_or(false);
-        if do_tl {
-            let ctx = context.unwrap();
+        let do_tl = context.filter(|c| !c.matched_target && c.options.intersects(POS_NOT));
+        if let Some(ctx) = do_tl {
             retval = self.does_set_match_cohort_test_linked(cohort, set, ctx)?;
         }
 
@@ -1527,29 +1613,7 @@ impl Matcher<'_> {
                 m = itag_hash;
             }
             if m != 0 {
-                let capture = gc > 0
-                    && !self.scratch.context_stack.is_empty()
-                    && self
-                        .scratch
-                        .context_stack
-                        .last()
-                        .unwrap()
-                        .regexgrps
-                        .is_some();
-                if capture {
-                    if let Some(re) = &tag.regexp {
-                        let idx = self
-                            .scratch
-                            .context_stack
-                            .last()
-                            .unwrap()
-                            .regexgrps
-                            .unwrap();
-                        let frame = self.scratch.context_stack.last_mut().unwrap();
-                        let rg = &mut self.scratch.regexgrps_store[idx];
-                        capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &itag_text);
-                    }
-                } else {
+                if !self.capture_groups(gc, tag, &itag_text) {
                     self.scratch.index_regexp_yes.insert(ih);
                 }
             } else {
@@ -1621,29 +1685,7 @@ impl Matcher<'_> {
                 m = tsh;
             }
             if m != 0 {
-                let capture = gc > 0
-                    && !self.scratch.context_stack.is_empty()
-                    && self
-                        .scratch
-                        .context_stack
-                        .last()
-                        .unwrap()
-                        .regexgrps
-                        .is_some();
-                if capture {
-                    if let Some(re) = &tag.regexp {
-                        let idx = self
-                            .scratch
-                            .context_stack
-                            .last()
-                            .unwrap()
-                            .regexgrps
-                            .unwrap();
-                        let frame = self.scratch.context_stack.last_mut().unwrap();
-                        let rg = &mut self.scratch.regexgrps_store[idx];
-                        capture_regex(gc, &mut frame.regexgrp_ct, rg, re, &ts);
-                    }
-                } else {
+                if !self.capture_groups(gc, tag, &ts) {
                     self.scratch.index_regexp_yes.insert(ih);
                 }
             } else {
@@ -1725,7 +1767,15 @@ impl Matcher<'_> {
                         }
                     } else if ttype.intersects(T_WORDFORM) {
                         if itype.intersects(T_WORDFORM) {
+                            #[expect(
+                                clippy::unwrap_used,
+                                reason = "a reading or sub-reading belongs to a cohort: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was, and a rule's EXCEPT asks this of the reading it acts on"
+                            )]
                             let cid = self.readings.get(reading.0).parent.unwrap();
+                            #[expect(
+                                clippy::unwrap_used,
+                                reason = "every cohort gets a wordform where it is made (each stream reader, the >>> cohort in run_grammar, ADDCOHORT and the splitting rules in restructure); only cohort_clear resets it"
+                            )]
                             let wf = self.cohorts.get(cid.0).wordform.unwrap();
                             m = self.grammar.single_tags_list[wf.0].hash.get();
                         }
@@ -1737,7 +1787,7 @@ impl Matcher<'_> {
                     }
                 } else if (ttype.intersects(T_NUMERICAL)) && (itype.intersects(T_NUMERICAL)) {
                     let itag = self.grammar.single_tags_list[itag_id.0].clone();
-                    m = test_tag_numerical(
+                    let rv = test_tag_numerical(
                         self.cohorts,
                         self.readings,
                         self.grammar,
@@ -1745,8 +1795,13 @@ impl Matcher<'_> {
                         tid,
                         &tag,
                         &itag,
-                    )
-                    .get();
+                    );
+                    #[expect(
+                        clippy::unwrap_used,
+                        reason = "test_tag_numerical is None only for a reading with no cohort, and a rule's EXCEPT asks this of the reading it acts on, which belongs to one: readers and rules allocate one with alloc_reading(Some(cohort)) or copy one that was"
+                    )]
+                    let rv = rv.unwrap();
+                    m = rv.get();
                 } else if tag.hash == ihash {
                     m = ihash.get();
                 }

@@ -114,6 +114,10 @@ impl OperatorWalk {
                 return SetStep::Test(self.sets[self.i], self.members_unif);
             }
             if self.i < size - 1 && self.ops[self.i] != S_OR {
+                #[expect(
+                    clippy::panic,
+                    reason = "a set's operators between its members are only OR, +, - and ^: binary_grammar's set_shape refuses a .cg3b set with any other, the textual parser applies \\, ∩ and ∆ as soon as their right operand is read, and the relabeller joins with OR and +"
+                )]
                 let wants = match self.ops[self.i] {
                     x if x == S_PLUS => self.m.then_some(Awaiting::Plus),
                     x if x == S_FAILFAST => Some(Awaiting::FailFast),
@@ -307,15 +311,13 @@ impl Matcher<'_> {
         // Propagate a unified tag across the set's members.
         if let FrameKind::Operators(walk) = &frame.kind
             && walk.members_unif
-            && !self.scratch.context_stack.is_empty()
+            && let Some(top) = self.scratch.context_stack.last()
         {
-            let ut_idx = self
-                .scratch
-                .context_stack
-                .last()
-                .unwrap()
-                .unif_tags
-                .unwrap();
+            #[expect(
+                clippy::unwrap_used,
+                reason = "a set is matched under a context frame only while run_single_rule_body matches a reading, after giving the frame its unif_tags and unif_sets indices (fresh, or from the plain-signature cache), or while an action runs under a saved copy of such a frame"
+            )]
+            let ut_idx = top.unif_tags.unwrap();
             let ut = &mut self.scratch.unif_tags_store[ut_idx];
             let tag: Option<UnifKey> = walk.sets.iter().find_map(|s| ut.get(s).cloned());
             if let Some(t) = tag {
