@@ -1375,10 +1375,10 @@ impl Engine<'_> {
     // delimitAt
     // =======================================================================
 
-    // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.delimit-at-fn]
-    // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.delimit-at-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.delimit-at-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.delimit-at-fn]
+    // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.delimit-at-fn+1]
+    // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.delimit-at-fn+1]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.delimit-at-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.delimit-at-fn+1]
     /// C++ `Cohort* delimitAt(SingleWindow& current, Cohort* cohort)` — splits
     /// `current` after `cohort` into a fresh following window and returns
     /// `current`'s new last cohort (which receives the END tag). `current.parent`
@@ -1408,7 +1408,9 @@ impl Engine<'_> {
                 && let Some(pos) = self.doc.stream.previous.iter().position(|&w| w == current)
             {
                 let n = self.doc.stream.alloc_single_window(&mut self.doc.store);
-                self.doc.stream.previous.insert(pos, n);
+                // DIVERGENCE: the C++ inserts at `current`'s own position,
+                // putting the split-off tail BEFORE the window it came from.
+                self.doc.stream.previous.insert(pos + 1, n);
                 nwin = Some(n);
             }
             self.doc

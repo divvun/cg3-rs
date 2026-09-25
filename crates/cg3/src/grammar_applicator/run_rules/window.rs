@@ -771,9 +771,15 @@ impl crate::grammar_applicator::Engine<'_> {
     /// `goto scanParentheses` loop body, wave 4: extracted). Returns `true` if
     /// an enclosure was wrapped (the caller re-scans from scratch), `false`
     /// when a full pass changed nothing.
+    ///
+    /// DIVERGENCE: the C++ lets the window's `>>>` open an enclosure when its
+    /// tag is a left parenthesis, wrapping the sentinel away with the rest and
+    /// leaving a window with no cohorts at all; the port never opens one on
+    /// `>>>`.
+    // [spec:cg3:req:robustness.enclosures]
     fn rr_wrap_one_enclosure(&mut self, current: SwId) -> bool {
         let cohorts = self.doc.store.single_windows.get(current.0).cohorts.clone();
-        for ci in (0..cohorts.len()).rev() {
+        for ci in (1..cohorts.len()).rev() {
             let c = cohorts[ci];
             let is_pleft = self.doc.store.cohorts.get(c.0).is_pleft;
             if is_pleft == 0 {
@@ -887,99 +893,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 while i < nc {
                     let c = self.doc.store.single_windows.get(current.0).all_cohorts[i];
                     if self.doc.store.cohorts.get(c.0).enclosed == 1 {
-                        let mut la = i;
-                        while la > 0 {
-                            let prev =
-                                self.doc.store.single_windows.get(current.0).all_cohorts[la - 1];
-                            if !self
-                                .doc
-                                .store
-                                .cohorts
-                                .get(prev.0)
-                                .r#type
-                                .intersects(CT_ENCLOSED | CT_REMOVED | CT_IGNORED)
-                            {
-                                la -= 1;
-                                break;
-                            }
-                            la -= 1;
-                        }
-                        let ni = {
-                            let lac = self.doc.store.single_windows.get(current.0).all_cohorts[la];
-                            self.doc.store.cohorts.get(lac.0).local_number as usize
-                        };
-
-                        let mut ra = i;
-                        let mut ne = 0usize;
-                        while ra < nc {
-                            let rac = self.doc.store.single_windows.get(current.0).all_cohorts[ra];
-                            if !self
-                                .doc
-                                .store
-                                .cohorts
-                                .get(rac.0)
-                                .r#type
-                                .intersects(CT_ENCLOSED | CT_REMOVED | CT_IGNORED)
-                            {
-                                break;
-                            }
-                            {
-                                let c = self.doc.store.cohorts.get_mut(rac.0);
-                                c.enclosed -= 1;
-                                if c.enclosed == 0 {
-                                    c.r#type &= !CT_ENCLOSED;
-                                    ne += 1;
-                                }
-                            }
-                            ra += 1;
-                        }
-
-                        {
-                            let clen = self.doc.store.single_windows.get(current.0).cohorts.len();
-                            let sw = self.doc.store.single_windows.get_mut(current.0);
-                            sw.cohorts.resize(clen + ne, CohortId(u32::MAX));
-                        }
-                        {
-                            let clen = self.doc.store.single_windows.get(current.0).cohorts.len();
-                            let mut j = clen - 1;
-                            while j > ni + ne {
-                                let moved =
-                                    self.doc.store.single_windows.get(current.0).cohorts[j - ne];
-                                self.doc.store.single_windows.get_mut(current.0).cohorts[j] = moved;
-                                self.doc.store.cohorts.get_mut(moved.0).local_number = ui32(j);
-                                self.doc.store.single_windows.get_mut(current.0).cohorts[j - ne] =
-                                    CohortId(u32::MAX);
-                                j -= 1;
-                            }
-                        }
-                        {
-                            let mut j = 0usize;
-                            while i < ra {
-                                let ac =
-                                    self.doc.store.single_windows.get(current.0).all_cohorts[i];
-                                if self.doc.store.cohorts.get(ac.0).enclosed == 0 {
-                                    self.doc.store.single_windows.get_mut(current.0).cohorts
-                                        [ni + j + 1] = ac;
-                                    self.doc.store.cohorts.get_mut(ac.0).local_number =
-                                        ui32(ni + j + 1);
-                                    self.doc.store.cohorts.get_mut(ac.0).parent = Some(current);
-                                    j += 1;
-                                }
-                                i += 1;
-                            }
-                        }
-                        self.scratch.par_left_tag = {
-                            let ac =
-                                self.doc.store.single_windows.get(current.0).all_cohorts[la + 1];
-                            TagHash(self.doc.store.cohorts.get(ac.0).is_pleft)
-                        };
-                        self.scratch.par_right_tag = {
-                            let ac =
-                                self.doc.store.single_windows.get(current.0).all_cohorts[ra - 1];
-                            TagHash(self.doc.store.cohorts.get(ac.0).is_pright)
-                        };
-                        self.scratch.par_left_pos = ui32(ni + 1);
-                        self.scratch.par_right_pos = ui32(ni + ne);
+                        i = self.rr_unpack_enclosure_at(current, i, nc);
                         if rv & RV_TRACERULE != 0 {
                             continue;
                         }
@@ -1006,6 +920,92 @@ impl crate::grammar_applicator::Engine<'_> {
             break;
         }
         false
+    }
+
+    // [spec:cg3:req:robustness.enclosures]
+    /// Unpack the enclosure whose outermost level starts at `all_cohorts[i]`:
+    /// take one level of enclosure off every hidden cohort in the run from
+    /// there, put the ones that come out back into `cohorts` after the nearest
+    /// visible cohort to the left, and record the enclosure's edges in the
+    /// `par_*` state. Returns the `all_cohorts` index just past the run.
+    ///
+    /// DIVERGENCE: the C++ decrements every cohort of the run, so a cohort
+    /// removed or ignored beside the enclosure, at depth zero, has its count
+    /// wrap; and it puts back every cohort left at depth zero, the removed and
+    /// ignored ones with them. The port never takes a count below zero and
+    /// only puts back the cohorts this unpacking brought to zero that are
+    /// neither removed nor ignored — an ignored one comes back through the
+    /// ignored-cohort restore instead.
+    fn rr_unpack_enclosure_at(&mut self, current: SwId, i: usize, nc: usize) -> usize {
+        let all = self
+            .doc
+            .store
+            .single_windows
+            .get(current.0)
+            .all_cohorts
+            .clone();
+        let hidden = CT_ENCLOSED | CT_REMOVED | CT_IGNORED;
+        let is_hidden =
+            |e: &Self, c: CohortId| e.doc.store.cohorts.get(c.0).r#type.intersects(hidden);
+        let mut la = i;
+        while la > 0 {
+            la -= 1;
+            if !is_hidden(self, all[la]) {
+                break;
+            }
+        }
+        let ni = self.doc.store.cohorts.get(all[la].0).local_number as usize;
+
+        let mut ra = i;
+        let mut revealed: Vec<CohortId> = Vec::new();
+        while ra < nc && is_hidden(self, all[ra]) {
+            if self.rr_leave_enclosure(all[ra]) {
+                revealed.push(all[ra]);
+            }
+            ra += 1;
+        }
+
+        let at = {
+            let sw = self.doc.store.single_windows.get_mut(current.0);
+            let at = (ni + 1).min(sw.cohorts.len());
+            sw.cohorts.splice(at..at, revealed.iter().copied());
+            at
+        };
+        for &c in &revealed {
+            self.doc.store.cohorts.get_mut(c.0).parent = Some(current);
+        }
+        self.rr_renumber_from(current, at);
+
+        self.scratch.par_left_tag = TagHash(self.doc.store.cohorts.get(all[la + 1].0).is_pleft);
+        self.scratch.par_right_tag = TagHash(self.doc.store.cohorts.get(all[ra - 1].0).is_pright);
+        self.scratch.par_left_pos = ui32(ni + 1);
+        self.scratch.par_right_pos = ui32(ni + revealed.len());
+        ra
+    }
+
+    // [spec:cg3:req:robustness.enclosures]
+    /// Take one level of enclosure off `c`, never below zero. Whether that
+    /// brought `c` out of its last enclosure as a cohort to show again — not
+    /// one a rule removed or ignored.
+    fn rr_leave_enclosure(&mut self, c: CohortId) -> bool {
+        let cohort = self.doc.store.cohorts.get_mut(c.0);
+        if cohort.enclosed == 0 {
+            return false;
+        }
+        cohort.enclosed -= 1;
+        if cohort.enclosed != 0 {
+            return false;
+        }
+        cohort.r#type &= !CT_ENCLOSED;
+        !cohort.r#type.intersects(CT_REMOVED | CT_IGNORED)
+    }
+
+    /// Renumber `current.cohorts[from..]` to their indices.
+    fn rr_renumber_from(&mut self, current: SwId, from: usize) {
+        let cohorts = self.doc.store.single_windows.get(current.0).cohorts.clone();
+        for (k, cid) in cohorts.iter().enumerate().skip(from) {
+            self.doc.store.cohorts.get_mut(cid.0).local_number = ui32(k);
+        }
     }
 
     /// One pass of `runGrammarOnWindow`'s main loop (the C++
@@ -1139,10 +1139,10 @@ impl crate::grammar_applicator::Engine<'_> {
         Ok(std::ops::ControlFlow::Break(()))
     }
 
-    // [spec:cg3:def:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn]
-    // [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn]
+    // [spec:cg3:def:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn+1]
+    // [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn+1]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn+1]
     /// C++ `void runGrammarOnWindow()`. The retired-window flush prints to the
     /// applicator's stdout member in C++; the port threads the live output
     /// writer in.

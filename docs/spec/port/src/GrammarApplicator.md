@@ -367,7 +367,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.delimit-at-fn]
 > Cohort* delimitAt(SingleWindow& current, Cohort* cohort)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.delimit-at-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.delimit-at-fn+1]
 > Splits `current` window into two at `cohort`, moving everything after `cohort`
 > into a new following window. Allocate the new window `nwin`: if `current` is the
 > parent's current window, `allocPushSingleWindow`; otherwise find `current`
@@ -384,6 +384,12 @@
 > `current.all_cohorts` (from the found position). Set `cohort =
 > current.cohorts.back()` and add the `endtag` to each of its readings. Call
 > `gWindow->rebuildCohortLinks()`. Return the new last cohort of `current`.
+>
+> PORT DIVERGENCE (robustness: cross-window actions): when `current` is found in
+> `previous`, `nwin` goes right after it, as it does in `next`; the C++ inserts
+> it at `current`'s own position, putting the split-off tail before the window
+> it came from. Only a DELIMIT that reaches a previous window through a spanning
+> context splits one there.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-regexp-match-line-fn]
 > uint32_t doesRegexpMatchLine(const Reading& reading, const Tag& tag, bool bypass_index = false)
@@ -1455,7 +1461,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn]
 > void runGrammarOnWindow()
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn+1]
 > Prepares and runs the grammar on `gWindow->current`, including parenthesis
 > enclosure wrapping/unwrapping and dependency/relation reflow. `current =
 > gWindow->current`; `did_final_enclosure=false`. Apply the window's stored
@@ -1481,6 +1487,16 @@
 > any CT_IGNORED cohorts back into the visible `cohorts` (clearing CT_IGNORED and
 > re-registering in `cohort_map`), and if any were reinserted renumber local_numbers
 > and `reflowDependencyWindow()`. No return.
+>
+> PORT DIVERGENCE (robustness: enclosures): the window's `>>>` never opens an
+> enclosure, so a pair whose left tag it carries cannot wrap the sentinel away
+> and leave `cohorts` empty. Unpacking never takes an `enclosed` depth below
+> zero, and puts back into `cohorts` only the cohorts that unpacking brought to
+> depth zero and that are neither CT_REMOVED nor CT_IGNORED. The C++ decrements
+> every cohort of the run, wrapping the depth of a cohort removed or ignored
+> beside the enclosure, and puts back every cohort of the run left at depth
+> zero, reviving one removed before the window wrapped. An ignored cohort still
+> returns through the final ignored-cohort restore.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-parenthesis-test-fn]
 > Cohort* runParenthesisTest(SingleWindow* sWindow, const Cohort* current, const ContextualTest* test, Cohort** deep = nullptr, Cohort* origin = nullptr)
@@ -1564,11 +1580,30 @@
 > cohort with no parent alone: the rule checks the TARGET for one, but an
 > attaching context makes it act on another cohort, whose null parent the C++
 > dereferenced.
+>
+> PORT DIVERGENCE (robustness: cross-window actions, enclosures): the C++
+> indexes and renumbers `current` for every restructuring action, although a
+> spanning `A` context, a dependency or an attachment can hand the action a
+> cohort in another window, and it frees a window rem_cohort empties while the
+> rule is still running. The port resolves every cohort an action inserts
+> beside, removes, ignores, merges, splits or delimits after to the window it is
+> in, and requires the cohort to sit there at its local number; an action whose
+> cohort does not (removed, ignored, or enclosed by PARENTHESES) does nothing,
+> as does one that would remove, merge, split or delimit after a window's `>>>`,
+> or insert before it. ADDCOHORT, MERGECOHORTS, SPLITCOHORT, DELIMIT and
+> REMCOHORT, with its `<<<` repair, act on that window, and MERGECOHORTS also
+> repairs `<<<` in each window it took a cohort from. MOVE and SWITCH act only
+> when both cohorts sit in `current` (the C++ checks the shared window before an
+> `A` context swaps in the attach cohort, not after) and never move a `>>>`;
+> COPYCOHORT does nothing for an enclosed attach cohort or one it would copy in
+> front of a `>>>`. A window rem_cohort empties leaves the stream at once but is
+> freed, with its `>>>`, only when the rule finishes, because the rule's context
+> frames may still name either.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
 > bool runSingleRule(SingleWindow& current, const Rule& rule, RuleCallback reading_cb, RuleCallback cohort_cb)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
 > Walks the candidate cohorts of one rule, tests each cohort's readings against
 > target+contexts, and invokes the caller-supplied `reading_cb`/`cohort_cb` to
 > perform the rule action. Returns whether anything changed. Set
@@ -1612,6 +1647,14 @@
 > and re-seeks `rocit`, `finish_reading_loop=false` stops the reading loop. Then
 > call `cohort_cb()` once, honoring the same flags. Pop the context and continue.
 > Return `anything_changed`.
+>
+> PORT DIVERGENCE (robustness: cross-window actions): reset_cohorts repositions
+> rocit just past the apply-to cohort only when that cohort belongs to
+> `current`; when the action reached a cohort in another window it repositions
+> just past the rule's own target instead. The C++ looks the apply-to cohort's
+> local number up in `current`, which for another window's cohort lands on an
+> unrelated cohort and can send the loop back to a target it has already acted
+> on, without end.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-test-fn]
 > Cohort* runSingleTest(Cohort* cohort, const ContextualTest* test, uint8_t& rvs, bool* retval, Cohort** deep = nullptr, Cohort* origin = nullptr)

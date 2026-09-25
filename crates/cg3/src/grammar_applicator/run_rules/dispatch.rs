@@ -61,10 +61,10 @@ impl crate::grammar_applicator::Engine<'_> {
         }
     }
 
-    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
-    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
+    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
     /// C++ `cohort_cb` lambda of `runRulesOnSingleWindow` — the per-cohort action
     /// invoked once after all matched readings have been through `reading_cb`.
     /// Dispatches SELECT/REMOVE finalisation, IFF, JUMP, REM/SETVARIABLE, DELIMIT,
@@ -265,16 +265,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 }
             }
         } else if rtype == KDelimit {
-            let cohort = self.get_apply_to().cohort.unwrap();
-            let (parent, ln) = {
-                let c = self.doc.store.cohorts.get(cohort.0);
-                (c.parent.unwrap(), c.local_number)
-            };
-            if (self.doc.store.single_windows.get(parent.0).cohorts.len() as u32) > ln + 1 {
-                self.delimit_at(st.current, cohort)?;
-                st.delimited = true;
-                st.readings_changed = true;
-            }
+            self.rr_delimit(st)?;
         } else if rtype == KExternalOnce || rtype == KExternalAlways {
             let current = st.current;
             let rline = self.grammar.rule_by_number.get(rule.0).line;
@@ -360,58 +351,96 @@ impl crate::grammar_applicator::Engine<'_> {
             };
             self.scratch.reset_cohorts_for_loop = true;
         } else if rtype == KRemcohort {
-            let apply = self.get_apply_to().cohort.unwrap();
-            if rflags.intersects(RF_IGNORED) {
-                let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
-                let mut cohorts = CohortSet::new();
-                self.rr_collect_subtree(st.current, &mut cohorts, apply, childset1)?;
-                for c in cohorts.iter_rev().copied().collect::<Vec<_>>() {
-                    self.rr_ignore_cohort(rnumber, c);
-                }
-                self.rr_reindex(st.current);
-                self.reflow_dependency_window(0);
-            } else {
-                self.rr_rem_cohort(rnumber, apply);
-            }
-            // If we removed the last cohort, add <<< to the new last cohort.
-            let apply_front = self.doc.store.cohorts.get(apply.0).readings[0];
-            let has_endtag = {
-                let r = self.doc.store.readings.get(apply_front.0);
-                r.tags.find(self.cfg.endtag.get()) != r.tags.end()
-            };
-            if has_endtag {
-                let back = *self
-                    .doc
-                    .store
-                    .single_windows
-                    .get(st.current.0)
-                    .cohorts
-                    .last()
-                    .unwrap();
-                let rs = self.doc.store.cohorts.get(back.0).readings.clone();
-                let endtag = self.tag_by_hash(self.cfg.endtag);
-                for r in rs {
-                    self.add_tag_to_reading(r, endtag)?;
-                    if self.update_valid_rules(
-                        &st.rules.clone(),
-                        &mut st.intersects,
-                        self.cfg.endtag.get(),
-                        r,
-                    ) {
-                        st.iter_val = rnumber;
-                    }
-                }
-            }
-            st.readings_changed = true;
-            self.scratch.reset_cohorts_for_loop = true;
+            self.rr_remcohort(st, rule, rflags, rnumber)?;
         }
         Ok(())
     }
 
-    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
-    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
+    // [spec:cg3:req:robustness.cross-window-actions]
+    /// K_DELIMIT: split the apply-to cohort's own window after that cohort.
+    ///
+    /// DIVERGENCE: the C++ splits the current window at the cohort's position
+    /// whichever window the cohort is in, and splits after a `>>>` — leaving
+    /// an empty window and moving every cohort to a new one, where the same
+    /// rule fires again without end. The port splits the cohort's own window,
+    /// and does nothing for a `>>>` or a cohort that is not where its position
+    /// says (removed, enclosed).
+    fn rr_delimit(&mut self, st: &mut RRState) -> Result<(), crate::error::RunError> {
+        let cohort = self.get_apply_to().cohort.unwrap();
+        let Some(win) = self.rr_removable_window(cohort) else {
+            return Ok(());
+        };
+        let ln = self.doc.store.cohorts.get(cohort.0).local_number;
+        if (self.doc.store.single_windows.get(win.0).cohorts.len() as u32) > ln + 1 {
+            self.delimit_at(win, cohort)?;
+            st.delimited = true;
+            st.readings_changed = true;
+        }
+        Ok(())
+    }
+
+    // [spec:cg3:req:robustness.cross-window-actions]
+    // [spec:cg3:req:robustness.enclosures]
+    /// K_REMCOHORT: remove (or, `IGNORED`, ignore) the apply-to cohort's
+    /// subtree in that cohort's own window, re-add `<<<` to the window's new
+    /// last cohort, and request a cohort-loop reset.
+    ///
+    /// DIVERGENCE: the C++ collects, removes and renumbers in the current
+    /// window whichever window the cohort is in, and removes a `>>>` or an
+    /// enclosed cohort at a stale position. The port acts on the cohort's own
+    /// window and does nothing for a cohort it cannot take out of it
+    /// ([`Self::rr_removable_window`]).
+    fn rr_remcohort(
+        &mut self,
+        st: &mut RRState,
+        rule: RuleId,
+        rflags: crate::rule::RuleFlags,
+        rnumber: u32,
+    ) -> Result<(), crate::error::RunError> {
+        let apply = self.get_apply_to().cohort.unwrap();
+        let Some(win) = self.rr_removable_window(apply) else {
+            return Ok(());
+        };
+        if rflags.intersects(RF_IGNORED) {
+            let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
+            let mut cohorts = CohortSet::new();
+            self.rr_collect_subtree(win, &mut cohorts, apply, childset1)?;
+            for c in cohorts.iter_rev().copied().collect::<Vec<_>>() {
+                if self.rr_removable_window(c).is_some() {
+                    self.rr_ignore_cohort(rnumber, c);
+                }
+            }
+            self.rr_reindex(win);
+            self.reflow_dependency_window(0);
+        } else {
+            self.rr_rem_cohort(st, rnumber, apply);
+        }
+        // If we removed the last cohort, add <<< to the new last cohort.
+        let apply_front = self.doc.store.cohorts.get(apply.0).readings[0];
+        let has_endtag = {
+            let r = self.doc.store.readings.get(apply_front.0);
+            r.tags.find(self.cfg.endtag.get()) != r.tags.end()
+        };
+        if has_endtag && self.rr_in_stream(win) {
+            let back = *self
+                .doc
+                .store
+                .single_windows
+                .get(win.0)
+                .cohorts
+                .last()
+                .unwrap();
+            self.rr_move_endtag(st, rnumber, None, back)?;
+        }
+        st.readings_changed = true;
+        self.scratch.reset_cohorts_for_loop = true;
+        Ok(())
+    }
+
+    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
     // [spec:cg3:req:robustness.accepted-grammars-run]
     /// C++ `reading_cb` lambda of `runRulesOnSingleWindow` — the per-matched-reading
     /// action. Dispatches every reading-level rule type. `&mut RRState` carries the
@@ -522,10 +551,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 // reaching here means IFF with unmatched tests → no-op.
             }
             KAddcohortAfter | KAddcohortBefore => {
-                self.trace(rnumber, rsub_reading);
                 self.rr_addcohort(st, rule)?;
-                st.readings_changed = true;
-                self.scratch.reset_cohorts_for_loop = true;
             }
             KSplitcohort => {
                 self.rr_splitcohort(st, rule)?;

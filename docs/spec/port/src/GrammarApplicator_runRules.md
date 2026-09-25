@@ -196,11 +196,30 @@
 > cohort with no parent alone: the rule checks the TARGET for one, but an
 > attaching context makes it act on another cohort, whose null parent the C++
 > dereferenced.
+>
+> PORT DIVERGENCE (robustness: cross-window actions, enclosures): the C++
+> indexes and renumbers `current` for every restructuring action, although a
+> spanning `A` context, a dependency or an attachment can hand the action a
+> cohort in another window, and it frees a window rem_cohort empties while the
+> rule is still running. The port resolves every cohort an action inserts
+> beside, removes, ignores, merges, splits or delimits after to the window it is
+> in, and requires the cohort to sit there at its local number; an action whose
+> cohort does not (removed, ignored, or enclosed by PARENTHESES) does nothing,
+> as does one that would remove, merge, split or delimit after a window's `>>>`,
+> or insert before it. ADDCOHORT, MERGECOHORTS, SPLITCOHORT, DELIMIT and
+> REMCOHORT, with its `<<<` repair, act on that window, and MERGECOHORTS also
+> repairs `<<<` in each window it took a cohort from. MOVE and SWITCH act only
+> when both cohorts sit in `current` (the C++ checks the shared window before an
+> `A` context swaps in the attach cohort, not after) and never move a `>>>`;
+> COPYCOHORT does nothing for an enclosed attach cohort or one it would copy in
+> front of a `>>>`. A window rem_cohort empties leaves the stream at once but is
+> freed, with its `>>>`, only when the rule finishes, because the rule's context
+> frames may still name either.
 
 > [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
 > bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, RuleCallback reading_cb, RuleCallback cohort_cb)
 
-> [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
+> [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
 > Iterates one rule over its candidate cohorts in the window, decides which
 > readings are valid targets (matching both the target set and all contextual
 > tests), and invokes the caller-supplied `reading_cb`/`cohort_cb` to perform the
@@ -304,6 +323,14 @@
 > apply-to cohort) and break; if it cleared finish_reading_loop, break. Then call
 > cohort_cb() once (same finish_cohort_loop/reset_cohorts handling). Pop the
 > context and move to the next cohort. Return anything_changed.
+>
+> PORT DIVERGENCE (robustness: cross-window actions): reset_cohorts repositions
+> rocit just past the apply-to cohort only when that cohort belongs to
+> `current`; when the action reached a cohort in another window it repositions
+> just past the rule's own target instead. The C++ looks the apply-to cohort's
+> local number up in `current`, which for another window's cohort lands on an
+> unrelated cohort and can send the loop back to a target it has already acted
+> on, without end.
 
 > [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.update-rule-to-cohorts-fn]
 > bool GrammarApplicator::updateRuleToCohorts(Cohort& c, const uint32_t& rsit)
@@ -372,7 +399,7 @@
 > [spec:cg3:def:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn]
 > void GrammarApplicator::runGrammarOnWindow()
 
-> [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn]
+> [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn+1]
 > Prepares and repeatedly runs the grammar on `gWindow->current`, handling
 > parenthesis enclosures and delimit-driven restarts. Set current =
 > gWindow->current, did_final_enclosure=false. Apply the window's variable deltas
@@ -418,4 +445,14 @@
 > non-removed/enclosed/ignored cohort, clear CT_IGNORED, and re-register it in
 > cohort_map, flagging should_reflow. If anything was restored, renumber all
 > cohorts' local_number and reflowDependencyWindow().
+>
+> PORT DIVERGENCE (robustness: enclosures): the window's `>>>` never opens an
+> enclosure, so a pair whose left tag it carries cannot wrap the sentinel away
+> and leave `cohorts` empty. Unpacking never takes an `enclosed` depth below
+> zero, and puts back into `cohorts` only the cohorts that unpacking brought to
+> depth zero and that are neither CT_REMOVED nor CT_IGNORED. The C++ decrements
+> every cohort of the run, wrapping the depth of a cohort removed or ignored
+> beside the enclosure, and puts back every cohort of the run left at depth
+> zero, reviving one removed before the window wrapped. An ignored cohort still
+> returns through the final ignored-cohort restore.
 

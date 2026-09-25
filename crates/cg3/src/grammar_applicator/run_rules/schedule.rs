@@ -51,6 +51,7 @@ impl crate::grammar_applicator::Engine<'_> {
             should_bail: false,
             delimited: false,
             do_sort: false,
+            retired: Vec::new(),
         });
 
         // current.parent->cohort_map[0] = current.cohorts.front()
@@ -113,6 +114,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 // shared state; the port threads `st` directly (wave 4 — the
                 // raw-pointer trampolines are gone).
                 let rv = self.run_single_rule(current, RuleId(j), &mut st)?;
+                self.rr_free_retired(&mut st);
                 if rv || st.readings_changed {
                     if !((rflags.intersects(RF_NOITERATE)) && self.cfg.section_max_count != 1) {
                         section_did_something = true;
@@ -240,6 +242,58 @@ impl crate::grammar_applicator::Engine<'_> {
             self.doc.store.cohorts.get_mut(cid.0).local_number = ui32(i);
         }
         self.doc.stream.rebuild_cohort_links(&mut self.doc.store);
+    }
+
+    // [spec:cg3:req:robustness.cross-window-actions]
+    // [spec:cg3:req:robustness.enclosures]
+    /// The window an action on `c` indexes: `c`'s own, provided that window is
+    /// still in the stream and holds `c` at `c`'s local number.
+    ///
+    /// `None` for a cohort nothing may be inserted beside or cut out of —
+    /// removed, ignored, enclosed by `PARENTHESES` (all three leave `cohorts`
+    /// with their local number frozen), or a window an earlier action took out
+    /// of the stream. Every restructuring action resolves its cohorts through
+    /// this rather than the current window, so a position is only ever used
+    /// on the window it was taken from.
+    pub(crate) fn rr_acting_window(&self, c: CohortId) -> Option<SwId> {
+        let cohort = self.doc.store.cohorts.try_get(c.0)?;
+        let win = cohort.parent?;
+        let at = cohort.local_number as usize;
+        let sw = self.doc.store.single_windows.try_get(win.0)?;
+        (self.rr_in_stream(win) && sw.cohorts.get(at) == Some(&c)).then_some(win)
+    }
+
+    /// Whether `win` is still one of the stream's windows — the current one
+    /// or in `previous`/`next` — rather than one a removal emptied and retired.
+    pub(crate) fn rr_in_stream(&self, win: SwId) -> bool {
+        let stream = &self.doc.stream;
+        if stream.current == Some(win) {
+            return true;
+        }
+        stream.previous.contains(&win) || stream.next.contains(&win)
+    }
+
+    // [spec:cg3:req:robustness.enclosures]
+    /// [`Self::rr_acting_window`] for a cohort an action takes out of its
+    /// window (removes, ignores, merges away or splits): additionally `None`
+    /// for the window's `>>>`, which every window keeps.
+    pub(crate) fn rr_removable_window(&self, c: CohortId) -> Option<SwId> {
+        let win = self.rr_acting_window(c)?;
+        if self.doc.store.cohorts.get(c.0).local_number == 0 {
+            return None;
+        }
+        Some(win)
+    }
+
+    /// [`Self::rr_acting_window`] for a cohort an action inserts beside:
+    /// additionally `None` when the insertion goes `before` a `>>>`, where it
+    /// would take the sentinel's place at the front of the window.
+    pub(crate) fn rr_insertion_window(&self, c: CohortId, before: bool) -> Option<SwId> {
+        let win = self.rr_acting_window(c)?;
+        if before && self.doc.store.cohorts.get(c.0).local_number == 0 {
+            return None;
+        }
+        Some(win)
     }
 
     /// `collect_subtree(cs, head, cset)`.

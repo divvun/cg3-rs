@@ -93,7 +93,7 @@
 > [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.delimit-at-fn]
 > Cohort* GrammarApplicator::delimitAt(SingleWindow& current, Cohort* cohort)
 
-> [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.delimit-at-fn]
+> [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.delimit-at-fn+1]
 > Splits SingleWindow `current` at `cohort`, moving everything AFTER `cohort`
 > into a freshly-created following window, and returns the new last cohort of
 > `current` (the one that received the end tag). Create the new window `nwin`:
@@ -120,6 +120,12 @@
 > current.cohorts.back()` (the new last real cohort of `current`) and, for each
 > of its readings, `addTagToReading(*reading, endtag)` (append the END tag).
 > Call `gWindow->rebuildCohortLinks()`. Return `cohort`.
+>
+> PORT DIVERGENCE (robustness: cross-window actions): when `current` is found in
+> `previous`, `nwin` goes right after it, as it does in `next`; the C++ inserts
+> it at `current`'s own position, putting the split-off tail before the window
+> it came from. Only a DELIMIT that reaches a previous window through a spanning
+> context splits one there.
 
 > [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.generate-varstring-tag-fn]
 > Tag* GrammarApplicator::generateVarstringTag(const Tag* tag)

@@ -107,8 +107,8 @@ fn run_fixtures(label: &str, names: &[&str]) {
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reset-indexes-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-text-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+1/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-single-window-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-single-window-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.init-empty-single-window-fn/test]
@@ -855,8 +855,8 @@ fn engine_match_set() {
 // ===========================================================================
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
 // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.update-valid-rules-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.update-valid-rules-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.update-rule-to-cohorts-fn/test]
@@ -939,8 +939,8 @@ fn engine_rule_actions() {
 // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-textuals-cohort-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-textuals-reading-fn/test]
 // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-textuals-reading-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.delimit-at-fn/test]
-// [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.delimit-at-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.delimit-at-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.delimit-at-fn+1/test]
 #[test]
 fn engine_reflow_readings_and_mappings() {
     run_fixtures(

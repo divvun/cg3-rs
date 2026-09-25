@@ -72,32 +72,10 @@ impl crate::grammar_applicator::Engine<'_> {
         if let Some(at) = self.get_attach_to().cohort {
             attach = at;
         }
-        let mut good = true;
-        let dep_tests: Vec<CtxId> = self
-            .grammar
-            .rule_by_number
-            .get(rule.0)
-            .dep_tests
-            .iter()
-            .copied()
-            .collect();
-        for it in dep_tests {
-            self.set_mark_frame(attach);
-            self.scratch.dep_deep_seen.clear();
-            self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
-            let (aparent, alocal) = {
-                let cc = self.doc.store.cohorts.get(attach.0);
-                (cc.parent, cc.local_number)
-            };
-            let tg = self
-                .run_contextual_test(aparent, alocal, TestRef::new(it), None, None)?
-                .is_some();
-            self.profile_rule_context(tg, rule, it);
-            if !tg {
-                good = false;
-                break;
-            }
+        if !self.rr_movable_pair(current, cohort, attach, rflags) {
+            return Ok(());
         }
+        let good = self.rr_dep_tests_pass(rule, attach)?;
         if !good || cohort == attach || self.doc.store.cohorts.get(cohort.0).local_number == 0 {
             return Ok(());
         }
@@ -220,6 +198,67 @@ impl crate::grammar_applicator::Engine<'_> {
         Ok(())
     }
 
+    // [spec:cg3:req:robustness.cross-window-actions]
+    /// Whether MOVE/SWITCH may relocate `cohort` beside `attach`: both sit in
+    /// the current window where their positions say, and the cohort that moves
+    /// (`attach` under `REVERSE`) is not the window's `>>>`.
+    ///
+    /// DIVERGENCE: the C++ requires the shared window only of the cohort the
+    /// dependency target found, then lets an `A` context swap in an attach
+    /// cohort from any window — or an enclosed one — and indexes the current
+    /// window with its position. The port requires it of the cohort it acts
+    /// on, so a cross-window MOVE or SWITCH does nothing.
+    fn rr_movable_pair(
+        &self,
+        current: SwId,
+        cohort: CohortId,
+        attach: CohortId,
+        rflags: crate::rule::RuleFlags,
+    ) -> bool {
+        let moved = if rflags.intersects(RF_REVERSE) {
+            attach
+        } else {
+            cohort
+        };
+        self.rr_acting_window(cohort) == Some(current)
+            && self.rr_acting_window(attach) == Some(current)
+            && self.doc.store.cohorts.get(moved.0).local_number != 0
+    }
+
+    /// Run a rule's `dep_tests` from `attach`, with the mark set to it for
+    /// each, stopping at the first that fails. Whether they all passed.
+    fn rr_dep_tests_pass(
+        &mut self,
+        rule: RuleId,
+        attach: CohortId,
+    ) -> Result<bool, crate::error::RunError> {
+        let dep_tests: Vec<CtxId> = self
+            .grammar
+            .rule_by_number
+            .get(rule.0)
+            .dep_tests
+            .iter()
+            .copied()
+            .collect();
+        for it in dep_tests {
+            self.set_mark_frame(attach);
+            self.scratch.dep_deep_seen.clear();
+            self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
+            let (aparent, alocal) = {
+                let cc = self.doc.store.cohorts.get(attach.0);
+                (cc.parent, cc.local_number)
+            };
+            let tg = self
+                .run_contextual_test(aparent, alocal, TestRef::new(it), None, None)?
+                .is_some();
+            self.profile_rule_context(tg, rule, it);
+            if !tg {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     /// Hash of the window's cohort order + first-reading hashes (the C++ move/switch
     /// "did anything change" check).
     fn rr_window_state_hash(&self, current: SwId) -> (u32, u32) {
@@ -295,15 +334,18 @@ impl crate::grammar_applicator::Engine<'_> {
     /// spacesInAddedWf` out-param (count of ' ' in the seated wordform tag;
     /// MERGECOHORTS strips that many spaces from the merged cohorts' text
     /// before removing them) is a plain return value in the port (wave 4).
+    ///
+    /// `current` is `insertion`'s own window, as [`Self::rr_acting_window`]
+    /// resolved it; the C++ always uses the window the rule runs on.
     fn rr_add_cohort(
         &mut self,
         st: &mut RRState,
         rule: RuleId,
+        current: SwId,
         insertion: CohortId,
         withs: Option<&CohortSet>,
     ) -> Result<(CohortId, usize), crate::error::RunError> {
         let mut spaces_in_added_wf = 0usize;
-        let current = st.current;
         let ccohort = crate::cohort::alloc_cohort(&mut self.doc.store, Some(current));
         {
             let gn = self.doc.cohorts.next_cohort_number();
@@ -648,48 +690,71 @@ impl crate::grammar_applicator::Engine<'_> {
         }
     }
 
-    /// K_ADDCOHORT_AFTER / K_ADDCOHORT_BEFORE: add a cohort then fix up the `<<<`
-    /// end tag if the new cohort became the last.
+    // [spec:cg3:req:robustness.cross-window-actions]
+    /// K_ADDCOHORT_AFTER / K_ADDCOHORT_BEFORE: add a cohort beside the apply-to
+    /// cohort, in that cohort's own window, then fix up the `<<<` end tag if the
+    /// new cohort became that window's last.
+    ///
+    /// DIVERGENCE: the C++ inserts into the current window at the apply-to
+    /// cohort's position whichever window that cohort is in. The port inserts
+    /// into the cohort's own window, and does nothing when the cohort is not
+    /// where its position says (removed, enclosed) or the new cohort would go
+    /// before a `>>>`.
     pub(crate) fn rr_addcohort(
         &mut self,
         st: &mut RRState,
         rule: RuleId,
     ) -> Result<(), crate::error::RunError> {
         let apply = self.get_apply_to().cohort.unwrap();
+        let (rtype, rnumber, rsub_reading) = {
+            let r = self.grammar.rule_by_number.get(rule.0);
+            (r.r#type, r.number, r.sub_reading)
+        };
+        let Some(current) = self.rr_insertion_window(apply, rtype == KAddcohortBefore) else {
+            return Ok(());
+        };
+        self.trace(rnumber, rsub_reading);
         // (spaces_in_added_wf: C++ "not used here")
-        let (ccohort, _spaces_in_added_wf) = self.rr_add_cohort(st, rule, apply, None)?;
-        let current = st.current;
-        let rnumber = self.grammar.rule_by_number.get(rule.0).number;
-        let last = *self
-            .doc
-            .store
-            .single_windows
-            .get(current.0)
-            .cohorts
-            .last()
-            .unwrap();
-        if last == ccohort {
-            let len = self.doc.store.single_windows.get(current.0).cohorts.len();
-            let prev = self.doc.store.single_windows.get(current.0).cohorts[len - 2];
-            let endtag_id = self.tag_by_hash(self.cfg.endtag);
-            let prs = self.doc.store.cohorts.get(prev.0).readings.clone();
+        let (ccohort, _spaces_in_added_wf) = self.rr_add_cohort(st, rule, current, apply, None)?;
+        let cohorts = &self.doc.store.single_windows.get(current.0).cohorts;
+        if cohorts.last() == Some(&ccohort) {
+            let prev = cohorts[cohorts.len() - 2];
+            self.rr_move_endtag(st, rnumber, Some(prev), ccohort)?;
+        }
+        self.index_single_window(current);
+        st.readings_changed = true;
+        self.scratch.reset_cohorts_for_loop = true;
+        Ok(())
+    }
+
+    /// Move the `<<<` end tag: off every reading of `from`, when given, and
+    /// onto every reading of `to`, activating the rules the tag keys.
+    pub(crate) fn rr_move_endtag(
+        &mut self,
+        st: &mut RRState,
+        rnumber: u32,
+        from: Option<CohortId>,
+        to: CohortId,
+    ) -> Result<(), crate::error::RunError> {
+        let endtag_id = self.tag_by_hash(self.cfg.endtag);
+        if let Some(from) = from {
+            let prs = self.doc.store.cohorts.get(from.0).readings.clone();
             for r in prs {
                 self.del_tag_from_reading(r, endtag_id);
             }
-            let brs = self.doc.store.cohorts.get(ccohort.0).readings.clone();
-            for r in brs {
-                self.add_tag_to_reading(r, endtag_id)?;
-                if self.update_valid_rules(
-                    &st.rules.clone(),
-                    &mut st.intersects,
-                    self.cfg.endtag.get(),
-                    r,
-                ) {
-                    st.iter_val = rnumber;
-                }
+        }
+        let brs = self.doc.store.cohorts.get(to.0).readings.clone();
+        for r in brs {
+            self.add_tag_to_reading(r, endtag_id)?;
+            if self.update_valid_rules(
+                &st.rules.clone(),
+                &mut st.intersects,
+                self.cfg.endtag.get(),
+                r,
+            ) {
+                st.iter_val = rnumber;
             }
         }
-        self.index_single_window(current);
         Ok(())
     }
 
@@ -748,7 +813,13 @@ impl crate::grammar_applicator::Engine<'_> {
             }
         }
 
-        let (cc, mut spaces_in_added_wf) = self.rr_add_cohort(st, rule, merge_at, Some(&withs))?;
+        let Some(current) = self.rr_merge_window(&withs, merge_at) else {
+            self.scratch.finish_reading_loop = false;
+            return Ok(());
+        };
+        let sources = self.rr_windows_of(&withs, current);
+        let (cc, mut spaces_in_added_wf) =
+            self.rr_add_cohort(st, rule, current, merge_at, Some(&withs))?;
         self.scratch.context_stack.last_mut().unwrap().target.cohort = Some(cc);
 
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
@@ -768,49 +839,82 @@ impl crate::grammar_applicator::Engine<'_> {
                     }
                 }
             }
-            self.rr_rem_cohort(rnumber, c);
+            self.rr_rem_cohort(st, rnumber, c);
         }
 
-        // Fix <<< on the new end.
-        let current = st.current;
-        let back = *self
-            .doc
-            .store
-            .single_windows
-            .get(current.0)
-            .cohorts
-            .last()
-            .unwrap();
-        let back_front = self.doc.store.cohorts.get(back.0).readings[0];
-        let has_endtag = {
-            let r = self.doc.store.readings.get(back_front.0);
-            r.tags.find(self.cfg.endtag.get()) != r.tags.end()
-        };
-        if !has_endtag {
-            let len = self.doc.store.single_windows.get(current.0).cohorts.len();
-            let prev = self.doc.store.single_windows.get(current.0).cohorts[len - 2];
-            let endtag_id = self.tag_by_hash(self.cfg.endtag);
-            let prs = self.doc.store.cohorts.get(prev.0).readings.clone();
-            for r in prs {
-                self.del_tag_from_reading(r, endtag_id);
-            }
-            let brs = self.doc.store.cohorts.get(back.0).readings.clone();
-            for r in brs {
-                self.add_tag_to_reading(r, endtag_id)?;
-                if self.update_valid_rules(
-                    &st.rules.clone(),
-                    &mut st.intersects,
-                    self.cfg.endtag.get(),
-                    r,
-                ) {
-                    st.iter_val = rnumber;
-                }
-            }
+        // Fix <<< on the new end of every window the merge changed.
+        self.rr_merge_endtag(st, rnumber, current)?;
+        for w in sources {
+            self.rr_merge_endtag(st, rnumber, w)?;
         }
         self.index_single_window(current);
         st.readings_changed = true;
         self.scratch.reset_cohorts_for_loop = true;
         Ok(())
+    }
+
+    // [spec:cg3:req:robustness.cross-window-actions]
+    // [spec:cg3:req:robustness.enclosures]
+    /// Where a MERGECOHORTS lands: `merge_at`'s own window, provided `merge_at`
+    /// and every cohort to merge sit where their positions say and none of the
+    /// cohorts to merge is a window's `>>>`.
+    ///
+    /// DIVERGENCE: the C++ merges whatever the contexts found — an enclosed
+    /// cohort, a `>>>` — and inserts the result into the current window. The
+    /// port takes each cohort out of its own window, puts the result in
+    /// `merge_at`'s, and does nothing when a cohort is one it cannot take.
+    fn rr_merge_window(&self, withs: &CohortSet, merge_at: CohortId) -> Option<SwId> {
+        for &c in withs.as_slice() {
+            self.rr_removable_window(c)?;
+        }
+        self.rr_acting_window(merge_at)
+    }
+
+    /// The windows other than `except` that hold a cohort of `withs`, each
+    /// once, in first-seen order.
+    fn rr_windows_of(&self, withs: &CohortSet, except: SwId) -> Vec<SwId> {
+        let mut out: Vec<SwId> = Vec::new();
+        for &c in withs.as_slice() {
+            let win = self.doc.store.cohorts.get(c.0).parent;
+            if let Some(win) = win.filter(|&w| w != except && !out.contains(&w)) {
+                out.push(win);
+            }
+        }
+        out
+    }
+
+    /// MERGECOHORTS' `<<<` repair on `win`: when the window's last cohort no
+    /// longer carries the end tag, move it there from the cohort before. A
+    /// window the merge emptied and retired, or left with only its `>>>`, is
+    /// passed over.
+    fn rr_merge_endtag(
+        &mut self,
+        st: &mut RRState,
+        rnumber: u32,
+        win: SwId,
+    ) -> Result<(), crate::error::RunError> {
+        let cohorts = &self.doc.store.single_windows.get(win.0).cohorts;
+        let len = cohorts.len();
+        if len < 2 || !self.rr_in_stream(win) {
+            return Ok(());
+        }
+        let (prev, back) = (cohorts[len - 2], cohorts[len - 1]);
+        let endtag = self.cfg.endtag.get();
+        let has_endtag = self
+            .doc
+            .store
+            .cohorts
+            .get(back.0)
+            .readings
+            .first()
+            .is_some_and(|r| {
+                let r = self.doc.store.readings.get(r.0);
+                r.tags.find(endtag) != r.tags.end()
+            });
+        if has_endtag {
+            return Ok(());
+        }
+        self.rr_move_endtag(st, rnumber, Some(prev), back)
     }
 
     /// K_COPYCOHORT: resolve an `attach` cohort via `rule.dep_target` (+ dep_tests),
@@ -819,6 +923,11 @@ impl crate::grammar_applicator::Engine<'_> {
     /// splice the copy into the window relative to `attach`'s subtree
     /// (BEFORE/AFTER via `childset2`). RF_REVERSE swaps source/target and selects
     /// `childset1`. Faithful port of the C++ `K_COPYCOHORT` action.
+    ///
+    /// DIVERGENCE: the C++ inserts at `attach`'s position even when `attach`
+    /// is enclosed by `PARENTHESES` (its position is stale) or is the `>>>` it
+    /// would insert before; the port does nothing then.
+    // [spec:cg3:req:robustness.enclosures]
     pub(crate) fn rr_copycohort(
         &mut self,
         st: &mut RRState,
@@ -861,33 +970,7 @@ impl crate::grammar_applicator::Engine<'_> {
         if let Some(at) = self.get_attach_to().cohort {
             attach = at;
         }
-        let mut good = true;
-        let dep_tests: Vec<CtxId> = self
-            .grammar
-            .rule_by_number
-            .get(rule.0)
-            .dep_tests
-            .iter()
-            .copied()
-            .collect();
-        for it in dep_tests {
-            self.scratch.context_stack.last_mut().unwrap().mark = Some(attach);
-            self.scratch.dep_deep_seen.clear();
-            self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
-            let (aparent, alocal) = {
-                let cc = self.doc.store.cohorts.get(attach.0);
-                (cc.parent, cc.local_number)
-            };
-            let tg = self
-                .run_contextual_test(aparent, alocal, TestRef::new(it), None, None)?
-                .is_some();
-            self.profile_rule_context(tg, rule, it);
-            if !tg {
-                good = false;
-                break;
-            }
-        }
-
+        let good = self.rr_dep_tests_pass(rule, attach)?;
         if !good || cohort == attach || self.doc.store.cohorts.get(cohort.0).local_number == 0 {
             return Ok(());
         }
@@ -902,7 +985,10 @@ impl crate::grammar_applicator::Engine<'_> {
             childset = self.grammar.rule_by_number.get(rule.0).childset1.get();
         }
 
-        let attach_parent = self.doc.store.cohorts.get(attach.0).parent.unwrap();
+        let Some(attach_parent) = self.rr_insertion_window(attach, rflags.intersects(RF_BEFORE))
+        else {
+            return Ok(());
+        };
         let ccohort = crate::cohort::alloc_cohort(&mut self.doc.store, Some(attach_parent));
         {
             let gn = self.doc.cohorts.next_cohort_number();
@@ -1086,12 +1172,24 @@ impl crate::grammar_applicator::Engine<'_> {
     /// parent"); the `R:*` tag (or the last cohort) receives the transferred named
     /// relations. Text is handed to the last new cohort, then the source cohort is
     /// removed. Faithful port of the C++ `K_SPLITCOHORT` action.
+    ///
+    /// DIVERGENCE: the C++ splices the new cohorts into the current window at
+    /// the apply-to cohort's position whichever window that cohort is in. The
+    /// port splices them into the cohort's own window, and does nothing for a
+    /// cohort that is not where its position says (removed, enclosed) or is a
+    /// window's `>>>`. A tag list with tags before its first wordform is
+    /// refused as a run error before this runs, as the C++ reports and quits;
+    /// both passes still skip such tags rather than index before the start.
+    // [spec:cg3:req:robustness.cross-window-actions]
     pub(crate) fn rr_splitcohort(
         &mut self,
         st: &mut RRState,
         rule: RuleId,
     ) -> Result<(), crate::error::RunError> {
-        let current = st.current;
+        let apply = self.get_apply_to().cohort.unwrap();
+        let Some(current) = self.rr_removable_window(apply) else {
+            return Ok(());
+        };
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
 
         let the_tags = self.rr_cohort_maplist(rule)?;
@@ -1144,6 +1242,10 @@ impl crate::grammar_applicator::Engine<'_> {
                 bf = None;
                 continue;
             }
+            if i == 0 {
+                // Before the first wordform: skipped, as in the first pass.
+                continue;
+            }
             if ttype.intersects(T_BASEFORM) {
                 let wfid = self
                     .doc
@@ -1163,31 +1265,7 @@ impl crate::grammar_applicator::Engine<'_> {
             // C++ scanf("%[0-9cd]->%[0-9pm]", &dep_self, &dep_parent) == 2
             let tagstr = self.grammar.single_tags_list.get(tter.0).tag.clone();
             if let Some((dep_self, dep_parent)) = split_dep_mapping(&tagstr) {
-                let sc = dep_self.chars().next();
-                if sc == Some('c') || sc == Some('d') {
-                    cohort_dep[i - 1].0 = DEP_NO_PARENT;
-                    if rel_trg == DEP_NO_PARENT {
-                        rel_trg = ui32(i - 1);
-                    }
-                } else {
-                    match parse_scanf_i(&dep_self) {
-                        Some(v) => cohort_dep[i - 1].0 = v,
-                        None => {
-                            // Error: dep_self not valid (I/O omitted).
-                        }
-                    }
-                }
-                let pc = dep_parent.chars().next();
-                if pc == Some('p') || pc == Some('m') {
-                    cohort_dep[i - 1].1 = DEP_NO_PARENT;
-                } else {
-                    match parse_scanf_i(&dep_parent) {
-                        Some(v) => cohort_dep[i - 1].1 = v,
-                        None => {
-                            // Error: dep_parent not valid (I/O omitted).
-                        }
-                    }
-                }
+                apply_dep_mapping(&dep_self, &dep_parent, i - 1, &mut cohort_dep, &mut rel_trg);
                 continue;
             }
             // R:* → relation transfer target.
@@ -1203,7 +1281,6 @@ impl crate::grammar_applicator::Engine<'_> {
         }
 
         // Build readings for each new cohort and splice them into the window.
-        let apply = self.get_apply_to().cohort.unwrap();
         let mapping_prefix = self.grammar.mapping_prefix;
         let tag_any = self.grammar.tag_any;
         for idx in 0..n {

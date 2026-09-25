@@ -52,10 +52,10 @@ impl crate::grammar_applicator::Engine<'_> {
         order.push_front(test);
     }
 
-    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
-    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
+    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
     /// C++ `bool runSingleRule(SingleWindow& current, const Rule& rule,
     /// RuleCallback reading_cb, RuleCallback cohort_cb)`.
     ///
@@ -196,48 +196,77 @@ impl crate::grammar_applicator::Engine<'_> {
     /// action. Returns the (possibly re-seated) cohortset pointer.
     /// Writes the (possibly re-seated) cursor into the CURRENT frame's
     /// `rocits` slot — the C++ wrote `rocit` (the frame's parked object).
+    /// `target` is the cohort the rule loop is on.
     fn rr_reset_cohorts(
         &mut self,
         current: SwId,
         rule_number: u32,
+        target: CohortId,
     ) -> crate::grammar_applicator::CsRef {
         let nested = self.rr_override_cohortset(current, rule_number);
         let cs = self.rr_cohortset_ref(current, rule_number, nested);
         *self.scratch.cohortsets.last_mut().unwrap() = cs;
         let idx = self.scratch.rocits.len() - 1;
-        let gac = self.get_apply_to().cohort;
-        if let Some(gac) = gac {
-            let gac_local = self.doc.store.cohorts.get(gac.0).local_number as usize;
-            // C++ reads `current.cohorts[gac->local_number]` unchecked. After a
-            // REMCOHORT of the last cohort, `local_number == cohorts.size()` and
-            // the C++ reads the stale vector slot, which still holds the removed
-            // cohort's own pointer (erase of the tail element moves nothing).
-            // Emulate that by probing with `gac` itself when out of range.
-            let front_at_local = self
-                .doc
-                .store
-                .single_windows
-                .get(current.0)
-                .cohorts
-                .get(gac_local)
-                .copied()
-                .unwrap_or(gac);
-            let lb = self.cohortset_lower_bound_at(cs, front_at_local);
-            let size = self.cs_ref(cs).size();
-            if lb == size {
-                self.scratch.rocits[idx] = size;
-            } else {
-                let at = self.cs_ref(cs).as_slice()[lb];
-                self.scratch.rocits[idx] = self.cohortset_find_n_at(cs, at);
-            }
-            let gac_type = self.doc.store.cohorts.get(gac.0).r#type;
-            let new_size = self.cs_ref(cs).size();
-            if !gac_type.intersects(CT_REMOVED | CT_IGNORED) && self.scratch.rocits[idx] < new_size
-            {
-                self.scratch.rocits[idx] += 1;
-            }
+        if let Some(gac) = self.get_apply_to().cohort {
+            let anchor = self.rr_reset_anchor(current, gac, target);
+            self.scratch.rocits[idx] = self.rr_cursor_after(current, cs, anchor);
         }
         cs
+    }
+
+    // [spec:cg3:req:robustness.cross-window-actions]
+    /// The cohort `reset_cohorts` resumes after: the apply-to cohort when it
+    /// belongs to the window the rule runs on, else the rule's own target.
+    ///
+    /// DIVERGENCE: the C++ always looks the apply-to cohort's position up in
+    /// the current window, so an action on another window's cohort sends the
+    /// rule loop to an unrelated cohort — back before the target, where the
+    /// rule applies again without end.
+    fn rr_reset_anchor(&self, current: SwId, gac: CohortId, target: CohortId) -> CohortId {
+        if self.doc.store.cohorts.get(gac.0).parent == Some(current) {
+            gac
+        } else {
+            target
+        }
+    }
+
+    /// The cohort-loop cursor just past `anchor` in `cs`: the `reset_cohorts`
+    /// lower-bound probe, stepping over `anchor` unless it has left the window.
+    fn rr_cursor_after(
+        &self,
+        current: SwId,
+        cs: crate::grammar_applicator::CsRef,
+        anchor: CohortId,
+    ) -> usize {
+        let local = self.doc.store.cohorts.get(anchor.0).local_number as usize;
+        // C++ reads `current.cohorts[gac->local_number]` unchecked. After a
+        // REMCOHORT of the last cohort, `local_number == cohorts.size()` and
+        // the C++ reads the stale vector slot, which still holds the removed
+        // cohort's own pointer (erase of the tail element moves nothing).
+        // Emulate that by probing with the cohort itself when out of range.
+        let front_at_local = self
+            .doc
+            .store
+            .single_windows
+            .get(current.0)
+            .cohorts
+            .get(local)
+            .copied()
+            .unwrap_or(anchor);
+        let lb = self.cohortset_lower_bound_at(cs, front_at_local);
+        let size = self.cs_ref(cs).size();
+        let at = if lb == size {
+            size
+        } else {
+            let at = self.cs_ref(cs).as_slice()[lb];
+            self.cohortset_find_n_at(cs, at)
+        };
+        let anchor_type = self.doc.store.cohorts.get(anchor.0).r#type;
+        if !anchor_type.intersects(CT_REMOVED | CT_IGNORED) && at < size {
+            at + 1
+        } else {
+            at
+        }
     }
 
     /// The body of [`Self::run_single_rule`] (everything inside the `popper`
@@ -869,7 +898,7 @@ impl crate::grammar_applicator::Engine<'_> {
                     return Ok(anything_changed);
                 }
                 if self.scratch.reset_cohorts_for_loop {
-                    cohortset = self.rr_reset_cohorts(current, rnumber);
+                    cohortset = self.rr_reset_cohorts(current, rnumber, cohort);
                     break;
                 }
                 if !self.scratch.finish_reading_loop {
@@ -884,7 +913,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 return Ok(anything_changed);
             }
             if self.scratch.reset_cohorts_for_loop {
-                cohortset = self.rr_reset_cohorts(current, rnumber);
+                cohortset = self.rr_reset_cohorts(current, rnumber, cohort);
             }
             self.scratch.context_stack.pop();
         }
@@ -951,7 +980,10 @@ impl crate::grammar_applicator::Engine<'_> {
     /// prune it from every `dep_children`, drop it from `cohort_map` and the
     /// window's `cohorts`, renumber, and (when that empties a non-current window)
     /// splice the window out. Finally `rebuildCohortLinks()`.
-    pub(crate) fn rr_rem_cohort(&mut self, rule_number: u32, cohort: CohortId) {
+    ///
+    /// `cohort` must sit in its window at its local number and not be the
+    /// window's `>>>`; callers check that with [`Self::rr_acting_window`].
+    pub(crate) fn rr_rem_cohort(&mut self, st: &mut RRState, rule_number: u32, cohort: CohortId) {
         let current = self.doc.store.cohorts.get(cohort.0).parent.unwrap();
         let rs = self.doc.store.cohorts.get(cohort.0).readings.clone();
         for r in rs {
@@ -1022,112 +1054,133 @@ impl crate::grammar_applicator::Engine<'_> {
         if self.doc.store.single_windows.get(current.0).cohorts.len() == 1
             && Some(current) != self.doc.stream.current
         {
-            let empty_cohort = self.doc.store.single_windows.get(current.0).cohorts[0];
-            self.rr_erase_from_all_cohortsets(current, empty_cohort);
-            crate::cohort::detach(&mut self.doc.store, empty_cohort);
-            let ds = self
+            self.rr_retire_window(st, current);
+        }
+        self.doc.stream.rebuild_cohort_links(&mut self.doc.store);
+    }
+
+    // [spec:cg3:req:robustness.cross-window-actions]
+    /// Take a window a removal emptied out of the stream: its `>>>` leaves every
+    /// index, its text and removed cohorts pass to a neighbour, and the window
+    /// is dropped from `previous`/`next`.
+    ///
+    /// DIVERGENCE: the C++ frees the window and its `>>>` right here, while the
+    /// running rule's context frames may still name either. The port parks both
+    /// in `st.retired` and frees them once the rule finishes
+    /// ([`Self::rr_free_retired`]), and unlinks the window from its old
+    /// neighbours so nothing reached through it walks back into the stream.
+    fn rr_retire_window(&mut self, st: &mut RRState, current: SwId) {
+        let empty_cohort = self.doc.store.single_windows.get(current.0).cohorts[0];
+        self.rr_erase_from_all_cohortsets(current, empty_cohort);
+        crate::cohort::detach(&mut self.doc.store, empty_cohort);
+        let ds = self
+            .doc
+            .store
+            .cohorts
+            .get(empty_cohort.0)
+            .dep_self
+            .map_or(0, |g| g.get());
+        let keys: Vec<GlobalNumber> = self.doc.cohorts.cohort_map.keys().copied().collect();
+        for k in keys {
+            let cid = *self.doc.cohorts.cohort_map.get(&k).unwrap();
+            self.doc.store.cohorts.get_mut(cid.0).dep_children.erase(ds);
+        }
+        let egn = self.doc.store.cohorts.get(empty_cohort.0).global_number;
+        self.doc.cohorts.cohort_map.remove(&egn);
+        self.doc.deps.dep_window.remove(&egn);
+        self.rr_hand_over_window(current);
+        self.doc
+            .store
+            .single_windows
+            .get_mut(current.0)
+            .all_cohorts
+            .clear();
+        // Remove `current` from gWindow.previous / next.
+        self.doc.stream.previous.retain(|&s| s != current);
+        self.doc.stream.next.retain(|&s| s != current);
+        self.doc
+            .stream
+            .rebuild_single_window_links(&mut self.doc.store);
+        {
+            let sw = self.doc.store.single_windows.get_mut(current.0);
+            sw.previous = None;
+            sw.next = None;
+        }
+        st.retired.push((current, empty_cohort));
+    }
+
+    /// Hand an emptied window's text and its remaining (removed) cohorts to the
+    /// window before it, or failing that the one after.
+    ///
+    /// C++: `if (current.previous) { previous->text += current.text + text_post;
+    /// previous->all_cohorts += current.all_cohorts[1..]; } else if
+    /// (current.next) { next->text = text_post + next->text;
+    /// next->all_cohorts.insert(begin+1, current.all_cohorts[1..]); }`
+    fn rr_hand_over_window(&mut self, current: SwId) {
+        let (prev, next, rest) = {
+            let sw = self.doc.store.single_windows.get(current.0);
+            let rest: Vec<CohortId> = sw.all_cohorts.iter().skip(1).copied().collect();
+            (sw.previous, sw.next, rest)
+        };
+        let heir = if let Some(prev) = prev {
+            let (text, text_post) = {
+                let sw = self.doc.store.single_windows.get(current.0);
+                (sw.text.clone(), sw.text_post.clone())
+            };
+            let psw = self.doc.store.single_windows.get_mut(prev.0);
+            psw.text.push_str(&text);
+            psw.text.push_str(&text_post);
+            psw.all_cohorts.extend(rest.iter().copied());
+            prev
+        } else if let Some(next) = next {
+            let text_post = self
                 .doc
                 .store
-                .cohorts
-                .get(empty_cohort.0)
-                .dep_self
-                .map_or(0, |g| g.get());
-            let keys: Vec<GlobalNumber> = self.doc.cohorts.cohort_map.keys().copied().collect();
-            for k in keys {
-                let cid = *self.doc.cohorts.cohort_map.get(&k).unwrap();
-                self.doc.store.cohorts.get_mut(cid.0).dep_children.erase(ds);
+                .single_windows
+                .get(current.0)
+                .text_post
+                .clone();
+            let nsw = self.doc.store.single_windows.get_mut(next.0);
+            let mut t = text_post;
+            t.push_str(&nsw.text);
+            nsw.text = t;
+            let at = 1.min(nsw.all_cohorts.len());
+            nsw.all_cohorts.splice(at..at, rest.iter().copied());
+            next
+        } else {
+            return;
+        };
+        // C++ leaves these cohorts' `parent` dangling at the pooled (cleared:
+        // parent=nullptr) window, making their eventual teardown map-erase a
+        // no-op; re-seat the id so the arena deref stays valid — same
+        // observable behavior (their cohort_map entries were already erased by
+        // rem_cohort).
+        for c in rest {
+            self.doc.store.cohorts.get_mut(c.0).parent = Some(heir);
+        }
+    }
+
+    // [spec:cg3:req:robustness.cross-window-actions]
+    /// Free the windows [`Self::rr_retire_window`] parked during the rule that
+    /// just finished, with their `>>>` cohorts. No context frame outlives the
+    /// rule; `merge_with`, which does, is let go of a cohort freed here.
+    pub(crate) fn rr_free_retired(&mut self, st: &mut RRState) {
+        for (win, begin) in std::mem::take(&mut st.retired) {
+            if self.scratch.merge_with == Some(begin) {
+                self.scratch.merge_with = None;
             }
-            let egn = self.doc.store.cohorts.get(empty_cohort.0).global_number;
-            self.doc.cohorts.cohort_map.remove(&egn);
-            let opt = Some(empty_cohort);
             crate::cohort::free_cohort(
                 &mut self.doc.store,
                 Some((&mut self.doc.cohorts, &mut self.doc.deps)),
-                opt,
+                Some(begin),
             );
-            // if (current.previous) { previous->text += current.text + text_post;
-            //   previous->all_cohorts += current.all_cohorts[1..]; }
-            // else if (current.next) { next->text = text_post + next->text;
-            //   next->all_cohorts.insert(begin+1, current.all_cohorts[1..]); }
-            let (prev, next) = {
-                let sw = self.doc.store.single_windows.get(current.0);
-                (sw.previous, sw.next)
-            };
-            if let Some(prev) = prev {
-                let (text, text_post, rest) = {
-                    let sw = self.doc.store.single_windows.get(current.0);
-                    (
-                        sw.text.clone(),
-                        sw.text_post.clone(),
-                        sw.all_cohorts.iter().skip(1).copied().collect::<Vec<_>>(),
-                    )
-                };
-                {
-                    let psw = self.doc.store.single_windows.get_mut(prev.0);
-                    psw.text.push_str(&text);
-                    psw.text.push_str(&text_post);
-                    psw.all_cohorts.extend(rest.iter().copied());
-                }
-                // C++ leaves these cohorts' `parent` dangling at the pooled
-                // (cleared: parent=nullptr) window, making their eventual
-                // teardown map-erase a no-op; re-seat the id so the arena deref
-                // stays valid — same observable behavior (their cohort_map
-                // entries were already erased by rem_cohort).
-                for c in rest {
-                    self.doc.store.cohorts.get_mut(c.0).parent = Some(prev);
-                }
-            } else if let Some(next) = next {
-                let (text_post, rest) = {
-                    let sw = self.doc.store.single_windows.get(current.0);
-                    (
-                        sw.text_post.clone(),
-                        sw.all_cohorts.iter().skip(1).copied().collect::<Vec<_>>(),
-                    )
-                };
-                {
-                    let nsw = self.doc.store.single_windows.get_mut(next.0);
-                    let mut t = text_post;
-                    t.push_str(&nsw.text);
-                    nsw.text = t;
-                    let at = 1.min(nsw.all_cohorts.len());
-                    nsw.all_cohorts.splice(at..at, rest.iter().copied());
-                }
-                for c in rest {
-                    self.doc.store.cohorts.get_mut(c.0).parent = Some(next);
-                }
-            }
-            self.doc
-                .store
-                .single_windows
-                .get_mut(current.0)
-                .all_cohorts
-                .clear();
-            // Remove `current` from gWindow.previous / next.
-            if let Some(pos) = self.doc.stream.previous.iter().position(|&s| s == current) {
-                let opt = Some(current);
-                crate::single_window::free_swindow(
-                    &mut self.doc.store,
-                    &mut self.doc.cohorts,
-                    &mut self.doc.deps,
-                    opt,
-                );
-                self.doc.stream.previous.remove(pos);
-            }
-            if let Some(pos) = self.doc.stream.next.iter().position(|&s| s == current) {
-                let opt = Some(current);
-                crate::single_window::free_swindow(
-                    &mut self.doc.store,
-                    &mut self.doc.cohorts,
-                    &mut self.doc.deps,
-                    opt,
-                );
-                self.doc.stream.next.remove(pos);
-            }
-            self.doc
-                .stream
-                .rebuild_single_window_links(&mut self.doc.store);
+            crate::single_window::free_swindow(
+                &mut self.doc.store,
+                &mut self.doc.cohorts,
+                &mut self.doc.deps,
+                Some(win),
+            );
         }
-        self.doc.stream.rebuild_cohort_links(&mut self.doc.store);
     }
 
     /// Renumber `current.cohorts[i].local_number = i` (the C++ `foreach` after a

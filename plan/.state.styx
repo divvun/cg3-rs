@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-09-25T13:10:54.864556Z
+last_sync_at 2026-09-25T13:16:08.336141Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -41,7 +41,6 @@ rule_versions (
     {id robustness.cli-arguments, version 0}
     {id robustness.cli-output, version 0}
     {id robustness.cross-window-actions, version 0}
-    {id robustness.cycles, version 0}
     {id robustness.depth-bounded, version 0}
     {id robustness.empty-tag, version 0}
     {id robustness.enclosures, version 0}
@@ -388,6 +387,17 @@ impl_evidence (
         {id diagnostics.runtime-placed, version 0}
         {id robustness.accepted-grammars-run, version 0}
     )}
+    {id no-panic.grammar-text, covered_rules (
+        robustness.cycles
+        robustness.grammar-text-errors
+    ), covered_claims (
+        {impl_name target-impl, rule robustness.cycles}
+        {impl_name target-impl, rule robustness.grammar-text-errors}
+    ), rule_versions_seen (
+        {id diagnostics.span, version 0}
+        {id robustness.checked-arithmetic, version 0}
+        {id robustness.grammar-text-errors, version 0}
+    )}
     {id no-panic.hash-probe, covered_rules (
         robustness.hash-probe-bounded
         robustness.reserved-keys
@@ -485,11 +495,11 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
-    {id no-panic.grammar-text, covered_rules (
-        robustness.cycles
-        robustness.grammar-text-errors
+    {id no-panic.engine-actions, covered_rules (
+        robustness.cross-window-actions
+        robustness.enclosures
     ), covered_claims (
-        {impl_name target-impl, rule robustness.cycles}
-        {impl_name target-impl, rule robustness.grammar-text-errors}
+        {impl_name target-impl, rule robustness.cross-window-actions}
+        {impl_name target-impl, rule robustness.enclosures}
     )}
 )

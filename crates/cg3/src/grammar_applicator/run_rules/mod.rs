@@ -79,6 +79,10 @@ pub(crate) struct RRState {
     pub(crate) delimited: bool,
     /// `Sorter::do_sort` — re-sort every rule_to_cohorts when the rule finishes.
     pub(crate) do_sort: bool,
+    /// Windows a removal emptied during the running rule, with their `>>>`
+    /// cohorts: already out of the stream, freed once the rule finishes so a
+    /// context frame still naming them never reaches a recycled slot.
+    pub(crate) retired: Vec<(SwId, crate::arena::CohortId)>,
 }
 
 /// First member value of an interval set, or `None` when empty.
@@ -143,4 +147,32 @@ fn parse_scanf_i(field: &str) -> Option<u32> {
         return None;
     }
     digits.parse::<u32>().ok()
+}
+
+/// SPLITCOHORT's `%[0-9cd]->%[0-9pm]` mapping for new cohort `at`: a `c`/`d`
+/// self keeps the old cohort's children (and makes `at` the relation target
+/// unless one is set), a `p`/`m` parent keeps its parent, and digits index the
+/// new run. A field that does not parse leaves the default in place — the C++
+/// reports it and quits.
+fn apply_dep_mapping(
+    dep_self: &str,
+    dep_parent: &str,
+    at: usize,
+    cohort_dep: &mut [(u32, u32)],
+    rel_trg: &mut u32,
+) {
+    let dep = &mut cohort_dep[at];
+    if dep_self.starts_with(['c', 'd']) {
+        dep.0 = crate::cohort::DEP_NO_PARENT;
+        if *rel_trg == crate::cohort::DEP_NO_PARENT {
+            *rel_trg = crate::inlines::ui32(at);
+        }
+    } else if let Some(v) = parse_scanf_i(dep_self) {
+        dep.0 = v;
+    }
+    if dep_parent.starts_with(['p', 'm']) {
+        dep.1 = crate::cohort::DEP_NO_PARENT;
+    } else if let Some(v) = parse_scanf_i(dep_parent) {
+        dep.1 = v;
+    }
 }
