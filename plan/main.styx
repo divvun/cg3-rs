@@ -2657,12 +2657,20 @@ children (
                 id grammar-phases.core-type
                 title "Loaders, the relabeller and the writers own a GrammarCore; Grammar becomes only a run's view (Arc core plus overlay, Deref without DerefMut), deleting CoreHandle, freeze, unshare and the building_mut asserts"
                 deps (grammar-phases.conv-flags grammar-phases.one-interner grammar-phases.parser-trait)
+                sealed true
                 log (
                     {
                         at 2026-09-24T22:50:03.226911Z
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-09-25T00:06:49.538486Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
