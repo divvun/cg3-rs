@@ -204,7 +204,9 @@ fn cg_conv(args: &[&str], env: &[(&str, &str)]) -> Output {
         .spawn()
         .expect("spawn cg-conv");
     let mut stdin = child.stdin.take().unwrap();
-    std::io::Write::write_all(&mut stdin, b"\"<a>\"\n\t\"a\" N\n").unwrap();
+    // A cg-conv that refuses its command line ends without reading its input,
+    // which closes this pipe.
+    let _ = std::io::Write::write_all(&mut stdin, b"\"<a>\"\n\t\"a\" N\n");
     drop(stdin);
     child.wait_with_output().expect("wait cg-conv")
 }

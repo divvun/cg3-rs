@@ -2710,6 +2710,13 @@ children (
                         kind @decision
                         text "Step split (from the design survey, 2026-09-25). RESOLVE (text only, not idempotent): steps 1, 2, step 3's truncate of sets_list_order to the dummy, step 4's vs_sets marks, step 7's marks, 8, 9, 10, 11 (T_MAPPING must precede Set::reindex: trie_reindex reads it, set.rs:414-425), 12a/b (Set::reindex, set_adjust_sets), 13's rewrites + context_adjust_target, 16. Resolve must clear set_alias/sets_by_name/set_name_seeds at step 3's point so step 7's get_set resolves by content hash only. INDEX (both origins): step 3's clears, 4's regex/icase, 5, 6, 7's wf_rules/has_protect, 11 again (idempotent), 12c index_sets, 13's index work, 14, 15, 17-20. Equivalence: resolve never reads index output (regex_tags, T_TEXTUAL, wf_rules, has_protect, index maps; T_USED writes are ORs); after resolve sets_list_order[rule.target] == sets_by_contents[old hash] (add_set_to_list numbers by position, mod.rs:638), so step 13's binary branch picks the same set; step 2 errors still precede step 17's. Index clears first: wf_rules, sets_by_tag, rules_by_tag, rules_by_set (none serialised). Remove relabeller.rs:880's manual sets_by_tag.clear(). New file grammar/finish.rs (mod.rs is at 48/50 fns); every helper under cyclomatic 30; reindex becomes a ~15-line driver."
                     }
+
+                    {
+                        at 2026-09-25T19:16:28.27143098Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

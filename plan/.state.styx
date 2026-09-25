@@ -307,7 +307,11 @@ impl_evidence (
         {id diagnostics.span, version 0}
         {id textual-parser.cg3.textual-parser.error-fn, version 1}
     )}
-    {id grammar-phases.split-reindex}
+    {id grammar-phases.split-reindex, covered_rules (
+        grammar-phases.same-output
+    ), covered_claims (
+        {impl_name target-impl, rule grammar-phases.same-output}
+    )}
     {id icu-regex-parity.anchor-fidelity, covered_rules (
         tag-regex.source-fidelity
     ), covered_claims (

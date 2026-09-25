@@ -794,8 +794,8 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     /// Top-level driver. Builds `tag_by_str` (tag string → target-grammar TagId,
     /// last-wins) and `sets_by_tag` (tag string → set of target sets whose MAIN
     /// trie mentions it), applies RELABEL AS LIST then RELABEL AS SET for every
-    /// matching set, then finalizes: clears the grammar's own `sets_by_tag` index,
-    /// `reindex()`es, and sets `num_tags = single_tags_list.size()`.
+    /// matching set, then finalizes: `reindex()`es, which rebuilds every index
+    /// from nothing, and sets `num_tags = single_tags_list.size()`.
     ///
     /// The finalizing reindex is the one step here that can fail, and it used to
     /// re-raise as a process exit from inside the relabeller. It travels back to
@@ -877,7 +877,6 @@ impl<'g, 'r> Relabeller<'g, 'r> {
         // (5) Finalize. `single_tags_list.size()` == the count of live arena
         // slots; tags are never freed during relabelling, so `capacity()` (the
         // grammar's own size analog, see its reindex) equals that count.
-        self.grammar.sets_by_tag.clear();
         let _ = self.grammar.reindex(false, false)?;
         self.grammar.num_tags = self.grammar.single_tags_list.capacity() as usize;
         Ok(())
