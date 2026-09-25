@@ -29,7 +29,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::error::{ParseSource, ParseSpan};
-use crate::grammar::Grammar;
+use crate::grammar::GrammarCore;
 use crate::inlines::{read_be, write_be};
 use crate::rule::RuleProvenance;
 
@@ -119,7 +119,7 @@ impl GrammarSources {
 }
 
 /// Collect the provenance a textual parse stamped onto a grammar's rules.
-pub fn provenance_of(grammar: &Grammar) -> Vec<(u32, RuleProvenance)> {
+pub fn provenance_of(grammar: &GrammarCore) -> Vec<(u32, RuleProvenance)> {
     let mut rules: Vec<(u32, RuleProvenance)> = (0..grammar.rule_by_number.capacity())
         .filter_map(|i| grammar.rule_by_number.try_get(i))
         .filter_map(|r| r.provenance.map(|p| (r.number, p)))
@@ -175,7 +175,7 @@ pub fn write_sidecar(
 pub fn write_beside(
     binary: &Path,
     binary_bytes: &[u8],
-    grammar: &Grammar,
+    grammar: &GrammarCore,
     sources: &[ParseSource],
 ) {
     let rules = provenance_of(grammar);
@@ -312,7 +312,7 @@ pub fn read_sidecar(binary: &Path) -> Option<GrammarSources> {
 /// bounds-tested against the text that comes back
 /// ([`GrammarSources::locate`]), so a file truncated since the parse yields no
 /// place rather than the wrong one.
-pub fn resolve(grammar: &Grammar) -> Option<GrammarSources> {
+pub fn resolve(grammar: &GrammarCore) -> Option<GrammarSources> {
     if let Some(binary) = grammar.binary_path.as_deref() {
         return read_sidecar(Path::new(binary));
     }
@@ -359,7 +359,7 @@ const RT_NEAR_CHARS: usize = 20;
 /// which is the fallback the spec asks for rather than a guess at where the
 /// failure was.
 pub fn place_in_grammar(
-    grammar: &Grammar,
+    grammar: &GrammarCore,
     rule: Option<crate::arena::RuleId>,
     mut error: crate::error::ParseError,
 ) -> (crate::error::ParseError, Vec<ParseSource>) {

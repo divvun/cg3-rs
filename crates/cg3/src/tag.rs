@@ -8,7 +8,7 @@
 
 use crate::arena::{SetId, TagId};
 use crate::flat_unordered_map::FlatUnorderedMap;
-use crate::grammar::Grammar;
+use crate::grammar::{GrammarCore, TagSpace};
 use crate::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_str, is_textual};
 use crate::math_parser::MathParser;
 use crate::sorted_vector::SortedVector;
@@ -703,7 +703,7 @@ impl Clone for Tag {
 /// compiled `regexp` (anchoring is baked into the pattern at compile time in the
 /// parser layer). `grammar->icase_tags` uses `eq_ignore_case` (the C++ full
 /// Unicode case-folding compare, approximated with lowercase folding).
-pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
+pub fn parse_tag_raw<G: TagSpace>(this: &mut Tag, to: &str, grammar: &mut G) {
     this.r#type = TagType::empty();
     let to_chars: Vec<char> = to.chars().collect();
     let length = to_chars.len();
@@ -737,18 +737,18 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
 
     // grammar->regex_tags scan: the C++ unanchored find is an unanchored
     // is_match against the tag text. Collect ids first to end the borrows.
-    let regex_ids: Vec<TagId> = grammar.regex_tags.iter().copied().collect();
+    let regex_ids: Vec<TagId> = grammar.regex_tags().iter().copied().collect();
     for tid in regex_ids {
-        if let Some(re) = &grammar.single_tags_list[tid.0].regexp
+        if let Some(re) = &grammar.tag(tid).regexp
             && re.is_match(&this.tag)
         {
             this.r#type |= T_TEXTUAL;
         }
     }
     // grammar->icase_tags scan.
-    let icase_ids: Vec<TagId> = grammar.icase_tags.iter().copied().collect();
+    let icase_ids: Vec<TagId> = grammar.icase_tags().iter().copied().collect();
     for tid in icase_ids {
-        if eq_ignore_case(&this.tag, &grammar.single_tags_list[tid.0].tag) {
+        if eq_ignore_case(&this.tag, &grammar.tag(tid).tag) {
             this.r#type |= T_TEXTUAL;
         }
     }
@@ -803,7 +803,7 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
             // DIVERGENCE: that quit is not reproduced; `(` names intern.
             let relname: String = relname.iter().collect();
             let reltag = grammar.intern_text(&relname);
-            this.comparison_hash = grammar.single_tags_list[reltag.0].hash.get();
+            this.comparison_hash = grammar.tag(reltag).hash.get();
         }
     }
 
@@ -825,19 +825,19 @@ pub fn parse_tag_raw(this: &mut Tag, to: &str, grammar: &mut Grammar) {
 
 // [spec:cg3:def:tag.cg3.compare-tag.operator-fn]
 // [spec:cg3:sem:tag.cg3.compare-tag.operator-fn]
-pub fn compare_tag(grammar: &Grammar, a: TagId, b: TagId) -> bool {
+pub fn compare_tag(grammar: &GrammarCore, a: TagId, b: TagId) -> bool {
     grammar.single_tags_list[a.0].hash < grammar.single_tags_list[b.0].hash
 }
 
 // [spec:cg3:def:tag.cg3.equal-tag.operator-fn]
 // [spec:cg3:sem:tag.cg3.equal-tag.operator-fn]
-pub fn equal_tag(grammar: &Grammar, a: TagId, b: TagId) -> bool {
+pub fn equal_tag(grammar: &GrammarCore, a: TagId, b: TagId) -> bool {
     grammar.single_tags_list[a.0].hash == grammar.single_tags_list[b.0].hash
 }
 
 // [spec:cg3:def:tag.cg3.compare-tag-vector.operator-fn]
 // [spec:cg3:sem:tag.cg3.compare-tag-vector.operator-fn]
-pub fn compare_tag_vector(grammar: &Grammar, a: &TagVector, b: &TagVector) -> bool {
+pub fn compare_tag_vector(grammar: &GrammarCore, a: &TagVector, b: &TagVector) -> bool {
     let mut i = 0usize;
     while i < a.len() && i < b.len() {
         let ha = grammar.single_tags_list[a[i].0].hash;
@@ -856,7 +856,7 @@ pub fn compare_tag_vector(grammar: &Grammar, a: &TagVector, b: &TagVector) -> bo
 /// a `&[TagId]` and `tag->type` is resolved via the tag arena. `did`/`special`
 /// are only ever set to `true` (accumulating; the caller pre-initializes them).
 pub fn fill_tagvector(
-    grammar: &Grammar,
+    grammar: &GrammarCore,
     in_: &[TagId],
     tags: &mut TagVector,
     did: &mut bool,

@@ -1,5 +1,5 @@
 //! Port of `src/GrammarWriter.cpp` / `src/GrammarWriter.hpp` — serializes a
-//! loaded [`Grammar`] back into CG-3 TEXT source form (the `--dump-ast` / grammar
+//! loaded [`GrammarCore`] back into CG-3 TEXT source form (the `--dump-ast` / grammar
 //! round-trip path).
 //!
 //! Literal, bug-for-bug 1:1 translation (Wave 2). Each method carries its
@@ -56,7 +56,7 @@ use crate::contextual_test::{
     POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, PosJumpPos,
 };
 use crate::flat_unordered_set::Uint32FlatHashSet;
-use crate::grammar::Grammar;
+use crate::grammar::GrammarCore;
 use crate::inlines::{is_internal, si32};
 use crate::rule::{FLAGS_COUNT, RF_AFTER, RF_BEFORE, RF_WITHCHILD, Rule};
 use crate::set::ST_ORDERED;
@@ -209,13 +209,13 @@ fn byte_at(s: &str, i: usize) -> u8 {
 /// The C++ `sets_list` VECTOR (the numbered used-set list) in dense number order
 /// (`Grammar::sets_list_order`; see the reconciliation note in `crate::grammar`).
 /// Mirrors `Grammar::used_set_ids` (which is private there).
-fn used_set_ids(grammar: &Grammar) -> Vec<SetId> {
+fn used_set_ids(grammar: &GrammarCore) -> Vec<SetId> {
     grammar.sets_list_order.clone()
 }
 
 /// Recovers the C++ `rule_by_number` VECTOR order from the arena (rules are never
 /// freed, so every slot is live; `RuleId.0 == number == slot`).
-fn rule_ids(grammar: &Grammar) -> Vec<RuleId> {
+fn rule_ids(grammar: &GrammarCore) -> Vec<RuleId> {
     (0..grammar.rule_by_number.capacity())
         .filter(|&i| grammar.rule_by_number.try_get(i).is_some())
         .map(RuleId)
@@ -229,7 +229,7 @@ macro_rules! w {
 }
 
 // [spec:cg3:def:grammar-writer.cg3.grammar-writer]
-/// C++ `class GrammarWriter`. Serializes a [`Grammar`] to CG-3 TEXT form.
+/// C++ `class GrammarWriter`. Serializes a [`GrammarCore`] to CG-3 TEXT form.
 ///
 /// The C++ `const Grammar* grammar` member is NOT stored (see the module note on
 /// arena-model signature reconciliation); `grammar` is threaded through the
@@ -253,7 +253,7 @@ impl GrammarWriter {
     /// rule number with anchor-tag-hash values, which `print_rule` later queries
     /// via `equal_range(rule.number)`. (The non-specced destructor merely nulls
     /// `grammar`; the arena port keeps no such pointer, so it is a no-op.)
-    pub fn new(res: &Grammar) -> GrammarWriter {
+    pub fn new(res: &GrammarCore) -> GrammarWriter {
         let mut anchors: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
 
         // for (auto at : res.anchors) anchors.insert(make_pair(at.second, at.first));
@@ -276,7 +276,7 @@ impl GrammarWriter {
     /// (dependencies first). QUIRK reproduced: the SET branch reads `name[0]` /
     /// `name[1]` without a length guard (NUL-terminator semantics via [`byte_at`]);
     /// the LIST branch ends with a single "\n", the SET branch with two.
-    fn print_set<W: Write>(&mut self, grammar: &Grammar, output: &mut W, id: SetId) {
+    fn print_set<W: Write>(&mut self, grammar: &GrammarCore, output: &mut W, id: SetId) {
         let number = grammar.sets_list[id.0].number.get();
         if self.used_sets.find(number) != self.used_sets.end() {
             return;
@@ -356,16 +356,8 @@ impl GrammarWriter {
     /// DIVERGENCE: the C++ returns 0 unconditionally. A grammar whose core
     /// another pipeline is still holding cannot be renamed under it, so that one
     /// case returns non-zero having written nothing.
-    pub fn write_grammar<W: Write>(&mut self, grammar: &mut Grammar, output: &mut W) -> i32 {
+    pub fn write_grammar<W: Write>(&mut self, grammar: &mut GrammarCore, output: &mut W) -> i32 {
         // (!output) / (!grammar): non-null references in the port; checks elided.
-
-        // The naming pass below EDITS the grammar, so this writer needs the core
-        // to itself — checked before the first byte rather than at the pass, so
-        // a refusal leaves no half-written file.
-        if let Err(e) = grammar.unshare() {
-            tracing::error!("{e}");
-            return 1;
-        }
 
         w!(
             output,
@@ -532,7 +524,7 @@ impl GrammarWriter {
     /// keyword, dep-target + dep-tests, and (for `WITH`) the brace-wrapped
     /// sub-rules. QUIRK reproduced: `rule.name[1]`/`name[2]` read without a length
     /// guard (NUL-terminator semantics via [`byte_at`]).
-    fn print_rule<W: Write>(&mut self, grammar: &Grammar, to: &mut W, rule: &Rule) {
+    fn print_rule<W: Write>(&mut self, grammar: &GrammarCore, to: &mut W, rule: &Rule) {
         if self.seen_rules.count(rule.number) != 0 {
             return;
         }
@@ -723,7 +715,7 @@ impl GrammarWriter {
     /// (C)BARRIER, and recurses into `linked`.
     fn print_contextual_test<W: Write>(
         &mut self,
-        grammar: &Grammar,
+        grammar: &GrammarCore,
         to: &mut W,
         test: &ContextualTest,
     ) {

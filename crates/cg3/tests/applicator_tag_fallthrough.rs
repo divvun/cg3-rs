@@ -15,7 +15,7 @@
 //! tag in its place. It now reaches the caller as a `RunError`, so what these
 //! assert is the error rather than the substitute tag it used to leave behind.
 
-use cg3::grammar::Grammar;
+use cg3::grammar::GrammarCore;
 use cg3::grammar_applicator::GrammarApplicator;
 use cg3::tag::{T_VARSTRING, TagType};
 use cg3::textual_parser::TextualParser;
@@ -23,13 +23,13 @@ use cg3::textual_parser::TextualParser;
 /// A minimal loaded applicator; `add_tag` needs a reindexed grammar.
 fn applicator() -> GrammarApplicator {
     let src = "DELIMITERS = \"<.>\" ;\nLIST a = (n) ;\nSELECT a ;\n";
-    let mut parser = TextualParser::new(Grammar::default(), false);
+    let mut parser = TextualParser::new(GrammarCore::default(), false);
     parser
         .parse_grammar_utf8(src.as_bytes())
         .expect("fixture grammar parses");
     let mut grammar = parser.grammar;
     let _ = grammar.reindex(false, false).expect("reindex");
-    GrammarApplicator::new(grammar)
+    GrammarApplicator::new(grammar.into())
 }
 
 /// What `add_tag` yields for input that fails validation inside `parse_tag`:

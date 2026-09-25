@@ -9,7 +9,7 @@
 //! ## Arena adaptations (documented once)
 //! * C++ `grammar->allocateSet()` returns a `new Set` tracked only in `sets_all`,
 //!   NOT yet in `sets_list`; `addSetToGrammar` then `push_back`s it and sets
-//!   `number = sets_list.size()-1`. The port's [`Grammar::allocate_set`] places
+//!   `number = sets_list.size()-1`. The port's [`GrammarCore::allocate_set`] places
 //!   the set in the `sets_list` ARENA at slot `SetId.0`, but not in the numbered
 //!   `sets_list_order` vector; `addSetToGrammar` pushes it there and assigns the
 //!   dense `number = sets_list_order.len()-1`, deriving the `setName` argument
@@ -17,13 +17,13 @@
 //!   like C++.
 //! * `relabels.sets_list[n]` / `grammar->sets_list[i]` — `n`/`i` are DENSE set
 //!   NUMBERS, resolved through the owning grammar's `sets_list_order`
-//!   ([`Grammar::set_id_by_number`]).
+//!   ([`GrammarCore::set_id_by_number`]).
 //! * `reindexSet` recurses over `s.sets` treating each entry as a set NUMBER
 //!   (`grammar->sets_list[i]`), NOT a content hash — so it is a DISTINCT function
 //!   from [`crate::set::Set::reindex`] (which resolves children by content hash).
 //!   It is ported here as a private method rather than reusing `Set::reindex`.
 //! * `grammar->addTag(new Tag(*tag_r))` (deep-copy then intern) → clone the tag
-//!   value out of the source arena and hand it to [`Grammar::add_tag`] (by value),
+//!   value out of the source arena and hand it to [`TagSpace::add_tag`] (by value),
 //!   which interns/dedups and returns the canonical [`TagId`].
 //! * The relabel rules are keyed by tag STRING; the two maps use
 //!   `HashMap<String, SetId>` (the `Set*` value is the relabel target's SetId in
@@ -54,7 +54,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::arena::{SetId, TagId};
-use crate::grammar::Grammar;
+use crate::grammar::{GrammarCore, TagSpace};
 use crate::set::trie_reindex;
 use crate::set::{ST_CHILD_UNIFY, ST_MAPPING, ST_SET_UNIFY, ST_SPECIAL, ST_TAG_UNIFY};
 use crate::strings::Keywords;
@@ -142,7 +142,7 @@ impl<'a> FreqSorter<'a> {
 /// The TWO-argument, tag-re-interning copy of a tag trie (a different overload
 /// from the one-argument [`crate::tag_trie::trie_copy`]). Iterates each entry of
 /// `trie`: deep-copies the tag (clone the `Tag` value out of `grammar`'s arena)
-/// and re-interns it via [`Grammar::add_tag`], keying the new node by the
+/// and re-interns it via [`TagSpace::add_tag`], keying the new node by the
 /// canonical target-grammar [`TagId`]; copies `terminal`; and for a child trie
 /// recurses.
 ///
@@ -150,7 +150,7 @@ impl<'a> FreqSorter<'a> {
 /// [`crate::tag_trie::trie_copy_helper`], so nested child levels are copied by the
 /// ORIGINAL `TagId` WITHOUT re-interning into `grammar`. Only the top level has
 /// its tags transferred; deeper levels keep source-grammar tag ids.
-pub fn trie_copy(trie: &TagTrie, grammar: &mut Grammar) -> TagTrie {
+pub fn trie_copy(trie: &TagTrie, grammar: &mut GrammarCore) -> TagTrie {
     let mut nt = TagTrie::new();
     // Collect the source keys/nodes first so the `&mut grammar` re-intern borrow
     // does not alias an immutable borrow of `trie` (which lives inside a Set in
@@ -183,7 +183,7 @@ pub fn trie_copy(trie: &TagTrie, grammar: &mut Grammar) -> TagTrie {
 /// form), so it is effectively DEAD CODE in the C++. Ported for completeness (it
 /// is public API, exercised only by the spec test); the intended deep
 /// re-interning of nested trie levels does not occur.
-pub fn trie_copy_helper_reintern(trie: &TagTrie, grammar: &mut Grammar) -> Box<TagTrie> {
+pub fn trie_copy_helper_reintern(trie: &TagTrie, grammar: &mut GrammarCore) -> Box<TagTrie> {
     let mut nt = Box::new(TagTrie::new());
     let entries: Vec<(TagId, TrieNode)> = trie.iter().map(|(k, n)| (*k, n.clone())).collect();
     for (k, node) in entries {
@@ -208,9 +208,9 @@ pub fn trie_copy_helper_reintern(trie: &TagTrie, grammar: &mut Grammar) -> Box<T
 /// `&mut`/`&` borrows for the lifetime of the relabeller (the C++ raw pointers).
 pub struct Relabeller<'g, 'r> {
     /// C++ `Grammar* grammar` — the target grammar (mutated).
-    grammar: &'g mut Grammar,
+    grammar: &'g mut GrammarCore,
     /// C++ `const Grammar* relabels` — the relabel-rules grammar (read-only).
-    relabels: &'r Grammar,
+    relabels: &'r GrammarCore,
     /// C++ `std::unique_ptr<const StringSetMap> relabel_as_list`.
     relabel_as_list: StringSetMap,
     /// C++ `std::unique_ptr<const StringSetMap> relabel_as_set`.
@@ -227,7 +227,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     /// rule is skipped); guard diagnostics are deferred I/O. `emplace` on an
     /// unordered_map does not overwrite → a duplicate fromTag string keeps its
     /// FIRST target.
-    pub fn new(res: &'g mut Grammar, relabels: &'r Grammar, _ux_err: ()) -> Self {
+    pub fn new(res: &'g mut GrammarCore, relabels: &'r GrammarCore, _ux_err: ()) -> Self {
         let mut as_list: StringSetMap = StringSetMap::new();
         let mut as_set: StringSetMap = StringSetMap::new();
 
@@ -306,7 +306,7 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     // [spec:cg3:sem:relabeller.cg3.relabeller.transfer-tags-fn]
     /// Re-interns a list of tags into the target grammar and returns the
     /// canonical target [`TagId`]s in input order. For each tag: hand its
-    /// deep-copied value to [`Grammar::add_tag`] (which inserts it or returns the
+    /// deep-copied value to [`TagSpace::add_tag`] (which inserts it or returns the
     /// existing canonical tag), and push the result.
     ///
     /// ARENA NOTE: the C++ takes `TagVector` (`Tag*`s) whose elements may belong
@@ -535,10 +535,11 @@ impl<'g, 'r> Relabeller<'g, 'r> {
     fn add_set_to_grammar(&mut self, s: SetId) {
         // s->setName(UI32(grammar->sets_list.size() + 100))
         let name_arg = (self.grammar.sets_list_order.len() as u32).wrapping_add(100);
-        let core = self.grammar.core_mut();
-        core.sets_list
+        let grammar = &mut self.grammar;
+        grammar
+            .sets_list
             .get_mut(s.0)
-            .set_name(name_arg, &mut core.rand_state);
+            .set_name(name_arg, &mut grammar.rand_state);
         // grammar->sets_list.push_back(s); s->number = UI32(sets_list.size()-1);
         self.grammar.sets_list_order.push(s);
         let num = (self.grammar.sets_list_order.len() - 1) as u32;

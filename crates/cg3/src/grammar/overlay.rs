@@ -1,22 +1,22 @@
-//! The seam between a loaded grammar and the run applying it.
+//! A loaded grammar as one run holds it.
 //!
-//! [`GrammarCore`](super::GrammarCore) is everything the load produced and no
-//! run may change; this module is the other half — [`Grammar`], which pairs a
-//! core with the tag state one run owns, and the two spanning views
-//! ([`TagStore`], [`TagIndex`]) that let a `TagId` keep naming one flat space
-//! across both.
+//! [`GrammarCore`](super::GrammarCore) is the grammar: the loaders build it,
+//! the writers serialise it, and once it is loaded it goes behind an `Arc` and
+//! nothing edits it again. This module is the run's side — [`Grammar`], which
+//! pairs a shared core with the tag state one run owns, and the two spanning
+//! views ([`TagStore`], [`TagIndex`]) that let a `TagId` keep naming one flat
+//! space across both.
 //!
 //! See the crate-level note in [`super`] for why the split exists.
 
-use std::ops::{Deref, DerefMut, Index};
+use std::ops::{Deref, Index};
 use std::sync::Arc;
 
 use crate::arena::TagId;
 use crate::flat_unordered_map::FlatUnorderedMap;
-use crate::sorted_vector::SortedVector;
 use crate::tag::{Tag, TagType};
 
-use super::{GrammarCore, IcaseTags, RegexTags};
+use super::{GrammarCore, IcaseTags, RegexTags, TagSpace};
 
 /// The whole point of the split, as a bound the compiler checks rather than a
 /// claim in a comment: a [`GrammarCore`] can cross threads and be read from
@@ -31,103 +31,35 @@ const _: () = {
     let _ = proof;
 };
 
-/// How a [`Grammar`] holds its [`GrammarCore`].
-///
-/// One handle, two states, because a grammar is mutable exactly once: while it
-/// is being loaded.
-enum CoreHandle {
-    /// Still loading. This grammar is the core's sole owner and edits it in
-    /// place — no atomics, no checks, no sharing.
-    Building(Box<GrammarCore>),
-    /// Loaded. The core is immutable, full stop, and shareable because of it:
-    /// there is no way to reach `&mut GrammarCore` through this arm, so no run
-    /// can edit a grammar another pipeline is reading.
-    ///
-    /// The paths that still EDIT a loaded grammar — the two writers, which
-    /// rename sets and reverse each rule's tests in place — take it back to
-    /// [`Building`](Self::Building) first ([`Grammar::unshare`]), which is
-    /// exactly where sharing is decided: `Arc::try_unwrap` hands over a `Box`
-    /// only when no other handle exists.
-    Frozen(Arc<GrammarCore>),
-}
-
-/// The tag arena AS ONE RUN SEES IT: the frozen core's tags at their own ids,
-/// this run's interned tags at the ids above them.
+/// The tag arena AS ONE RUN SEES IT: the core's tags at their own ids, this
+/// run's interned tags at the ids above them.
 ///
 /// `TagId(i)` resolves to the core for `i < core.single_tags_list.capacity()`
 /// and to the run's own `Vec` above that, so a `TagId` still names one flat
 /// space and `single_tags_list[id]` reads the same everywhere it always did.
-/// The core arena never grows once frozen, so the boundary is fixed and the
-/// ids of core tags never move.
+/// The core never grows, so the boundary is fixed and no core id ever moves.
 ///
 /// There is deliberately no `IndexMut`: a `&mut Tag` that might land in the
 /// core is not expressible, because another pipeline may be reading that tag.
-/// `intern` is the run's only way to add one, and the load-time editors
-/// ([`building_mut`](Self::building_mut), [`put_building`](Self::put_building))
-/// say in their names that they only work before the core is frozen.
-///
-/// This type also HOLDS the core handle. `single_tags_list` is the one field
-/// that has to see both halves at once, Rust fields cannot borrow their
-/// siblings, and a second `Arc` clone anywhere inside `Grammar` would take the
-/// in-place edit away from the loaders forever. [`Grammar::core`] reads it back
-/// out, and [`Grammar`]'s `Deref` goes through it.
 pub struct TagStore {
-    core: CoreHandle,
-    /// The tags THIS RUN interned, in id order from `core_len` up. A plain
-    /// `Vec`, not an [`Arena`]: a run never frees a tag it interned.
+    core: Arc<GrammarCore>,
+    /// The tags THIS RUN interned, in id order from the core's length up. A
+    /// plain `Vec`, not an [`Arena`](crate::arena::Arena): a run never frees a
+    /// tag it interned.
     run: Vec<Tag>,
 }
 
-impl Default for TagStore {
-    fn default() -> Self {
-        TagStore {
-            core: CoreHandle::Building(Box::default()),
-            run: Vec::new(),
-        }
-    }
-}
-
 impl TagStore {
-    /// The frozen (or still-building) half of the grammar.
+    /// The shared half.
     #[inline]
     pub fn core(&self) -> &GrammarCore {
-        match &self.core {
-            CoreHandle::Building(c) => c,
-            CoreHandle::Frozen(c) => c,
-        }
-    }
-
-    /// The core, mutably. Every `&mut GrammarCore` in the crate comes from here
-    /// — [`Grammar::core_mut`] and `DerefMut` both forward to it — so this is
-    /// the one place that decides whether a grammar may be edited at all.
-    ///
-    /// Answers only for a core that is still being built, which a `Box` makes
-    /// sole-owned by type. A frozen one panics: it may be shared right now, and
-    /// a check that passes while unshared would be a check that passes in every
-    /// test and fails in the host this split exists for. Whatever a run needs to
-    /// change lives in the overlay beside the core instead.
-    #[inline]
-    pub fn core_mut(&mut self) -> &mut GrammarCore {
-        match &mut self.core {
-            CoreHandle::Building(c) => c,
-            CoreHandle::Frozen(_) => panic!(
-                "a frozen grammar core cannot be edited; the run's own tag state \
-                 lives in the overlay beside it, and the writers take the core \
-                 back with Grammar::unshare first"
-            ),
-        }
+        &self.core
     }
 
     /// Where the core half ends and this run's own tags begin.
     #[inline]
     fn core_len(&self) -> u32 {
-        self.core().single_tags_list.capacity()
-    }
-
-    /// Whether new tags belong to the run rather than to the grammar.
-    #[inline]
-    fn is_frozen(&self) -> bool {
-        matches!(self.core, CoreHandle::Frozen(_))
+        self.core.single_tags_list.capacity()
     }
 
     /// `Arena::capacity` over the span: highest id + 1 across both halves.
@@ -141,7 +73,7 @@ impl TagStore {
     pub fn get(&self, i: u32) -> &Tag {
         let core_len = self.core_len();
         if i < core_len {
-            self.core().single_tags_list.get(i)
+            self.core.single_tags_list.get(i)
         } else {
             &self.run[(i - core_len) as usize]
         }
@@ -153,120 +85,19 @@ impl TagStore {
     pub fn try_get(&self, i: u32) -> Option<&Tag> {
         let core_len = self.core_len();
         if i < core_len {
-            self.core().single_tags_list.try_get(i)
+            self.core.single_tags_list.try_get(i)
         } else {
             self.run.get((i - core_len) as usize)
         }
     }
 
-    /// Give `tag` a slot and stamp its `number` (C++ `tag->number =
-    /// single_tags_list.size() - 1`), returning its id.
-    ///
-    /// Before [`Grammar::freeze`] that slot is in the core, because the grammar
-    /// is still being built; after it, in the run's own half.
-    pub(super) fn intern(&mut self, mut tag: Tag) -> TagId {
-        if self.is_frozen() {
-            let idx = self.capacity();
-            tag.number = idx;
-            self.run.push(tag);
-            TagId(idx)
-        } else {
-            let core = self.core_mut();
-            let idx = core.single_tags_list.alloc(tag);
-            core.single_tags_list.get_mut(idx).number = idx;
-            TagId(idx)
-        }
-    }
-
-    /// Edit a tag of a grammar that is still being LOADED — `reindex`'s
-    /// `T_TEXTUAL` / `T_USED` / `T_MAPPING` passes and nothing else.
-    ///
-    /// Panics on a frozen core: from that point a tag is shared, and a run that
-    /// needs different flags has its own copy of them
-    /// ([`Grammar::tag_type_insert`]).
-    pub fn building_mut(&mut self, i: u32) -> &mut Tag {
-        assert!(
-            !self.is_frozen(),
-            "tag {i} belongs to a frozen grammar core and cannot be edited; \
-             a run's view of a tag's type lives in Grammar::tag_flags"
-        );
-        self.core_mut().single_tags_list.get_mut(i)
-    }
-
-    /// Place a whole tag at an already-allocated slot (the binary loader reads
-    /// records out of order and puts each at its own `number`). Load-time only,
-    /// like [`building_mut`](Self::building_mut).
-    pub fn put_building(&mut self, i: u32, tag: Tag) {
-        assert!(
-            !self.is_frozen(),
-            "tag {i} belongs to a frozen grammar core and cannot be replaced"
-        );
-        self.core_mut().single_tags_list[i] = tag;
-    }
-
-    /// Reserve a slot while loading (the binary loader pre-sizes the arena).
-    pub fn alloc_building(&mut self, tag: Tag) -> u32 {
-        assert!(
-            !self.is_frozen(),
-            "a frozen grammar core cannot grow; a run's tags go to the overlay"
-        );
-        self.core_mut().single_tags_list.alloc(tag)
-    }
-
-    /// `Arena::free_slot` — `destroy_tag`'s backing, and load-time only for the
-    /// same reason as [`building_mut`](Self::building_mut).
-    pub(super) fn free_slot(&mut self, i: u32) {
-        assert!(
-            !self.is_frozen(),
-            "tag {i} belongs to a frozen grammar core and cannot be freed"
-        );
-        self.core_mut().single_tags_list.free_slot(i);
-    }
-
-    /// Finish loading: the core becomes immutable-in-intent and shareable, and
-    /// every tag interned from here on is the RUN's. Idempotent.
-    fn freeze(&mut self) {
-        if let CoreHandle::Building(core) = &mut self.core {
-            let core = std::mem::take(core);
-            self.core = CoreHandle::Frozen(Arc::from(core));
-        }
-    }
-
-    /// A store over a core someone else loaded: frozen from the start, with no
-    /// tags of its own yet.
-    fn from_shared(core: Arc<GrammarCore>) -> TagStore {
-        TagStore {
-            core: CoreHandle::Frozen(core),
-            run: Vec::new(),
-        }
-    }
-
-    /// Take the core back for editing, if this handle is the only one left.
-    ///
-    /// `Arc::try_unwrap` is where sharing is decided — it yields the core by
-    /// value exactly when no other pipeline holds it, and the `Box` it becomes
-    /// carries that sole ownership in the type from then on. Already-building
-    /// stores succeed trivially.
-    fn unshare(&mut self) -> bool {
-        // An empty core stands in while the real one is unwrapped; whichever
-        // handle the unwrap produces replaces it before anything can read it.
-        let handle = std::mem::replace(&mut self.core, CoreHandle::Building(Box::default()));
-        match handle {
-            building @ CoreHandle::Building(_) => {
-                self.core = building;
-                true
-            }
-            CoreHandle::Frozen(arc) => match Arc::try_unwrap(arc) {
-                Ok(core) => {
-                    self.core = CoreHandle::Building(Box::new(core));
-                    true
-                }
-                Err(arc) => {
-                    self.core = CoreHandle::Frozen(arc);
-                    false
-                }
-            },
-        }
+    /// Give `tag` the next slot above everything in the span and stamp its
+    /// `number` (C++ `tag->number = single_tags_list.size() - 1`).
+    fn intern(&mut self, mut tag: Tag) -> TagId {
+        let idx = self.capacity();
+        tag.number = idx;
+        self.run.push(tag);
+        TagId(idx)
     }
 }
 
@@ -283,10 +114,17 @@ impl Index<u32> for TagStore {
 ///
 /// Derefs to the core, so every field the load produced — sets, rules,
 /// contexts, the reindex indexes, the mode flags — reads through a `Grammar`
-/// exactly as it did when they were all one struct. The five members below
-/// SHADOW their core counterparts on purpose: naming `regex_tags` through a
-/// `Grammar` has to mean the run's, or a run would scan a set missing its own
-/// additions.
+/// as it does on the core. The members below SHADOW their core counterparts on
+/// purpose: naming `regex_tags` through a `Grammar` has to mean the run's, or a
+/// run would scan a set missing its own additions.
+///
+/// There is no `DerefMut`, so a run cannot edit the grammar it is applying,
+/// and that is checked by the compiler rather than at run time:
+///
+/// ```compile_fail
+/// let mut grammar = cg3::grammar::Grammar::default();
+/// grammar.has_dep = true;
+/// ```
 pub struct Grammar {
     /// Both halves of the tag arena, and the handle to the core (see
     /// [`TagStore`]).
@@ -313,9 +151,7 @@ pub struct Grammar {
     /// [`tag_type_insert`](Self::tag_type_insert) /
     /// [`tag_type_remove`](Self::tag_type_remove); `Tag::r#type` keeps the
     /// LOAD-TIME value, which is what `rehash` folds into the tag's identity and
-    /// what the binary writer serialises. Load-time code (the parsers,
-    /// [`reindex`](Self::reindex), the relabeller, the writer, `Tag`'s own
-    /// methods) reads `Tag::r#type` directly — it runs before this exists.
+    /// what the binary writer serialises.
     ///
     /// Dense, not a delta map: it is read on the hottest path in the engine, and
     /// 4 bytes per tag is ~56 KB for a 14k-tag grammar against a grammar of
@@ -333,16 +169,18 @@ pub struct Grammar {
 }
 
 impl Default for Grammar {
-    /// A grammar with an empty core, still building — the state every loader
-    /// starts from.
+    /// A run over an empty grammar — what a tool holds before it has loaded
+    /// the real one.
     fn default() -> Self {
-        Grammar {
-            single_tags_list: TagStore::default(),
-            single_tags_run: FlatUnorderedMap::default(),
-            tag_flags: Vec::new(),
-            regex_tags: RegexTags::default(),
-            icase_tags: SortedVector::new(),
-        }
+        Grammar::from_core(Arc::new(GrammarCore::default()))
+    }
+}
+
+/// A run over a grammar nobody else is applying — `from_core` over a fresh
+/// `Arc`.
+impl From<GrammarCore> for Grammar {
+    fn from(core: GrammarCore) -> Self {
+        Grammar::from_core(Arc::new(core))
     }
 }
 
@@ -350,34 +188,18 @@ impl Deref for Grammar {
     type Target = GrammarCore;
     #[inline]
     fn deref(&self) -> &GrammarCore {
-        self.single_tags_list.core()
-    }
-}
-
-/// Writing a core field through a `Grammar` — `grammar.has_dep = true` and the
-/// hundreds like it across the parsers and `reindex` — is editing the grammar
-/// itself, so it answers only while the grammar is still being LOADED and
-/// panics on a frozen core (see [`TagStore::core_mut`]).
-///
-/// It would be better as a compile error. It is not one because `Grammar` is
-/// one type for both jobs: dropping this impl to force the explicit
-/// [`core_mut`](Grammar::core_mut) at every editing site costs 477 call-site
-/// edits across the loaders — none of them in the engine, which mutates the
-/// core nowhere.
-impl DerefMut for Grammar {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut GrammarCore {
-        self.single_tags_list.core_mut()
+        &self.single_tags_list.core
     }
 }
 
 /// The hash → tag index across both halves — the C++ `Grammar::single_tags`,
 /// which a run both reads and adds to.
 ///
-/// Built per lookup by [`Grammar::single_tags`]; holds no state of its own.
+/// Built per lookup by [`Grammar::single_tags`] (and, over the core alone, by
+/// [`GrammarCore::single_tags`]); holds no state of its own.
 pub struct TagIndex<'a> {
-    core: &'a FlatUnorderedMap<u32, TagId>,
-    run: &'a FlatUnorderedMap<u32, TagId>,
+    pub(super) core: &'a FlatUnorderedMap<u32, TagId>,
+    pub(super) run: Option<&'a FlatUnorderedMap<u32, TagId>>,
 }
 
 impl TagIndex<'_> {
@@ -397,9 +219,11 @@ impl TagIndex<'_> {
         if it != self.core.end() {
             return TagHashRef(Some(*it.get()));
         }
-        let it = self.run.find(hash);
-        if it != self.run.end() {
-            return TagHashRef(Some(*it.get()));
+        if let Some(run) = self.run {
+            let it = run.find(hash);
+            if it != run.end() {
+                return TagHashRef(Some(*it.get()));
+            }
         }
         TagHashRef(None)
     }
@@ -413,7 +237,7 @@ impl TagIndex<'_> {
 
     /// `single_tags.size()` — live entries across both halves.
     pub fn size(&self) -> usize {
-        self.core.size() + self.run.size()
+        self.core.size() + self.run.map_or(0, |run| run.size())
     }
 }
 
@@ -432,20 +256,56 @@ impl TagHashRef {
         self.0
             .expect("single_tags: dereferenced a past-the-end iterator")
     }
+
+    /// The entry's tag, or `None` for `end()`.
+    #[inline]
+    pub fn tag(self) -> Option<TagId> {
+        self.0.map(|(_, id)| id)
+    }
 }
 
 impl Grammar {
-    /// `single_tags[hash] = id` — register an interned tag under the hash the
-    /// probe settled on, in whichever half the tag itself went to.
-    pub(crate) fn insert_tag_hash(&mut self, hash: u32, id: TagId) {
-        if self.single_tags_list.is_frozen() {
-            self.single_tags_run.insert((hash, id));
-        } else {
-            self.single_tags_list
-                .core_mut()
-                .tags_by_hash
-                .insert((hash, id));
+    /// A run over `core` — the constructor the whole split exists for. A host
+    /// loads ONE grammar, puts it behind an `Arc`, and builds a pipeline per
+    /// worker from clones of it; N workers then cost one grammar plus N
+    /// overlays instead of N grammars.
+    ///
+    /// The overlay starts from the core's load-time tag flags and copies of its
+    /// regex / case-insensitive tag sets. Nothing is shared with any other run
+    /// over the same core, so neither can see the other's interned tags or flag
+    /// changes.
+    pub fn from_core(core: Arc<GrammarCore>) -> Grammar {
+        let tag_flags = (0..core.single_tags_list.capacity())
+            .map(|i| {
+                core.single_tags_list
+                    .try_get(i)
+                    .map_or(TagType::empty(), |t| t.r#type)
+            })
+            .collect();
+        let regex_tags = core.regex_tags.clone();
+        let icase_tags = core.icase_tags.clone();
+        Grammar {
+            single_tags_list: TagStore {
+                core,
+                run: Vec::new(),
+            },
+            single_tags_run: FlatUnorderedMap::default(),
+            tag_flags,
+            regex_tags,
+            icase_tags,
         }
+    }
+
+    /// The core this run applies.
+    #[inline]
+    pub fn core(&self) -> &GrammarCore {
+        &self.single_tags_list.core
+    }
+
+    /// Another handle on the core, for a second run to apply the same grammar
+    /// without rebuilding it.
+    pub fn shared_core(&self) -> Arc<GrammarCore> {
+        Arc::clone(&self.single_tags_list.core)
     }
 
     /// C++ `Grammar::single_tags` — the hash → tag index, spanning the core's
@@ -453,101 +313,14 @@ impl Grammar {
     #[inline]
     pub fn single_tags(&self) -> TagIndex<'_> {
         TagIndex {
-            core: &self.single_tags_list.core().tags_by_hash,
-            run: &self.single_tags_run,
+            core: &self.single_tags_list.core.tags_by_hash,
+            run: Some(&self.single_tags_run),
         }
     }
 
-    /// The core, shared or not.
-    #[inline]
-    pub fn core(&self) -> &GrammarCore {
-        self.single_tags_list.core()
-    }
-
-    /// The core, mutably — the explicit form of the `DerefMut` every
-    /// `grammar.some_field = …` already goes through, for the places that need
-    /// two of its fields borrowed at once.
-    #[inline]
-    pub fn core_mut(&mut self) -> &mut GrammarCore {
-        self.single_tags_list.core_mut()
-    }
-
-    /// Finish loading: the core becomes shareable, and every tag interned from
-    /// here on belongs to the RUN rather than to the grammar. Idempotent.
-    ///
-    /// Called where a run begins (`GrammarApplicator::set_grammar`), not where
-    /// a load ends: a relabelled grammar goes on gaining tags after its last
-    /// `reindex`, and those are the grammar's — they have to serialise.
-    pub fn freeze(&mut self) {
-        self.single_tags_list.freeze();
-    }
-
-    /// Freeze and hand out the core, for a second run to apply the same grammar
-    /// without rebuilding it.
-    ///
-    /// The handle this whole split exists to produce. Note that it freezes the
-    /// core: editing it through this `Grammar` panics from here on, and only
-    /// [`unshare`](Self::unshare) takes it back.
-    pub fn shared_core(&mut self) -> Arc<GrammarCore> {
-        self.freeze();
-        match &self.single_tags_list.core {
-            CoreHandle::Frozen(c) => Arc::clone(c),
-            CoreHandle::Building(_) => unreachable!("just frozen"),
-        }
-    }
-
-    /// A grammar over a core someone else already loaded — the constructor the
-    /// whole split exists for. A host loads ONE grammar, takes its
-    /// [`shared_core`](Self::shared_core), and builds a pipeline per worker from
-    /// clones of it; N workers then cost one grammar plus N overlays instead of
-    /// N grammars.
-    ///
-    /// The overlay starts empty and is seeded exactly as a freshly loaded
-    /// grammar's is ([`materialise_run_tag_state`](Self::materialise_run_tag_state),
-    /// `reindex`'s last step): the core's load-time tag flags, and copies of its
-    /// regex / case-insensitive tag sets. Nothing is shared with any other
-    /// grammar over the same core, so neither can see the other's interned tags
-    /// or flag changes.
-    pub fn from_core(core: Arc<GrammarCore>) -> Grammar {
-        let mut grammar = Grammar {
-            single_tags_list: TagStore::from_shared(core),
-            single_tags_run: FlatUnorderedMap::default(),
-            tag_flags: Vec::new(),
-            regex_tags: RegexTags::default(),
-            icase_tags: SortedVector::new(),
-        };
-        grammar.materialise_run_tag_state();
-        grammar
-    }
-
-    /// Take the core back for editing — the writers' entry gate.
-    ///
-    /// [`write_grammar`](crate::grammar_writer::GrammarWriter::write_grammar)
-    /// renames sets and
-    /// [`write_binary_grammar`](crate::binary_grammar::BinaryGrammar::write_binary_grammar)
-    /// reverses each rule's tests, both in place, so both need the core to
-    /// themselves. This is the only route from a frozen core back to a mutable
-    /// one, and it fails when another pipeline still holds one — a grammar
-    /// being applied elsewhere cannot be rewritten under it.
-    ///
-    /// The run's own tag state is untouched and stays where it is; no writer
-    /// serialises it (`num_tags` is the parse-time count, and a tag interned
-    /// during a run appears in no trie).
-    pub fn unshare(&mut self) -> Result<(), crate::error::GrammarError> {
-        if self.single_tags_list.unshare() {
-            Ok(())
-        } else {
-            Err(crate::error::GrammarError::CoreShared)
-        }
-    }
-
-    /// The type flags THIS RUN sees for `tag` — read
-    /// `Grammar::tag_flags`, never `Tag::r#type`, from any code that
-    /// runs while a stream is being applied.
-    ///
-    /// The only thing in the engine that knows where the run's flags live. When
-    /// they move to a per-run overlay, this moves with them and its callers do
-    /// not.
+    /// The type flags THIS RUN sees for `tag` — read `Grammar::tag_flags`,
+    /// never `Tag::r#type`, from any code that runs while a stream is being
+    /// applied.
     #[inline]
     pub fn tag_type(&self, tag: TagId) -> TagType {
         self.tag_flags[tag.0 as usize]
@@ -564,43 +337,34 @@ impl Grammar {
     pub fn tag_type_remove(&mut self, tag: TagId, bits: TagType) {
         self.tag_flags[tag.0 as usize] &= !bits;
     }
+}
 
-    /// Seed `tag_flags[tag]` from the tag's load-time flags, growing the array
-    /// to cover the slot. Called for every tag the interner allocates, so the
-    /// array stays parallel to the arena — including for tags interned during a
-    /// run, whose flags start out exactly as `parse_tag_raw` left them.
-    pub(super) fn record_tag_flags(&mut self, tag: TagId) {
-        let ty = self.single_tags_list[tag.0].r#type;
-        let i = tag.0 as usize;
-        if i >= self.tag_flags.len() {
-            self.tag_flags.resize(i + 1, TagType::empty());
-        }
-        self.tag_flags[i] = ty;
+/// A run interns into its own half: the tag goes above the core, its flags
+/// start as `parse_tag_raw` left them, and its hash entry goes to the run's map.
+impl TagSpace for Grammar {
+    #[inline]
+    fn tag(&self, id: TagId) -> &Tag {
+        self.single_tags_list.get(id.0)
     }
 
-    /// Copy the tag state a run owns out of the core it was just built from:
-    /// every tag's load-time flags into `tag_flags`, and the
-    /// core's regex / case-insensitive tag sets into the run's.
-    ///
-    /// Run at the end of [`reindex`](Self::reindex), which is the last thing to
-    /// touch `Tag::r#type` before a grammar is applied: the parsers build tags
-    /// through `add_tag` (which seeds each slot as it goes), the binary reader
-    /// writes arena slots directly, and `reindex` itself rewrites `T_TEXTUAL`,
-    /// `T_USED` and `T_MAPPING` over the whole arena and fills `regex_tags` /
-    /// `icase_tags`. Re-seeding wholesale here absorbs all of it, so no loader
-    /// has to remember to — and it happens whether or not the grammar is ever
-    /// frozen, so an unfrozen one (relabelling, `cg-comp`) reads the same sets
-    /// it always did.
-    pub fn materialise_run_tag_state(&mut self) {
-        let cap = self.single_tags_list.capacity();
-        self.tag_flags.clear();
-        self.tag_flags.resize(cap as usize, TagType::empty());
-        for i in 0..cap {
-            if let Some(t) = self.single_tags_list.try_get(i) {
-                self.tag_flags[i as usize] = t.r#type;
-            }
-        }
-        self.regex_tags = self.core().regex_tags.clone();
-        self.icase_tags = self.core().icase_tags.clone();
+    #[inline]
+    fn tag_at_hash(&self, hash: u32) -> Option<TagId> {
+        self.single_tags().find(hash).tag()
+    }
+
+    fn regex_tags(&self) -> &RegexTags {
+        &self.regex_tags
+    }
+
+    fn icase_tags(&self) -> &IcaseTags {
+        &self.icase_tags
+    }
+
+    fn insert_tag(&mut self, tag: Tag, hash: u32) -> TagId {
+        let ty = tag.r#type;
+        let id = self.single_tags_list.intern(tag);
+        self.tag_flags.push(ty);
+        self.single_tags_run.insert((hash, id));
+        id
     }
 }

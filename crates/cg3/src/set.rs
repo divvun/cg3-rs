@@ -7,7 +7,7 @@
 //! Pointer→arena mapping: C++ `Set*` → [`SetId`], `Tag*` → `TagId`.
 
 use crate::arena::{SetId, TagId};
-use crate::grammar::Grammar;
+use crate::grammar::GrammarCore;
 use crate::inlines::{hash_value, ui32};
 use crate::sorted_vector::{Comparator, SortedVector};
 use crate::tag::{CompareTag, T_MAPPING, T_SPECIAL, TagSortedVector};
@@ -192,7 +192,7 @@ impl Set {
     /// first char or `'\0'` (never panics). The `Set::dump_hashes_out` debug
     /// stream is a class-static global-I/O concern and is NOT reproduced (same
     /// precedent as `Tag::rehash`).
-    pub fn rehash(grammar: &mut Grammar, id: SetId) -> u32 {
+    pub fn rehash(grammar: &mut GrammarCore, id: SetId) -> u32 {
         let mut retval: u32 = 0;
 
         let ty = grammar.sets_list[id.0].r#type;
@@ -263,7 +263,7 @@ impl Set {
     /// QUIRK reproduced: the child lookup `grammar.sets_by_contents.find(s)->second`
     /// dereferences the iterator with NO presence check (C++ UB when `s` is
     /// absent); the port's `HashMap` index panics on the same missing key.
-    pub fn reindex(grammar: &mut Grammar, id: SetId) {
+    pub fn reindex(grammar: &mut GrammarCore, id: SetId) {
         grammar.sets_list[id.0].r#type &= !ST_SPECIAL;
         grammar.sets_list[id.0].r#type &= !ST_CHILD_UNIFY;
 
@@ -313,7 +313,7 @@ impl Set {
     /// the mutable `&Grammar` borrow does not alias the set's own trie
     /// (`trie_markused` reads only structure + `TagId`s, mutating the tags, so
     /// the clone yields identical marking).
-    pub fn mark_used(grammar: &mut Grammar, id: SetId) {
+    pub fn mark_used(grammar: &mut GrammarCore, id: SetId) {
         grammar.sets_list[id.0].r#type |= ST_USED;
 
         let trie = grammar.sets_list[id.0].trie.clone();
@@ -323,7 +323,7 @@ impl Set {
 
         let ff_tags: Vec<TagId> = grammar.sets_list[id.0].ff_tags.iter().copied().collect();
         for tag in ff_tags {
-            grammar.single_tags_list.building_mut(tag.0).mark_used();
+            grammar.single_tags_list.get_mut(tag.0).mark_used();
         }
 
         let sets = grammar.sets_list[id.0].sets.clone();
@@ -360,7 +360,7 @@ impl Drop for Set {
 /// 256), so the `u8` return is lossless. Order-independent (OR accumulation),
 /// so the `BTreeMap` is iterated directly; `grammar` resolves each `TagId`'s
 /// `Tag::type`.
-pub fn trie_reindex(trie: &TagTrie, grammar: &Grammar) -> SetType {
+pub fn trie_reindex(trie: &TagTrie, grammar: &GrammarCore) -> SetType {
     let mut type_ = SetType::empty();
     for (k, node) in trie.iter() {
         let tag_type = grammar.single_tags_list[k.0].r#type;

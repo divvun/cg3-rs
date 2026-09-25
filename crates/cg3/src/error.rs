@@ -177,9 +177,9 @@ pub enum GrammarError {
     #[error("grammar does not begin with the CG3B magic bytes - cannot load as binary")]
     NotBinary,
 
-    /// A writer was handed a grammar whose core another pipeline is still
-    /// holding. Both writers EDIT what they serialise, so there is nothing to
-    /// do but refuse: see [`crate::grammar::Grammar::unshare`].
+    /// A grammar was due to be written while a running pipeline still shared
+    /// it. Both writers EDIT what they serialise, so they need the grammar to
+    /// themselves, and there is nothing to do but refuse.
     #[error("the grammar core is shared with a running pipeline and cannot be written")]
     CoreShared,
 

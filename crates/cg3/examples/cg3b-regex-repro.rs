@@ -8,7 +8,7 @@
 //! Usage: `cargo run --example cg3b-regex-repro -- <grammar.cg3b>`
 
 use cg3::binary_grammar::BinaryGrammar;
-use cg3::grammar::Grammar;
+use cg3::grammar::GrammarCore;
 
 fn main() {
     let Some(path) = std::env::args().nth(1) else {
@@ -18,7 +18,7 @@ fn main() {
 
     cg3::tools::init_diagnostics();
 
-    let mut parser = BinaryGrammar::new(Grammar::default());
+    let mut parser = BinaryGrammar::new(GrammarCore::default());
     match parser.parse_grammar_filename(&path) {
         Ok(()) => println!("LOADED OK: {} tags", parser.grammar.num_tags),
         Err(e) => println!("FAILED: {e}"),

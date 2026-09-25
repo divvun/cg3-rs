@@ -32,25 +32,23 @@
 //! `lib.rs`, this module will not resolve those paths.
 //!
 //! ## Core / overlay split
-//! A loaded grammar is two things stacked: [`GrammarCore`], everything the load
-//! produced and no run may change, and a thin per-run OVERLAY of the tag state
-//! a run does change. [`Grammar`] is the pair, and derefs to the core, so every
-//! `grammar.sets_list[..]` / `grammar.rules_by_tag` / `grammar.has_dep` reads
-//! exactly as before.
+//! A grammar lives in two phases, and each has its own type. [`GrammarCore`]
+//! is the grammar: the parsers and the binary reader build it, `reindex` and
+//! the relabeller finish it, the writers serialise it — all through
+//! `&mut GrammarCore`, which only its owner can have. Loaded, it goes behind
+//! an `Arc`, and from then on nothing can edit it.
 //!
-//! The overlay exists because of tag interning: applying a grammar can mint new
-//! tags (varstrings, runtime regexes), and those are the stream's, not the
+//! [`Grammar`] is one run's view of a loaded grammar: a shared core plus a thin
+//! OVERLAY of the tag state the run does change. Applying a grammar can mint
+//! new tags (varstrings, runtime regexes), and those are the stream's, not the
 //! grammar's. [`TagStore`] is the arena AS THE RUN SEES IT — core tags below
 //! `core.single_tags_list.capacity()`, the run's own above — so a `TagId` still
-//! indexes one flat space and the ~300 `single_tags_list[id]` reads are
-//! unchanged. [`Grammar::single_tags`] does the same for the hash index.
+//! indexes one flat space. [`Grammar::single_tags`] does the same for the hash
+//! index. `Grammar` derefs to the core and does not deref MUTABLY, so a run
+//! cannot edit the grammar it applies.
 //!
-//! Which half a newly interned tag lands in is decided by
-//! [`Grammar::freeze`]: before it, the grammar is still being built and
-//! everything goes to the core; after it, the core is immutable and shareable
-//! and everything goes to the overlay. Loaders never freeze (a relabelled
-//! grammar's new tags are the GRAMMAR's, and must serialise);
-//! `GrammarApplicator::set_grammar` does, because that is where a run begins.
+//! Interning runs in both phases, so it is written once, over [`TagSpace`],
+//! which both types implement.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -436,8 +434,51 @@ impl Default for GrammarCore {
 }
 
 mod overlay;
+mod tag_space;
 
 pub use overlay::{Grammar, TagHashRef, TagIndex, TagStore};
+pub use tag_space::TagSpace;
+
+impl GrammarCore {
+    /// C++ `Grammar::single_tags` over a grammar still being built: its own
+    /// hash index, with no run half.
+    #[inline]
+    pub fn single_tags(&self) -> TagIndex<'_> {
+        TagIndex {
+            core: &self.tags_by_hash,
+            run: None,
+        }
+    }
+}
+
+/// A grammar being built interns into itself.
+impl TagSpace for GrammarCore {
+    #[inline]
+    fn tag(&self, id: TagId) -> &Tag {
+        &self.single_tags_list[id.0]
+    }
+
+    #[inline]
+    fn tag_at_hash(&self, hash: u32) -> Option<TagId> {
+        self.single_tags().find(hash).tag()
+    }
+
+    fn regex_tags(&self) -> &RegexTags {
+        &self.regex_tags
+    }
+
+    fn icase_tags(&self) -> &IcaseTags {
+        &self.icase_tags
+    }
+
+    fn insert_tag(&mut self, tag: Tag, hash: u32) -> TagId {
+        let idx = self.single_tags_list.alloc(tag);
+        self.single_tags_list.get_mut(idx).number = idx;
+        let id = TagId(idx);
+        self.tags_by_hash.insert((hash, id));
+        id
+    }
+}
 
 // ===========================================================================
 // Method bodies (Wave 2 translate pass). Ported literally, bug-for-bug, from
@@ -479,7 +520,7 @@ impl Drop for GrammarCore {
     fn drop(&mut self) {}
 }
 
-impl Grammar {
+impl GrammarCore {
     // [spec:cg3:def:grammar.cg3.grammar.allocate-set-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.allocate-set-fn]
     /// `new Set` → arena alloc; inserted into the `sets_all` ownership registry.
@@ -546,8 +587,7 @@ impl Grammar {
             tset = self.get_set(nhash);
             if let Some(t) = tset {
                 let to = ui32(self.sets_by_contents.len());
-                let core = self.core_mut();
-                core.sets_list[t.0].set_name(to, &mut core.rand_state);
+                self.sets_list[t.0].set_name(to, &mut self.rand_state);
             }
             if let Some(&seed) = self.set_name_seeds.get(&name) {
                 nhash = nhash.wrapping_add(seed);
@@ -680,103 +720,6 @@ impl Grammar {
             );
         }
         Ok(self.intern_text(txt))
-    }
-
-    /// `allocateTag`'s body past its checks: the tag already at `txt`'s
-    /// un-seeded slot, else a fresh one parsed from `txt` and interned.
-    pub(crate) fn intern_text(&mut self, txt: &str) -> TagId {
-        match self.find_unseeded(txt) {
-            Some(tid) => tid,
-            None => self.add_tag_text(txt),
-        }
-    }
-
-    /// The interners' fast path: the tag at `txt`'s un-seeded hash slot, if it
-    /// holds exactly `txt`. A miss is not proof of absence — a collision can
-    /// have parked the same text at a seeded slot, which
-    /// [`add_tag`](Self::add_tag)'s probe finds.
-    pub(crate) fn find_unseeded(&self, txt: &str) -> Option<TagId> {
-        let it = self.single_tags().find(hash_value_str(txt, 0));
-        if it == self.single_tags().end() {
-            return None;
-        }
-        let tid = it.get().1;
-        let t = &self.single_tags_list[tid.0];
-        (!t.tag.is_empty() && &*t.tag == txt).then_some(tid)
-    }
-
-    /// C++ `new Tag; tag->parseTagRaw(txt, this); addTag(tag)` — no fast path.
-    pub(crate) fn add_tag_text(&mut self, txt: &str) -> TagId {
-        let mut tag = Tag::default();
-        crate::tag::parse_tag_raw(&mut tag, txt, self);
-        self.add_tag(tag)
-    }
-
-    // [spec:cg3:def:grammar.cg3.grammar.add-tag-fn]
-    // [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn]
-    /// Interns a `Tag` (by value) into `single_tags_list` (arena) + `single_tags`
-    /// (hash → id), deduplicating by hash+text with the 0..9999 seed probe.
-    /// `t == tag` (pointer identity) can never hold for a fresh by-value tag, so
-    /// only the text-equality dedup applies; the read-only probe is split from the
-    /// insert so the incoming `tag` moves exactly once (after the loop).
-    ///
-    /// The only seed probe in the crate: the applicator's `addTag(Tag*)` and
-    /// `parseTagRaw`'s relation interner are this same walk in the C++.
-    pub fn add_tag(&mut self, mut tag: Tag) -> TagId {
-        let hash = tag.rehash();
-        let mut existing: Option<TagId> = None;
-        let mut chosen_seed: Option<u32> = None;
-        let mut seed = 0u32;
-        while seed < 10000 {
-            let ih = hash.wrapping_add(seed);
-            let found: Option<TagId> = {
-                let it = self.single_tags().find(ih.get());
-                if it != self.single_tags().end() {
-                    Some(it.get().1)
-                } else {
-                    None
-                }
-            };
-            match found {
-                Some(t_id) => {
-                    // C++ `t->tag == tag->tag`: duplicate parked at a seeded slot.
-                    // (`hash += seed; return single_tags[hash]` == returning t_id.)
-                    if self.single_tags_list[t_id.0].tag == tag.tag {
-                        existing = Some(t_id);
-                        break;
-                    }
-                    // else: hash collision, different text — keep probing.
-                }
-                None => {
-                    chosen_seed = Some(seed);
-                    break;
-                }
-            }
-            seed += 1;
-        }
-
-        if let Some(t_id) = existing {
-            // `delete tag` — the incoming value is dropped at end of scope.
-            return t_id;
-        }
-
-        let seed = chosen_seed.expect("addTag: seed space exhausted");
-        // verbosity_level>0 && seed hash-seed warning: deferred I/O.
-        tag.seed = seed;
-        let new_hash = tag.rehash(); // rehash folds seed → base+seed == ih.
-        let id = self.intern_tag_slot(tag);
-        self.insert_tag_hash(new_hash.get(), id);
-        id
-    }
-
-    /// Give `tag` an arena slot, stamp its `number`, and seed the slot's entry in
-    /// [`tag_flags`](Self::tag_flags), which has to stay parallel to the arena
-    /// for tags interned mid-stream too. Which half of the arena the slot comes
-    /// from is [`TagStore::intern`]'s call, not this one's.
-    fn intern_tag_slot(&mut self, tag: Tag) -> TagId {
-        let id = self.single_tags_list.intern(tag);
-        self.record_tag_flags(id);
-        id
     }
 
     // [spec:cg3:def:grammar.cg3.grammar.add-tag-to-set-fn]
@@ -932,7 +875,7 @@ impl Grammar {
     }
 }
 
-impl Grammar {
+impl GrammarCore {
     // [spec:cg3:def:grammar.cg3.grammar.add-set-fn]
     // [spec:cg3:sem:grammar.cg3.grammar.add-set-fn]
     /// Registers a fully-built set, canonicalizing by content and by name, and
@@ -1217,8 +1160,7 @@ impl Grammar {
                 self.sets_list[ns.0].line = to_line;
 
                 let newname = ui32(self.sets_by_contents.len() + 1);
-                let core = self.core_mut();
-                core.sets_list[to.0].set_name(newname, &mut core.rand_state);
+                self.sets_list[to.0].set_name(newname, &mut self.rand_state);
                 to = self.add_set(to)?;
 
                 let tset_hash = self.sets_list[tset.0].hash;
@@ -1467,7 +1409,7 @@ impl Grammar {
     }
 }
 
-impl Grammar {
+impl GrammarCore {
     /// The C++ `sets_list` VECTOR (the numbered used-set list) in dense number
     /// order: position 0 is the dummy, positions 1..k the sets numbered by
     /// `addSetToList`. Unused sets stay in the arena but are not listed. Not a
@@ -1751,16 +1693,11 @@ impl Grammar {
                     t.vs_sets.clone(),
                 )
             };
-            // The CORE's sets, not the run's: these are what the grammar was
-            // compiled with, and step (21) hands the run a copy of them. (The
-            // run's own are what `Grammar::regex_tags` names, so both have to
-            // be said explicitly here.)
             if has_regexp && !is_txt {
-                // regex_tags keyed by owning TagId (skeleton note).
-                self.core_mut().regex_tags.insert(*tid);
+                self.regex_tags.insert(*tid);
             }
             if is_icase && !is_txt {
-                self.core_mut().icase_tags.insert(*tid);
+                self.icase_tags.insert(*tid);
             }
             if self.is_binary {
                 continue;
@@ -1773,8 +1710,8 @@ impl Grammar {
         }
 
         // (5) Propagate T_TEXTUAL (regex find + icase compare).
-        let regex_tag_ids: Vec<TagId> = self.core().regex_tags.iter().copied().collect();
-        let icase_tag_ids: Vec<TagId> = self.core().icase_tags.iter().copied().collect();
+        let regex_tag_ids: Vec<TagId> = self.regex_tags.iter().copied().collect();
+        let icase_tag_ids: Vec<TagId> = self.icase_tags.iter().copied().collect();
         for tid in &all_tag_ids {
             if self.single_tags_list[tid.0].r#type.intersects(T_TEXTUAL) {
                 continue;
@@ -1796,7 +1733,7 @@ impl Grammar {
                 }
             }
             if textual {
-                self.single_tags_list.building_mut(tid.0).r#type |= T_TEXTUAL;
+                self.single_tags_list.get_mut(tid.0).r#type |= T_TEXTUAL;
             }
         }
 
@@ -1807,12 +1744,12 @@ impl Grammar {
                 let it = self.single_tags().find(a);
                 it.get().1
             };
-            self.single_tags_list.building_mut(ta.0).mark_used();
+            self.single_tags_list.get_mut(ta.0).mark_used();
             let tb = {
                 let it = self.single_tags().find(b);
                 it.get().1
             };
-            self.single_tags_list.building_mut(tb.0).mark_used();
+            self.single_tags_list.get_mut(tb.0).mark_used();
         }
         let pref: Vec<u32> = self.preferred_targets.clone();
         for it in pref {
@@ -1820,7 +1757,7 @@ impl Grammar {
                 let iter = self.single_tags().find(it);
                 iter.get().1
             };
-            self.single_tags_list.building_mut(t.0).mark_used();
+            self.single_tags_list.get_mut(t.0).mark_used();
         }
 
         // (7) Rule pre-pass.
@@ -1948,7 +1885,7 @@ impl Grammar {
                 .chars()
                 .next()
                 .unwrap_or('\0');
-            let t = self.single_tags_list.building_mut(tid.0);
+            let t = self.single_tags_list.get_mut(tid.0);
             if first == mp {
                 t.r#type |= T_MAPPING;
             } else {
@@ -2278,12 +2215,6 @@ impl Grammar {
             }
         }
 
-        // (21) ADDED — no C++ step. Hand the run its own copy of the tag type
-        // flags, now that nothing will touch `Tag::r#type` again: steps (5),
-        // (6) and (11) above are the last writes, and everything downstream of
-        // here interns through `add_tag`, which seeds its own slot.
-        self.materialise_run_tag_state();
-
         // (22) used_tags dump → the C++ exit(0)s here. The caller stops, and
         // stops successfully.
         if used_tags {
@@ -2302,7 +2233,7 @@ impl Grammar {
 /// rule number `r` via `grammar.indexTagToRule(tag->hash, r)`. The `trie` must be
 /// an EXTERNAL copy (callers clone the set's trie out first) so it does not alias
 /// the `&mut Grammar` borrow.
-pub fn trie_index_to_rule(trie: &TagTrie, grammar: &mut Grammar, r: u32) {
+pub fn trie_index_to_rule(trie: &TagTrie, grammar: &mut GrammarCore, r: u32) {
     for (k, node) in trie.iter() {
         let h = grammar.single_tags_list[k.0].hash;
         grammar.index_tag_to_rule(h.get(), r);
@@ -2316,7 +2247,7 @@ pub fn trie_index_to_rule(trie: &TagTrie, grammar: &mut Grammar, r: u32) {
 // [spec:cg3:sem:grammar.cg3.trie-index-to-set-fn]
 /// Free fn. Identical shape to `trie_index_to_rule` but sets bit `r` (a set
 /// number) in `sets_by_tag[tag->hash]` for every tag in the trie.
-pub fn trie_index_to_set(trie: &TagTrie, grammar: &mut Grammar, r: u32) {
+pub fn trie_index_to_set(trie: &TagTrie, grammar: &mut GrammarCore, r: u32) {
     for (k, node) in trie.iter() {
         let h = grammar.single_tags_list[k.0].hash;
         grammar.index_tag_to_set(h.get(), r);
@@ -2337,7 +2268,7 @@ pub fn trie_index_to_set(trie: &TagTrie, grammar: &mut Grammar, r: u32) {
 pub fn trie_unserialize<R: Read>(
     trie: &mut TagTrie,
     input: &mut R,
-    grammar: &Grammar,
+    grammar: &GrammarCore,
     num_tags: u32,
 ) {
     for _ in 0..num_tags {

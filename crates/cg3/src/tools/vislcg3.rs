@@ -16,7 +16,9 @@ use std::io::{Read, Write};
 
 use crate::arg_parser::parse_args;
 use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::{Grammar, Reindexed};
+use std::sync::Arc;
+
+use crate::grammar::{Grammar, GrammarCore, Reindexed};
 use crate::grammar_writer::GrammarWriter;
 use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::is_cg3b;
@@ -304,8 +306,8 @@ pub fn main_run(args: &[String]) -> i32 {
     // `[spec:cg3:req:diagnostics.source-lazy]` forbids.
     let mut grammar_sources: Vec<crate::error::ParseSource> = Vec::new();
 
-    let mut grammar: Grammar = if is_binary {
-        let mut parser = BinaryGrammar::new(Grammar::default());
+    let mut grammar: GrammarCore = if is_binary {
+        let mut parser = BinaryGrammar::new(GrammarCore::default());
         if verbose {
             parser.set_verbosity(verbosity_level);
         }
@@ -320,7 +322,7 @@ pub fn main_run(args: &[String]) -> i32 {
         g.verbosity_level = verbosity_level;
         g
     } else {
-        let mut parser = TextualParser::new(Grammar::default(), occ(&options, Opt::DumpAst));
+        let mut parser = TextualParser::new(GrammarCore::default(), occ(&options, Opt::DumpAst));
         if verbose {
             parser.set_verbosity(verbosity_level);
         }
@@ -442,6 +444,9 @@ pub fn main_run(args: &[String]) -> i32 {
     // keeps that on the run (`EngineConfig::stream_relations`), so carry it out
     // of the applicator for `--grammar-bin` to fold back in.
     let mut stream_relations = false;
+    // Loaded: from here on the grammar is shared and nothing edits it, until
+    // the writers take it back below.
+    let grammar = Arc::new(grammar);
     if !occ(&options, Opt::GrammarOnly) {
         use crate::grammar_applicator::{GrammarApplicator, StreamFormatKind};
         let base = GrammarApplicator::new(Grammar::default());
@@ -467,15 +472,13 @@ pub fn main_run(args: &[String]) -> i32 {
         }
 
         // applicator.setGrammar(&grammar); — the C++ points the applicator at
-        // the grammar main holds, and main goes on holding it. The port does the
-        // same thing with a shared core: freeze the grammar main loaded, hand
-        // the applicator a pipeline over it (replacing the ctor's dummy conv
-        // grammar), and keep main's own handle for the --grammar-out /
-        // --grammar-bin writers below.
+        // the grammar main holds, and main goes on holding it. Here the
+        // applicator gets a run over the shared grammar (replacing the ctor's
+        // dummy conv grammar) and main keeps its own handle for the writers.
         //
         // One grammar, two holders, and this is the seam a host repeats N times:
         // every extra pipeline costs an overlay, not a grammar.
-        applicator.base_mut().grammar = Grammar::from_core(grammar.shared_core());
+        applicator.base_mut().grammar = Grammar::from_core(Arc::clone(&grammar));
         if let Err(e) = applicator.base_mut().set_grammar() {
             return fail(&e);
         }
@@ -535,30 +538,9 @@ pub fn main_run(args: &[String]) -> i32 {
         }
     }
 
-    // --grammar-out: write the grammar in textual form. LIVE.
-    if occ(&options, Opt::GrammarOut) {
-        let path = &options[Opt::GrammarOut as usize].value;
-        match std::fs::File::create(path) {
-            Ok(mut gout) => {
-                let mut writer = GrammarWriter::new(&grammar);
-                writer.write_grammar(&mut grammar, &mut gout);
-                let _ = gout.flush();
-            }
-            Err(_) => {
-                tracing::error!("Could not write grammar to {}", path);
-            }
-        }
+    if let Err(e) = write_grammars(&options, grammar, &grammar_sources, stream_relations) {
+        return fail(&e);
     }
-
-    // --grammar-bin: write the grammar in binary form. LIVE.
-    if occ(&options, Opt::GrammarBin) {
-        let path = options[Opt::GrammarBin as usize].value.clone();
-        match write_grammar_bin(&path, grammar, &grammar_sources, stream_relations) {
-            Ok(g) => grammar = g,
-            Err(e) => return fail(&e),
-        }
-    }
-    let _ = &grammar;
 
     // --profile: write the profiling database.
     #[cfg(feature = "profiler")]
@@ -583,11 +565,51 @@ fn input_name(options: &crate::options::OptionsTable) -> String {
     crate::grammar_applicator::STDIN_SOURCE_NAME.to_string()
 }
 
+/// `--grammar-out` / `--grammar-bin`, after the run.
+///
+/// Both writers EDIT what they serialise, so they need the grammar back from
+/// the run; the applicator, main's only other holder, is gone by now.
+fn write_grammars(
+    options: &crate::options::OptionsTable,
+    grammar: Arc<GrammarCore>,
+    sources: &[crate::error::ParseSource],
+    stream_relations: bool,
+) -> Result<(), crate::error::Cg3Error> {
+    let occurs = |o: Opt| options[o as usize].does_occur;
+    if !occurs(Opt::GrammarOut) && !occurs(Opt::GrammarBin) {
+        return Ok(());
+    }
+    let mut grammar =
+        Arc::try_unwrap(grammar).map_err(|_| crate::error::GrammarError::CoreShared)?;
+
+    // --grammar-out: write the grammar in textual form. LIVE.
+    if occurs(Opt::GrammarOut) {
+        let path = &options[Opt::GrammarOut as usize].value;
+        match std::fs::File::create(path) {
+            Ok(mut gout) => {
+                let mut writer = GrammarWriter::new(&grammar);
+                writer.write_grammar(&mut grammar, &mut gout);
+                let _ = gout.flush();
+            }
+            Err(_) => {
+                tracing::error!("Could not write grammar to {}", path);
+            }
+        }
+    }
+
+    // --grammar-bin: write the grammar in binary form. LIVE.
+    if occurs(Opt::GrammarBin) {
+        let path = &options[Opt::GrammarBin as usize].value;
+        write_grammar_bin(path, grammar, sources, stream_relations)?;
+    }
+    Ok(())
+}
+
 // [spec:cg3:req:diagnostics.sidecar+1]
 /// `--grammar-bin`: write the grammar in binary form, and its sources beside it.
 ///
-/// Takes the grammar by value and hands it back, because the binary writer owns
-/// what it serialises (the C++ `grammar` lives in `main` throughout).
+/// Takes the grammar by value, because the binary writer owns what it
+/// serialises.
 ///
 /// Serialised into memory first so the companion file stamps exactly the bytes
 /// that reached the disk. A failure to create the output is logged and survived,
@@ -595,14 +617,10 @@ fn input_name(options: &crate::options::OptionsTable) -> String {
 /// is on disk then is a truncated grammar.
 fn write_grammar_bin(
     path: &str,
-    grammar: Grammar,
+    mut grammar: GrammarCore,
     sources: &[crate::error::ParseSource],
     stream_relations: bool,
-) -> Result<Grammar, crate::error::Cg3Error> {
-    // Take the core back from the run that just finished: everything below
-    // EDITS the grammar, starting with the flag on the next line.
-    let mut grammar = grammar;
-    grammar.unshare()?;
+) -> Result<(), crate::error::Cg3Error> {
     // The run's binary-stream `has_relations` (C++ stamps it straight onto the
     // grammar mid-run, and this writer sees it) — folded in here so the emitted
     // BINF_RELATIONS bit is what it always was.
@@ -614,7 +632,7 @@ fn write_grammar_bin(
 
     let Ok(mut gout) = std::fs::File::create(path) else {
         tracing::error!("Could not write grammar to {}", path);
-        return Ok(grammar);
+        return Ok(());
     };
     gout.write_all(&blob)
         .and_then(|()| gout.flush())
@@ -626,7 +644,7 @@ fn write_grammar_bin(
     if !sources.is_empty() {
         crate::grammar_sources::write_beside(std::path::Path::new(path), &blob, &grammar, sources);
     }
-    Ok(grammar)
+    Ok(())
 }
 
 /// The `--help` usage banner (C++ inlined in `main`). Emits to stdout.

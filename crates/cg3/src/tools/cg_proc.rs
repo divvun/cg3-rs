@@ -24,7 +24,7 @@ use std::io::Read;
 use crate::apertium_applicator::ApertiumApplicator;
 use crate::binary_applicator::BinaryApplicator;
 use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::Grammar;
+use crate::grammar::{Grammar, GrammarCore};
 use crate::grammar_applicator::GrammarApplicator;
 use crate::inlines::is_cg3b;
 use crate::matxin_applicator::MatxinApplicator;
@@ -352,8 +352,8 @@ pub fn main_proc(args: &[String]) -> i32 {
     let output_path: Option<&String> = args.get(optind + 2);
 
     // Parse the grammar (binary → BinaryGrammar; text → TextualParser + warning).
-    let mut grammar: Grammar = if is_cg3b(head) {
-        let mut parser = BinaryGrammar::new(Grammar::default());
+    let mut grammar: GrammarCore = if is_cg3b(head) {
+        let mut parser = BinaryGrammar::new(GrammarCore::default());
         if let Err(e) = parser.parse_grammar_filename(grammar_path) {
             return fail(&e);
         }
@@ -362,7 +362,7 @@ pub fn main_proc(args: &[String]) -> i32 {
         tracing::warn!(
             "Warning: Text grammar detected - to better process textual\ngrammars, use `vislcg3'; to compile this grammar, use `cg-comp'"
         );
-        let mut parser = TextualParser::new(Grammar::default(), false);
+        let mut parser = TextualParser::new(GrammarCore::default(), false);
         let buffer = match std::fs::read(grammar_path) {
             Ok(b) => b,
             Err(_) => {
@@ -396,9 +396,10 @@ pub fn main_proc(args: &[String]) -> i32 {
         Some(&options_override),
     );
 
-    // Build the applicator for the chosen stream format. The ported base owns its
-    // grammar (setGrammar takes no arg), so the parsed grammar is moved into the
-    // base at construction, then set_grammar() seeds the begin/end/subst tags.
+    // Build the applicator for the chosen stream format over the loaded grammar,
+    // now shared and immutable; set_grammar() then seeds the begin/end/subst
+    // tags.
+    let grammar = Grammar::from_core(std::sync::Arc::new(grammar));
     enum Applicator {
         Base(GrammarApplicator),
         Apertium(ApertiumApplicator),

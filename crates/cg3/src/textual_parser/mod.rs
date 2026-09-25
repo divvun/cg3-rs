@@ -1,5 +1,5 @@
 //! Port of `src/TextualParser.cpp` / `src/TextualParser.hpp` — the recursive
-//! descent parser that turns CG-3 text grammar into a [`Grammar`]
+//! descent parser that turns CG-3 text grammar into a [`GrammarCore`]
 //! (spec `docs/spec/port/src/TextualParser.md`).
 //!
 //! Literal, bug-for-bug 1:1 translation (Wave 2, translate pass).
@@ -52,7 +52,7 @@ use crate::contextual_test::{
     POS_RIGHT, POS_RIGHT_PAR, POS_RIGHTMOST, POS_SCANALL, POS_SCANFIRST, POS_SELF, POS_SPAN_BOTH,
     POS_SPAN_LEFT, POS_SPAN_RIGHT, POS_TMPL_OVERRIDE, POS_UNKNOWN, POS_WITH, PosJumpPos,
 };
-use crate::grammar::Grammar;
+use crate::grammar::{GrammarCore, TagSpace};
 use crate::inlines::{hash_value_str, isspace, skiptows_chars, skipws_chars, ui32};
 use crate::parser_helpers::Near;
 use crate::rule::{
@@ -354,7 +354,7 @@ fn scan_d(s: &str) -> i32 {
 
 // [spec:cg3:def:textual-parser.cg3.is-mapping-list-fn]
 // [spec:cg3:sem:textual-parser.cg3.is-mapping-list-fn]
-fn is_mapping_list(grammar: &Grammar, s: SetId) -> bool {
+fn is_mapping_list(grammar: &GrammarCore, s: SetId) -> bool {
     let mut is_list = true;
     let st = grammar.sets_list[s.0].r#type;
     let trie_empty = grammar.sets_list[s.0].trie.is_empty();
@@ -406,7 +406,7 @@ fn is_mapping_list(grammar: &Grammar, s: SetId) -> bool {
 /// Collect a `TagVectorSet` into a `Vec<TagVector>` ordered by `compare_TagVector`
 /// (hash order) — the order `std::set_*` require (the port's `BTreeSet` is
 /// `Vec<TagId>`-ordered instead; documented deviation in `tag.rs`).
-fn sorted_tvs(grammar: &Grammar, s: &TagVectorSet) -> Vec<TagVector> {
+fn sorted_tvs(grammar: &GrammarCore, s: &TagVectorSet) -> Vec<TagVector> {
     let mut v: Vec<TagVector> = s.iter().cloned().collect();
     v.sort_by(|x, y| {
         if compare_tag_vector(grammar, x, y) {
@@ -420,7 +420,7 @@ fn sorted_tvs(grammar: &Grammar, s: &TagVectorSet) -> Vec<TagVector> {
     v
 }
 
-fn merge_intersection(g: &Grammar, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
+fn merge_intersection(g: &GrammarCore, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
     let mut r = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     while i < a.len() && j < b.len() {
@@ -437,7 +437,7 @@ fn merge_intersection(g: &Grammar, a: &[TagVector], b: &[TagVector]) -> Vec<TagV
     r
 }
 
-fn merge_symdiff(g: &Grammar, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
+fn merge_symdiff(g: &GrammarCore, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
     let mut r = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     while i < a.len() && j < b.len() {
@@ -458,7 +458,7 @@ fn merge_symdiff(g: &Grammar, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector
 }
 
 /// a \ b (elements of `a` not in `b`).
-fn merge_difference(g: &Grammar, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
+fn merge_difference(g: &GrammarCore, a: &[TagVector], b: &[TagVector]) -> Vec<TagVector> {
     let mut r = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     while i < a.len() && j < b.len() {
@@ -525,7 +525,7 @@ impl SourceBuf {
 
 // [spec:cg3:def:textual-parser.cg3.textual-parser]
 pub struct TextualParser {
-    pub grammar: Grammar,
+    pub grammar: GrammarCore,
     pub filebase: String,
     pub strict_tags: Uint32SortedVector,
     pub list_tags: Uint32SortedVector,
@@ -593,7 +593,7 @@ impl TextualParser {
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.textual-parser-fn]
     /// C++ `TextualParser` ctor.
     /// The port OWNS its `Grammar`; the C++ error-stream arg becomes stderr.
-    pub fn new(grammar: Grammar, dump_ast: bool) -> TextualParser {
+    pub fn new(grammar: GrammarCore, dump_ast: bool) -> TextualParser {
         TextualParser {
             ast: Ast::new(dump_ast),
             grammar,
@@ -1026,10 +1026,11 @@ impl TextualParser {
                         self.grammar.sets_list[set_c.0].line = self.grammar.lines;
                         let nm = self.sets_counter;
                         self.sets_counter += 1;
-                        let core = self.grammar.core_mut();
-                        core.sets_list
+                        let grammar = &mut self.grammar;
+                        grammar
+                            .sets_list
                             .get_mut(set_c.0)
-                            .set_name(nm, &mut core.rand_state);
+                            .set_name(nm, &mut grammar.rand_state);
                         let mut tags: TagVector = TagVector::new();
 
                         while buf[*pos] != '\0' && buf[*pos] != ';' && buf[*pos] != ')' {
@@ -1127,10 +1128,11 @@ impl TextualParser {
                         self.grammar.sets_list[set_c.0].line = self.grammar.lines;
                         let nm = self.sets_counter;
                         self.sets_counter += 1;
-                        let core = self.grammar.core_mut();
-                        core.sets_list
+                        let grammar = &mut self.grammar;
+                        grammar
+                            .sets_list
                             .get_mut(set_c.0)
-                            .set_name(nm, &mut core.rand_state);
+                            .set_name(nm, &mut grammar.rand_state);
 
                         let mut tag_freq: BTreeMap<TagId, usize> = BTreeMap::new();
                         for tags in &r {
@@ -1231,10 +1233,11 @@ impl TextualParser {
         if self.grammar.sets_list[s.0].name.is_empty() {
             let nm = self.sets_counter;
             self.sets_counter += 1;
-            let core = self.grammar.core_mut();
-            core.sets_list
+            let grammar = &mut self.grammar;
+            grammar
+                .sets_list
                 .get_mut(s.0)
-                .set_name(nm, &mut core.rand_state);
+                .set_name(nm, &mut grammar.rand_state);
         }
         self.grammar.add_set(s)
     }

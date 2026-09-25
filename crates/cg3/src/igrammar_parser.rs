@@ -13,7 +13,7 @@
 //! diagnostics with it), and the UTF-16 forms describe nothing a UTF-8 port
 //! has.
 
-use crate::grammar::Grammar;
+use crate::grammar::GrammarCore;
 
 // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser]
 // [spec:cg3:def:i-grammar-parser.cg3.i-grammar-parser.i-grammar-parser-fn]
@@ -46,5 +46,5 @@ pub trait IGrammarParser {
     fn set_verbosity(&mut self, level: u32);
 
     /// The grammar this parser builds (C++ `result`).
-    fn get_grammar(&self) -> &Grammar;
+    fn get_grammar(&self) -> &GrammarCore;
 }

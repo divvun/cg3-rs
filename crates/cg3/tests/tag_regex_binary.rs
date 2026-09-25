@@ -13,7 +13,7 @@
 // [spec:cg3:req:tag-regex.single-seam+1/test]
 use cg3::binary_grammar::BinaryGrammar;
 use cg3::error::Cg3Error;
-use cg3::grammar::Grammar;
+use cg3::grammar::GrammarCore;
 use cg3::textual_parser::TextualParser;
 
 /// Compile a one-tag grammar whose regex tag is `marker`, then rewrite the
@@ -24,7 +24,7 @@ use cg3::textual_parser::TextualParser;
 /// naturally.
 fn cg3b_with_pattern(marker: &str, pattern: &str) -> Vec<u8> {
     let src = format!("DELIMITERS = \"<.>\" ;\nLIST t = \"{marker}\"r ;\n");
-    let mut parser = TextualParser::new(Grammar::default(), false);
+    let mut parser = TextualParser::new(GrammarCore::default(), false);
     parser
         .parse_grammar_utf8(src.as_bytes())
         .expect("fixture grammar must compile");
@@ -60,7 +60,7 @@ fn cg3b_with_pattern(marker: &str, pattern: &str) -> Vec<u8> {
 }
 
 fn load(blob: &[u8]) -> Result<(), Cg3Error> {
-    BinaryGrammar::new(Grammar::default()).parse_grammar_buffer(blob)
+    BinaryGrammar::new(GrammarCore::default()).parse_grammar_buffer(blob)
 }
 
 /// A `.cg3b` we write MUST carry the pattern the grammar author wrote, not
@@ -72,7 +72,7 @@ fn load(blob: &[u8]) -> Result<(), Cg3Error> {
 fn written_patterns_keep_icu_spelling() {
     for tag in [r"\\Qa.b\\E", r"x\\Zy", r"^ab$"] {
         let src = format!("DELIMITERS = \"<.>\" ;\nLIST t = \"{tag}\"r ;\n");
-        let mut parser = TextualParser::new(Grammar::default(), false);
+        let mut parser = TextualParser::new(GrammarCore::default(), false);
         parser
             .parse_grammar_utf8(src.as_bytes())
             .unwrap_or_else(|e| panic!("{tag} must compile: {e}"));
@@ -148,7 +148,7 @@ fn unsupported_construct_names_tag_and_construct() {
 fn all_bad_tags_are_reported_together() {
     // Two regex tags, both patched to distinct unsupported constructs.
     let src = "DELIMITERS = \"<.>\" ;\nLIST a = \"one\"r ;\nLIST b = \"two\"r ;\n";
-    let mut parser = TextualParser::new(Grammar::default(), false);
+    let mut parser = TextualParser::new(GrammarCore::default(), false);
     parser.parse_grammar_utf8(src.as_bytes()).unwrap();
     let mut grammar = parser.grammar;
     let _ = grammar.reindex(false, false).unwrap();

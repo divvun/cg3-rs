@@ -22,7 +22,7 @@ const BAD_GRAMMAR: &str = "DELIMITERS = \"<.>\" ;\n\
 #[test]
 fn load_failures_are_grammar_errors() {
     let mut parser =
-        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+        cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     let err = parser
         .parse_grammar_utf8(BAD_GRAMMAR.as_bytes())
         .expect_err("this grammar must not parse");
@@ -43,12 +43,12 @@ fn load_failures_are_grammar_errors() {
 fn tag_regex_failures_name_the_tag() {
     let src = "DELIMITERS = \"<.>\" ;\nLIST a = \"x\"r ;\n";
     let mut parser =
-        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+        cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     parser.parse_grammar_utf8(src.as_bytes()).expect("parses");
     let mut grammar = parser.grammar;
     let _ = grammar.reindex(false, false).unwrap();
 
-    let mut applicator = cg3::grammar_applicator::GrammarApplicator::new(grammar);
+    let mut applicator = cg3::grammar_applicator::GrammarApplicator::new(grammar.into());
     let err = applicator
         .set_text_delimiter("[:script=Greek:]".to_string())
         .expect_err("an ICU in-set property must be rejected");
@@ -75,7 +75,7 @@ fn every_recoverable_error_is_reported() {
                LIST b = \"[:script=Latin:]\"r ;\n\
                SELECT a ;\n";
     let mut parser =
-        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+        cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     let err = parser
         .parse_grammar_utf8(src.as_bytes())
         .expect_err("must not parse");
@@ -104,7 +104,7 @@ fn every_recoverable_error_is_reported() {
 fn spans_select_the_offending_text() {
     let src = "DELIMITERS = \"<.>\" ;\nLIST a = \"[:script=Greek:]\"r ;\nSELECT a ;\n";
     let mut parser =
-        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+        cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     let err = parser
         .parse_grammar_utf8(src.as_bytes())
         .expect_err("must not parse");
@@ -141,7 +141,7 @@ fn included_files_are_separate_sources() {
     );
 
     let mut parser =
-        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+        cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     let err = parser
         .parse_grammar_named(top.as_bytes(), "top.cg3")
         .expect_err("must not parse");
@@ -182,7 +182,7 @@ fn rules_know_where_they_were_written() {
     .expect("write top");
 
     let mut parser =
-        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+        cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     let bytes = std::fs::read(&top).expect("read top");
     parser
         .parse_grammar_named(&bytes, &top.to_string_lossy())
@@ -225,7 +225,7 @@ fn rules_know_where_they_were_written() {
 fn a_named_parse_reports_its_file_name() {
     let src = "DELIMITERS = \"<.>\" ;\nLIST a = \"[:script=Greek:]\"r ;\n";
     let mut parser =
-        cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+        cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     let err = parser
         .parse_grammar_named(src.as_bytes(), "grammars/nb.cg3")
         .expect_err("must not parse");

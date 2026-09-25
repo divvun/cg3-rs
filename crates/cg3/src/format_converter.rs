@@ -28,7 +28,7 @@ use std::io::{Read, Seek, Write};
 use crate::apertium_applicator::{ApertiumApplicator, ApertiumFormat};
 use crate::arena::{CohortId, SwId};
 use crate::fst_applicator::{FSTApplicator, FstFormat};
-use crate::grammar::Grammar;
+use crate::grammar::{Grammar, GrammarCore, TagSpace};
 use crate::grammar_applicator::stream_format::StreamFormat;
 use crate::grammar_applicator::{Engine, GrammarApplicator, StreamFormatKind};
 use crate::jsonl_applicator::{JsonlApplicator, JsonlFormat};
@@ -145,6 +145,21 @@ pub struct FormatConverter {
     pub conv_grammar: Grammar,
 }
 
+/// The minimal grammar a converter runs: the dummy set, and one delimiter set
+/// holding only the never-matching dummy tag. Shared by
+/// [`FormatConverter`] and [`MweSplitApplicator`](crate::mwesplit_applicator::MweSplitApplicator),
+/// whose C++ constructors each build it.
+pub(crate) fn conv_grammar() -> Result<GrammarCore, crate::error::Cg3Error> {
+    let mut grammar = GrammarCore::default();
+    grammar.allocate_dummy_set();
+    let delim = grammar.allocate_set();
+    grammar.delimiters = Some(delim);
+    let dummy_tag = grammar.intern_text(STR_DUMMY);
+    grammar.add_tag_to_set(dummy_tag, delim);
+    let _ = grammar.reindex(false, false)?;
+    Ok(grammar)
+}
+
 impl FormatConverter {
     // [spec:cg3:def:format-converter.cg3.format-converter.format-converter-fn]
     // [spec:cg3:sem:format-converter.cg3.format-converter.format-converter-fn]
@@ -157,41 +172,25 @@ impl FormatConverter {
     /// the shared virtual `GrammarApplicator`. Here a single `base` is passed in
     /// (already owning its grammar); the caller supplies it. `conv_grammar` is
     /// built here and then INSTALLED by swapping it into `base.grammar`
-    /// (`setGrammar(&conv_grammar)` — the base owns the grammar by value in this
-    /// port, so "install" is a move of `conv_grammar` into `base.grammar`; the
-    /// previous grammar is returned into `conv_grammar`'s slot). `has_relations`
-    /// etc. keep their base defaults.
+    /// (`setGrammar(&conv_grammar)` — here the built grammar is installed as
+    /// `base.grammar`, replacing whatever the base held). `has_relations` etc.
+    /// keep their base defaults.
     pub fn new(base: GrammarApplicator) -> Result<Self, crate::error::Cg3Error> {
         FormatConverter::with_conv_grammar(base, |_| {})
     }
 
     /// [`new`](Self::new), running `edit` on the conv grammar after it is built
     /// and before it is installed — cg-conv's `--ordered` / `--ltr` / `--prefix`.
-    /// The C++ sets those on `conv_grammar` after the ctor's `setGrammar`; here
-    /// installing freezes the core, so this is the last point it can change.
+    /// The C++ sets those on `conv_grammar` after the ctor's `setGrammar`; an
+    /// installed grammar is immutable here, so this is the last point it can
+    /// change.
     pub fn with_conv_grammar(
         mut base: GrammarApplicator,
-        edit: impl FnOnce(&mut Grammar),
+        edit: impl FnOnce(&mut GrammarCore),
     ) -> Result<Self, crate::error::Cg3Error> {
-        // Build the minimal working grammar directly in base.grammar (which is the
-        // storage the C++ `conv_grammar` provides; the base owns its grammar by
-        // value in this port, so building in place == `setGrammar(&conv_grammar)`).
-        // The base's incoming grammar is discarded (the ctor replaces it wholesale,
-        // matching the C++ where the freshly-built conv_grammar is installed).
-        base.grammar = Grammar::default();
-        base.grammar.allocate_dummy_set();
-        let delim = base.grammar.allocate_set();
-        base.grammar.delimiters = Some(delim);
-        let dummy_tag = base.grammar.allocate_tag(STR_DUMMY);
-        base.grammar.add_tag_to_set(
-            dummy_tag.expect("the dummy delimiter tag is a literal and cannot fail"),
-            delim,
-        );
-        // The internal conv grammar is built here from literals, so neither of
-        // these can fail on user input — but they return Result, and turning
-        // that back into a panic is the thing this project is removing.
-        let _ = base.grammar.reindex(false, false)?;
-        edit(&mut base.grammar);
+        let mut grammar = conv_grammar()?;
+        edit(&mut grammar);
+        base.grammar = Grammar::from_core(std::sync::Arc::new(grammar));
         base.set_grammar()?;
 
         // PlaintextApplicator's C++ constructor runs as one of

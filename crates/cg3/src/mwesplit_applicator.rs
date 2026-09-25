@@ -43,7 +43,6 @@ use crate::arena::{CohortId, ReadingId, SwId, TagId};
 use crate::grammar::Grammar;
 use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::inlines::{isnl, ui32};
-use crate::strings::STR_DUMMY;
 use crate::tag::T_WORDFORM;
 use crate::types::TagHash;
 use crate::uextras::write_char;
@@ -80,23 +79,11 @@ impl MweSplitApplicator {
     /// `is_conv = true`. (The C++ `owns_grammar = true` is dropped — Rust owns
     /// the grammar by value, so the flag has no observable effect.)
     ///
-    /// DIVERGENCE: the base owns its `Grammar` by value. The C++ `new Grammar` is
-    /// built directly INTO `base.grammar` (assumed freshly constructed/empty),
-    /// rather than allocated separately and assigned via `setGrammar(res)` (which
-    /// in the port takes no argument and operates on `self.grammar`).
+    /// The grammar is the converters' shared minimal one
+    /// (`format_converter::conv_grammar`), installed as `base.grammar` in place of the C++ `setGrammar(res)`.
     pub fn new(mut base: GrammarApplicator) -> Result<Self, crate::error::Cg3Error> {
-        base.grammar.allocate_dummy_set();
-        let dset = base.grammar.allocate_set();
-        base.grammar.delimiters = Some(dset);
-        let dtag = base.grammar.allocate_tag(STR_DUMMY);
-        base.grammar.add_tag_to_set(
-            dtag.expect("the dummy delimiter tag is a literal and cannot fail"),
-            dset,
-        );
-        // Internal conv grammar (used_tags=false, no static sets): neither
-        // reindex nor set_grammar can fail on it. Propagated rather than
-        // unwrapped, because "cannot fail here" is an argument, not a type.
-        let _ = base.grammar.reindex(false, false)?;
+        let grammar = crate::format_converter::conv_grammar()?;
+        base.grammar = Grammar::from_core(std::sync::Arc::new(grammar));
         base.set_grammar()?;
         base.cfg.is_conv = true;
         Ok(MweSplitApplicator { base })

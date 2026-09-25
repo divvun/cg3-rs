@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cg3::binary_grammar::BinaryGrammar;
-use cg3::grammar::Grammar;
+use cg3::grammar::GrammarCore;
 use cg3::igrammar_parser::IGrammarParser;
 use cg3::textual_parser::TextualParser;
 
@@ -156,7 +156,7 @@ fn grammar_bin_flag_roundtrip_contexttest() {
 fn inprocess_binary_roundtrip() {
     let dir = test_dir("T_Templates");
     let src = std::fs::read(dir.join("grammar.cg3")).unwrap();
-    let mut parser = TextualParser::new(Grammar::default(), false);
+    let mut parser = TextualParser::new(GrammarCore::default(), false);
     parser
         .parse_grammar_utf8(&src)
         .expect("textual parse failed");
@@ -178,7 +178,7 @@ fn inprocess_binary_roundtrip() {
     writer.write_binary_grammar(&mut blob).unwrap();
     assert_eq!(&blob[..4], b"CG3B", "magic bytes");
 
-    let mut reader = BinaryGrammar::new(Grammar::default());
+    let mut reader = BinaryGrammar::new(GrammarCore::default());
     reader
         .parse_grammar_buffer(&blob)
         .expect("binary reread failed");
@@ -248,7 +248,7 @@ fn legacy_10043_rejected() {
     let rev = u32::from_be_bytes([blob[4], blob[5], blob[6], blob[7]]);
     assert_eq!(rev, 10043, "fixture is the legacy revision");
 
-    let mut reader = BinaryGrammar::new(Grammar::default());
+    let mut reader = BinaryGrammar::new(GrammarCore::default());
     reader.set_verbosity(1); // enables the legacy-revision warning branch
     // [spec:cg3:req:errors.parse-result/test]
     let err = reader
@@ -280,7 +280,7 @@ fn provenance_never_reaches_the_wire() {
     let src = std::fs::read(test_dir("T_Templates").join("grammar.cg3")).expect("read fixture");
 
     let compile = |strip: bool| -> Vec<u8> {
-        let mut parser = TextualParser::new(Grammar::default(), false);
+        let mut parser = TextualParser::new(GrammarCore::default(), false);
         parser
             .parse_grammar_named(&src, "grammar.cg3")
             .expect("fixture parses");

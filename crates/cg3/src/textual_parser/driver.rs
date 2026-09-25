@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::ast::{ASTHelper, ASTType};
 use crate::contextual_test::{POS_CAREFUL, POS_NUMERIC_BRANCH, copy_cntx};
-use crate::grammar::Grammar;
+use crate::grammar::GrammarCore;
 use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::{
     hash_value_str, isspace, skipln_chars, skipto_chars, skiptows_chars, skipws_chars, ui32,
@@ -435,11 +435,11 @@ impl TextualParser {
                 if tbuf[n] != '\0' {
                     self.grammar
                         .single_tags_list
-                        .building_mut(tid.0)
+                        .get_mut(tid.0)
                         .allocate_vs_sets();
                     self.grammar
                         .single_tags_list
-                        .building_mut(tid.0)
+                        .get_mut(tid.0)
                         .allocate_vs_names();
                     p += 1;
                     let theset: String = tbuf[p..n].iter().collect();
@@ -447,7 +447,7 @@ impl TextualParser {
                     let setname = self.grammar.sets_list[tmp.0].name.clone();
                     self.grammar
                         .single_tags_list
-                        .building_mut(tid.0)
+                        .get_mut(tid.0)
                         .vs_sets
                         .as_mut()
                         .unwrap()
@@ -455,7 +455,7 @@ impl TextualParser {
                     let old = format!("{{{setname}}}");
                     self.grammar
                         .single_tags_list
-                        .building_mut(tid.0)
+                        .get_mut(tid.0)
                         .vs_names
                         .as_mut()
                         .unwrap()
@@ -908,7 +908,7 @@ impl IGrammarParser for TextualParser {
 
     // [spec:cg3:def:textual-parser.cg3.textual-parser.get-grammar-fn]
     // [spec:cg3:sem:textual-parser.cg3.textual-parser.get-grammar-fn]
-    fn get_grammar(&self) -> &Grammar {
+    fn get_grammar(&self) -> &GrammarCore {
         &self.grammar
     }
 }

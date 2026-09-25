@@ -30,7 +30,7 @@ use std::io::{Read, Write};
 use crate::arena::{CohortId, CtxId, ReadingId, RuleId, SwId, TagId};
 use crate::cohort::{CT_RELATED, CT_REMOVED, DEP_NO_PARENT, unignore_all};
 use crate::contextual_test::POS_NEGATE;
-use crate::grammar::Grammar;
+use crate::grammar::{Grammar, TagSpace};
 use crate::inlines::{
     g_app_set_opts_ranged, is_textual, isnl, read_raw, read_utf8_raw, ui8, ui32, write_raw,
     write_utf8_raw,
@@ -401,12 +401,9 @@ impl super::GrammarApplicator {
     /// here the grammar is owned at construction (`new(grammar)`), so this
     /// operates on `self.grammar` and takes no argument.
     pub fn set_grammar(&mut self) -> Result<(), crate::error::Cg3Error> {
-        // The grammar stops being built here and starts being applied, so this
-        // is where its core freezes: every tag interned from now on — starting
-        // with the four magic ones below, which the C++ likewise adds to the
-        // live grammar and does not serialise — belongs to the RUN.
-        self.grammar.freeze();
-
+        // Every tag interned from here on belongs to the RUN, starting with the
+        // four magic ones below, which the C++ likewise adds to the live
+        // grammar and does not serialise.
         let tb = self.add_tag(STR_BEGINTAG, crate::tag::TagType::empty())?;
         let te = self.add_tag(STR_ENDTAG, crate::tag::TagType::empty())?;
         let ts = self.add_tag(STR_DUMMY, crate::tag::TagType::empty())?;
@@ -1972,6 +1969,7 @@ impl Matcher<'_> {
 /// contextual matcher knot, so `parse_tag(..., self, ...)` threads a
 /// `Matcher`.
 impl crate::parser_helpers::ParseTagState for Matcher<'_> {
+    type Tags = Grammar;
     fn grammar(&self) -> &Grammar {
         &*self.grammar
     }

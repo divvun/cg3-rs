@@ -94,17 +94,14 @@ fn cg_proc_fixture(dir: &Path, proc_flags: &[&str], name: &str) -> String {
 /// the dummy tag, reindex, set_grammar), for driving wrapper applicators
 /// in-process.
 fn conv_base() -> cg3::grammar_applicator::GrammarApplicator {
-    let mut base =
-        cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
-    base.grammar.allocate_dummy_set();
-    let delim = base.grammar.allocate_set();
-    base.grammar.delimiters = Some(delim);
-    let dummy_tag = base
-        .grammar
-        .allocate_tag("__CG3_DUMMY_STRINGBIT__")
-        .unwrap();
-    base.grammar.add_tag_to_set(dummy_tag, delim);
-    let _ = base.grammar.reindex(false, false).unwrap();
+    let mut grammar = cg3::grammar::GrammarCore::default();
+    grammar.allocate_dummy_set();
+    let delim = grammar.allocate_set();
+    grammar.delimiters = Some(delim);
+    let dummy_tag = grammar.allocate_tag("__CG3_DUMMY_STRINGBIT__").unwrap();
+    grammar.add_tag_to_set(dummy_tag, delim);
+    let _ = grammar.reindex(false, false).unwrap();
+    let mut base = cg3::grammar_applicator::GrammarApplicator::new(grammar.into());
     base.set_grammar().unwrap();
     base
 }
@@ -215,14 +212,13 @@ fn apertium_stream_setvar() {
 // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.test-pr-fn/test]
 #[test]
 fn apertium_test_pr_roundtrip() {
-    let mut p = cg3::textual_parser::TextualParser::new(cg3::grammar::Grammar::default(), false);
+    let mut p =
+        cg3::textual_parser::TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     p.parse_grammar_utf8(b"DELIMITERS = \".\" ;\nSELECT (foo) ;\n")
         .expect("minimal grammar failed to parse");
     let mut g = p.grammar;
     let _ = g.reindex(false, false).unwrap();
-    let mut base =
-        cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
-    base.grammar = g;
+    let mut base = cg3::grammar_applicator::GrammarApplicator::new(g.into());
     base.set_grammar().unwrap();
     let mut a = cg3::apertium_applicator::ApertiumApplicator::new(base);
     let mut out: Vec<u8> = Vec::new();

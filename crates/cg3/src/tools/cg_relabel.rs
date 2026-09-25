@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 
 use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::Grammar;
+use crate::grammar::GrammarCore;
 use crate::inlines::is_cg3b;
 use crate::relabeller::Relabeller;
 use crate::textual_parser::TextualParser;
@@ -85,7 +85,7 @@ enum GrammarLoadError {
 /// `new Grammar` is never `delete`d on the error-return paths (a memory leak);
 /// the Rust port owns the `Grammar` by value, so those paths simply drop it —
 /// memory-safe, so the leak cannot be reproduced (noted).
-fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<Grammar, GrammarLoadError> {
+fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<GrammarCore, GrammarLoadError> {
     // std::ifstream input(filename, std::ios::binary); if (!input) return 0;
     let mut input = File::open(filename).map_err(|source| GrammarLoadError::Open {
         path: filename.to_string(),
@@ -102,7 +102,7 @@ fn cg3_grammar_load(filename: &str, require_binary: bool) -> Result<Grammar, Gra
     drop(input); // input.close();
 
     // Grammar* grammar = new Grammar; (owned by value here.)
-    let grammar = Grammar::default();
+    let grammar = GrammarCore::default();
 
     let mut parsed = if is_cg3b(head) {
         // parser.reset(new BinaryGrammar(*grammar, ...));

@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 
 use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::Grammar;
+use crate::grammar::GrammarCore;
 use crate::inlines::is_cg3b;
 use crate::textual_parser::TextualParser;
 
@@ -47,7 +47,7 @@ pub fn main_comp(args: &[String]) -> i32 {
     }
 
     // Grammar grammar; — owned by the parser in this port (moved out after parse).
-    let grammar = Grammar::default();
+    let grammar = GrammarCore::default();
 
     // FILE* input = fopen(argv[1], "rb"); read first 4 bytes; fclose(input);
     let mut input = match File::open(&args[1]) {

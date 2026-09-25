@@ -21,7 +21,7 @@
 //! * **Library init / codepage / locale.** The C++ tools initialise their
 //!   Unicode library and default codepage and locale; a UTF-8 port has none of
 //!   that, so those calls are dropped. Where the C++ returns its status as the
-//!   exit code, the port returns [`EXIT_SUCCESS`] or [`EXIT_FAILURE`].
+//!   exit code, the port returns `EXIT_SUCCESS` or `EXIT_FAILURE`.
 //! * **Grammar ownership.** The ported parsers OWN their `Grammar` (see
 //!   [`crate::textual_parser`] / [`crate::binary_grammar`]); the C++ passes an
 //!   externally-held `Grammar&` and later `parser.reset()`s. The port therefore

@@ -30,7 +30,7 @@ use cg3::cohort_iterator::{
 use cg3::contextual_test::{
     ContextualTest, POS_RIGHTMOST, POS_SELF, POS_SPAN_BOTH, TestRef, copy_cntx,
 };
-use cg3::grammar::Grammar;
+use cg3::grammar::{Grammar, GrammarCore, TagSpace};
 use cg3::inlines::{NUMERIC_MAX, NUMERIC_MIN, hash_value, hash_value_str};
 use cg3::reading::{
     Reading, ReadingList, alloc_reading, alloc_reading_copy, free_reading, reading_clear,
@@ -225,9 +225,10 @@ fn cohort_append_readings() {
 // [spec:cg3:sem:cohort.cg3.cohort.get-max-fn/test]
 #[test]
 fn cohort_numeric_min_max() {
-    let mut g = Grammar::default();
+    let mut g = GrammarCore::default();
     let t5 = g.allocate_tag("<n=5>").unwrap();
     let t10 = g.allocate_tag("<n=10>").unwrap();
+    let mut g = Grammar::from(g);
     let key = g.single_tags_list[t5.0].comparison_hash;
     assert_ne!(key, 0);
     assert_eq!(key, g.single_tags_list[t10.0].comparison_hash);
@@ -254,7 +255,7 @@ fn cohort_numeric_min_max() {
     );
 
     // On-demand: a newly-added smaller value is visible at once.
-    let t1 = g.allocate_tag("<n=1>").unwrap();
+    let t1 = g.intern_text("<n=1>");
     let h1 = g.single_tags_list[t1.0].hash.get();
     store.readings.get_mut(r1.0).tags_numerical.insert(h1, t1);
     assert_eq!(
@@ -264,7 +265,7 @@ fn cohort_numeric_min_max() {
     );
     // Only the `readings` list participates: a deleted reading's tags do not.
     let rdel = alloc_reading(&mut store, Some(c));
-    let t0 = g.allocate_tag("<n=-7>").unwrap();
+    let t0 = g.intern_text("<n=-7>");
     let h0 = g.single_tags_list[t0.0].hash.get();
     store.readings.get_mut(rdel.0).tags_numerical.insert(h0, t0);
     store.cohorts.get_mut(c.0).deleted.push(rdel);
@@ -391,10 +392,11 @@ fn topology_iterators() {
     let c4 = mk(sw2, 4);
     store.cohorts.get_mut(c2.0).r#type |= CT_ENCLOSED;
 
-    let mut g = Grammar::default();
+    let mut g = GrammarCore::default();
     let ctx0 = g.allocate_contextual_test(); // pos = 0
     let ctx_span = g.allocate_contextual_test();
     g.contexts_arena[ctx_span.0].pos = POS_SPAN_BOTH;
+    let g = Grammar::from(g);
 
     // Left from c3: skips enclosed c2, lands on c1; then walks off the front.
     let mut li = TopologyLeftIter::new(Some(c3), Some(TestRef::new(ctx0)), false);
@@ -424,8 +426,9 @@ fn dep_parent_iterator() {
     let (c1, c2, c3) = (ids[0], ids[1], ids[2]);
     store.cohorts.get_mut(c2.0).dep_parent = Some(GlobalNumber(1));
     store.cohorts.get_mut(c3.0).dep_parent = Some(GlobalNumber(2));
-    let mut g = Grammar::default();
+    let mut g = GrammarCore::default();
     let ctx = g.allocate_contextual_test();
+    let g = Grammar::from(g);
 
     let mut it = DepParentIter::new(
         Some(c3),
@@ -499,12 +502,13 @@ fn dep_descendent_and_ancestor_iterators() {
     store.cohorts.get_mut(c3.0).dep_parent = Some(GlobalNumber(1));
     store.cohorts.get_mut(c4.0).dep_parent = Some(GlobalNumber(2));
 
-    let mut g = Grammar::default();
+    let mut g = GrammarCore::default();
     let ctx = g.allocate_contextual_test();
     let ctx_self = g.allocate_contextual_test();
     g.contexts_arena[ctx_self.0].pos = POS_SELF;
     let ctx_rr = g.allocate_contextual_test();
     g.contexts_arena[ctx_rr.0].pos = POS_RIGHTMOST;
+    let g = Grammar::from(g);
 
     let mut di = DepDescendentIter::new(
         Some(c1),
@@ -566,8 +570,9 @@ fn dep_descendent_and_ancestor_iterators() {
 fn cohort_set_multi_and_children_iterators() {
     let (mut store, _w, _sw, ids) = setup_window(2);
     let (c1, c2) = (ids[0], ids[1]);
-    let mut g = Grammar::default();
+    let mut g = GrammarCore::default();
     let ctx = g.allocate_contextual_test();
+    let g = Grammar::from(g);
 
     let mut csi = CohortSetIter::new(Some(c1), Some(TestRef::new(ctx)), false);
     assert_eq!(csi.m_origcohort, Some(c1));
@@ -707,7 +712,7 @@ fn reading_alloc_copy_free_clear() {
 // [spec:cg3:sem:reading.cg3.reading.cmp-number-fn/test]
 #[test]
 fn reading_rehash_and_cmp_number() {
-    let mut g = Grammar::default();
+    let mut g = GrammarCore::default();
     let ta = g.allocate_tag("aa").unwrap();
     let tb = g.allocate_tag("bb").unwrap();
     let tm = g.allocate_tag("mapped").unwrap();
@@ -716,6 +721,7 @@ fn reading_rehash_and_cmp_number() {
         g.single_tags_list[tb.0].hash.get(),
         g.single_tags_list[tm.0].hash.get(),
     );
+    let g = Grammar::from(g);
 
     let mut store = RuntimeStore::new();
     let r = alloc_reading(&mut store, None);
@@ -789,7 +795,7 @@ fn reading_rehash_and_cmp_number() {
 // [spec:cg3:sem:set.cg3.trie-reindex-fn/test]
 #[test]
 fn set_name_hash_reindex_markused_drop() {
-    let mut g = Grammar::default();
+    let mut g = GrammarCore::default();
     let s = g.allocate_set();
     assert!(g.sets_list[s.0].empty(), "fresh set is empty");
 
@@ -799,15 +805,9 @@ fn set_name_hash_reindex_markused_drop() {
 
     // setName: explicit id and the rand() fallback for 0.
     g.sets_list.get_mut(s.0).line = 7;
-    let core = g.core_mut();
-    core.sets_list
-        .get_mut(s.0)
-        .set_name(42, &mut core.rand_state);
+    g.sets_list.get_mut(s.0).set_name(42, &mut g.rand_state);
     assert_eq!(g.sets_list[s.0].name, "_G_7_42_");
-    let core = g.core_mut();
-    core.sets_list
-        .get_mut(s.0)
-        .set_name(0, &mut core.rand_state);
+    g.sets_list.get_mut(s.0).set_name(0, &mut g.rand_state);
     let name = g.sets_list[s.0].name.clone();
     assert!(name.starts_with("_G_7_") && name.ends_with('_') && name != "_G_7_0_");
 
@@ -826,7 +826,7 @@ fn set_name_hash_reindex_markused_drop() {
     let tnum = g.allocate_tag("<n=5>").unwrap();
     assert!(g.single_tags_list[tnum.0].r#type.intersects(T_SPECIAL));
     g.add_tag_to_set(tnum, s);
-    g.single_tags_list.building_mut(tx.0).r#type |= T_MAPPING;
+    g.single_tags_list.get_mut(tx.0).r#type |= T_MAPPING;
     cg3::set::Set::reindex(&mut g, s);
     let sty = g.sets_list[s.0].r#type;
     assert!(sty.intersects(ST_SPECIAL));
@@ -917,7 +917,7 @@ fn rule_defaults_name_tests_flags() {
 // [spec:cg3:sem:tag.cg3.tag.parse-numeric-fn/test]
 #[test]
 fn tag_parse_raw_and_numeric() {
-    let mut g = Grammar::default();
+    let mut g = GrammarCore::default();
 
     let wf = g.allocate_tag("\"<word>\"").unwrap();
     let wt = g.single_tags_list[wf.0].r#type;
@@ -1104,7 +1104,7 @@ fn tag_ctor_rehash_markused_vs_tostring() {
 // [spec:cg3:sem:tag.cg3.fill-tagvector-fn/test]
 #[test]
 fn tag_comparators_and_fill_tagvector() {
-    let mut g = Grammar::default();
+    let mut g = GrammarCore::default();
     let ta = g.allocate_tag("alpha").unwrap();
     let tb = g.allocate_tag("beta").unwrap();
     let (ha, hb) = (g.single_tags_list[ta.0].hash, g.single_tags_list[tb.0].hash);
@@ -1128,7 +1128,7 @@ fn tag_comparators_and_fill_tagvector() {
     // fill_tagvector: numeric filtered (did), special flagged, rest pushed.
     let tnum = g.allocate_tag("<n=5>").unwrap();
     let tspec = g.allocate_tag("spec").unwrap();
-    g.single_tags_list.building_mut(tspec.0).r#type |= T_SPECIAL;
+    g.single_tags_list.get_mut(tspec.0).r#type |= T_SPECIAL;
     let input = [tnum, ta, tspec];
     let mut out = TagVector::new();
     let mut did = false;

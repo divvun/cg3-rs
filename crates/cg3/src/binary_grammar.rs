@@ -74,7 +74,7 @@ use std::io::{Read, Write};
 use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::contextual_test::POS_64BIT;
 use crate::flat_unordered_set::Uint32FlatHashSet;
-use crate::grammar::{Grammar, trie_unserialize};
+use crate::grammar::{GrammarCore, trie_unserialize};
 use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::{is_cg3b, read_be, read_be_f64, ui16, ui32, write_be, write_be_f64};
 use crate::rule::Rule;
@@ -136,7 +136,7 @@ pub type DeferredOrs = HashMap<CtxId, Vec<u32>>;
 /// has no field analogue: diagnostics are tracing events (wave 4).
 pub struct BinaryGrammar {
     /// C++ `Grammar* grammar` (aliases `result`); OWNED here.
-    pub grammar: Grammar,
+    pub grammar: GrammarCore,
     /// C++ base `nrules` — the `--nrules` name filter, compiled through the
     /// tag-regex seam like every other user-authored pattern
     /// (`[spec:cg3:req:tag-regex.single-seam]`).
@@ -160,7 +160,7 @@ impl BinaryGrammar {
     /// null; `verbosity` 0), then sets `grammar = result`. The port OWNS `res`
     /// (so `grammar` == `result` == the owned field); diagnostics are tracing
     /// events. No allocation or I/O occurs.
-    pub fn new(res: Grammar) -> BinaryGrammar {
+    pub fn new(res: GrammarCore) -> BinaryGrammar {
         BinaryGrammar {
             grammar: res,
             nrules: None,
@@ -234,7 +234,7 @@ impl BinaryGrammar {
         if bin_revision <= BIN_REV_ANCIENT {
             if self.verbosity >= 1 {
                 tracing::warn!(
-                    "Warning: Grammar revision is {}, but current format is {} or later. Please recompile the binary grammar with latest CG-3.",
+                    "Warning: GrammarCore revision is {}, but current format is {} or later. Please recompile the binary grammar with latest CG-3.",
                     bin_revision,
                     CG3_FEATURE_REV
                 );
@@ -304,7 +304,7 @@ impl BinaryGrammar {
         // single_tags_list.resize(num): pre-allocate `num` slots so a tag can be
         // placed at its `number` (== arena slot).
         for _ in 0..num_single_tags {
-            self.grammar.single_tags_list.alloc_building(Tag::default());
+            self.grammar.single_tags_list.alloc(Tag::default());
         }
         for _ in 0..num_single_tags {
             let t = Self::read_tag_record(input, &mut tag_varsets, &mut bad_regexes);
@@ -312,12 +312,14 @@ impl BinaryGrammar {
             let number = t.number;
             let is_star = &*t.tag == "*";
             // single_tags[t->hash] = t (id == arena slot `number`).
-            self.grammar.insert_tag_hash(hash.get(), TagId(number));
+            self.grammar
+                .tags_by_hash
+                .insert((hash.get(), TagId(number)));
             if is_star {
                 self.grammar.tag_any = hash.get();
             }
             // single_tags_list[t->number] = t.
-            self.grammar.single_tags_list.put_building(number, t);
+            self.grammar.single_tags_list[number] = t;
         }
 
         if !bad_regexes.is_empty() {
@@ -439,7 +441,7 @@ impl BinaryGrammar {
             for num in setnums {
                 self.grammar
                     .single_tags_list
-                    .building_mut(tagnum)
+                    .get_mut(tagnum)
                     .vs_sets
                     .as_mut()
                     .unwrap()
@@ -854,12 +856,6 @@ impl BinaryGrammar {
     ) -> Result<(), crate::error::Cg3Error> {
         // C++ guards: null output / null grammar. Both are owned here (moot); kept
         // as documentation.
-
-        // This writer EDITS what it serialises (`reverse_contextual_tests` below
-        // reverses each rule's test lists in place), so it needs the core to
-        // itself. A grammar another pipeline is applying is refused rather than
-        // rewritten under it.
-        self.grammar.unshare()?;
 
         // The dense used-set list (C++ `grammar->sets_list`); computed up front so
         // the BINF_SETS bit + the set section agree.
@@ -1546,7 +1542,7 @@ impl IGrammarParser for BinaryGrammar {
         self.verbosity = level;
     }
 
-    fn get_grammar(&self) -> &Grammar {
+    fn get_grammar(&self) -> &GrammarCore {
         &self.grammar
     }
 }

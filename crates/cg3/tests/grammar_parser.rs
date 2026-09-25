@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use cg3::arena::SetId;
 use cg3::binary_grammar::BinaryGrammar;
 use cg3::contextual_test::POS_NEGATE;
-use cg3::grammar::Grammar;
+use cg3::grammar::GrammarCore;
 use cg3::igrammar_parser::IGrammarParser;
 use cg3::inlines::hash_value_str;
 use cg3::rule::RF_SAFE;
@@ -34,7 +34,7 @@ fn repo_root() -> PathBuf {
 
 /// Parse a grammar source string in-process; assert a clean (0-error) parse.
 fn parse_str(src: &str) -> TextualParser {
-    let mut p = TextualParser::new(Grammar::default(), false);
+    let mut p = TextualParser::new(GrammarCore::default(), false);
     p.parse_grammar_utf8(src.as_bytes())
         .expect("grammar string failed to parse");
     p
@@ -44,25 +44,25 @@ fn parse_str(src: &str) -> TextualParser {
 fn parse_fixture(rel: &str) -> TextualParser {
     let path = repo_root().join(rel);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {rel}: {e}"));
-    let mut p = TextualParser::new(Grammar::default(), false);
+    let mut p = TextualParser::new(GrammarCore::default(), false);
     p.parse_grammar_utf8(&bytes)
         .unwrap_or_else(|e| panic!("fixture {rel} failed to parse: {e}"));
     p
 }
 
 /// Resolve a named set through `Grammar::getSet` (name-hash resolution).
-fn set_by_name(g: &Grammar, name: &str) -> SetId {
+fn set_by_name(g: &GrammarCore, name: &str) -> SetId {
     g.get_set(hash_value_str(name, 0))
         .unwrap_or_else(|| panic!("set {name} not resolvable"))
 }
 
 /// All tag texts reachable from a set (flattened across its tag combinations).
-fn set_tag_texts(g: &Grammar, s: SetId) -> BTreeSet<String> {
+fn set_tag_texts(g: &GrammarCore, s: SetId) -> BTreeSet<String> {
     set_tag_vectors(g, s).into_iter().flatten().collect()
 }
 
 /// The set's tag combinations as vectors of tag texts (trie path order kept).
-fn set_tag_vectors(g: &Grammar, s: SetId) -> Vec<Vec<String>> {
+fn set_tag_vectors(g: &GrammarCore, s: SetId) -> Vec<Vec<String>> {
     let mut tvs = TagVectorSet::new();
     g.get_tags(s, &mut tvs);
     tvs.iter()
@@ -75,7 +75,7 @@ fn set_tag_vectors(g: &Grammar, s: SetId) -> Vec<Vec<String>> {
 }
 
 /// Hash of the interned tag with exactly this text (scan the tag arena).
-fn tag_hash_by_text(g: &Grammar, text: &str) -> Option<u32> {
+fn tag_hash_by_text(g: &GrammarCore, text: &str) -> Option<u32> {
     for i in 0..g.single_tags_list.capacity() {
         if let Some(t) = g.single_tags_list.try_get(i)
             && &*t.tag == text
@@ -105,7 +105,7 @@ fn tag_hash_by_text(g: &Grammar, text: &str) -> Option<u32> {
 // [spec:cg3:sem:grammar.cg3.grammar.grammar-fn/test]
 #[test]
 fn constructor_trait_surface_and_compat_mode() {
-    let mut p = TextualParser::new(Grammar::default(), false);
+    let mut p = TextualParser::new(GrammarCore::default(), false);
 
     p.set_compatible(true);
     p.set_verbosity(1);
@@ -487,7 +487,7 @@ fn undef_sets_and_list_append() {
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.error-fn+1/test]
 #[test]
 fn parse_error_recovery_counts_errors() {
-    let mut p = TextualParser::new(Grammar::default(), false);
+    let mut p = TextualParser::new(GrammarCore::default(), false);
     // [spec:cg3:req:errors.parse-result/test]
     let err = p
         .parse_grammar_utf8(
@@ -511,7 +511,7 @@ fn parse_error_recovery_counts_errors() {
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.print-ast-fn/test]
 #[test]
 fn print_ast_dumps_xml() {
-    let mut p = TextualParser::new(Grammar::default(), true);
+    let mut p = TextualParser::new(GrammarCore::default(), true);
     p.parse_grammar_utf8(b"DELIMITERS = \"<$.>\" ;\nLIST AA = aa ;\nSELECT AA ;\n")
         .unwrap();
     let mut out: Vec<u8> = Vec::new();
@@ -608,7 +608,7 @@ fn remove_numeric_tags_and_direct_destroyers() {
     );
 
     // Direct allocate/destroy round-trips on a fresh Grammar.
-    let mut g = Grammar::default();
+    let mut g = GrammarCore::default();
     g.lines = 1;
 
     let t1 = g.allocate_tag("zzz").unwrap();
@@ -647,7 +647,7 @@ fn binary_grammar_roundtrip_unserializes_tries() {
         .expect("spawn cg-comp");
     assert!(status.success(), "cg-comp failed");
 
-    let mut bg = BinaryGrammar::new(Grammar::default());
+    let mut bg = BinaryGrammar::new(GrammarCore::default());
     let rv = bg.parse_grammar_filename(bin.to_str().unwrap());
     let _ = std::fs::remove_file(&bin);
     rv.expect("binary grammar failed to load");

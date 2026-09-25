@@ -287,7 +287,6 @@ fn engine_external_pipe_protocol() {
 fn engine_inprocess_error_getters_and_dead_helpers() {
     use cg3::arena::ReadingId;
     use cg3::contextual_test::{POS_CAREFUL, PosFlags};
-    use cg3::grammar::Grammar;
     use cg3::grammar_applicator::GrammarApplicator;
     use cg3::grammar_applicator::match_set::{check_options, tag_set_subset_of_t_set};
     use cg3::sorted_vector::Uint32SortedVector;
@@ -297,13 +296,13 @@ fn engine_inprocess_error_getters_and_dead_helpers() {
     // return depends on current_rule being unset when no rule is in flight.
 
     // error(): no current rule -> ("RT INPUT", numLines).
-    let mut grammar = Grammar::default();
+    let mut grammar = cg3::grammar::GrammarCore::default();
     let aa = grammar.allocate_tag("enginetag-aa").unwrap();
     let bb = grammar.allocate_tag("enginetag-bb").unwrap();
     let aa_hash = grammar.single_tags_list[aa.0].hash.get();
     let bb_hash = grammar.single_tags_list[bb.0].hash.get();
 
-    let app = GrammarApplicator::new(grammar);
+    let app = GrammarApplicator::new(grammar.into());
     assert_eq!(app.error("%s: some diagnostic\n", None), ("RT INPUT", 0));
     assert_eq!(app.error_s("%s: %s\n", "detail", None), ("RT INPUT", 0));
     assert_eq!(app.error_ss("%s: %s %s\n", "a", "b", None), ("RT INPUT", 0));
@@ -355,19 +354,18 @@ fn engine_inprocess_error_getters_and_dead_helpers() {
 /// `tools_cli::runtime_input_failure_names_the_input`.
 #[test]
 fn current_rule_does_not_outlive_the_run() {
-    use cg3::grammar::Grammar;
     use cg3::grammar_applicator::GrammarApplicator;
     use cg3::textual_parser::TextualParser;
 
     let src = b"DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nSECTION\nSELECT N ;\n";
-    let mut parser = TextualParser::new(Grammar::default(), false);
+    let mut parser = TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     parser
         .parse_grammar_named(src, "current-rule.cg3")
         .expect("grammar parses");
     let mut grammar = parser.grammar;
     let _ = grammar.reindex(false, false).expect("reindex");
 
-    let mut app = GrammarApplicator::new(grammar);
+    let mut app = GrammarApplicator::new(grammar.into());
     app.set_grammar().expect("applicator setup");
     let mut cursor = std::io::Cursor::new(b"\"<a>\"\n\t\"a\" n\n\n\"<b>\"\n\t\"b\" n\n\n".to_vec());
     let mut out: Vec<u8> = Vec::new();
@@ -399,12 +397,13 @@ fn runtime_tag_flags_do_not_reach_the_grammar() {
     use cg3::textual_parser::TextualParser;
 
     let src = b"DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nSECTION\nSELECT N ;\n";
-    let mut parser = TextualParser::new(Grammar::default(), false);
+    let mut parser = TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     parser
         .parse_grammar_named(src, "tag-flags.cg3")
         .expect("grammar parses");
     let mut grammar = parser.grammar;
     let _ = grammar.reindex(false, false).expect("reindex");
+    let grammar = Grammar::from(grammar);
 
     // Materialised flags are exactly the load-time ones, for every live tag.
     for i in 0..grammar.single_tags_list.capacity() {
@@ -473,14 +472,13 @@ fn runtime_tag_flags_do_not_reach_the_grammar() {
 /// back with the core's id if step 0 saw the core's `"aac0c"` sitting in the
 /// way and kept walking.
 #[test]
-fn runtime_interning_dedups_against_the_frozen_core() {
-    use cg3::grammar::Grammar;
+fn runtime_interning_dedups_against_the_shared_core() {
     use cg3::grammar_applicator::GrammarApplicator;
     use cg3::tag::TagType;
     use cg3::textual_parser::TextualParser;
 
     let src = b"DELIMITERS = \"<$.>\" ;\nLIST N = n aac0c aaepa ;\nSECTION\nSELECT N ;\n";
-    let mut parser = TextualParser::new(Grammar::default(), false);
+    let mut parser = TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     parser
         .parse_grammar_named(src, "collide.cg3")
         .expect("grammar parses");
@@ -505,10 +503,10 @@ fn runtime_interning_dedups_against_the_frozen_core() {
         "the colliding tag must be parked one seed along"
     );
 
-    let core_len = grammar.core().single_tags_list.capacity();
+    let core_len = grammar.single_tags_list.capacity();
     let num_tags = grammar.num_tags;
 
-    let mut app = GrammarApplicator::new(grammar);
+    let mut app = GrammarApplicator::new(grammar.into());
     app.set_grammar().expect("applicator setup");
     // setGrammar's own begin/end/subst/mprefix tags are already the run's.
     let after_setup = app.grammar.single_tags_list.capacity();
@@ -557,19 +555,18 @@ fn runtime_interning_dedups_against_the_frozen_core() {
 /// The payoff, end to end: one loaded grammar's core read from several threads
 /// at once, which is what a process running N pipelines off one grammar does.
 #[test]
-fn a_frozen_core_is_shareable() {
-    use cg3::grammar::Grammar;
+fn a_loaded_core_is_shareable() {
     use cg3::textual_parser::TextualParser;
 
     let src = b"DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nSECTION\nSELECT N ;\n";
-    let mut parser = TextualParser::new(Grammar::default(), false);
+    let mut parser = TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     parser
         .parse_grammar_named(src, "shared.cg3")
         .expect("grammar parses");
     let mut grammar = parser.grammar;
     let _ = grammar.reindex(false, false).expect("reindex");
 
-    let core = grammar.shared_core();
+    let core = std::sync::Arc::new(grammar);
     let tags = core.single_tags_list.capacity();
     let readers: Vec<_> = (0..4)
         .map(|_| {
@@ -596,7 +593,7 @@ fn a_frozen_core_is_shareable() {
 #[test]
 fn two_pipelines_share_one_grammar_core() {
     use cg3::arena::TagId;
-    use cg3::grammar::Grammar;
+    use cg3::grammar::GrammarCore;
     use cg3::grammar_applicator::GrammarApplicator;
     use cg3::inlines::hash_value_str;
     use cg3::tag::T_MAPPING;
@@ -608,8 +605,8 @@ fn two_pipelines_share_one_grammar_core() {
     const STREAM_A: &[u8] = b"\"<wa>\"\n\t\"wa\" n @a-only\n\t\"wa\" v\n\n";
     const STREAM_B: &[u8] = b"\"<wb>\"\n\t\"wb\" n @b-only\n\t\"wb\" v\n\n";
 
-    fn load() -> Grammar {
-        let mut parser = TextualParser::new(Grammar::default(), false);
+    fn load() -> GrammarCore {
+        let mut parser = TextualParser::new(GrammarCore::default(), false);
         parser
             .parse_grammar_named(SRC, "shared-core.cg3")
             .expect("grammar parses");
@@ -619,7 +616,7 @@ fn two_pipelines_share_one_grammar_core() {
     }
 
     fn owned() -> GrammarApplicator {
-        let mut app = GrammarApplicator::new(load());
+        let mut app = GrammarApplicator::new(load().into());
         app.set_grammar().expect("applicator setup");
         app
     }
@@ -638,12 +635,8 @@ fn two_pipelines_share_one_grammar_core() {
     let want_b = apply(&mut owned(), STREAM_B);
     assert_ne!(want_a, want_b, "the two streams must be distinguishable");
 
-    // One grammar, loaded once. The loader's own handle goes away, so what is
-    // left is what a host would hold: the core and nothing else.
-    let mut loaded = load();
-    let core = loaded.shared_core();
-    drop(loaded);
-    assert_eq!(Arc::strong_count(&core), 1, "the loader's handle is gone");
+    // One grammar, loaded once, held the way a host holds it.
+    let core = Arc::new(load());
     let core_tags = core.single_tags_list.capacity();
     let core_hashes = core.tags_by_hash.size();
 
@@ -706,42 +699,39 @@ fn two_pipelines_share_one_grammar_core() {
 /// A grammar someone is applying cannot be written out from under them.
 ///
 /// Both writers EDIT what they serialise — the binary one reverses each rule's
-/// test lists, the textual one renames every unnamed set — so both take the core
-/// back before writing a byte, and a core another pipeline holds is refused
-/// rather than rewritten. The same call succeeds once that pipeline is gone.
+/// test lists, the textual one renames every unnamed set — so both take an
+/// owned `GrammarCore`, and the only way back to one from a shared grammar is
+/// `Arc::try_unwrap`: refused while a pipeline holds the core, granted once it
+/// is gone. That is the hand-back `vislcg3` does before `--grammar-bin`.
 #[test]
 fn a_shared_core_cannot_reach_the_writers() {
     use cg3::binary_grammar::BinaryGrammar;
-    use cg3::error::{Cg3Error, GrammarError};
-    use cg3::grammar::Grammar;
     use cg3::grammar_applicator::GrammarApplicator;
     use cg3::textual_parser::TextualParser;
+    use std::sync::Arc;
 
     let src = b"DELIMITERS = \"<$.>\" ;\nLIST N = n ;\nSECTION\nSELECT N ;\n";
-    let mut parser = TextualParser::new(Grammar::default(), false);
+    let mut parser = TextualParser::new(cg3::grammar::GrammarCore::default(), false);
     parser
         .parse_grammar_named(src, "writers.cg3")
         .expect("grammar parses");
     let mut grammar = parser.grammar;
     let _ = grammar.reindex(false, false).expect("reindex");
 
-    let pipeline = GrammarApplicator::from_core(grammar.shared_core()).expect("pipeline");
-
-    let mut writer = BinaryGrammar::new(grammar);
-    let mut blob: Vec<u8> = Vec::new();
-    assert!(
-        matches!(
-            writer.write_binary_grammar(&mut blob),
-            Err(Cg3Error::Grammar(GrammarError::CoreShared))
-        ),
-        "a grammar a pipeline is holding must not be serialised"
-    );
-    assert!(blob.is_empty(), "a refused write leaves no bytes behind");
+    let core = Arc::new(grammar);
+    let pipeline = GrammarApplicator::from_core(Arc::clone(&core)).expect("pipeline");
+    let Err(core) = Arc::try_unwrap(core) else {
+        panic!("a core a pipeline holds must stay shared");
+    };
 
     drop(pipeline);
-    writer
+    let grammar = Arc::try_unwrap(core)
+        .ok()
+        .expect("the last handle takes the grammar back");
+    let mut blob: Vec<u8> = Vec::new();
+    BinaryGrammar::new(grammar)
         .write_binary_grammar(&mut blob)
-        .expect("the last handle may write");
+        .expect("an owned grammar writes");
     assert!(!blob.is_empty());
 }
 
@@ -972,6 +962,7 @@ fn engine_reflow_readings_and_mappings() {
 #[test]
 fn add_tag_reflow_ignores_non_dependency_union_roles() {
     use cg3::grammar::Grammar;
+    use cg3::grammar::TagSpace;
     use cg3::grammar_applicator::GrammarApplicator;
     use cg3::reading::alloc_reading;
     use cg3::tag::{T_NUMERIC_MATH, Tag};
@@ -1046,15 +1037,14 @@ fn add_tag_reflow_preserves_dependency_parent() {
 #[test]
 fn add_tag_reflow_preserves_relation_target() {
     use cg3::cohort::alloc_cohort;
-    use cg3::grammar::Grammar;
     use cg3::grammar_applicator::GrammarApplicator;
     use cg3::reading::alloc_reading;
     use cg3::single_window::alloc_swindow;
     use cg3::tag::{T_RELATION, TagType};
 
-    let mut grammar = Grammar::default();
+    let mut grammar = cg3::grammar::GrammarCore::default();
     grammar.has_relations = true;
-    let mut app = GrammarApplicator::new(grammar);
+    let mut app = GrammarApplicator::new(grammar.into());
     let mut engine = app.engine();
     let window = alloc_swindow(&mut engine.doc.store, None);
     let cohort = alloc_cohort(&mut engine.doc.store, Some(window));

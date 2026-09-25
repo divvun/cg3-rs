@@ -1,5 +1,6 @@
 //! Port of the C++ `GrammarApplicator` class (`src/GrammarApplicator.hpp` + its
-//! six `.cpp` partials) — the engine that applies a loaded [`Grammar`] to a
+//! six `.cpp` partials) — the engine that applies a loaded
+//! [`Grammar`](crate::grammar::Grammar) to a
 //! stream of cohorts.
 //!
 //! This module is the STRUCT + SUBMODULE SCAFFOLD only: the [`GrammarApplicator`]
@@ -830,14 +831,14 @@ impl GrammarApplicator {
 
     /// A pipeline ready to apply a grammar someone else already loaded.
     ///
-    /// The point of the whole split: a host loads a grammar once, takes its
-    /// [`shared_core`](crate::grammar::Grammar::shared_core), and builds one of
-    /// these per worker from clones of that one `Arc`. The sets, rules, contexts
+    /// The point of the whole split: a host loads a grammar once, puts it
+    /// behind an `Arc`, and builds one of these per worker from clones of
+    /// that one `Arc`. The sets, rules, contexts
     /// and load-time tags are shared; each pipeline gets its own overlay, so no
     /// two can see each other's interned tags or tag-flag changes.
     ///
     /// Returns a SET-UP applicator — there is nothing for a caller to do to a
-    /// grammar that is already loaded and frozen, so
+    /// grammar that is already loaded and shared, so
     /// [`set_grammar`](Self::set_grammar) runs here and the half-initialised
     /// state is not worth exposing. [`new`](Self::new) keeps the staged form,
     /// for the tools that wrap the base before the grammar is in place.

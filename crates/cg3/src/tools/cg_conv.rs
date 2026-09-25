@@ -128,8 +128,8 @@ pub fn main_conv(args: &[String]) -> i32 {
 
     // FormatConverter applicator(std::cerr); Grammar& grammar = applicator.conv_grammar;
     // The C++ sets ORDERED, SUB_LTR and MAPPING_PREFIX on `grammar` further
-    // down, after the ctor installed it. Installing freezes the core here, so
-    // all three are applied as the conv grammar is built instead.
+    // down, after the ctor installed it. An installed grammar is immutable
+    // here, so all three are applied as the conv grammar is built instead.
     //
     // DIVERGENCE: `_MPREFIX` is seeded at install time, so it now reports the
     // `--prefix` in effect (as vislcg3's always has) rather than the default.

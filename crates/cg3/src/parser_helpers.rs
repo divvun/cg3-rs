@@ -42,7 +42,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::arena::{SetId, TagId};
-use crate::grammar::Grammar;
+use crate::grammar::{GrammarCore, TagSpace};
 use crate::inlines::hash_value_str;
 use crate::set::{ST_SET_UNIFY, ST_TAG_UNIFY};
 use crate::tag::{
@@ -115,7 +115,10 @@ pub enum Near<'a> {
 /// seed-probe for the applicator), `state.error(...)` and `state.filebase` /
 /// the state's error stream for diagnostics.
 pub trait ParseTagState {
-    fn grammar(&self) -> &Grammar;
+    /// Where this state's tags are interned: the grammar being built, or a
+    /// run's view of a loaded one.
+    type Tags: TagSpace;
+    fn grammar(&self) -> &Self::Tags;
     /// `state.filebase` — diagnostics prefix (`nullptr` on the applicator → "").
     fn filebase(&self) -> &str;
     /// Build the error for a failed parse at `near`.
@@ -131,7 +134,8 @@ pub trait ParseTagState {
 }
 
 impl ParseTagState for TextualParser {
-    fn grammar(&self) -> &Grammar {
+    type Tags = GrammarCore;
+    fn grammar(&self) -> &GrammarCore {
         &self.grammar
     }
     fn filebase(&self) -> &str {
@@ -207,17 +211,8 @@ pub fn parse_tag<S: ParseTagState>(
     }
 
     // Dedup: `single_tags[thash]->tag == to` → return existing.
-    let thash = hash_value_str(&to_owned, 0);
-    {
-        let g = state.grammar();
-        let it = g.single_tags().find(thash);
-        if it != g.single_tags().end() {
-            let tid = it.get().1;
-            let existing = &g.single_tags_list[tid.0];
-            if !existing.tag.is_empty() && *existing.tag == *to_owned {
-                return Ok(tid);
-            }
-        }
+    if let Some(tid) = state.grammar().find_unseeded(&to_owned) {
+        return Ok(tid);
     }
 
     let mut tag = Tag::default();
@@ -416,18 +411,18 @@ pub fn parse_tag<S: ParseTagState>(
 
             // regex_tags scan (empty during textual parse; populated at runtime
             // by GrammarApplicator::addTag) — unanchored is_match.
-            let regex_ids: Vec<TagId> = state.grammar().regex_tags.iter().copied().collect();
+            let regex_ids: Vec<TagId> = state.grammar().regex_tags().iter().copied().collect();
             for tid in regex_ids {
-                if let Some(re) = &state.grammar().single_tags_list[tid.0].regexp
+                if let Some(re) = &state.grammar().tag(tid).regexp
                     && re.is_match(&tag.tag)
                 {
                     tag.r#type |= T_TEXTUAL;
                 }
             }
             // icase_tags scan (empty during textual parse).
-            let icase_ids: Vec<TagId> = state.grammar().icase_tags.iter().copied().collect();
+            let icase_ids: Vec<TagId> = state.grammar().icase_tags().iter().copied().collect();
             for tid in icase_ids {
-                if eq_ignore_case(&tag.tag, &state.grammar().single_tags_list[tid.0].tag) {
+                if eq_ignore_case(&tag.tag, &state.grammar().tag(tid).tag) {
                     tag.r#type |= T_TEXTUAL;
                 }
             }
@@ -440,19 +435,19 @@ pub fn parse_tag<S: ParseTagState>(
                     let after: String = tag_tag[bpos + 1..].to_string();
                     let vh = {
                         let t = parse_tag(&after, near, state, false)?;
-                        state.grammar().single_tags_list[t.0].hash
+                        state.grammar().tag(t).hash
                     };
                     tag.set_variable_hash(vh.get());
                     let before: String = tag_tag[..bpos].to_string();
                     let ch = {
                         let t = parse_tag(&before, near, state, false)?;
-                        state.grammar().single_tags_list[t.0].hash
+                        state.grammar().tag(t).hash
                     };
                     tag.comparison_hash = ch.get();
                 } else {
                     let ch = {
                         let t = parse_tag(&tag_tag, near, state, false)?;
-                        state.grammar().single_tags_list[t.0].hash
+                        state.grammar().tag(t).hash
                     };
                     tag.comparison_hash = ch.get();
                 }
@@ -705,7 +700,7 @@ mod tests {
     use super::*;
 
     fn parser() -> TextualParser {
-        TextualParser::new(Grammar::default(), false)
+        TextualParser::new(GrammarCore::default(), false)
     }
 
     /// The tag text of a parsed tag id.
