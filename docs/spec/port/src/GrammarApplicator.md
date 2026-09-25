@@ -900,7 +900,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn]
 > void GrammarApplicator::pipeInCohort(Cohort* cohort, Process& input)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn+1]
 > Deserializes one cohort packet from `Process& input` into `cohort`. Reads a
 > packet length (unused beyond debug). Reads `cs` = expected cohort global number;
 > if `cs != cohort->global_number`, print an error and `CG3Quit(1)`. Reads
@@ -910,11 +910,21 @@
 > `cs` = number of readings; for each `i` call `pipeInReading(cohort->readings[i],
 > input, force_readings)`. If bit0 (`1<<0`) set, read `cohort->text` as a UTF8
 > string. No return. (Reads directly from `input`, not from a sub-buffer.)
+>
+> PORT DIVERGENCE: the reply is untrusted input
+> (`[spec:cg3:req:robustness.external-validated]`). A reading count greater
+> than `cohort->readings.size()` — more readings than were sent — is refused
+> before any reading is read, where the C++ indexes past `readings`. A parent
+> of `0xFFFFFFFE`, the flat hash containers' deleted-slot sentinel, is refused
+> (`[spec:cg3:req:robustness.reserved-keys]`); `DEP_NO_PARENT` still means no
+> parent. A reply that ends or fails part-way is refused too, where the C++
+> `Process::read` throws out of the run. Each is the external-reply run error
+> naming the window, what was wrong and where.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn]
 > void GrammarApplicator::pipeInReading(Reading* reading, Process& input, bool force)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn+1]
 > Deserializes one reading packet from an external `Process& input` back into
 > `reading`. `readRaw(input, cs)` reads the packet length, reads `cs` bytes into a
 > buffer, wraps it in an istringstream `ss`. `readRaw(ss, flags)`. If `!force`
@@ -928,17 +938,36 @@
 > `addTag` it, and push its hash. Finally `reflowReading(*reading)` to rebuild the
 > derived tag structures. (debug_level>1 emits DEBUG traces throughout.) No
 > return.
+>
+> PORT DIVERGENCE: the reply is untrusted input
+> (`[spec:cg3:req:robustness.external-validated]`). The packet is read as the
+> process delivers it, in bounded chunks, rather than allocated at the `cs` it
+> declares (`[spec:cg3:req:robustness.allocation-bounded]`); a packet the
+> process does not deliver in full is refused. A field that runs past the end
+> of the packet — flags, baseform, tag count or a tag — is refused as an
+> overrun of the declared length, where the C++ `istringstream` read fails and
+> leaves the field at whatever it held (so a tag count can drive a loop of
+> reads that all fail). Each is the external-reply run error naming the
+> window, the cohort, what was wrong and where.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn]
 > void GrammarApplicator::pipeInSingleWindow(SingleWindow& window, Process& input)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn+1]
 > Deserializes a window packet from `Process& input` into `window`. Reads a
 > packet length `cs`; if `cs == 0`, return (empty/unchanged window). Reads `cs` =
 > expected window number; if `cs != window.number`, print an error and
 > `CG3Quit(1)`. Reads `cs` = number of cohorts; for each `i` in `0..cs` call
 > `pipeInCohort(window.cohorts[i + 1], input)` (index +1 skips the initial `>>>`
 > cohort). No return.
+>
+> PORT DIVERGENCE: the reply is untrusted input
+> (`[spec:cg3:req:robustness.external-validated]`). A cohort count greater
+> than the `window.cohorts.size() - 1` cohorts that were sent is refused
+> before any cohort is read, where the C++ indexes past `window.cohorts`. A
+> reply that ends or fails part-way — including a process that exits without
+> replying at all — is refused, where the C++ `Process::read` throws out of
+> the run. Each is the external-reply run error naming the window.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-out-cohort-fn]
 > void GrammarApplicator::pipeOutCohort(const Cohort* cohort, std::ostream& output)

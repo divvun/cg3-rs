@@ -48,6 +48,7 @@ use crate::types::{TagHash, Uint32Vector};
 
 pub mod context;
 pub mod core;
+pub mod external;
 pub mod match_set;
 pub mod reflow;
 pub mod run_contextual_test;

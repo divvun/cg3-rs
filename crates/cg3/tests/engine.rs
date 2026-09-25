@@ -225,9 +225,9 @@ fn build_example(name: &str) -> PathBuf {
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-out-reading-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-out-cohort-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-out-single-window-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn+1/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn+1/test]
 #[test]
 #[cfg(not(windows))] // the EXTERNAL child is spawned over a Unix pipe protocol
 fn engine_external_pipe_protocol() {

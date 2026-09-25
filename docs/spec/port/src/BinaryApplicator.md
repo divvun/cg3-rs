@@ -27,7 +27,7 @@
 > [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-single-window-fn]
 > void BinaryApplicator::printSingleWindow(SingleWindow* window, std::ostream& output, bool profiling)
 
-> [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-single-window-fn]
+> [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-single-window-fn+1]
 > Writes one window packet (the exact inverse of `readWindow`). The `profiling`
 > argument is ignored. All multi-byte integers are LITTLE-ENDIAN.
 > Stream header: if `header_done` is false, write the 4 bytes `"CGBF"` then
@@ -89,6 +89,18 @@
 > `writeLE(output, UI32(total_size))`, then write `header_buffer` bytes, then
 > `cohort_buffer` bytes. If `window->flush_after`, emit
 > `printStreamCommand(STR_CMD_FLUSH, output)`. Flush `output`.
+>
+> PORT DIVERGENCE: every count and length the packet stores in a fixed width
+> is checked against that width before anything is written
+> (`[spec:cg3:req:robustness.checked-arithmetic]`): more than 65535 cohorts,
+> variables, distinct tags, or static tags, relations or readings on one
+> cohort, or tags on one reading; a string of more than 65535 UTF-8 bytes; or
+> a body of more than `u32::MAX` bytes. A window that exceeds any of them is
+> refused with a run error naming the window, the count and the limit, and
+> nothing of it is written: the stream header and the `BFP_WINDOW` byte are
+> emitted only once the whole body has been assembled. The C++ wraps the count
+> (or truncates the string) and emits a packet the reader cannot parse back.
+> Windows within the limits are written byte for byte as before.
 
 > [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-stream-command-fn]
 > void BinaryApplicator::printStreamCommand(UStringView cmd, std::ostream& output)
@@ -142,7 +154,7 @@
 > [spec:cg3:def:binary-applicator.cg3.binary-applicator.read-window-fn]
 > void BinaryApplicator::readWindow(void*& payload)
 
-> [spec:cg3:sem:binary-applicator.cg3.binary-applicator.read-window-fn]
+> [spec:cg3:sem:binary-applicator.cg3.binary-applicator.read-window-fn+1]
 > Reads one window packet body into a new `SingleWindow`. All multi-byte integers
 > are LITTLE-ENDIAN. Steps: read a `uint32_t cs` (LE) = the byte length of the
 > rest of the window body. If the stream is now at EOF, set `payload = nullptr`
@@ -209,6 +221,21 @@
 >    `cSWindow->appendCohort(cCohort)`.
 > Finally set `payload = cSWindow`. No bounds checking is done on `window_tags`
 > indices — a malformed index is undefined behavior.
+>
+> PORT DIVERGENCE: the port reads the stream as the untrusted input it is
+> (`[spec:cg3:req:robustness.binary-stream-validated]`). The body is read as
+> the stream supplies it rather than allocated at `cs` up front
+> (`[spec:cg3:req:robustness.allocation-bounded]`), and the window is parsed
+> through a bounds-checked cursor. A stream that ends inside the length or the
+> body, a field that runs past the end of the body, a tag index past
+> `window_tags`, a `dep_self` or relation head of `0xFFFFFFFF` or
+> `0xFFFFFFFE`, and a `dep_parent` of `0xFFFFFFFE` are each a run error naming
+> the window, the byte of the body where the offending read begins, and the
+> field. The C++ returns no window when the stream ends inside the length,
+> parses whatever a short body leaves in `buf`, and indexes past both `buf`
+> and `window_tags`; the reserved numbers are the flat hash containers'
+> sentinels (`[spec:cg3:req:robustness.reserved-keys]`), which a container
+> would silently corrupt on. Valid streams read exactly as before.
 
 > [spec:cg3:def:binary-applicator.cg3.binary-applicator.run-grammar-on-text-fn]
 > void BinaryApplicator::runGrammarOnText(std::istream& input, std::ostream& output)

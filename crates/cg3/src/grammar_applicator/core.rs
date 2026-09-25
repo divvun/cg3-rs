@@ -19,21 +19,21 @@
 //! `output: &mut W` (`W: std::io::Write`); `write!` and the ported
 //! `uextras::write_char` primitive write UTF-8 to it. `%S`/`%u` printf tokens are
 //! translated to Rust `format_args!` interpolation. The EXTERNAL `Process&`
-//! endpoints are bridged with the local [`ProcWrite`]/[`ProcRead`] adapters.
+//! output is bridged with the local [`ProcWrite`] adapter, and the reply is
+//! read back through the checked [`Reply`](super::external::Reply).
 //!
 //! PLACEHOLDERS. The C++ standard-stream members have no counterpart here, so
 //! `error(...)` selects its label and line faithfully but defers emission
 //! (noted inline).
 
-use std::io::{Read, Write};
+use std::io::Write;
 
 use crate::arena::{CohortId, CtxId, ReadingId, RuleId, SwId, TagId};
-use crate::cohort::{CT_RELATED, CT_REMOVED, DEP_NO_PARENT, unignore_all};
+use crate::cohort::{CT_RELATED, CT_REMOVED, unignore_all};
 use crate::contextual_test::POS_NEGATE;
 use crate::grammar::{Grammar, TagSpace};
 use crate::inlines::{
-    g_app_set_opts_ranged, is_textual, isnl, read_raw, read_utf8_raw, ui8, ui32, write_raw,
-    write_utf8_raw,
+    g_app_set_opts_ranged, is_textual, isnl, ui8, ui32, write_raw, write_utf8_raw,
 };
 use crate::options::{ArgOption, Opt, OptionsTable};
 use crate::process::Process;
@@ -49,6 +49,7 @@ use crate::tag_trie::trie_get_tag_list_append;
 use crate::types::{GlobalNumber, TagHash};
 use crate::uextras::{eq_ignore_case, write_char};
 
+use super::external::{ExternalFault, ExternalField, Reply};
 use super::{Engine, Matcher, TmplContext};
 
 // ===========================================================================
@@ -237,22 +238,6 @@ impl Write for ProcWrite<'_> {
     fn flush(&mut self) -> std::io::Result<()> {
         self.0.flush();
         Ok(())
-    }
-}
-
-/// `std::istream` <-> `Process` read bridge — each `read` fills the whole buffer
-/// (the C++ `input.read(&buf[0], cs)` is an all-or-error read).
-struct ProcRead<'a>(&'a mut Process);
-impl Read for ProcRead<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-        let n = buf.len();
-        match self.0.read(buf, n) {
-            Ok(()) => Ok(n),
-            Err(e) => Err(std::io::Error::other(e)),
-        }
     }
 }
 
@@ -1223,24 +1208,35 @@ impl Engine<'_> {
     // pipeIn* (binary EXTERNAL deserialisation, Process in)
     // =======================================================================
 
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn]
-    /// C++ `void pipeInReading(Reading* reading, Process& input, bool force)`.
-    /// The C++ debug traces to stderr are not reproduced. `reflowReading` lives
-    /// in the empty reflow.rs partial.
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-reading-fn+1]
+    // [spec:cg3:req:robustness.external-validated]
+    /// C++ `void pipeInReading(Reading* reading, Process& input, bool force)`,
+    /// reading from the [`Reply`] its cohort is part of. The C++ debug traces
+    /// to stderr are not reproduced. `reflowReading` lives in the empty
+    /// reflow.rs partial.
+    ///
+    /// DIVERGENCE: the packet is read as the process delivers it rather than
+    /// allocated at its declared length, and a field past its end is an
+    /// [`ExternalFault::ReadingOverrun`]; the C++ read fails and leaves the
+    /// field at whatever it held.
     pub fn pipe_in_reading(
         &mut self,
         reading: ReadingId,
-        input: &mut Process,
+        input: &mut Reply<'_>,
         force: bool,
     ) -> Result<(), crate::error::RunError> {
-        let cs: u32 = read_raw(&mut ProcRead(input));
+        let parent = self
+            .doc
+            .store
+            .readings
+            .get(reading.0)
+            .parent
+            .expect("reading parent");
+        let cohort_number = self.doc.store.cohorts.get(parent.0).global_number.get();
+        let mut ss = input.reading(cohort_number)?;
 
-        let mut buf = vec![0u8; cs as usize];
-        let _ = input.read(&mut buf, cs as usize);
-        let mut ss = std::io::Cursor::new(buf);
-
-        let flags: u32 = read_raw(&mut ss);
+        let flags = ss.u32(ExternalField::ReadingFlags)?;
 
         // Not marked modified -> skip the heavy lifting.
         if !force && (flags & (1 << 0)) == 0 {
@@ -1254,7 +1250,7 @@ impl Engine<'_> {
         }
 
         if flags & (1 << 3) != 0 {
-            let str = read_utf8_raw(&mut ss);
+            let str = ss.string(ExternalField::Baseform)?;
             let baseform = self
                 .doc
                 .store
@@ -1281,7 +1277,7 @@ impl Engine<'_> {
                 .doc
                 .store
                 .cohorts
-                .get(r.parent.expect("reading parent").0)
+                .get(parent.0)
                 .wordform
                 .map(|t| self.grammar.single_tags_list[t.0].hash)
                 .unwrap_or(TagHash(0));
@@ -1296,9 +1292,9 @@ impl Engine<'_> {
             }
         }
 
-        let cs: u32 = read_raw(&mut ss);
+        let cs = ss.u32(ExternalField::Tags)?;
         for _ in 0..cs {
-            let str = read_utf8_raw(&mut ss);
+            let str = ss.string(ExternalField::Tags)?;
             let tag = self.add_tag(&str, crate::tag::TagType::empty())?;
             let hash = self.grammar.single_tags_list[tag.0].hash;
             self.doc
@@ -1315,17 +1311,24 @@ impl Engine<'_> {
         Ok(())
     }
 
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn]
-    /// C++ `void pipeInCohort(Cohort* cohort, Process& input)`.
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-cohort-fn+1]
+    // [spec:cg3:req:robustness.external-validated]
+    /// C++ `void pipeInCohort(Cohort* cohort, Process& input)`, reading from
+    /// the [`Reply`] its window is part of.
+    ///
+    /// DIVERGENCE: a reply that breaks off, gives more readings than were sent
+    /// or gives a reserved parent number is an
+    /// [`ExternalReply`](crate::error::RunError::ExternalReply) run error; the
+    /// C++ indexes past the cohort's readings on the second.
     pub fn pipe_in_cohort(
         &mut self,
         cohort: CohortId,
-        input: &mut Process,
+        input: &mut Reply<'_>,
     ) -> Result<(), crate::error::RunError> {
-        let _packet_len: u32 = read_raw(&mut ProcRead(input));
+        let _packet_len = input.u32(ExternalField::CohortHeader)?;
 
-        let cs: u32 = read_raw(&mut ProcRead(input));
+        let cs = input.u32(ExternalField::CohortHeader)?;
         let global_number = self.doc.store.cohorts.get(cohort.0).global_number.get();
         if cs != global_number {
             return Err(crate::error::RunError::ExternalCohortMismatch {
@@ -1334,19 +1337,14 @@ impl Engine<'_> {
             });
         }
 
-        let flags: u32 = read_raw(&mut ProcRead(input));
+        let flags = input.u32(ExternalField::CohortHeader)?;
 
         if flags & (1 << 1) != 0 {
-            let dp: u32 = read_raw(&mut ProcRead(input));
-            self.doc.store.cohorts.get_mut(cohort.0).dep_parent = if dp == DEP_NO_PARENT {
-                None
-            } else {
-                Some(GlobalNumber(dp))
-            };
+            self.doc.store.cohorts.get_mut(cohort.0).dep_parent = input.parent(global_number)?;
         }
 
         let mut force_readings = false;
-        let str = read_utf8_raw(&mut ProcRead(input));
+        let str = input.string(ExternalField::Wordform)?;
         let cur_wf = self
             .doc
             .store
@@ -1361,34 +1359,51 @@ impl Engine<'_> {
             force_readings = true;
         }
 
-        let cs: u32 = read_raw(&mut ProcRead(input));
-        for i in 0..cs {
-            let rid = self.doc.store.cohorts.get(cohort.0).readings[i as usize];
+        let readings = self.doc.store.cohorts.get(cohort.0).readings.clone();
+        let sent = readings.len();
+        let cs = input.count(ExternalField::ReadingCount, sent, |got| {
+            ExternalFault::Readings {
+                cohort: global_number,
+                sent,
+                got,
+            }
+        })?;
+        for &rid in readings.iter().take(cs) {
             self.pipe_in_reading(rid, input, force_readings)?;
         }
 
         if flags & (1 << 0) != 0 {
-            let text = read_utf8_raw(&mut ProcRead(input));
+            let text = input.string(ExternalField::CohortText)?;
             self.doc.store.cohorts.get_mut(cohort.0).text = text;
         }
         Ok(())
     }
 
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.pipe-in-single-window-fn+1]
+    // [spec:cg3:req:robustness.external-validated]
     /// C++ `void pipeInSingleWindow(SingleWindow& window, Process& input)`.
+    ///
+    /// DIVERGENCE: a reply that breaks off or gives more cohorts than the
+    /// window sent is an [`ExternalReply`](crate::error::RunError::ExternalReply)
+    /// run error; the C++ throws on the first and indexes past the window's
+    /// cohorts on the second.
     pub fn pipe_in_single_window(
         &mut self,
         window: SwId,
         input: &mut Process,
     ) -> Result<(), crate::error::RunError> {
-        let cs: u32 = read_raw(&mut ProcRead(input));
+        let (number, cohorts) = {
+            let w = self.doc.store.single_windows.get(window.0);
+            (w.number, w.cohorts.clone())
+        };
+        let mut input = Reply::new(input, number);
+        let cs = input.u32(ExternalField::WindowHeader)?;
         if cs == 0 {
             return Ok(());
         }
 
-        let cs: u32 = read_raw(&mut ProcRead(input));
-        let number = self.doc.store.single_windows.get(window.0).number;
+        let cs = input.u32(ExternalField::WindowHeader)?;
         if cs != number {
             return Err(crate::error::RunError::ExternalWindowMismatch {
                 expected: number,
@@ -1396,10 +1411,13 @@ impl Engine<'_> {
             });
         }
 
-        let cs: u32 = read_raw(&mut ProcRead(input));
-        for i in 0..cs {
-            let cid = self.doc.store.single_windows.get(window.0).cohorts[(i + 1) as usize];
-            self.pipe_in_cohort(cid, input)?;
+        // cohorts[0] is the `>>>` cohort, which is never sent.
+        let sent = cohorts.len().saturating_sub(1);
+        let cs = input.count(ExternalField::WindowHeader, sent, |got| {
+            ExternalFault::Cohorts { sent, got }
+        })?;
+        for &cid in cohorts.iter().skip(1).take(cs) {
+            self.pipe_in_cohort(cid, &mut input)?;
         }
         Ok(())
     }

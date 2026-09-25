@@ -474,7 +474,7 @@ impl StreamFormat for ConvFormat {
             // BinaryApplicator::printSingleWindow.
             Binary => self
                 .binary
-                .bin_print_single_window(e, window, output, profiling),
+                .bin_print_single_window(e, window, output, profiling)?,
             // MATXIN has no C++ converter case; invalid values share its
             // default branch.
             other => return Err(unsupported_output(other)),

@@ -17,11 +17,18 @@
 //!   * Header version is read NATIVELY (`reinterpret_cast<uint32_t*>` — NOT
 //!     byte-swapped) even though the writer emits it little-endian → a
 //!     big-endian host would spuriously fail the version check.
-//!   * String byte-length prefix truncates to `u16` (`>65535`-byte strings wrap).
+//!   * A text packet's byte-length prefix truncates to `u16` (`>65535`-byte
+//!     lines wrap).
 //!   * Deleted readings are NOT written by `printSingleWindow` (only
 //!     `cohort->readings` are traversed).
 //!   * An unknown stream command writes only the `BFP_COMMAND` type byte with no
 //!     command byte following (malformed packet).
+//!
+//! DIVERGENCE: window packets go through the checked primitives in `wire`.
+//! The reader refuses a truncated packet, a field past its body, a tag index
+//! past the window's tag table and a reserved dependency or relation number;
+//! the writer refuses a window whose counts or string lengths do not fit the
+//! format's fields. The C++ reads past its buffer and wraps its counts.
 //!
 //! ## I/O model
 //! [`read_packet`](BinaryApplicator::read_packet) / `read_window` / `read_command`
@@ -41,12 +48,18 @@ use std::io::{Read, Write};
 
 use crate::arena::{CohortId, SwId, TagId};
 use crate::cohort::{CT_RELATED, CT_REMOVED, DEP_NO_PARENT};
+use crate::error::RunError;
 use crate::grammar::Grammar;
 use crate::grammar_applicator::{Engine, GrammarApplicator};
-use crate::inlines::{read_le, ui8, ui16, ui32, write_le, write_utf8_le};
+use crate::inlines::{read_le, ui8, write_le, write_utf8_le};
 use crate::reading::Reading;
 use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION};
 use crate::types::{GlobalNumber, TagHash};
+
+mod wire;
+
+pub use wire::{BinaryCount, BinaryField, BinaryStreamFault};
+use wire::{PacketWriter, WindowBody, read_window_body};
 
 /// C++ `version.hpp` `constexpr uint32_t CG3_BINARY_STREAM = 1`. `version.hpp`
 /// is not yet ported, so the constant is reproduced here verbatim (its only
@@ -129,8 +142,8 @@ pub const BFC_RESUME: u8 = 4;
 #[derive(Default)]
 pub struct BinaryPacket {
     pub r#type: BinaryPacketType,
-    /// WINDOW: the parsed single-window id (C++ `payload = cSWindow`; may be
-    /// `None` at EOF).
+    /// WINDOW: the parsed single-window id (C++ `payload = cSWindow`); `None`
+    /// for the other packet types.
     pub window: Option<SwId>,
     /// COMMAND: the single command byte (C++ stuffs it into the `void*`).
     pub command: u8,
@@ -182,7 +195,7 @@ impl<'a> BinaryApplicator<'a> {
         let ty: u8 = read_le(input);
         packet.r#type = BinaryPacketType::from_u8(ty);
         if packet.r#type == BinaryPacketType::BfpWindow {
-            packet.window = self.read_window(input)?;
+            packet.window = Some(self.read_window(input)?);
         } else if packet.r#type == BinaryPacketType::BfpCommand {
             packet.command = self.read_command(input);
         }
@@ -209,25 +222,25 @@ impl<'a> BinaryApplicator<'a> {
         crate::inlines::read_utf8_le(input, &mut self.text);
     }
 
-    // [spec:cg3:def:binary-applicator.cg3.binary-applicator.read-window-fn]
-    // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.read-window-fn]
+    // [spec:cg3:def:binary-applicator.cg3.binary-applicator.read-window-fn+1]
+    // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.read-window-fn+1]
+    // [spec:cg3:req:robustness.binary-stream-validated]
     /// C++ `void BinaryApplicator::readWindow(void*& payload)`. Reads a `u32 LE`
-    /// body length, the body, and parses it with a `pos` cursor into a fresh
-    /// `SingleWindow` (all integers LE). Returns the new window id, or `None` at
-    /// EOF (C++ `payload = nullptr`). No bounds checking on tag indices (UB on a
-    /// malformed index — faithful).
-    pub fn read_window<R: Read>(
-        &mut self,
-        input: &mut R,
-    ) -> Result<Option<SwId>, crate::error::RunError> {
-        let cs: u32 = read_le(input);
-
-        // if (input eof) { payload = nullptr; return; } — modelled as a
-        // short read of the body (read_exact fails → EOF).
-        let mut buf = vec![0u8; cs as usize];
-        if input.read_exact(&mut buf).is_err() && cs != 0 {
-            return Ok(None);
-        }
+    /// body length and the body, then parses the body through a bounds-checked
+    /// cursor into a fresh `SingleWindow` (all integers LE) and returns its id.
+    ///
+    /// DIVERGENCE: the C++ returns no window when the stream ends inside the
+    /// length, parses whatever a short body holds, and indexes the window's tag
+    /// table unchecked. Each of those is a [`RunError::BinaryStreamWindow`]
+    /// here, as is a reserved dependency or relation number.
+    pub fn read_window<R: Read>(&mut self, input: &mut R) -> Result<SwId, RunError> {
+        let window = self.base.doc.stream.window_counter.wrapping_add(1);
+        let bytes = read_window_body(input, window)?;
+        let mut body = WindowBody {
+            bytes: &bytes,
+            pos: 0,
+            window,
+        };
 
         let c_swindow = self
             .base
@@ -236,44 +249,40 @@ impl<'a> BinaryApplicator<'a> {
             .alloc_append_single_window(&mut self.base.doc.store);
         self.base.engine().init_empty_single_window(c_swindow)?;
 
-        let mut pos = 0usize;
-
-        // Primitives over `buf` at `pos`.
-        macro_rules! read_u16 {
-            () => {{
-                let v = u16::from_le_bytes([buf[pos], buf[pos + 1]]);
-                pos += 2;
-                v
-            }};
-        }
-        macro_rules! read_u32 {
-            () => {{
-                let v = u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
-                pos += 4;
-                v
-            }};
-        }
-        // READ_STR: u16 LE byte-length then that many UTF-8 bytes.
-        macro_rules! read_str {
-            () => {{
-                let tl = read_u16!() as usize;
-                let s = String::from_utf8_lossy(&buf[pos..pos + tl]).into_owned();
-                pos += tl;
-                s
-            }};
-        }
-
         // 1. Window flags.
-        let flags = read_u16!();
+        let flags = body.u16(BinaryField::WindowFlags)?;
         if flags & (BFW_DEP_SPAN as u16) != 0 {
             self.base.doc.dep_has_spanned = true;
         }
 
-        // 2. Tag table.
-        let tag_count = read_u16!();
-        let mut window_tags: Vec<TagId> = Vec::with_capacity(tag_count as usize);
+        // 2-3. Tag table, then the variables that index it.
+        let window_tags = self.read_tag_table(&mut body)?;
+        self.read_variables(&mut body, &window_tags, c_swindow)?;
+
+        // 4. Window text / text_post.
+        let text = body.string(BinaryField::WindowText)?;
+        let text_post = body.string(BinaryField::WindowText)?;
+        let sw = self.base.doc.store.single_windows.get_mut(c_swindow.0);
+        sw.text = text;
+        sw.text_post = text_post;
+
+        // 5. Cohorts.
+        let cohort_count = body.u16(BinaryField::CohortCount)?;
+        for cn in 0..cohort_count {
+            let last = cn + 1 == cohort_count;
+            self.read_cohort(&mut body, &window_tags, c_swindow, last)?;
+        }
+
+        Ok(c_swindow)
+    }
+
+    /// `readWindow` step 2: the window's tag table. Every later tag reference
+    /// in the window is a 0-based index into it.
+    fn read_tag_table(&mut self, body: &mut WindowBody<'_>) -> Result<Vec<TagId>, RunError> {
+        let tag_count = body.u16(BinaryField::TagTable)?;
+        let mut window_tags: Vec<TagId> = Vec::new();
         for _ in 0..tag_count {
-            let tg = read_str!();
+            let tg = body.string(BinaryField::TagTable)?;
             let first = tg.chars().next().unwrap_or('\0');
             let tid = self.base.add_tag(&tg, crate::tag::TagType::empty())?;
             // tg[0] == grammar->mapping_prefix ? |= T_MAPPING : &= ~T_MAPPING.
@@ -287,28 +296,35 @@ impl<'a> BinaryApplicator<'a> {
             }
             window_tags.push(tid);
         }
+        Ok(window_tags)
+    }
 
-        // 3. Variables: [1 byte mode][u16 key][u16 value].
-        let var_count = read_u16!();
+    /// `readWindow` step 3: `[1 byte mode][u16 key][u16 value]` per variable.
+    /// Only `BFV_SETVAR` reads its value slot, so only there is it resolved
+    /// against the tag table; the other modes carry a placeholder.
+    fn read_variables(
+        &mut self,
+        body: &mut WindowBody<'_>,
+        window_tags: &[TagId],
+        c_swindow: SwId,
+    ) -> Result<(), RunError> {
+        let var_count = body.u16(BinaryField::Variable)?;
         for _ in 0..var_count {
-            let mode = buf[pos] as u32;
-            pos += 1;
-            let key = read_u16!() as usize;
-            let value = read_u16!() as usize;
-            let hash1 = self.base.grammar.single_tags_list[window_tags[key].0]
-                .hash
-                .get();
+            let mode = u32::from(body.u8(BinaryField::Variable)?);
+            let key = body.tag(window_tags, BinaryField::Variable)?;
+            let value = if mode == BFV_SETVAR {
+                Some(body.tag(window_tags, BinaryField::Variable)?)
+            } else {
+                body.u16(BinaryField::Variable)?;
+                None
+            };
+            let hash1 = self.base.grammar.single_tags_list[key.0].hash.get();
+            let vh = value.map_or(self.base.grammar.tag_any, |v| {
+                self.base.grammar.single_tags_list[v.0].hash.get()
+            });
             let sw = self.base.doc.store.single_windows.get_mut(c_swindow.0);
-            if mode == BFV_SETVAR {
-                let vh = self.base.grammar.single_tags_list[window_tags[value].0]
-                    .hash
-                    .get();
+            if mode == BFV_SETVAR || mode == BFV_SETVAR_ANY {
                 sw.variables_set.insert((hash1, vh));
-                sw.variables_rem.erase(hash1);
-                sw.variables_output.insert(hash1);
-            } else if mode == BFV_SETVAR_ANY {
-                let any = self.base.grammar.tag_any;
-                sw.variables_set.insert((hash1, any));
                 sw.variables_rem.erase(hash1);
                 sw.variables_output.insert(hash1);
             } else if mode == BFV_REMVAR {
@@ -317,215 +333,219 @@ impl<'a> BinaryApplicator<'a> {
                 sw.variables_output.insert(hash1);
             }
         }
+        Ok(())
+    }
 
-        // 4. Window text / text_post.
-        {
-            let t = read_str!();
-            self.base.doc.store.single_windows.get_mut(c_swindow.0).text = t;
-            let tp = read_str!();
-            self.base
-                .doc
-                .store
-                .single_windows
-                .get_mut(c_swindow.0)
-                .text_post = tp;
+    /// `readWindow` step 5: one cohort record, appended to `c_swindow`. Every
+    /// reading of the window's `last` cohort also gets the end tag.
+    fn read_cohort(
+        &mut self,
+        body: &mut WindowBody<'_>,
+        window_tags: &[TagId],
+        c_swindow: SwId,
+        last: bool,
+    ) -> Result<(), RunError> {
+        let c_cohort = crate::cohort::alloc_cohort(&mut self.base.doc.store, Some(c_swindow));
+        let gn = self.base.doc.cohorts.next_cohort_number();
+        self.base
+            .doc
+            .store
+            .cohorts
+            .get_mut(c_cohort.0)
+            .global_number = gn;
+        self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
+
+        let cflags = body.u16(BinaryField::CohortFlags)?;
+        if cflags & (BFC_RELATED as u16) != 0 {
+            self.base.doc.store.cohorts.get_mut(c_cohort.0).r#type |= CT_RELATED;
+            self.base.doc.deps.has_relations = true;
         }
 
-        // 5. Cohorts.
-        let cohort_count = read_u16!();
-        for cn in 0..cohort_count {
-            let c_cohort = crate::cohort::alloc_cohort(&mut self.base.doc.store, Some(c_swindow));
-            let gn = self.base.doc.cohorts.next_cohort_number();
+        let wf = body.tag(window_tags, BinaryField::Wordform)?;
+        self.base.doc.store.cohorts.get_mut(c_cohort.0).wordform = Some(wf);
+        self.read_static_tags(body, window_tags, c_cohort, wf)?;
+        self.read_links(body, window_tags, c_cohort, gn)?;
+
+        // Cohort text / wblank.
+        let text = body.string(BinaryField::CohortText)?;
+        let wblank = body.string(BinaryField::CohortText)?;
+        let c = self.base.doc.store.cohorts.get_mut(c_cohort.0);
+        c.text = text;
+        c.wblank = wblank;
+
+        // Readings.
+        let reading_count = body.u16(BinaryField::Reading)?;
+        if reading_count == 0 {
+            self.base.engine().init_empty_cohort(c_cohort)?;
+        }
+        let mut prev: Option<crate::arena::ReadingId> = None;
+        for _ in 0..reading_count {
+            prev = Some(self.read_reading(body, window_tags, c_cohort, wf, prev)?);
+        }
+
+        if last {
+            self.add_endtag(c_cohort)?;
+        }
+
+        crate::inlines::insert_if_exists(
+            &mut self
+                .base
+                .doc
+                .store
+                .cohorts
+                .get_mut(c_cohort.0)
+                .possible_sets,
+            self.base.grammar.sets_any.as_ref(),
+        );
+        crate::single_window::append_cohort(
+            &mut self.base.doc.store,
+            &mut self.base.doc.cohorts,
+            &mut self.base.doc.deps,
+            c_swindow,
+            c_cohort,
+        );
+        Ok(())
+    }
+
+    /// A cohort's static tags, which go on a `wread` that also carries the
+    /// wordform. Only the last add rehashes the reading.
+    fn read_static_tags(
+        &mut self,
+        body: &mut WindowBody<'_>,
+        window_tags: &[TagId],
+        c_cohort: CohortId,
+        wf: TagId,
+    ) -> Result<(), RunError> {
+        let stag_count = body.u16(BinaryField::StaticTag)?;
+        if stag_count == 0 {
+            return Ok(());
+        }
+        let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
+        self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
+        self.base.engine().add_tag_to_reading(wread, wf)?;
+        for tn in 0..stag_count {
+            let tag = body.tag(window_tags, BinaryField::StaticTag)?;
+            let rehash = tn + 1 == stag_count;
+            self.base
+                .engine()
+                .add_tag_to_reading_rehash(wread, tag, rehash)?;
+        }
+        Ok(())
+    }
+
+    // [spec:cg3:req:robustness.reserved-keys]
+    /// A cohort's `[u32 self][u32 parent]` dependency and its `[u16 tag][u32
+    /// head]` relations. [`WindowBody::number`] refuses the numbers the flat
+    /// hash containers reserve before `relation_map` or a relation lookup sees
+    /// them.
+    fn read_links(
+        &mut self,
+        body: &mut WindowBody<'_>,
+        window_tags: &[TagId],
+        c_cohort: CohortId,
+        gn: GlobalNumber,
+    ) -> Result<(), RunError> {
+        let dep_self = body.number(BinaryField::Dependency, None)?;
+        let dep_parent = body.number(BinaryField::Dependency, Some(DEP_NO_PARENT))?;
+        {
+            let c = self.base.doc.store.cohorts.get_mut(c_cohort.0);
+            c.dep_self = (dep_self != 0).then_some(GlobalNumber(dep_self));
+            c.dep_parent = (dep_parent != DEP_NO_PARENT).then_some(GlobalNumber(dep_parent));
+        }
+        self.base.doc.deps.relation_map.insert((dep_self, gn.get()));
+        if dep_parent != DEP_NO_PARENT {
+            self.base.doc.deps.has_dep = true;
+        }
+
+        let rel_count = body.u16(BinaryField::Relation)?;
+        for _ in 0..rel_count {
+            let tag = body.tag(window_tags, BinaryField::Relation)?;
+            let head = body.number(BinaryField::Relation, None)?;
+            let rhash = self.base.grammar.single_tags_list[tag.0].hash;
             self.base
                 .doc
                 .store
                 .cohorts
                 .get_mut(c_cohort.0)
-                .global_number = gn;
-            self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
-
-            let cflags = read_u16!();
-            if cflags & (BFC_RELATED as u16) != 0 {
-                self.base.doc.store.cohorts.get_mut(c_cohort.0).r#type |= CT_RELATED;
-                self.base.doc.deps.has_relations = true;
-            }
-
-            let wf_idx = read_u16!() as usize;
-            self.base.doc.store.cohorts.get_mut(c_cohort.0).wordform = Some(window_tags[wf_idx]);
-
-            // Static tags → wread.
-            let stag_count = read_u16!();
-            if stag_count != 0 {
-                let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
-                self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
-                let wf = window_tags[wf_idx];
-                self.base.engine().add_tag_to_reading(wread, wf)?;
-                for tn in 0..stag_count {
-                    let ti = read_u16!() as usize;
-                    let rehash = tn + 1 == stag_count;
-                    self.base
-                        .engine()
-                        .add_tag_to_reading_rehash(wread, window_tags[ti], rehash)?;
-                }
-            }
-
-            // Dependency.
-            let dep_self = read_u32!();
-            let dep_parent = read_u32!();
-            let dep_self_opt = if dep_self == 0 {
-                None
-            } else {
-                Some(GlobalNumber(dep_self))
-            };
-            let dep_parent = if dep_parent == crate::cohort::DEP_NO_PARENT {
-                None
-            } else {
-                Some(GlobalNumber(dep_parent))
-            };
-            {
-                let c = self.base.doc.store.cohorts.get_mut(c_cohort.0);
-                c.dep_self = dep_self_opt;
-                c.dep_parent = dep_parent;
-            }
+                .relations_input
+                .entry(rhash.get())
+                .or_default()
+                .insert(head);
+        }
+        if rel_count != 0 {
+            self.base.doc.deps.has_relations = true;
             self.base.doc.deps.relation_map.insert((dep_self, gn.get()));
-            if dep_parent.is_some() {
-                self.base.doc.deps.has_dep = true;
+            self.base.doc.store.cohorts.get_mut(c_cohort.0).r#type |= CT_RELATED;
+        }
+        Ok(())
+    }
+
+    /// One `[u16 flags][u16 baseform][u16 count][u16 tag]...` reading, placed
+    /// by its flags as a subreading of `prev`, a deleted reading, or a live one.
+    fn read_reading(
+        &mut self,
+        body: &mut WindowBody<'_>,
+        window_tags: &[TagId],
+        c_cohort: CohortId,
+        wf: TagId,
+        prev: Option<crate::arena::ReadingId>,
+    ) -> Result<crate::arena::ReadingId, RunError> {
+        let c_reading = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
+        self.base.engine().add_tag_to_reading(c_reading, wf)?;
+
+        let rflags = body.u16(BinaryField::Reading)?;
+        let baseform = body.tag(window_tags, BinaryField::Baseform)?;
+        self.base.engine().add_tag_to_reading(c_reading, baseform)?;
+
+        let rtag_count = body.u16(BinaryField::ReadingTag)?;
+        let mut mappings = crate::tag::TagList::new();
+        for _ in 0..rtag_count {
+            let tid = body.tag(window_tags, BinaryField::ReadingTag)?;
+            if self.base.grammar.tag_type(tid).intersects(T_MAPPING) {
+                mappings.push(tid);
+            } else {
+                self.base.engine().add_tag_to_reading(c_reading, tid)?;
             }
-
-            // Relations: [u16 tag-index][u32 head].
-            let rel_count = read_u16!();
-            for _ in 0..rel_count {
-                let ti = read_u16!() as usize;
-                let head = read_u32!();
-                let rhash = self.base.grammar.single_tags_list[window_tags[ti].0].hash;
-                self.base
-                    .doc
-                    .store
-                    .cohorts
-                    .get_mut(c_cohort.0)
-                    .relations_input
-                    .entry(rhash.get())
-                    .or_default()
-                    .insert(head);
-            }
-            if rel_count != 0 {
-                self.base.doc.deps.has_relations = true;
-                self.base.doc.deps.relation_map.insert((dep_self, gn.get()));
-                self.base.doc.store.cohorts.get_mut(c_cohort.0).r#type |= CT_RELATED;
-            }
-
-            // Cohort text / wblank.
-            {
-                let t = read_str!();
-                self.base.doc.store.cohorts.get_mut(c_cohort.0).text = t;
-                let wb = read_str!();
-                self.base.doc.store.cohorts.get_mut(c_cohort.0).wblank = wb;
-            }
-
-            // Readings.
-            let reading_count = read_u16!();
-            if reading_count == 0 {
-                self.base.engine().init_empty_cohort(c_cohort)?;
-            }
-            let mut prev: Option<crate::arena::ReadingId> = None;
-            for _ in 0..reading_count {
-                let c_reading =
-                    crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
-                let wf = self
-                    .base
-                    .doc
-                    .store
-                    .cohorts
-                    .get(c_cohort.0)
-                    .wordform
-                    .unwrap();
-                self.base.engine().add_tag_to_reading(c_reading, wf)?;
-
-                let rflags = read_u16!();
-
-                let base_idx = read_u16!() as usize;
-                self.base
-                    .engine()
-                    .add_tag_to_reading(c_reading, window_tags[base_idx])?;
-
-                let rtag_count = read_u16!();
-                let mut mappings = crate::tag::TagList::new();
-                for _ in 0..rtag_count {
-                    let ti = read_u16!() as usize;
-                    let tid = window_tags[ti];
-                    if self.base.grammar.tag_type(tid).intersects(T_MAPPING) {
-                        mappings.push(tid);
-                    } else {
-                        self.base.engine().add_tag_to_reading(c_reading, tid)?;
-                    }
-                }
-                if !mappings.is_empty() {
-                    self.base
-                        .engine()
-                        .split_mappings(&mut mappings, c_cohort, c_reading, true)?;
-                }
-
-                if let Some(prev_reading) = prev
-                    && (rflags & (BFR_SUBREADING as u16) != 0)
-                {
-                    self.base.doc.store.readings.get_mut(prev_reading.0).next = Some(c_reading);
-                } else if rflags & (BFR_DELETED as u16) != 0 {
-                    self.base
-                        .doc
-                        .store
-                        .cohorts
-                        .get_mut(c_cohort.0)
-                        .deleted
-                        .push(c_reading);
-                } else {
-                    crate::cohort::append_reading(&mut self.base.doc.store, c_cohort, c_reading);
-                }
-                prev = Some(c_reading);
-                self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
-            }
-
-            // Last cohort: ensure endtag on every reading. `endtag` is a tag
-            // HASH (C++ `addTagToReading(*iter, endtag)` uint32 overload) → the
-            // TagId is resolved via `single_tags[endtag]` for the Tag* overload.
-            if cn + 1 == cohort_count {
-                let endtag_id = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-                let readings = self.base.doc.store.cohorts.get(c_cohort.0).readings.clone();
-                for r in readings {
-                    let has = self
-                        .base
-                        .doc
-                        .store
-                        .readings
-                        .get(r.0)
-                        .tags
-                        .find(self.base.cfg.endtag.get())
-                        != self.base.doc.store.readings.get(r.0).tags.end();
-                    if !has {
-                        self.base.engine().add_tag_to_reading(r, endtag_id)?;
-                    }
-                }
-            }
-
-            crate::inlines::insert_if_exists(
-                &mut self
-                    .base
-                    .doc
-                    .store
-                    .cohorts
-                    .get_mut(c_cohort.0)
-                    .possible_sets,
-                self.base.grammar.sets_any.as_ref(),
-            );
-            crate::single_window::append_cohort(
-                &mut self.base.doc.store,
-                &mut self.base.doc.cohorts,
-                &mut self.base.doc.deps,
-                c_swindow,
-                c_cohort,
-            );
+        }
+        if !mappings.is_empty() {
+            self.base
+                .engine()
+                .split_mappings(&mut mappings, c_cohort, c_reading, true)?;
         }
 
-        Ok(Some(c_swindow))
+        if let Some(prev_reading) = prev
+            && (rflags & (BFR_SUBREADING as u16) != 0)
+        {
+            self.base.doc.store.readings.get_mut(prev_reading.0).next = Some(c_reading);
+        } else if rflags & (BFR_DELETED as u16) != 0 {
+            self.base
+                .doc
+                .store
+                .cohorts
+                .get_mut(c_cohort.0)
+                .deleted
+                .push(c_reading);
+        } else {
+            crate::cohort::append_reading(&mut self.base.doc.store, c_cohort, c_reading);
+        }
+        self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
+        Ok(c_reading)
+    }
+
+    /// Every reading of the window's last cohort carries the end tag. `endtag`
+    /// is a tag HASH (C++ `addTagToReading(*iter, endtag)` uint32 overload), so
+    /// the TagId is resolved via `single_tags[endtag]` for the Tag* overload.
+    fn add_endtag(&mut self, c_cohort: CohortId) -> Result<(), RunError> {
+        let endtag = self.base.cfg.endtag;
+        let endtag_id = tag_by_hash(&self.base.grammar, endtag);
+        let readings = self.base.doc.store.cohorts.get(c_cohort.0).readings.clone();
+        for r in readings {
+            let tags = &self.base.doc.store.readings.get(r.0).tags;
+            if tags.find(endtag.get()) == tags.end() {
+                self.base.engine().add_tag_to_reading(r, endtag_id)?;
+            }
+        }
+        Ok(())
     }
 
     // =======================================================================
@@ -537,8 +557,8 @@ impl<'a> BinaryApplicator<'a> {
 // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-plain-text-line-fn]
 // [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-stream-command-fn]
 // [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-stream-command-fn]
-// [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-single-window-fn]
-// [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-single-window-fn]
+// [spec:cg3:def:binary-applicator.cg3.binary-applicator.print-single-window-fn+1]
+// [spec:cg3:sem:binary-applicator.cg3.binary-applicator.print-single-window-fn+1]
 /// The binary print vtable (wave 4): C++ `BinaryApplicator`'s three print
 /// virtuals (`printPlainTextLine` / `printStreamCommand` /
 /// `printSingleWindow`), with the C++ `bool header_done` member as strategy
@@ -589,356 +609,55 @@ impl BinaryFormat {
         // else: no command byte follows (malformed packet) — faithful.
     }
 
+    // [spec:cg3:req:robustness.checked-arithmetic]
     /// Body of C++ `BinaryApplicator::printSingleWindow` (spec anchors on
     /// [`BinaryFormat`]) — the exact inverse of `readWindow`.
-    /// `profiling` is ignored. All integers LITTLE-ENDIAN. `store` is threaded
-    /// separately so the caller can split the `&mut app` / `&mut store`
-    /// borrows (matching the base print methods).
+    /// `profiling` is ignored. All integers LITTLE-ENDIAN.
+    ///
+    /// DIVERGENCE: the packet is assembled in full before any of it is written,
+    /// and a window whose counts or string lengths do not fit the format's
+    /// fields is refused with [`RunError::BinaryStreamOverflow`], writing
+    /// nothing. The C++ wraps the count and emits a corrupt packet.
     pub fn bin_print_single_window<W: Write>(
         &mut self,
         e: &mut Engine<'_>,
         window: SwId,
         output: &mut W,
         _profiling: bool,
-    ) {
-        self.bin_write_header(output);
-        write_le(output, ui8(BinaryPacketType::BfpWindow as u32));
-
-        // Per-window tag table.
-        let mut tags_to_write: Vec<TagId> = Vec::new();
-        let mut tag_index: std::collections::HashMap<TagId, u16> = std::collections::HashMap::new();
-
-        // WRITE_U16_INTO / WRITE_U32_INTO (little-endian bytes into a buffer).
-        fn wu16(buffer: &mut Vec<u8>, n: u16) {
-            buffer.extend_from_slice(&n.to_le_bytes());
-        }
-        fn wu32(buffer: &mut Vec<u8>, n: u32) {
-            buffer.extend_from_slice(&n.to_le_bytes());
-        }
-        // WRITE_TAG_INTO: register a tag (assign next u16 index if new) + append.
-        let write_tag = |tags_to_write: &mut Vec<TagId>,
-                         tag_index: &mut std::collections::HashMap<TagId, u16>,
-                         buffer: &mut Vec<u8>,
-                         tag: TagId| {
-            let idx = *tag_index.entry(tag).or_insert_with(|| {
-                let i = ui16(tags_to_write.len());
-                tags_to_write.push(tag);
-                i
-            });
-            wu16(buffer, idx);
-        };
-        // WRITE_STR_INTO: [u16 LE byte-length][UTF-8 bytes] (u16 truncation quirk).
-        fn write_str(buffer: &mut Vec<u8>, s: &str) {
-            let bytes = s.as_bytes();
-            let olen = ui16(bytes.len());
-            wu16(buffer, olen);
-            buffer.extend_from_slice(&bytes[..olen as usize]);
-        }
-
-        // Variables.
-        let mut var_count: u16 = 0;
-        let mut var_buffer: Vec<u8> = Vec::new();
-        let vars_output: Vec<u32> = e
-            .doc
-            .store
-            .single_windows
-            .get(window.0)
-            .variables_output
-            .iter()
-            .copied()
-            .collect();
-        for var in vars_output {
-            var_count += 1;
-            let key = tag_by_hash(e.grammar, TagHash(var));
-            let value: Option<u32> = {
-                let sw = e.doc.store.single_windows.get(window.0);
-                let it = sw.variables_set.find(var);
-                if it != sw.variables_set.end() {
-                    Some(it.get().1)
-                } else {
-                    None
-                }
-            };
-            match value {
-                Some(vh) => {
-                    if vh != e.grammar.tag_any {
-                        var_buffer.push(BFV_SETVAR as u8);
-                        write_tag(&mut tags_to_write, &mut tag_index, &mut var_buffer, key);
-                        let vtag = tag_by_hash(e.grammar, TagHash(vh));
-                        write_tag(&mut tags_to_write, &mut tag_index, &mut var_buffer, vtag);
-                    } else {
-                        var_buffer.push(BFV_SETVAR_ANY as u8);
-                        write_tag(&mut tags_to_write, &mut tag_index, &mut var_buffer, key);
-                        wu16(&mut var_buffer, 0);
-                    }
-                }
-                None => {
-                    var_buffer.push(BFV_REMVAR as u8);
-                    write_tag(&mut tags_to_write, &mut tag_index, &mut var_buffer, key);
-                    wu16(&mut var_buffer, 0);
-                }
-            }
-        }
-
-        // Reflow removed-cohort text to the nearest prior non-removed cohort (or
-        // the window). QUIRK: the inner loop has NO break — after clearing, later
-        // iterations append the now-empty string (no-op).
-        let all_cohorts: Vec<CohortId> =
-            e.doc.store.single_windows.get(window.0).all_cohorts.clone();
-        for i in 0..all_cohorts.len() {
-            let cohort = all_cohorts[i];
-            let (ln, ty, has_text) = {
-                let c = e.doc.store.cohorts.get(cohort.0);
-                (c.local_number, c.r#type, !c.text.is_empty())
-            };
-            if (ln == 0 || (ty.intersects(CT_REMOVED))) && has_text {
-                for j in (1..=i).rev() {
-                    let prior = all_cohorts[j - 1];
-                    let (pln, pty) = {
-                        let c = e.doc.store.cohorts.get(prior.0);
-                        (c.local_number, c.r#type)
-                    };
-                    if pln == 0 || (pty.intersects(CT_REMOVED)) {
-                        continue;
-                    }
-                    let txt = e.doc.store.cohorts.get(cohort.0).text.clone();
-                    e.doc.store.cohorts.get_mut(prior.0).text.push_str(&txt);
-                    e.doc.store.cohorts.get_mut(cohort.0).text.clear();
-                }
-                let txt = e.doc.store.cohorts.get(cohort.0).text.clone();
-                e.doc
-                    .store
-                    .single_windows
-                    .get_mut(window.0)
-                    .text
-                    .push_str(&txt);
-                e.doc.store.cohorts.get_mut(cohort.0).text.clear();
-            }
-        }
-
-        // Cohorts.
-        let mut cohort_buffer: Vec<u8> = Vec::new();
-        let mut cohort_count: u16 = 0;
-        for cohort in all_cohorts {
-            let (ln, ty) = {
-                let c = e.doc.store.cohorts.get(cohort.0);
-                (c.local_number, c.r#type)
-            };
-            if ln == 0 || (ty.intersects(CT_REMOVED)) {
-                continue;
-            }
-            crate::cohort::unignore_all(&mut e.doc.store, cohort);
-            cohort_count += 1;
-
-            let mut cflags: u16 = 0;
-            if e.doc
-                .store
-                .cohorts
-                .get(cohort.0)
-                .r#type
-                .intersects(CT_RELATED)
-            {
-                cflags |= BFC_RELATED as u16;
-            }
-            wu16(&mut cohort_buffer, cflags);
-
-            let wf = e
-                .doc
-                .store
-                .cohorts
-                .get(cohort.0)
-                .wordform
-                .expect("cohort wordform");
-            let wf_hash = e.grammar.single_tags_list[wf.0].hash;
-            write_tag(&mut tags_to_write, &mut tag_index, &mut cohort_buffer, wf);
-
-            // Static tags (wread), excluding the wordform hash.
-            if let Some(wr) = e.doc.store.cohorts.get(cohort.0).wread {
-                let mut tag_buf: Vec<u8> = Vec::new();
-                let mut stag_count: u16 = 0;
-                let tags: Vec<u32> = e.doc.store.readings.get(wr.0).tags_list.clone();
-                for tter in tags {
-                    let tter = TagHash(tter);
-                    if tter == wf_hash {
-                        continue;
-                    }
-                    let tid = tag_by_hash(e.grammar, tter);
-                    write_tag(&mut tags_to_write, &mut tag_index, &mut tag_buf, tid);
-                    stag_count += 1;
-                }
-                wu16(&mut cohort_buffer, stag_count);
-                cohort_buffer.extend_from_slice(&tag_buf);
-            } else {
-                wu16(&mut cohort_buffer, 0);
-            }
-
-            // Dependency: self = global_number; parent per the cohort_map lookup.
-            let (global_number, dep_parent) = {
-                let c = e.doc.store.cohorts.get(cohort.0);
-                (c.global_number, c.dep_parent)
-            };
-            wu32(&mut cohort_buffer, global_number.get());
-            if dep_parent == Some(GlobalNumber(0)) || dep_parent.is_none() {
-                // C++ writes the raw field (0 or DEP_NO_PARENT).
-                wu32(
-                    &mut cohort_buffer,
-                    dep_parent.map_or(crate::cohort::DEP_NO_PARENT, |g| g.get()),
-                );
-            } else if let Some(dp) = dep_parent
-                && let Some(&pr) = e.doc.cohorts.cohort_map.get(&dp)
-            {
-                let pr_local = e.doc.store.cohorts.get(pr.0).local_number;
-                if pr_local == 0 {
-                    wu32(&mut cohort_buffer, 0);
-                } else {
-                    wu32(
-                        &mut cohort_buffer,
-                        e.doc.store.cohorts.get(pr.0).global_number.get(),
-                    );
-                }
-            } else {
-                wu32(&mut cohort_buffer, DEP_NO_PARENT);
-            }
-
-            // Relations.
-            let mut rel_buffer: Vec<u8> = Vec::new();
-            let mut rel_count: u16 = 0;
-            let relations: Vec<(u32, Vec<u32>)> = e
-                .doc
-                .store
-                .cohorts
-                .get(cohort.0)
-                .relations
-                .iter()
-                .map(|(k, v)| (*k, v.iter().copied().collect()))
-                .collect();
-            for (name_hash, targets) in relations {
-                let tid = tag_by_hash(e.grammar, TagHash(name_hash));
-                for target in targets {
-                    rel_count += 1;
-                    write_tag(&mut tags_to_write, &mut tag_index, &mut rel_buffer, tid);
-                    wu32(&mut rel_buffer, target);
-                }
-            }
-            wu16(&mut cohort_buffer, rel_count);
-            cohort_buffer.extend_from_slice(&rel_buffer);
-
-            let (ctext, cwblank) = {
-                let c = e.doc.store.cohorts.get(cohort.0);
-                (c.text.clone(), c.wblank.clone())
-            };
-            write_str(&mut cohort_buffer, &ctext);
-            write_str(&mut cohort_buffer, &cwblank);
-
-            // Readings: sort by cmp_number; only top readings with !noprint, then
-            // walk the subreading chain. Deleted readings are NOT written.
-            let mut reading_buffer: Vec<u8> = Vec::new();
-            let mut reading_count: u16 = 0;
-            let mut readings: Vec<crate::arena::ReadingId> =
-                e.doc.store.cohorts.get(cohort.0).readings.clone();
-            readings.sort_by(|&a, &b| {
-                let ra = e.doc.store.readings.get(a.0);
-                let rb = e.doc.store.readings.get(b.0);
-                if Reading::cmp_number(ra, rb) {
-                    std::cmp::Ordering::Less
-                } else if Reading::cmp_number(rb, ra) {
-                    std::cmp::Ordering::Greater
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            });
-            e.doc.store.cohorts.get_mut(cohort.0).readings = readings.clone();
-            for top_reading in readings {
-                if e.doc.store.readings.get(top_reading.0).noprint {
-                    continue;
-                }
-                let mut reading = Some(top_reading);
-                while let Some(rid) = reading {
-                    reading_count += 1;
-                    let mut rflags: u16 = 0;
-                    if rid != top_reading {
-                        rflags |= BFR_SUBREADING as u16;
-                    }
-                    wu16(&mut reading_buffer, rflags);
-                    let baseform = e
-                        .doc
-                        .store
-                        .readings
-                        .get(rid.0)
-                        .baseform
-                        .unwrap_or(TagHash(0));
-                    let btid = tag_by_hash(e.grammar, baseform);
-                    write_tag(
-                        &mut tags_to_write,
-                        &mut tag_index,
-                        &mut reading_buffer,
-                        btid,
-                    );
-
-                    let mut tag_buf: Vec<u8> = Vec::new();
-                    let mut tag_count: u16 = 0;
-                    let mut unique: crate::sorted_vector::Uint32SortedVector =
-                        crate::sorted_vector::Uint32SortedVector::new();
-                    let tags: Vec<u32> = e.doc.store.readings.get(rid.0).tags_list.clone();
-                    let parent_wf_hash = {
-                        let cid = e.doc.store.readings.get(rid.0).parent.unwrap();
-                        let w = e.doc.store.cohorts.get(cid.0).wordform;
-                        w.map(|t| e.grammar.single_tags_list[t.0].hash)
-                            .unwrap_or(TagHash(0))
-                    };
-                    for tter in tags {
-                        let tter = TagHash(tter);
-                        if tter == baseform || tter == parent_wf_hash {
-                            continue;
-                        }
-                        let tid = tag_by_hash(e.grammar, tter);
-                        let tt = e.grammar.tag_type(tid);
-                        if tt.intersects(T_DEPENDENCY | T_RELATION) {
-                            continue;
-                        }
-                        if e.cfg.unique_tags {
-                            if unique.find(tter.get()) != unique.end() {
-                                continue;
-                            }
-                            unique.insert(tter.get());
-                        }
-                        write_tag(&mut tags_to_write, &mut tag_index, &mut tag_buf, tid);
-                        tag_count += 1;
-                    }
-                    wu16(&mut reading_buffer, tag_count);
-                    reading_buffer.extend_from_slice(&tag_buf);
-                    reading = e.doc.store.readings.get(rid.0).next;
-                }
-            }
-            wu16(&mut cohort_buffer, reading_count);
-            cohort_buffer.extend_from_slice(&reading_buffer);
-        }
+    ) -> Result<(), RunError> {
+        let mut packet = PacketWriter::new(e.doc.store.single_windows.get(window.0).number);
+        let (var_count, var_buffer) = packet.variables(e, window)?;
+        reflow_removed_text(e, window);
+        let (cohort_count, cohort_buffer) = packet.cohorts(e, window)?;
 
         // Header buffer (assembled AFTER the cohort buffer so the tag table is
         // complete).
         let mut header_buffer: Vec<u8> = Vec::new();
-        let mut wflags: u16 = 0;
-        if e.doc.dep_has_spanned {
-            wflags |= BFW_DEP_SPAN as u16;
-        }
-        wu16(&mut header_buffer, wflags);
-        wu16(&mut header_buffer, ui16(tags_to_write.len()));
-        for &tag in &tags_to_write {
-            let s = e.grammar.single_tags_list[tag.0].tag.clone();
-            write_str(&mut header_buffer, &s);
-        }
-        wu16(&mut header_buffer, var_count);
-        header_buffer.extend_from_slice(&var_buffer);
-        let (wtext, wtext_post, flush_after) = {
-            let w = e.doc.store.single_windows.get(window.0);
-            (w.text.clone(), w.text_post.clone(), w.flush_after)
+        let wflags: u16 = if e.doc.dep_has_spanned {
+            BFW_DEP_SPAN as u16
+        } else {
+            0
         };
-        write_str(&mut header_buffer, &wtext);
-        write_str(&mut header_buffer, &wtext_post);
-        wu16(&mut header_buffer, cohort_count);
+        header_buffer.extend_from_slice(&wflags.to_le_bytes());
+        packet.count(&mut header_buffer, packet.tags.len(), BinaryCount::Tags)?;
+        for &tag in &packet.tags {
+            packet.string(&mut header_buffer, &e.grammar.single_tags_list[tag.0].tag)?;
+        }
+        packet.count(&mut header_buffer, var_count, BinaryCount::Variables)?;
+        header_buffer.extend_from_slice(&var_buffer);
+        let w = e.doc.store.single_windows.get(window.0);
+        packet.string(&mut header_buffer, &w.text)?;
+        packet.string(&mut header_buffer, &w.text_post)?;
+        packet.count(&mut header_buffer, cohort_count, BinaryCount::Cohorts)?;
+        let flush_after = w.flush_after;
 
-        // Emit: total_size (u32 LE), header buffer, cohort buffer.
-        let total_size = ui32(header_buffer.len() + cohort_buffer.len());
+        let body_len = header_buffer.len() + cohort_buffer.len();
+        let total_size = u32::try_from(body_len)
+            .map_err(|_| packet.overflow(BinaryCount::BodyBytes, body_len, u32::MAX as usize))?;
+
+        // Emit: packet type, total_size (u32 LE), header buffer, cohort buffer.
+        self.bin_write_header(output);
+        write_le(output, ui8(BinaryPacketType::BfpWindow as u32));
         write_le(output, total_size);
         let _ = output.write_all(&header_buffer);
         let _ = output.write_all(&cohort_buffer);
@@ -949,6 +668,267 @@ impl BinaryFormat {
             self.bin_print_stream_command(STR_CMD_FLUSH, output);
         }
         let _ = output.flush();
+        Ok(())
+    }
+}
+
+/// Reflow removed-cohort text to the nearest prior non-removed cohort (or the
+/// window). QUIRK: the inner loop has NO break — after clearing, later
+/// iterations append the now-empty string (no-op).
+fn reflow_removed_text(e: &mut Engine<'_>, window: SwId) {
+    let all_cohorts: Vec<CohortId> = e.doc.store.single_windows.get(window.0).all_cohorts.clone();
+    for i in 0..all_cohorts.len() {
+        let cohort = all_cohorts[i];
+        let (ln, ty, has_text) = {
+            let c = e.doc.store.cohorts.get(cohort.0);
+            (c.local_number, c.r#type, !c.text.is_empty())
+        };
+        if (ln == 0 || (ty.intersects(CT_REMOVED))) && has_text {
+            for j in (1..=i).rev() {
+                let prior = all_cohorts[j - 1];
+                let (pln, pty) = {
+                    let c = e.doc.store.cohorts.get(prior.0);
+                    (c.local_number, c.r#type)
+                };
+                if pln == 0 || (pty.intersects(CT_REMOVED)) {
+                    continue;
+                }
+                let txt = e.doc.store.cohorts.get(cohort.0).text.clone();
+                e.doc.store.cohorts.get_mut(prior.0).text.push_str(&txt);
+                e.doc.store.cohorts.get_mut(cohort.0).text.clear();
+            }
+            let txt = e.doc.store.cohorts.get(cohort.0).text.clone();
+            e.doc
+                .store
+                .single_windows
+                .get_mut(window.0)
+                .text
+                .push_str(&txt);
+            e.doc.store.cohorts.get_mut(cohort.0).text.clear();
+        }
+    }
+}
+
+/// The parent slot of a cohort's dependency pair: the raw field when it is 0
+/// or `DEP_NO_PARENT`; else, when `cohort_map` holds the parent, 0 for the
+/// `>>>` cohort and its global number otherwise; else `DEP_NO_PARENT`.
+fn dep_parent_slot(e: &Engine<'_>, dep_parent: Option<GlobalNumber>) -> u32 {
+    let Some(dp) = dep_parent else {
+        return DEP_NO_PARENT;
+    };
+    if dp == GlobalNumber(0) {
+        return 0;
+    }
+    match e.doc.cohorts.cohort_map.get(&dp) {
+        Some(&pr) => {
+            let parent = e.doc.store.cohorts.get(pr.0);
+            if parent.local_number == 0 {
+                0
+            } else {
+                parent.global_number.get()
+            }
+        }
+        None => DEP_NO_PARENT,
+    }
+}
+
+impl PacketWriter {
+    /// The window's `variables_output` as `[1 byte mode][u16 key][u16 value]`
+    /// records (C++ `var_buffer`), and how many there are.
+    fn variables(&mut self, e: &Engine<'_>, window: SwId) -> Result<(usize, Vec<u8>), RunError> {
+        let sw = e.doc.store.single_windows.get(window.0);
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut count = 0usize;
+        for var in sw.variables_output.iter().copied() {
+            count += 1;
+            let key = tag_by_hash(e.grammar, TagHash(var));
+            let it = sw.variables_set.find(var);
+            let value = (it != sw.variables_set.end()).then(|| it.get().1);
+            match value {
+                Some(vh) if vh != e.grammar.tag_any => {
+                    buffer.push(BFV_SETVAR as u8);
+                    self.tag(&mut buffer, key)?;
+                    self.tag(&mut buffer, tag_by_hash(e.grammar, TagHash(vh)))?;
+                }
+                Some(_) => {
+                    buffer.push(BFV_SETVAR_ANY as u8);
+                    self.tag(&mut buffer, key)?;
+                    buffer.extend_from_slice(&0u16.to_le_bytes());
+                }
+                None => {
+                    buffer.push(BFV_REMVAR as u8);
+                    self.tag(&mut buffer, key)?;
+                    buffer.extend_from_slice(&0u16.to_le_bytes());
+                }
+            }
+        }
+        Ok((count, buffer))
+    }
+
+    /// Every kept cohort's record (C++ `cohort_buffer`), and how many there
+    /// are. The `>>>` cohort and removed cohorts are not written.
+    fn cohorts(&mut self, e: &mut Engine<'_>, window: SwId) -> Result<(usize, Vec<u8>), RunError> {
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut count = 0usize;
+        let all_cohorts = e.doc.store.single_windows.get(window.0).all_cohorts.clone();
+        for cohort in all_cohorts {
+            let c = e.doc.store.cohorts.get(cohort.0);
+            if c.local_number == 0 || c.r#type.intersects(CT_REMOVED) {
+                continue;
+            }
+            crate::cohort::unignore_all(&mut e.doc.store, cohort);
+            count += 1;
+            self.cohort(e, cohort, &mut buffer)?;
+        }
+        Ok((count, buffer))
+    }
+
+    /// One cohort record: flags, wordform, static tags (the `wread`'s, less
+    /// the wordform), dependency, relations, text and blank, then readings.
+    fn cohort(
+        &mut self,
+        e: &mut Engine<'_>,
+        cohort: CohortId,
+        buffer: &mut Vec<u8>,
+    ) -> Result<(), RunError> {
+        let c = e.doc.store.cohorts.get(cohort.0);
+        let cflags: u16 = if c.r#type.intersects(CT_RELATED) {
+            BFC_RELATED as u16
+        } else {
+            0
+        };
+        buffer.extend_from_slice(&cflags.to_le_bytes());
+
+        let wf = c.wordform.expect("cohort wordform");
+        let wf_hash = e.grammar.single_tags_list[wf.0].hash;
+        self.tag(buffer, wf)?;
+
+        let mut tag_buf: Vec<u8> = Vec::new();
+        let mut stag_count = 0usize;
+        if let Some(wr) = c.wread {
+            for &tter in &e.doc.store.readings.get(wr.0).tags_list {
+                if TagHash(tter) == wf_hash {
+                    continue;
+                }
+                self.tag(&mut tag_buf, tag_by_hash(e.grammar, TagHash(tter)))?;
+                stag_count += 1;
+            }
+        }
+        self.count(buffer, stag_count, BinaryCount::StaticTags)?;
+        buffer.extend_from_slice(&tag_buf);
+
+        buffer.extend_from_slice(&c.global_number.get().to_le_bytes());
+        buffer.extend_from_slice(&dep_parent_slot(e, c.dep_parent).to_le_bytes());
+
+        let mut rel_buffer: Vec<u8> = Vec::new();
+        let mut rel_count = 0usize;
+        for (&name_hash, targets) in &c.relations {
+            let tid = tag_by_hash(e.grammar, TagHash(name_hash));
+            for &target in targets.iter() {
+                rel_count += 1;
+                self.tag(&mut rel_buffer, tid)?;
+                rel_buffer.extend_from_slice(&target.to_le_bytes());
+            }
+        }
+        self.count(buffer, rel_count, BinaryCount::Relations)?;
+        buffer.extend_from_slice(&rel_buffer);
+
+        self.string(buffer, &c.text)?;
+        self.string(buffer, &c.wblank)?;
+        self.readings(e, cohort, buffer)
+    }
+
+    /// A cohort's readings sorted by `cmp_number`: each printable top reading
+    /// followed by its subreading chain. Deleted readings are NOT written.
+    fn readings(
+        &mut self,
+        e: &mut Engine<'_>,
+        cohort: CohortId,
+        buffer: &mut Vec<u8>,
+    ) -> Result<(), RunError> {
+        let mut readings: Vec<crate::arena::ReadingId> =
+            e.doc.store.cohorts.get(cohort.0).readings.clone();
+        readings.sort_by(|&a, &b| {
+            let ra = e.doc.store.readings.get(a.0);
+            let rb = e.doc.store.readings.get(b.0);
+            if Reading::cmp_number(ra, rb) {
+                std::cmp::Ordering::Less
+            } else if Reading::cmp_number(rb, ra) {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+        e.doc.store.cohorts.get_mut(cohort.0).readings = readings.clone();
+
+        let mut reading_buffer: Vec<u8> = Vec::new();
+        let mut reading_count = 0usize;
+        for top_reading in readings {
+            if e.doc.store.readings.get(top_reading.0).noprint {
+                continue;
+            }
+            let mut reading = Some(top_reading);
+            while let Some(rid) = reading {
+                reading_count += 1;
+                let rflags: u16 = if rid != top_reading {
+                    BFR_SUBREADING as u16
+                } else {
+                    0
+                };
+                reading_buffer.extend_from_slice(&rflags.to_le_bytes());
+                self.reading(e, rid, &mut reading_buffer)?;
+                reading = e.doc.store.readings.get(rid.0).next;
+            }
+        }
+        self.count(buffer, reading_count, BinaryCount::Readings)?;
+        buffer.extend_from_slice(&reading_buffer);
+        Ok(())
+    }
+
+    /// One reading's baseform, then its tags less the baseform, the wordform,
+    /// dependency and relation tags, and (under `unique_tags`) repeats.
+    fn reading(
+        &mut self,
+        e: &Engine<'_>,
+        rid: crate::arena::ReadingId,
+        buffer: &mut Vec<u8>,
+    ) -> Result<(), RunError> {
+        let r = e.doc.store.readings.get(rid.0);
+        let baseform = r.baseform.unwrap_or(TagHash(0));
+        self.tag(buffer, tag_by_hash(e.grammar, baseform))?;
+
+        let parent_wf_hash = {
+            let w = e.doc.store.cohorts.get(r.parent.unwrap().0).wordform;
+            w.map(|t| e.grammar.single_tags_list[t.0].hash)
+                .unwrap_or(TagHash(0))
+        };
+        let mut tag_buf: Vec<u8> = Vec::new();
+        let mut tag_count = 0usize;
+        let mut unique = crate::sorted_vector::Uint32SortedVector::new();
+        for &tter in &r.tags_list {
+            let tter = TagHash(tter);
+            if tter == baseform || tter == parent_wf_hash {
+                continue;
+            }
+            let tid = tag_by_hash(e.grammar, tter);
+            if e.grammar
+                .tag_type(tid)
+                .intersects(T_DEPENDENCY | T_RELATION)
+            {
+                continue;
+            }
+            if e.cfg.unique_tags {
+                if unique.find(tter.get()) != unique.end() {
+                    continue;
+                }
+                unique.insert(tter.get());
+            }
+            self.tag(&mut tag_buf, tid)?;
+            tag_count += 1;
+        }
+        self.count(buffer, tag_count, BinaryCount::ReadingTags)?;
+        buffer.extend_from_slice(&tag_buf);
+        Ok(())
     }
 }
 
@@ -971,7 +951,7 @@ impl crate::grammar_applicator::stream_format::StreamFormat for BinaryFormat {
         output: &mut W,
         profiling: bool,
     ) -> Result<(), crate::error::RunError> {
-        self.bin_print_single_window(e, window, output, profiling);
+        self.bin_print_single_window(e, window, output, profiling)?;
         Ok(())
     }
 

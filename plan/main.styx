@@ -2864,6 +2864,13 @@ children (
                         kind @note
                         text "No-panic assessment findings (2026-09-25; file:line pinned at fb3a6da; VERIFIED unless marked reasoned).\n\nBINARY INPUT STREAM (CGBF, binary_applicator.rs read_window):\n- The read_u16!/read_u32!/read_str! macro bodies (244/251/260, every expansion 267-455) and `buf[pos]` at 294 index a short body: truncated body, cs=0, or a string length past the end — `CGBF` + u32 1 + `\\x01` + u32 0 -> `cg-conv --in-binary` (\"the len is 0 but the index is 0\" / \"range end index 206 out of range for slice of length 7\"). Fix: a bounds-checked cursor (`buf.get(pos..pos+n)`) -> RunError::MalformedBinary.\n- binary_applicator.rs:298/303/354/361/368/400/449/455 `window_tags[idx]` with a tag / variable / wordform / reading / relation index >= tag_count (e.g. wordform idx 7 with 1 tag).\n- binary_applicator.rs:227 `vec![0; cs]` with a u32 from the stream before any check (up to 4 GiB; reasoned, lazily zeroed on macOS).\n\nEXTERNAL PROTOCOL (core.rs; hostile child script was scratchpad panic/stream/ext_bad.py and engine D/ext_win.py):\n- core.rs:1390 `readings[i]` and :1425 `cohorts[i+1]` indexed by counts the child sends back — a child reporting more readings or cohorts than it was sent (`EXTERNAL ONCE \"<script>\" (*)`) -> index out of bounds; reached through dispatch.rs:342/343. The ExternalCohortMismatch RunError already exists for the fix.\n- core.rs:1263/1275 `vec![0u8; cs]` with a child-supplied u32 -> 4 GiB allocation + blocking read (verified hang); core.rs:1324 `for _ in 0..cs` with cs up to 2^32 -> ~4G add_tag+push in release (reasoned OOM).\n- An EXTERNAL reply with an empty baseform/wordform/tag reaches the empty-tag assert (no-panic.stream-text owns the rule).\n\nWRITER (overlap no-panic.arithmetic): binary_applicator.rs:651/731/767/818/857/906 u16 `+= 1` overflow past 65535 cohorts/readings/tags/variables/relations per window with --out-binary (verified 731/857 via `python3 -c \"print(' '.join('w%d'%i for i in range(66000)))\" | cg-conv --in-plain --out-binary`); the writer's `ui16(tags_to_write.len())` and write_str casts silently corrupt past 65535."
                     }
+
+                    {
+                        at 2026-09-25T12:49:15.118869Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

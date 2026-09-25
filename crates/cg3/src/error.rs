@@ -318,6 +318,35 @@ pub enum RunError {
     ExternalCohortMismatch { expected: u32, got: u32 },
     #[error("EXTERNAL returned data for window {got}, expected {expected}")]
     ExternalWindowMismatch { expected: u32, got: u32 },
+    /// A reply from an `EXTERNAL` process that does not fit the window it was
+    /// sent: `window` is that window's number, and the fault says what was
+    /// wrong and where in the reply.
+    #[error("EXTERNAL reply for window {window} {fault}")]
+    ExternalReply {
+        window: u32,
+        fault: crate::grammar_applicator::external::ExternalFault,
+    },
+    /// A window of a binary input stream that does not decode: `window` is the
+    /// number the window takes in the run, and `offset` the byte of its body
+    /// at which the offending read begins.
+    #[error("binary stream window {window}, byte {offset} of its body: {fault}")]
+    BinaryStreamWindow {
+        window: u32,
+        offset: usize,
+        fault: crate::binary_applicator::BinaryStreamFault,
+    },
+    /// A window the binary stream writer cannot represent: `count` is more than
+    /// the fixed-width field the format stores it in can hold, and writing it
+    /// anyway would wrap the count and corrupt the stream.
+    #[error(
+        "binary stream window {window} cannot be written: {count} {what} exceed the format's limit of {max}"
+    )]
+    BinaryStreamOverflow {
+        window: u32,
+        what: crate::binary_applicator::BinaryCount,
+        count: usize,
+        max: usize,
+    },
     /// A tag the running stream asked for could not be constructed.
     ///
     /// The text is carried because the offending input IS the whole tag, and the
