@@ -496,12 +496,6 @@ pub enum BinaryFault {
         stored: u32,
         computed: u32,
     },
-    /// So many tags on consecutive hashes that interning another tag whose hash
-    /// falls among them would run out of seeds.
-    #[error(
-        "{len} tags hold consecutive hashes from {first:#010x}, as many as the tag interner probes"
-    )]
-    HashRun { first: u32, len: u32 },
     #[error("set {set} contains itself, directly or through its member sets")]
     SetCycle { set: u32 },
     #[error(

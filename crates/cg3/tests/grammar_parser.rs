@@ -140,7 +140,7 @@ fn constructor_trait_surface_and_compat_mode() {
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-tag-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.add-tag-fn/test]
 // [spec:cg3:sem:textual-parser.cg3.textual-parser.parse-set-inline-fn+1/test]
-// [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn/test]
+// [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn+1/test]
 // [spec:cg3:sem:grammar.cg3.grammar.allocate-set-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.add-set-fn/test]
 // [spec:cg3:sem:grammar.cg3.grammar.get-set-fn/test]

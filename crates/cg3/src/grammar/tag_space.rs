@@ -15,9 +15,11 @@ use crate::tag::Tag;
 
 use super::{IcaseTags, RegexTags};
 
-/// How many seeds [`TagSpace::add_tag`] tries past a tag's hash before giving
-/// up: C++ `addTag`'s `for (seed = 0; seed < 10000; ++seed)`.
-pub(crate) const SEED_PROBE_WIDTH: u32 = 10000;
+/// Whether `hash` can key a tag: `hash_value` never gives 0, and the flat hash
+/// tables reserve the top two values as sentinels.
+fn is_tag_hash(hash: u32) -> bool {
+    hash != 0 && hash < u32::MAX - 1
+}
 
 /// A tag arena and the hash index over it — a grammar being loaded, or one
 /// run's view of a loaded one.
@@ -39,49 +41,40 @@ pub trait TagSpace {
     /// it at `hash`.
     fn insert_tag(&mut self, tag: Tag, hash: u32) -> TagId;
 
-    // [spec:cg3:def:grammar.cg3.grammar.add-tag-fn]
-    // [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn]
-    /// Interns a `Tag` (by value), deduplicating by hash+text with the 0..9999
-    /// seed probe. `t == tag` (pointer identity) can never hold for a fresh
-    /// by-value tag, so only the text-equality dedup applies; the read-only
-    /// probe is split from the insert so the incoming `tag` moves exactly once
-    /// (after the loop).
+    // [spec:cg3:def:grammar.cg3.grammar.add-tag-fn+1]
+    // [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn+1]
+    /// Interns a `Tag` (by value), deduplicating by hash+text with the seed
+    /// probe. `t == tag` (pointer identity) can never hold for a fresh
+    /// by-value tag, so only the text-equality dedup applies.
+    ///
+    /// The probe walks seeds until it meets the same text or a free slot,
+    /// stepping over the values that are never a tag's hash (0 and the hash
+    /// tables' two sentinels). It has no width: a free slot always exists,
+    /// since a grammar holding a tag at each of the other 2^32 - 3 hashes
+    /// could not be allocated.
     ///
     /// The only seed probe in the crate: the applicator's `addTag(Tag*)` and
     /// `parseTagRaw`'s relation interner are this same walk in the C++.
     fn add_tag(&mut self, mut tag: Tag) -> TagId {
         let hash = tag.rehash();
-        let mut existing: Option<TagId> = None;
-        let mut chosen_seed: Option<u32> = None;
         let mut seed = 0u32;
-        while seed < SEED_PROBE_WIDTH {
-            match self.tag_at_hash(hash.wrapping_add(seed).get()) {
-                Some(t_id) => {
-                    // C++ `t->tag == tag->tag`: duplicate parked at a seeded slot.
-                    // (`hash += seed; return single_tags[hash]` == returning t_id.)
-                    if self.tag(t_id).tag == tag.tag {
-                        existing = Some(t_id);
-                        break;
-                    }
-                    // else: hash collision, different text — keep probing.
-                }
-                None => {
-                    chosen_seed = Some(seed);
-                    break;
+        loop {
+            let slot = hash.wrapping_add(seed).get();
+            if is_tag_hash(slot) {
+                match self.tag_at_hash(slot) {
+                    // C++ `t->tag == tag->tag`: the same text parked at a
+                    // seeded slot; the incoming value is dropped.
+                    Some(t_id) if self.tag(t_id).tag == tag.tag => return t_id,
+                    // A collision with other text: keep probing.
+                    Some(_) => {}
+                    None => break,
                 }
             }
-            seed += 1;
+            seed = seed.wrapping_add(1);
         }
-
-        if let Some(t_id) = existing {
-            // `delete tag` — the incoming value is dropped at end of scope.
-            return t_id;
-        }
-
-        let seed = chosen_seed.expect("addTag: seed space exhausted");
         // verbosity_level>0 && seed hash-seed warning: deferred I/O.
         tag.seed = seed;
-        let new_hash = tag.rehash(); // rehash folds seed → base+seed == ih.
+        let new_hash = tag.rehash(); // rehash folds seed → base+seed == slot.
         self.insert_tag(tag, new_hash.get())
     }
 

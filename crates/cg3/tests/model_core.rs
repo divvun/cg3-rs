@@ -1595,3 +1595,52 @@ fn window_alloc_shuffle_rebuild_destroy() {
         assert!(store.single_windows.try_get(s.0).is_none(), "recycled");
     }
 }
+
+fn plain_tag(text: &str) -> Tag {
+    Tag {
+        tag: text.into(),
+        ..Default::default()
+    }
+}
+
+/// Fills `hashes` with tags of other text, so a probe through them only
+/// collides.
+fn crowd(g: &mut GrammarCore, hashes: impl Iterator<Item = u32>) {
+    for (i, h) in hashes.enumerate() {
+        g.insert_tag(plain_tag(&format!("crowd{i}")), h);
+    }
+}
+
+// The C++ probe gives up after 10000 seeds; the port's walks on.
+// [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn+1/test]
+#[test]
+fn seed_probe_walks_past_ten_thousand_collisions() {
+    let mut g = GrammarCore::default();
+    let first = plain_tag("foo").rehash().get();
+    crowd(&mut g, (0..10_000).map(|i| first + i));
+    let foo = g.add_tag(plain_tag("foo"));
+    assert_eq!(g.tag(foo).seed, 10_000);
+    assert_eq!(g.tag(foo).hash.get(), first + 10_000);
+    assert_eq!(g.add_tag(plain_tag("foo")), foo, "found again past the run");
+}
+
+// A probe that wraps steps over the two sentinels and 0, which no tag's hash
+// may be.
+// [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn+1/test]
+#[test]
+fn seed_probe_steps_over_reserved_hashes() {
+    let (text, first) = (0..)
+        .map(|n| format!("t{n}"))
+        .map(|text| {
+            let hash = plain_tag(&text).rehash().get();
+            (text, hash)
+        })
+        .find(|&(_, hash)| hash >= u32::MAX - 100_000)
+        .unwrap();
+    let mut g = GrammarCore::default();
+    crowd(&mut g, first..=u32::MAX - 2);
+    let tag = g.add_tag(plain_tag(&text));
+    assert_eq!(g.tag(tag).hash.get(), 1);
+    assert_eq!(g.tag_at_hash(1), Some(tag));
+    assert_eq!(g.add_tag(plain_tag(&text)), tag);
+}

@@ -3012,6 +3012,13 @@ children (
                         kind @note
                         text "Scope and baseline from the 2026-09-25 assessment (pinned at fb3a6da, production code only): 25 panic!, 1 unreachable!, ~461 .unwrap(), 67 .expect(). Four sweeps classified roughly 230 engine, 111 stream, 56 loading and ~45 CLI explicit sites as INVARIANT, of which ~110 are FRAGILE — the invariant is established in a different module (\"the reader always gives a window a >>> cohort\", \"the parser only stores registered content hashes\", \"every reading has a parent\", \"every cohort has a wordform\", \"reindex runs at most once\", \"the careful matcher sets attach_to.reading\" — that last one is false, see no-panic.engine-matching). Those are the sites this node has to justify one by one or carry in types.\n\nPolicy to retire: the uextras module doc's \"throw -> panic!\" rule (every C++ throw became a panic! with the same message) is the origin of most explicit input-reachable panics; the doc must change with the lint.\n\nOrder: this node closes robustness.no-input-panics, so it runs last, after every class node; the lint going on is what makes the umbrella rule checkable rather than aspirational. Consider clippy::indexing_slicing too once the classes are fixed — it is the implicit majority of what the sweeps found, but likely too noisy to deny outright; a per-module deny on the readers (binary_grammar, binary_applicator, the stream readers) may be the right scope."
                     }
+
+                    {
+                        at 2026-09-25T15:40:26.416062Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
         )

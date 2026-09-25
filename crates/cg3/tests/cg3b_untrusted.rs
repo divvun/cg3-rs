@@ -153,7 +153,7 @@ fn well_formed_grammar_loads_and_runs() {
 /// Every strict prefix of a real `.cg3b` is refused as truncated, rather
 /// than read as zeros into a grammar that panics once it runs.
 // [spec:cg3:req:robustness.binary-grammar-validated/test]
-// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1/test]
+// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+2/test]
 #[test]
 fn every_truncation_is_refused_as_truncated() {
     // Without the regex tags, whose compilation would dominate thousands of
@@ -665,13 +665,14 @@ fn structural_cycles_are_refused() {
     assert!(matches!(fault(&m), BinaryFault::RuleCycle { .. }));
 }
 
-/// Ten thousand tags on consecutive hashes leave the tag interner no seed
-/// for a new tag whose hash falls at their start; one fewer leaves it one.
-/// Each crowding tag is `foo` at its own seed, so every stored hash is still
-/// the one the tag's text and seed give it.
+/// Ten thousand tags on consecutive hashes load, as they do in the C++: the
+/// tag interner probes past a run of any length. Each crowding tag is `foo`
+/// at its own seed, so every stored hash is still the one the tag's text and
+/// seed give it.
 // [spec:cg3:req:robustness.binary-grammar-validated/test]
+// [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+2/test]
 #[test]
-fn crowded_tag_hashes_are_refused() {
+fn crowded_tag_hashes_load() {
     let with_run = |len: u32| {
         let mut m = base();
         let first = cg3::inlines::hash_value_str("foo", 0);
@@ -689,11 +690,7 @@ fn crowded_tag_hashes_are_refused() {
         }
         m
     };
-    assert!(matches!(
-        fault(&with_run(10_000)),
-        BinaryFault::HashRun { len: 10_000, .. }
-    ));
-    load(&with_run(9_999).encode()).expect("a run one short of the probe loads");
+    load(&with_run(10_000).encode()).expect("a run as long as the C++ probe loads");
 }
 
 /// The command line reports a truncated `.cg3b` and exits nonzero, without

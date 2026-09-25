@@ -15,7 +15,7 @@ use super::read::variable_hash_of;
 use crate::arena::CtxId;
 use crate::contextual_test::{POS_TMPL_OVERRIDE, POS_UNKNOWN};
 use crate::error::{BinaryFault, GrammarError};
-use crate::grammar::{GrammarCore, SEED_PROBE_WIDTH};
+use crate::grammar::GrammarCore;
 use crate::tag::Tag;
 
 /// A node on a cycle in the graph over `0..n` whose edges `succ` gives, or
@@ -152,9 +152,7 @@ pub(super) fn rule_cycles(grammar: &GrammarCore, load: &Load) -> Result<(), Gram
 
 // [spec:cg3:req:robustness.binary-grammar-validated]
 /// The tag table as a whole: every tag stores the hashes its text, type and
-/// seed give it, every variable value names a tag, and no run of consecutive
-/// hashes is as long as the seed probe `addTag` walks, so interning a tag at
-/// run time always finds a free hash.
+/// seed give it, and every variable value names a tag.
 pub(super) fn tag_hashes(grammar: &GrammarCore, load: &Load) -> Result<(), GrammarError> {
     for number in 0..load.num_tags {
         let t = &grammar.single_tags_list[number];
@@ -167,7 +165,7 @@ pub(super) fn tag_hashes(grammar: &GrammarCore, load: &Load) -> Result<(), Gramm
             return Err(malformed(at, BinaryFault::UnknownTag { what, hash }));
         }
     }
-    hash_runs(grammar, load)
+    Ok(())
 }
 
 /// A tag record's hashes against the ones [`Tag::rehash`] gives its text,
@@ -196,24 +194,4 @@ fn stored_hashes(t: &Tag) -> Result<(), BinaryFault> {
         stored,
         computed,
     })
-}
-
-/// No run of consecutive tag hashes as long as the seed probe.
-fn hash_runs(grammar: &GrammarCore, load: &Load) -> Result<(), GrammarError> {
-    let mut hashes: Vec<(u32, u32)> = (0..load.num_tags)
-        .map(|n| (grammar.single_tags_list[n].hash.get(), n))
-        .collect();
-    hashes.sort_unstable();
-    let mut start = 0;
-    for i in 1..hashes.len() {
-        if hashes[i].0 != hashes[i - 1].0.wrapping_add(1) {
-            start = i;
-        } else if i - start + 1 >= SEED_PROBE_WIDTH as usize {
-            let (first, number) = hashes[start];
-            let len = (i - start + 1) as u32;
-            let at = load.tag_at[number as usize];
-            return Err(malformed(at, BinaryFault::HashRun { first, len }));
-        }
-    }
-    Ok(())
 }

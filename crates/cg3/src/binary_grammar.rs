@@ -225,8 +225,8 @@ impl BinaryGrammar {
         self.parse_cg3b(buffer)
     }
 
-    // [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1]
-    // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1]
+    // [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+2]
+    // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+2]
     /// C++ `int parse_grammar(std::istream& input)` (BinaryGrammar_read.cpp).
     /// Reads the stream to its end, then the `.cg3b` it held; see
     /// `parse_cg3b`.
@@ -241,8 +241,8 @@ impl BinaryGrammar {
         self.parse_cg3b(&data)
     }
 
-    // [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1]
-    // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1]
+    // [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+2]
+    // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+2]
     // [spec:cg3:req:robustness.binary-grammar-validated]
     /// Reads a whole `.cg3b` blob into `grammar`, one section at a time in the
     /// wire order of the module docs. Every read is bounds-checked and every

@@ -3,7 +3,7 @@
 > [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn]
 > int BinaryGrammar::parse_grammar(std::istream& input)
 
-> [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+1]
+> [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+2]
 > Reads a whole `.cg3b` binary grammar from `input` into `grammar`. All
 > multi-byte integers are big-endian via `readBE<T>` (raw read + byte swap);
 > strings are UTF-8 decoded through an ICU `UConverter` opened for "UTF-8" into
@@ -129,10 +129,10 @@
 > no tag list, a set that contains itself, a test that reaches itself through
 > its OR'd and LINKed tests (a cycle through a template reference is left to
 > run time, as the `T_Templates` fixture compiles one), a rule among its own
-> `WITH` sub-rules, a `?` position a run would reach with no template
-> override to replace it (the C++ quits when the run gets there), and a run
-> of consecutive tag hashes as long as `addTag`'s seed probe. A deferred
-> template or OR hash that names no test is an error.
+> `WITH` sub-rules, and a `?` position a run would reach with no template
+> override to replace it (the C++ quits when the run gets there). A deferred
+> template or OR hash that names no test is an error. Tags may sit on any
+> number of consecutive hashes: `addTag` probes past a run of any length.
 
 > [spec:cg3:def:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn]
 > ContextualTest* BinaryGrammar::readContextualTest(std::istream& input)

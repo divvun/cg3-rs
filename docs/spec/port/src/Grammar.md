@@ -181,7 +181,7 @@
 > [spec:cg3:def:grammar.cg3.grammar.add-tag-fn]
 > Tag* Grammar::addTag(Tag* tag)
 
-> [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn]
+> [spec:cg3:sem:grammar.cg3.grammar.add-tag-fn+1]
 > Interns a Tag into single_tags/single_tags_list, deduplicating by hash and
 > text, and returns the canonical Tag pointer. Computes hash = tag->rehash().
 > Linear-probes seeds 0..9999: ih = hash + seed. (a) If single_tags contains ih:
@@ -196,6 +196,15 @@
 > single_tags[hash] = tag; break. Returns single_tags[hash]. Because rehash folds
 > seed into the hash, the final `hash` matches the probed slot both when inserting
 > and when deduplicating.
+>
+> PORT DIVERGENCE: the probe has no width. It walks seeds until it meets the
+> same text or a free slot, however many that takes, and steps over the values
+> no tag hash may take — 0, which `hash_value` never gives, and the flat hash
+> tables' two sentinels, `0xFFFFFFFF` and `0xFFFFFFFE`, which `hash + seed`
+> can wrap onto. The C++ stops after 10000 seeds and returns whatever tag sits
+> at the unseeded hash, a tag with other text; a grammar or stream can crowd
+> 10000 consecutive hashes on purpose. A free slot always exists, since a
+> grammar holding a tag on every other hash could not be allocated.
 
 > [spec:cg3:def:grammar.cg3.grammar.add-tag-to-set-fn]
 > void Grammar::addTagToSet(Tag* rtag, Set* set)

@@ -437,7 +437,6 @@ mod overlay;
 mod tag_space;
 
 pub use overlay::{Grammar, TagHashRef, TagIndex, TagStore};
-pub(crate) use tag_space::SEED_PROBE_WIDTH;
 pub use tag_space::TagSpace;
 
 impl GrammarCore {
