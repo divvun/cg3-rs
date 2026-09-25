@@ -690,7 +690,7 @@ impl crate::grammar_applicator::Engine<'_> {
                                     || (tpos.intersects(POS_NO_PASS_ORIGIN)))
                             {
                                 self.run_contextual_test(
-                                    Some(current),
+                                    current,
                                     c,
                                     TestRef::new(test),
                                     deep_ref.take(),
@@ -698,7 +698,7 @@ impl crate::grammar_applicator::Engine<'_> {
                                 )?
                             } else {
                                 self.run_contextual_test(
-                                    Some(current),
+                                    current,
                                     c,
                                     TestRef::new(test),
                                     deep_ref.take(),

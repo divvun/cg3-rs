@@ -1083,7 +1083,7 @@ impl Engine<'_> {
 
     pub fn run_contextual_test(
         &mut self,
-        sw: Option<SwId>,
+        sw: SwId,
         position: u32,
         test: crate::contextual_test::TestRef,
         deep: Option<&mut Option<CohortId>>,
@@ -1091,6 +1091,17 @@ impl Engine<'_> {
     ) -> Result<Option<CohortId>, crate::error::RunError> {
         self.matcher()
             .run_contextual_test(sw, position, test, deep, origin)
+    }
+
+    pub fn run_contextual_test_from(
+        &mut self,
+        cohort: CohortId,
+        test: crate::contextual_test::TestRef,
+        deep: Option<&mut Option<CohortId>>,
+        origin: Option<CohortId>,
+    ) -> Result<Option<CohortId>, crate::error::RunError> {
+        self.matcher()
+            .run_contextual_test_from(cohort, test, deep, origin)
     }
 
     pub fn get_sub_reading(&mut self, tr: ReadingId, sub_reading: i32) -> Option<ReadingId> {

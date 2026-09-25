@@ -59,7 +59,7 @@ impl crate::grammar_applicator::Engine<'_> {
         frame.attach_to = crate::grammar_applicator::ReadingSpec::default();
         let mut attach_out: Option<CohortId> = None;
         let res = self.run_contextual_test(
-            Some(current),
+            current,
             c,
             TestRef::new(dep_target),
             Some(&mut attach_out),
@@ -251,12 +251,8 @@ impl crate::grammar_applicator::Engine<'_> {
             self.set_mark_frame(attach);
             self.scratch.dep_deep_seen.clear();
             self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
-            let (aparent, alocal) = {
-                let cc = self.doc.store.cohorts.get(attach.0);
-                (cc.parent, cc.local_number)
-            };
             let tg = self
-                .run_contextual_test(aparent, alocal, TestRef::new(it), None, None)?
+                .run_contextual_test_from(attach, TestRef::new(it), None, None)?
                 .is_some();
             self.profile_rule_context(tg, rule, it);
             if !tg {
@@ -792,13 +788,9 @@ impl crate::grammar_applicator::Engine<'_> {
             self.set_mark_frame(target);
             self.scratch.dep_deep_seen.clear();
             self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
-            let (tparent, tlocal) = {
-                let c = self.doc.store.cohorts.get(target.0);
-                (c.parent, c.local_number)
-            };
             let mut attach: Option<CohortId> = None;
             let tg = self
-                .run_contextual_test(tparent, tlocal, TestRef::new(it), Some(&mut attach), None)?
+                .run_contextual_test_from(target, TestRef::new(it), Some(&mut attach), None)?
                 .is_some()
                 && attach.is_some();
             self.profile_rule_context(tg, rule, it);
@@ -969,7 +961,7 @@ impl crate::grammar_applicator::Engine<'_> {
         };
         let mut attach_out: Option<CohortId> = None;
         let res = self.run_contextual_test(
-            Some(current),
+            current,
             c,
             TestRef::new(dep_target),
             Some(&mut attach_out),

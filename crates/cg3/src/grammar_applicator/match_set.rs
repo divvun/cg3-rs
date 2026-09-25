@@ -1195,27 +1195,13 @@ impl Matcher<'_> {
                 // A LINK target is its own test object; the POS_TMPL_OVERRIDE
                 // write never reached it, so it runs with no override.
                 let lref = crate::contextual_test::TestRef::new(l);
-                let (cparent, clocal) = {
-                    let c = self.cohorts.get(cohort.0);
-                    (c.parent, c.local_number)
-                };
-                let res = if lpos.intersects(POS_NO_PASS_ORIGIN) {
-                    self.run_linked_test(
-                        cparent,
-                        clocal,
-                        lref,
-                        context.deep.as_deref_mut(),
-                        Some(cohort),
-                    )?
+                let origin = if lpos.intersects(POS_NO_PASS_ORIGIN) {
+                    Some(cohort)
                 } else {
-                    self.run_linked_test(
-                        cparent,
-                        clocal,
-                        lref,
-                        context.deep.as_deref_mut(),
-                        context.origin,
-                    )?
+                    context.origin
                 };
+                let res =
+                    self.run_linked_test_from(cohort, lref, context.deep.as_deref_mut(), origin)?;
                 context.matched_tests = res.is_some();
                 let child_unify = self
                     .grammar

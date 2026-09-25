@@ -60,7 +60,7 @@ impl Matcher<'_> {
     /// its `LINK` — one level deeper.
     pub(super) fn run_linked_test(
         &mut self,
-        sw: Option<SwId>,
+        sw: SwId,
         position: u32,
         test: TestRef,
         deep: Option<&mut Option<CohortId>>,
@@ -70,6 +70,21 @@ impl Matcher<'_> {
         let found = self.run_contextual_test(sw, position, test, deep, origin);
         self.scratch.nesting -= 1;
         found
+    }
+
+    /// [`Self::run_linked_test`] from where `cohort` sits. A cohort in no
+    /// window has nowhere to test from, and the test finds nothing.
+    pub(super) fn run_linked_test_from(
+        &mut self,
+        cohort: CohortId,
+        test: TestRef,
+        deep: Option<&mut Option<CohortId>>,
+        origin: Option<CohortId>,
+    ) -> Result<Option<CohortId>, RunError> {
+        match self.place_of(cohort) {
+            Some((sw, position)) => self.run_linked_test(sw, position, test, deep, origin),
+            None => Ok(None),
+        }
     }
 
     // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn+1]
@@ -85,7 +100,7 @@ impl Matcher<'_> {
     pub(super) fn run_template_test(
         &mut self,
         outer: CtxId,
-        sw: Option<SwId>,
+        sw: SwId,
         position: u32,
         test: TestRef,
         deep: Option<&mut Option<CohortId>>,

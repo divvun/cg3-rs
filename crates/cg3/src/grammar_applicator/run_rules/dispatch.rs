@@ -1626,13 +1626,9 @@ impl crate::grammar_applicator::Engine<'_> {
                 f.attach_to = crate::grammar_applicator::ReadingSpec::default();
             }
             self.scratch.seen_barrier = false;
-            let (tparent, tlocal) = {
-                let c = self.doc.store.cohorts.get(target.0);
-                (c.parent, c.local_number)
-            };
             let mut attach_out: Option<CohortId> = None;
             let res =
-                self.run_contextual_test(tparent, tlocal, dep_ref, Some(&mut attach_out), None)?;
+                self.run_contextual_test_from(target, dep_ref, Some(&mut attach_out), None)?;
             if res.is_some()
                 && let Some(mut attach) = attach_out
             {
@@ -1654,10 +1650,6 @@ impl crate::grammar_applicator::Engine<'_> {
                     self.set_mark_frame(attach);
                     self.scratch.dep_deep_seen.clear();
                     self.scratch.tmpl_cntx = crate::grammar_applicator::TmplContext::default();
-                    let (aparent, alocal) = {
-                        let c = self.doc.store.cohorts.get(attach.0);
-                        (c.parent, c.local_number)
-                    };
                     // `add_contextual_test` deduplicates structurally identical
                     // tests, so a dep test can BE `dep_target`. C++ clamps the
                     // shared object, so such a test sees the clamp too.
@@ -1667,7 +1659,7 @@ impl crate::grammar_applicator::Engine<'_> {
                         TestRef::new(it)
                     };
                     let tg = self
-                        .run_contextual_test(aparent, alocal, itref, None, None)?
+                        .run_contextual_test_from(attach, itref, None, None)?
                         .is_some();
                     self.profile_rule_context(tg, rule, it);
                     if !tg {

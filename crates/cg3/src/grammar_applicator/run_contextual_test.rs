@@ -24,16 +24,18 @@
 //! EXPOSED here (match_set calls it directly; run_rules through the `Engine`
 //! forwarder in mod.rs):
 //!
-//! - `run_contextual_test(&mut self, sw: Option<SwId>, position: u32, test:
-//!   CtxId, deep: Option<&mut Option<CohortId>>, origin: Option<CohortId>) ->
-//!   Option<CohortId>` — the exact shape match_set.rs already calls
-//!   (`self.run_contextual_test(cparent, clocal, l, context.deep, Some(cohort))?`),
-//!   where `cparent: Option<SwId>`, `clocal: u32` (a cohort's `local_number`).
+//! - `run_contextual_test(&mut self, sw: SwId, position: u32, test: TestRef,
+//!   deep: Option<&mut Option<CohortId>>, origin: Option<CohortId>)`, run from
+//!   `position` in window `sw`, and `run_contextual_test_from`, which takes a
+//!   cohort and runs from where it sits.
 //!
 //! ARENA-MODEL / SIGNATURE NOTES
-//! * `SingleWindow*& sWindow` (a by-reference, reassignable pointer) → an
-//!   `Option<SwId>` LOCAL (`sw`): reassignments hop windows exactly as the C++
-//!   does, and never escape. `size_t position` → `u32` (a cohort `local_number`).
+//! * `SingleWindow*& sWindow` (a by-reference, reassignable pointer) → a
+//!   `SwId` LOCAL (`sw`): reassignments hop windows exactly as the C++ does,
+//!   and never escape. The C++ pointer is never null where a test runs, and
+//!   the port's is a window, not an option on one: a cohort in no window
+//!   finds nothing, where the C++ would dereference its null `parent`.
+//!   `size_t position` → `u32` (a cohort `local_number`).
 //! * `sWindow->parent->cohort_map` (the owning `Window`'s map) → the applicator's
 //!   inline `self.registry.cohort_map` — the port holds one `Window` per engine.
 //! * The C++ `CohortIterator*` base-pointer virtual dispatch (`++(*it)`, `**it`)
@@ -485,7 +487,7 @@ impl Matcher<'_> {
     /// passes it down; the arena is never touched.
     pub fn run_contextual_test_tmpl(
         &mut self,
-        sw: Option<SwId>,
+        sw: SwId,
         position: u32,
         test: TestRef,
         tmpl: CtxId,
@@ -556,17 +558,9 @@ impl Matcher<'_> {
         if override_applied
             && let (Some(c), Some(cd)) = (cohort, *cdeep)
             && test_offset != 0
+            && !self.pos_output_helper(sw, position, test, c, cd)
         {
-            #[expect(
-                clippy::expect_used,
-                reason = "a contextual test runs in a cohort's window: callers pass a cohort's parent or the current window, a jump moves it to its target cohort's, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
-            )]
-            let sw_id = sw.expect(
-                "runContextualTest_tmpl: posOutputHelper needs a window but sWindow is null",
-            );
-            if !self.pos_output_helper(sw_id, position, test, c, cd) {
-                cohort = None;
-            }
+            cohort = None;
         }
 
         if test_linked.is_some() {
@@ -590,10 +584,11 @@ impl Matcher<'_> {
     /// runContextualTest(SingleWindow* sWindow, size_t position, const
     /// ContextualTest*, Cohort** deep, Cohort* origin)`. Returns the matched
     /// cohort, `None` on failure, or `sWindow->cohorts[0]` as a truthy
-    /// success-with-no-cohort sentinel.
+    /// success-with-no-cohort sentinel. `sw` is the window `position` counts
+    /// in; [`Self::run_contextual_test_from`] starts from a cohort instead.
     pub fn run_contextual_test(
         &mut self,
-        sw: Option<SwId>,
+        sw: SwId,
         position: u32,
         test: TestRef,
         mut deep: Option<&mut Option<CohortId>>,
@@ -615,32 +610,12 @@ impl Matcher<'_> {
         let mut retval = true;
 
         if test_pos.intersects(POS_JUMP) {
-            let jump_pos = self.grammar.contexts_arena[test.id.0].jump_pos;
-            let mut j: Option<CohortId> = None;
-            if jump_pos == JumpMark as i8 {
-                j = self.get_mark();
-            } else if jump_pos == JumpAttach as i8 {
-                j = self.get_attach_to().cohort;
-            } else if jump_pos == JumpTarget as i8 {
-                for it in self.scratch.context_stack.iter().rev() {
-                    if it.is_with {
-                        j = it.target.cohort;
-                    }
+            match self.jump_target(test).and_then(|jc| self.place_of(jc)) {
+                Some((window, local)) => {
+                    sw = window;
+                    position = local;
                 }
-            } else {
-                if self.scratch.context_stack.len() > 1 {
-                    let ctx = &self.scratch.context_stack[self.scratch.context_stack.len() - 2];
-                    if ctx.context.len() >= jump_pos as usize {
-                        j = ctx.context[(jump_pos - 1) as usize];
-                    }
-                }
-            }
-            if let Some(jc) = j {
-                let c = self.cohorts.get(jc.0);
-                sw = c.parent;
-                position = c.local_number;
-            } else {
-                retval = false;
+                None => retval = false,
             }
         }
         // The window `position` counts in, for the SELF probe: the jump
@@ -692,11 +667,7 @@ impl Matcher<'_> {
         if cohort.is_none() {
             retval = false;
         } else if let Some(cid) = plain {
-            #[expect(
-                clippy::unwrap_used,
-                reason = "get_cohort_in_window found cid in sw: it expects the window the test runs in, and moves sw only to a neighbouring window it found"
-            )]
-            let sw_id = sw.unwrap();
+            let sw_id = sw;
 
             if test_pos.intersects(POS_PASS_ORIGIN) {
                 origin = Some(self.single_windows.get(sw_id.0).cohorts[0]);
@@ -755,7 +726,7 @@ impl Matcher<'_> {
                 if let Some(nc) = nc {
                     cohort = Some(nc);
                     retval = true;
-                    sw = self.cohorts.get(nc.0).parent;
+                    sw = self.cohorts.get(nc.0).parent.unwrap_or(sw);
                 } else {
                     retval = false;
                 }
@@ -870,10 +841,52 @@ impl Matcher<'_> {
         Ok(self.finalize_got_a_cohort(sw, test, cohort, retval))
     }
 
+    /// [`Self::run_contextual_test`] from where `cohort` sits: its window and
+    /// its position there. A cohort in no window has nowhere to test from, and
+    /// the test finds nothing.
+    pub fn run_contextual_test_from(
+        &mut self,
+        cohort: CohortId,
+        test: TestRef,
+        deep: Option<&mut Option<CohortId>>,
+        origin: Option<CohortId>,
+    ) -> Result<Option<CohortId>, crate::error::RunError> {
+        match self.place_of(cohort) {
+            Some((sw, position)) => self.run_contextual_test(sw, position, test, deep, origin),
+            None => Ok(None),
+        }
+    }
+
+    /// The window `cohort` sits in and its position there, or `None` for a
+    /// cohort in no window.
+    pub(super) fn place_of(&self, cohort: CohortId) -> Option<(SwId, u32)> {
+        let c = self.cohorts.get(cohort.0);
+        Some((c.parent?, c.local_number))
+    }
+
+    /// The cohort a jump test goes to: the mark, the attach-to cohort, the
+    /// target of the outermost `WITH`, or a cohort the enclosing rule's
+    /// context matched. `None` when there is no such cohort.
+    fn jump_target(&self, test: TestRef) -> Option<CohortId> {
+        let jump_pos = self.grammar.contexts_arena[test.id.0].jump_pos;
+        let stack = &self.scratch.context_stack;
+        if jump_pos == JumpMark as i8 {
+            self.get_mark()
+        } else if jump_pos == JumpAttach as i8 {
+            self.get_attach_to().cohort
+        } else if jump_pos == JumpTarget as i8 {
+            stack.iter().find(|frame| frame.is_with)?.target.cohort
+        } else if stack.len() > 1 && stack[stack.len() - 2].context.len() >= jump_pos as usize {
+            stack[stack.len() - 2].context[(jump_pos - 1) as usize]
+        } else {
+            None
+        }
+    }
+
     /// C++ `label_gotACohort:` finalize block of `runContextualTest`.
     fn finalize_got_a_cohort(
         &self,
-        sw: Option<SwId>,
+        sw: SwId,
         test: TestRef,
         mut cohort: Option<CohortId>,
         mut retval: bool,
@@ -898,12 +911,7 @@ impl Matcher<'_> {
             cohort = None;
         } else if cohort.is_none() {
             // Truthy success with no natural cohort: window's cohort[0].
-            #[expect(
-                clippy::expect_used,
-                reason = "a contextual test runs in a cohort's window: callers pass a cohort's parent or the current window, a jump moves it to its target cohort's, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
-            )]
-            let sw_id = sw.expect("runContextualTest: sentinel needs a window");
-            cohort = Some(self.single_windows.get(sw_id.0).cohorts[0]);
+            cohort = Some(self.single_windows.get(sw.0).cohorts[0]);
         }
         cohort
     }
@@ -953,15 +961,15 @@ impl Matcher<'_> {
     /// happen, and read out of bounds in a release build).
     fn run_self_probe(
         &mut self,
-        sw: Option<SwId>,
+        sw: SwId,
         position: u32,
         test: TestRef,
         rvs: &mut u8,
         deep: Option<&mut Option<CohortId>>,
         origin: Option<CohortId>,
     ) -> Result<(Option<CohortId>, bool), crate::error::RunError> {
-        let window = sw.map(|w| &self.single_windows.get(w.0).cohorts);
-        match window.and_then(|cohorts| cohorts.get(position as usize).copied()) {
+        let cohorts = &self.single_windows.get(sw.0).cohorts;
+        match cohorts.get(position as usize).copied() {
             Some(self_c) => self.run_single_test(self_c, test, rvs, deep, origin),
             None => Ok((None, false)),
         }
@@ -974,7 +982,7 @@ impl Matcher<'_> {
     fn run_iter(
         &mut self,
         sel: ItSel,
-        self_swin: Option<SwId>,
+        self_swin: SwId,
         position: u32,
         cohort: CohortId,
         args: TestArgs<'_>,
@@ -1253,7 +1261,7 @@ impl Matcher<'_> {
     /// `self` state is otherwise touched).
     pub fn get_cohort_in_window(
         &self,
-        sw: &mut Option<SwId>,
+        sw: &mut SwId,
         position: u32,
         test: TestRef,
         pos: &mut i32,
@@ -1265,11 +1273,7 @@ impl Matcher<'_> {
         };
         *pos = si32(position).saturating_add(test_offset);
 
-        #[expect(
-            clippy::expect_used,
-            reason = "a contextual test runs in a cohort's window: callers pass a cohort's parent or the current window, a jump moves it to its target cohort's, and a cohort in a window has a parent: alloc_cohort(Some(sw)) and append_cohort set it"
-        )]
-        let mut cur = sw.expect("getCohortInWindow: sWindow is null");
+        let mut cur = *sw;
 
         if (test_pos.intersects(POS_ABSOLUTE))
             && (test_pos.intersects(POS_SPAN_LEFT | POS_SPAN_RIGHT))
@@ -1287,7 +1291,7 @@ impl Matcher<'_> {
             } else {
                 return cohort;
             }
-            *sw = Some(cur);
+            *sw = cur;
         }
 
         if test_pos.intersects(POS_ABSOLUTE) {
@@ -1305,7 +1309,7 @@ impl Matcher<'_> {
                 && let Some(next) = self.single_windows.get(cur.0).next
             {
                 cur = next;
-                *sw = Some(cur);
+                *sw = cur;
                 *pos = 0;
             }
         } else {
@@ -1313,7 +1317,7 @@ impl Matcher<'_> {
                 && let Some(previous) = self.single_windows.get(cur.0).previous
             {
                 cur = previous;
-                *sw = Some(cur);
+                *sw = cur;
                 *pos = self.single_windows.get(cur.0).cohorts.len() as i32 - 1;
             }
         }
