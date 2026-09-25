@@ -638,7 +638,7 @@ impl DepAncestorIter {
         }
     }
 
-    // [spec:cg3:def:cohort-iterator.cg3.dep-ancestor-iter.reset-fn]
+    // [spec:cg3:def:cohort-iterator.cg3.dep-ancestor-iter.reset-fn+1]
     // [spec:cg3:sem:cohort-iterator.cg3.dep-ancestor-iter.reset-fn+1]
     // [spec:cg3:req:robustness.terminates]
     /// Rebuilds `m_ancestors`. DIVERGENCE: a span-filtered ancestor is skipped

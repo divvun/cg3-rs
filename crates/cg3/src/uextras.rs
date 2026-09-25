@@ -499,7 +499,7 @@ fn dirname_posix(path: &str) -> String {
     path[..j].to_string()
 }
 
-// [spec:cg3:def:uextras.cg3.find-and-replace-fn]
+// [spec:cg3:def:uextras.cg3.find-and-replace-fn+1]
 // [spec:cg3:sem:uextras.cg3.find-and-replace-fn+1]
 // [spec:cg3:req:robustness.terminates]
 //
