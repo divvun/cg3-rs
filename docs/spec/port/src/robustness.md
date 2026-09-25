@@ -175,10 +175,14 @@ process. Having written a file does not make it trusted when it is read back.
 
 ## The command line
 
-> [spec:cg3:req:robustness.cli-output]
+> [spec:cg3:req:robustness.cli-output+1]
 > A standard output or standard error that closes under a tool — `--help`
 > piped into `head`, a reader that exits early — MUST NOT make the tool panic.
-> The tool ends without a diagnostic, as one killed by `SIGPIPE` would.
+> On Unix the tool is ended by `SIGPIPE`, as the C++ tools are: each restores
+> the signal's default disposition, which the Rust runtime sets to ignored,
+> before it does anything else. Where there is no `SIGPIPE`, the tool stops
+> writing to the closed stream, reports nothing, and returns the exit code it
+> already had.
 
 > [spec:cg3:req:robustness.cli-arguments]
 > Every tool MUST refuse a malformed command line with a message and a nonzero

@@ -221,14 +221,15 @@ pub fn handle_divvun_version(args: &[String], product: &str, short_aliases: &[&s
 
 // --- Standard streams ------------------------------------------------------------
 
-// [spec:cg3:req:robustness.cli-output]
+// [spec:cg3:req:robustness.cli-output+1]
 /// Write `text` to `stream` and flush it; a stream that has closed ends the
 /// output there, quietly.
 ///
-/// The `print!` family panics once the reader has gone — `vislcg3 --help | head
-/// -1` — where the C++ tools are killed by `SIGPIPE` without a word. This stops
-/// the same way and leaves the tool to return the exit code it already had.
-/// Nothing is reported: the reader that would see it is the one that left.
+/// On Unix a closed pipe ends the tool with `SIGPIPE` at this write
+/// ([`run_tool`] restores the signal). Where there is no `SIGPIPE`, or for a
+/// caller that did not restore it, the write fails, where the `print!` family
+/// would panic, and the tool returns the exit code it already had. Nothing is
+/// reported: the reader that would see it is the one that left.
 pub(crate) fn emit(mut stream: impl Write, text: &str) {
     if stream.write_all(text.as_bytes()).is_ok() {
         let _ = stream.flush();
@@ -272,8 +273,14 @@ enum CommandLineError {
 }
 
 // [spec:cg3:req:robustness.cli-arguments]
-/// Run a tool binary: take its command line, answer `--version`, install
-/// diagnostics and hand over to its ported `main`. Returns the exit code.
+// [spec:cg3:req:robustness.cli-output+1]
+/// Run a tool binary: restore `SIGPIPE`, take its command line, answer
+/// `--version`, install diagnostics and hand over to its ported `main`.
+/// Returns the exit code.
+///
+/// The Rust runtime ignores `SIGPIPE`, so a write to a stream whose reader has
+/// gone fails instead of ending the process. The default disposition is put
+/// back first, so a tool writing into a closed pipe ends as the C++ tools do.
 ///
 /// DIVERGENCE: the C++ takes `argv` and its option variables as bytes and
 /// passes them on unread. Every option value here is a `String`, so an
@@ -281,6 +288,7 @@ enum CommandLineError {
 /// tool starts, where an argument used to panic and a variable was passed over
 /// as though unset.
 pub fn run_tool(tool: &Tool) -> i32 {
+    sigpipe::reset();
     let args = match utf8_args(std::env::args_os()) {
         Ok(args) => args,
         Err(e) => return refuse(&e),

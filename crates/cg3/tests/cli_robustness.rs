@@ -1,14 +1,15 @@
 //! The tools against command lines and output streams they cannot use: each
-//! is refused with a message and a nonzero exit, or ends quietly, and none of
-//! them panics.
+//! is refused with a message and a nonzero exit, or is ended by `SIGPIPE` as
+//! the C++ tools are, and none of them panics.
 //!
 //! Every test drives the real binaries. Outputs go to `std::env::temp_dir()`.
 #![cfg(unix)]
 
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt as _;
+use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, ExitStatus, Output, Stdio};
 
 const VISLCG3: &str = env!("CARGO_BIN_EXE_vislcg3");
 const CG_PROC: &str = env!("CARGO_BIN_EXE_cg-proc");
@@ -61,15 +62,27 @@ enum Closed {
     Stderr,
 }
 
+/// The signal a write into a pipe with no reader raises.
+const SIGPIPE: i32 = 13;
+
+/// Assert `bin args` ended as the C++ tool does when its reader has gone:
+/// killed by `SIGPIPE`, not exiting (a panic exits 101).
+fn assert_sigpipe(status: ExitStatus, bin: &str, args: &[&str], closed: Closed) {
+    assert_eq!(
+        status.signal(),
+        Some(SIGPIPE),
+        "{bin} {args:?} into a closed {closed:?} ended with {status}"
+    );
+}
+
 /// Run `bin args` with its `closed` stream a pipe whose reader is already gone,
-/// so the first write to it fails with a broken pipe, and return the exit code.
-/// A panic shows as exit 101 (and, with stdout closed, on stderr).
-fn exit_into_closed_pipe(bin: &str, args: &[&str], closed: Closed) -> Option<i32> {
+/// so the first write to it raises `SIGPIPE`, and return how it ended.
+fn exit_into_closed_pipe(bin: &str, args: &[&str], closed: Closed) -> ExitStatus {
     run_into_closed_pipe(bin, args, b"", closed)
 }
 
 /// [`exit_into_closed_pipe`], with `input` on the tool's stdin.
-fn run_into_closed_pipe(bin: &str, args: &[&str], input: &[u8], closed: Closed) -> Option<i32> {
+fn run_into_closed_pipe(bin: &str, args: &[&str], input: &[u8], closed: Closed) -> ExitStatus {
     let (reader, writer) = std::io::pipe().expect("pipe");
     drop(reader);
     let mut cmd = Command::new(bin);
@@ -89,40 +102,40 @@ fn run_into_closed_pipe(bin: &str, args: &[&str], input: &[u8], closed: Closed) 
         stderr.is_empty(),
         "{bin} {args:?} into a closed {closed:?} said: {stderr}"
     );
-    out.status.code()
+    out.status
 }
 
-// [spec:cg3:req:robustness.cli-output/test]
-// Usage, help and version text written into a pipe nobody reads: the tool ends
-// with the exit code the text came with, and says nothing about the pipe.
+// [spec:cg3:req:robustness.cli-output+1/test]
+// Usage, help and version text written into a pipe nobody reads: the tool is
+// ended by the signal, and says nothing about the pipe.
 #[test]
-fn help_into_a_closed_pipe_ends_quietly() {
-    let cases: &[(&str, &[&str], i32)] = &[
-        (VISLCG3, &["--help"], 0),
-        (VISLCG3, &["-V"], 0),
-        (VISLCG3, &["--min-binary-revision"], 0),
-        (CG_PROC, &["-h"], 1),
-        (CG_PROC, &["-v"], 0),
-        (CG_PROC, &[], 1),
-        (CG_COMP, &[], 1),
-        (CG_RELABEL, &[], 1),
-        (CG_CONV, &["--help"], 0),
-        (CG_MWESPLIT, &["--help"], 0),
+fn help_into_a_closed_pipe_raises_sigpipe() {
+    let cases: &[(&str, &[&str])] = &[
+        (VISLCG3, &["--help"]),
+        (VISLCG3, &["-V"]),
+        (VISLCG3, &["--min-binary-revision"]),
+        (CG_PROC, &["-h"]),
+        (CG_PROC, &["-v"]),
+        (CG_PROC, &[]),
+        (CG_COMP, &[]),
+        (CG_RELABEL, &[]),
+        (CG_CONV, &["--help"]),
+        (CG_MWESPLIT, &["--help"]),
     ];
-    for &(bin, args, want) in cases {
-        let got = exit_into_closed_pipe(bin, args, Closed::Stdout);
-        assert_eq!(got, Some(want), "{bin} {args:?} into a closed stdout");
+    for &(bin, args) in cases {
+        let status = exit_into_closed_pipe(bin, args, Closed::Stdout);
+        assert_sigpipe(status, bin, args, Closed::Stdout);
     }
     for bin in all_tools() {
-        let got = exit_into_closed_pipe(bin, &["--version"], Closed::Stdout);
-        assert_eq!(got, Some(0), "{bin} --version into a closed stdout");
+        let status = exit_into_closed_pipe(bin, &["--version"], Closed::Stdout);
+        assert_sigpipe(status, bin, &["--version"], Closed::Stdout);
     }
 }
 
-// [spec:cg3:req:robustness.cli-output/test]
-// A run whose reader has gone ends as quietly as the help does.
+// [spec:cg3:req:robustness.cli-output+1/test]
+// A run whose reader has gone ends as the help does.
 #[test]
-fn a_run_into_a_closed_pipe_ends_quietly() {
+fn a_run_into_a_closed_pipe_raises_sigpipe() {
     let select = repo_root().join("test/T_Select");
     let grammar = select.join("grammar.cg3");
     let input = std::fs::read(select.join("input.txt")).unwrap();
@@ -132,19 +145,19 @@ fn a_run_into_a_closed_pipe_ends_quietly() {
         (CG_MWESPLIT, &[]),
     ];
     for (bin, args) in cases {
-        let got = run_into_closed_pipe(bin, args, &input, Closed::Stdout);
-        assert_eq!(got, Some(0), "{bin} {args:?} into a closed stdout");
+        let status = run_into_closed_pipe(bin, args, &input, Closed::Stdout);
+        assert_sigpipe(status, bin, args, Closed::Stdout);
     }
 }
 
-// [spec:cg3:req:robustness.cli-output/test]
-// A bad flag's usage goes to stderr; with stderr closed the tool still ends
-// with its refusal, not a panic.
+// [spec:cg3:req:robustness.cli-output+1/test]
+// A bad flag's usage goes to stderr; with stderr closed the signal ends the
+// tool there, as it does with stdout.
 #[test]
-fn usage_into_a_closed_stderr_still_refuses() {
+fn usage_into_a_closed_stderr_raises_sigpipe() {
     for bin in [CG_CONV, CG_MWESPLIT] {
-        let got = exit_into_closed_pipe(bin, &["--no-such-flag"], Closed::Stderr);
-        assert_eq!(got, Some(1), "{bin} --no-such-flag into a closed stderr");
+        let status = exit_into_closed_pipe(bin, &["--no-such-flag"], Closed::Stderr);
+        assert_sigpipe(status, bin, &["--no-such-flag"], Closed::Stderr);
     }
 }
 

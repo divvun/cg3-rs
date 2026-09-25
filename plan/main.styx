@@ -2752,7 +2752,7 @@ children (
                 id no-panic.cli
                 title "The tools refuse a malformed command line with a message and a nonzero exit, and end quietly when their output is closed, instead of panicking"
                 implements {
-                    target-impl ([spec:cg3:req:robustness.cli-output] [spec:cg3:req:robustness.cli-arguments])
+                    target-impl ([spec:cg3:req:robustness.cli-arguments] [spec:cg3:req:robustness.cli-output+1])
                 }
                 log (
                     {
