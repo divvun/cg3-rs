@@ -50,7 +50,7 @@
 > [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn]
 > Cohort* GrammarApplicator::runContextualTest(SingleWindow* sWindow, size_t position, const ContextualTest* test, Cohort** deep, Cohort* origin)
 
-> [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn]
+> [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+1]
 > The central contextual-test dispatcher. Returns the matched cohort on success
 > or nullptr on failure; when the test succeeds but has no natural cohort (e.g.
 > NONE tests) it returns the window's cohort[0] as a truthy sentinel. Steps:
@@ -130,6 +130,14 @@
 > negate retval. If !retval, cohort=nullptr; else if cohort is null (truthy but
 > no cohort) set cohort = sWindow->cohorts[0]. Return cohort. (The commented-out
 > profiler block is inert.)
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.accepted-grammars-run]`): the
+> POS_SELF probe looks up `position` in the window that position counts in —
+> the jump target's window once a jump has moved it — where the C++ took
+> `orgSWin` before the jump and indexed the window the test left with a
+> position from the one it jumped to (asserting it in range, and reading out
+> of bounds in a release build). A position the window does not reach fails
+> the probe.
 
 > [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-tmpl-fn]
 > Cohort* GrammarApplicator::runContextualTest_tmpl(SingleWindow* sWindow, size_t position, const ContextualTest* test, ContextualTest* tmpl, Cohort*& cdeep, C...

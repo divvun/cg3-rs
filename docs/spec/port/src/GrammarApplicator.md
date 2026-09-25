@@ -416,7 +416,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn]
 > bool doesSetMatchCohortCareful(Cohort& cohort, const uint32_t set, dSMC_Context* context = nullptr)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn+1]
 > Tests whether ALL readings of a cohort match a set (the C/careful "every
 > reading" semantics). Same `possible_sets` early-out and list selection as the
 > Normal matcher (no `wread` special-casing here). For each selected reading list,
@@ -426,6 +426,14 @@
 > loops: if context and not matched_target and POS_NOT, retval =
 > `doesSetMatchCohort_testLinked`. Return retval (true only if every considered
 > reading matched).
+>
+> PORT DIVERGENCE: after each reading matches, the port also back-fills the
+> attach-to reading head (`attach_to.reading`) from the sub-reading
+> doesSetMatchCohort_helper recorded, as doesSetMatchCohortNormal does. The
+> C++ leaves it null here, so a SELECT, REMOVE or COPY whose attaching context
+> is careful (`1CA`) went on with a null reading and crashed; the port acts on
+> the last reading the careful test matched
+> (`[spec:cg3:req:robustness.accepted-grammars-run]`).
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-helper-fn]
 > inline bool doesSetMatchCohort_helper(Cohort& cohort, Reading& reading, const Set& theset, dSMC_Context* context = nullptr)
@@ -501,7 +509,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn]
 > bool doesSetMatchReading(const Reading& reading, const uint32_t set, bool bypass_index = false, bool unif_mode = false)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn+1]
 > Tests whether a reading matches an arbitrary set (LIST or SET, incl. set
 > operators and unification). Cache: unless `bypass_index` or `unif_mode`, consult
 > per-set `index_readingSet_no[set]`/`index_readingSet_yes[set]` keyed by
@@ -523,6 +531,12 @@
 > store the result into `index_readingSet_yes[set]` (on true) or
 > `index_readingSet_no[set]` (on false, but only when not tag-unify and not
 > unif_mode) keyed by `reading.hash`. Return retval.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.accepted-grammars-run]`): a
+> `&&`-unified set reached with no rule in flight — a `SET:` tag in DELIMITERS
+> is tested while the stream is read, before any rule pushes a context — has
+> no unification frame to record in. It matches when any of its sub-sets does,
+> recording nothing; the C++ read the back of an empty context stack.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-tags-fn]
 > bool doesSetMatchReading_tags(const Reading& reading, const Set& theset, bool unif_mode = false)
@@ -572,7 +586,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
 > uint32_t doesTagMatchReading(const Reading& reading, const Tag& tag, bool unif_mode = false, bool bypass_index = false)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+1]
 > Central single-tag matcher: returns the matched hash (nonzero) or 0, and on a
 > match increments `match_single`. Dispatch is a strict if/else-if chain on
 > `tag.type` (ORDER MATTERS): (1) if the tag is NOT T_SPECIAL, OR it is
@@ -610,6 +624,18 @@
 > 1`, match tag_any if the referenced position in the parent context list equals
 > `reading.parent`. Finally if `match` nonzero, `++match_single` and return match,
 > else return 0.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.accepted-grammars-run]`): a
+> `SET:` name that `sets_by_name` does not hold — only the STATIC-SETS keep
+> their names past reindex — is a run error naming the rule, where the C++
+> dereferenced the end iterator. The variable value comparison reads
+> `variable_hash` only while the tag's union holds that role: parsing a
+> `VAR:<…>` tag as numerical can overwrite it, a failed math offset leaving 0
+> there (a bare test, as in the C++), and any other role left there is a bare
+> test as well, where the C++ looked up whatever number it found and
+> dereferenced the end iterator; a value hash no interned tag answers to
+> matches nothing. A T_CONTEXT position of 0 names no context rather than
+> indexing before the list.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-regexp-fn]
 > uint32_t doesTagMatchRegexp(uint32_t test, const Tag& tag, bool bypass_index = false)
@@ -1214,7 +1240,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn]
 > void reflowRelationWindow(uint32_t max = 0)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn+1]
 > Resolves named relation targets (numeric ids collected during input) into actual
 > cohort links. If `!max && !input_eof` and the last of `gWindow->next` has >1
 > cohort, set `max` to that window's `cohorts[0]->global_number`. Find the
@@ -1228,6 +1254,12 @@
 > `relations_input` entry; otherwise replace the entry's target set with `newrel`
 > and advance. No return. (Note: unlike reflowDependencyWindow, `max` here is taken
 > from `cohorts[0]` rather than `cohorts[1]`.)
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.accepted-grammars-run]`): a
+> current window holding only its `>>>` cohort — a hard limit or a `-D`
+> dependency cut can leave one — has no `cohorts[1]`, which the C++ read past.
+> The port starts the `prev` walk from the `>>>` cohort instead, which reaches
+> the same leftmost cohort.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.reflow-textuals-cohort-fn]
 > void reflowTextuals_Cohort(Cohort& c)
@@ -1279,7 +1311,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn]
 > Cohort* runContextualTest(SingleWindow* sWindow, size_t position, const ContextualTest* test, Cohort** deep = nullptr, Cohort* origin = nullptr)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+1]
 > The main contextual-test dispatcher: locates the anchoring cohort, applies the
 > test, and returns the matched cohort (or nullptr, encoded per the negation
 > rules). If POS_UNKNOWN (`?` with no override), print error and CG3Quit(1).
@@ -1313,6 +1345,14 @@
 > inverts retval. Finally: if `!retval` return nullptr; else if no cohort return
 > `sWindow->cohorts[0]` (the window's initial cohort as a truthy sentinel); else
 > return the cohort.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.accepted-grammars-run]`): the
+> POS_SELF probe looks up `position` in the window that position counts in —
+> the jump target's window once a jump has moved it — where the C++ took
+> `orgSWin` before the jump and indexed the window the test left with a
+> position from the one it jumped to (asserting it in range, and reading out
+> of bounds in a release build). A position the window does not reach fails
+> the probe.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-contextual-test-tmpl-fn]
 > Cohort* runContextualTest_tmpl(SingleWindow* sWindow, size_t position, const ContextualTest* test, ContextualTest* tmpl, Cohort*& cdeep, Cohort* origin)
@@ -1475,7 +1515,7 @@
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn]
 > uint32_t runRulesOnSingleWindow(SingleWindow& current, const uint32IntervalVector& rules)
 
-> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn]
+> [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1]
 > Applies a set of `rules` (one section's rule numbers) to `current` window and
 > returns an RV_* bitmask (RV_NOTHING=1, RV_SOMETHING=2, RV_DELIMITED=4,
 > RV_TRACERULE=8). Compute `intersects = current.valid_rules.intersect(rules)` —
@@ -1511,6 +1551,19 @@
 > If RV_TRACERULE was set, break. A `Sorter` guard re-sorts every
 > `rule_to_cohorts` set after each rule when needed. Finally OR RV_SOMETHING if
 > `section_did_something` and RV_DELIMITED if `delimited`; return `retval`.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.accepted-grammars-run]`): a rule
+> the input puts where it cannot be applied is a run error naming the rule,
+> never a crash. ADDCOHORT, MERGECOHORTS and SPLITCOHORT refuse a tag list
+> that does not open with a wordform or has a tag before a baseform, and
+> APPEND one that does not open with a baseform — the C++ reported these and
+> quit, except for a list with no wordform at all, from which it built a
+> cohort it then crashed on. SELECT, REMOVE and COPY whose attaching context
+> matched a cohort's wordform-line tags (`wread`), which no reading owns, are
+> a run error where the C++ went on with a null reading. SWITCHPARENT leaves a
+> cohort with no parent alone: the rule checks the TARGET for one, but an
+> attaching context makes it act on another cohort, whose null parent the C++
+> dereferenced.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
 > bool runSingleRule(SingleWindow& current, const Rule& rule, RuleCallback reading_cb, RuleCallback cohort_cb)

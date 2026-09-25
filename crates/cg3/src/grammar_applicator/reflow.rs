@@ -133,6 +133,25 @@ fn last_index_of(hay: &[char], needle: &[char], start: usize) -> i32 {
     -1
 }
 
+// [spec:cg3:req:robustness.accepted-grammars-run]
+/// The `%u` / `%l` case marker's C++ `setCharAt(mpos, range[0])`: recase the
+/// character at `m` to the first character of its mapping. A marker at the end
+/// of the text has no character after it, and — as `setCharAt` past the end
+/// does in the C++ — changes nothing. NOT a manifest symbol.
+fn recase_char_at(text: &mut [char], m: usize, upper: bool) {
+    let Some(c) = text.get_mut(m) else {
+        return;
+    };
+    let mapped = if upper {
+        c.to_uppercase().next()
+    } else {
+        c.to_lowercase().next()
+    };
+    if let Some(c0) = mapped {
+        *c = c0;
+    }
+}
+
 impl Engine<'_> {
     // =======================================================================
     // makeBaseFromWord
@@ -563,10 +582,28 @@ impl Engine<'_> {
 }
 
 impl Engine<'_> {
-    // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn]
-    // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn]
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// The leftmost cohort of the whole window stream, walked to by `prev` from
+    /// the current window's first real cohort, `cohorts[1]`.
+    ///
+    /// DIVERGENCE: a window holding only its `>>>` cohort (a hard limit or
+    /// `-D` cut can leave one) has no `cohorts[1]`, which the C++ read past;
+    /// the walk starts from the `>>>` itself, which reaches the same cohort.
+    fn leftmost_linked_cohort(&self) -> Option<CohortId> {
+        let cur = self.doc.stream.current?;
+        let cohorts = &self.doc.store.single_windows.get(cur.0).cohorts;
+        let mut cohort = cohorts.get(1).or(cohorts.first()).copied()?;
+        while let Some(p) = self.doc.store.cohorts.get(cohort.0).prev {
+            cohort = p;
+        }
+        Some(cohort)
+    }
+
+    // [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn+1]
+    // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn+1]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn+1]
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// C++ `void reflowRelationWindow(uint32_t max)` — resolves deferred named
     /// relations (`relations_input`) into concrete `relations` via
     /// `gWindow->relation_map`. `max` defaults 0 (the run_grammar call site
@@ -581,16 +618,7 @@ impl Engine<'_> {
             }
         }
 
-        // Walk to the leftmost cohort from current.cohorts[1] via ->prev.
-        let cur = self.doc.stream.current.unwrap();
-        let mut cohort = Some(self.doc.store.single_windows.get(cur.0).cohorts[1]);
-        while let Some(c) = cohort {
-            match self.doc.store.cohorts.get(c.0).prev {
-                Some(p) => cohort = Some(p),
-                None => break,
-            }
-        }
-
+        let mut cohort = self.leftmost_linked_cohort();
         while let Some(c) = cohort {
             let gn = self.doc.store.cohorts.get(c.0).global_number.get();
             if max != 0 && gn >= max {
@@ -1550,6 +1578,7 @@ impl Matcher<'_> {
     // [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.generate-varstring-tag-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.generate-varstring-tag-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.generate-varstring-tag-fn]
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// C++ `Tag* generateVarstringTag(const Tag* tag)` — expands a VARSTRING
     /// template: unified-set substitution, `$1..$9` capture-group substitution,
     /// and `%u/%U/%l/%L` case markers, then interns the result. `tag` is a
@@ -1683,24 +1712,13 @@ impl Matcher<'_> {
                 // tmp.remove(mpos, 2)
                 tmp.drain(m..m + 2);
                 match mode {
-                    'u' => {
-                        let up: String = tmp[m].to_uppercase().collect();
-                        // setCharAt(mpos, range[0]) — first mapped char.
-                        if let Some(c0) = up.chars().next() {
-                            tmp[m] = c0;
-                        }
-                    }
+                    'u' => recase_char_at(&mut tmp, m, true),
                     'U' => {
                         let tail: String = tmp[m..].iter().collect::<String>().to_uppercase();
                         tmp.truncate(m);
                         tmp.extend(tail.chars());
                     }
-                    'l' => {
-                        let lo: String = tmp[m].to_lowercase().collect();
-                        if let Some(c0) = lo.chars().next() {
-                            tmp[m] = c0;
-                        }
-                    }
+                    'l' => recase_char_at(&mut tmp, m, false),
                     'L' => {
                         let tail: String = tmp[m..].iter().collect::<String>().to_lowercase();
                         tmp.truncate(m);

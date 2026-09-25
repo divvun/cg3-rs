@@ -149,3 +149,31 @@ impl Matcher<'_> {
         true
     }
 }
+
+impl Matcher<'_> {
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    // [spec:cg3:req:diagnostics.runtime-placed]
+    /// The run error for a rule the input put where it cannot be applied.
+    ///
+    /// ADDED — no C++ analog: the C++ printed and quit, or crashed. Headed like
+    /// every runtime failure (`RT RULE` and the rule's line, or the input's name
+    /// when no rule is in flight), then placed at the rule in its grammar source
+    /// when that source can be resolved.
+    pub fn rule_inapplicable(
+        &mut self,
+        why: crate::error::RuleInapplicable,
+    ) -> crate::error::RunError {
+        use crate::parser_helpers::ParseTagState;
+        let mut error = self.error_at(crate::parser_helpers::Near::Text(&[]));
+        error.kind = crate::error::ParseErrorKind::RuleInapplicable(why);
+        let (source, sources) = crate::grammar_sources::place_in_grammar(
+            self.grammar,
+            self.scratch.current_rule,
+            error,
+        );
+        crate::error::RunError::RuleInapplicable {
+            source: Box::new(source),
+            sources,
+        }
+    }
+}

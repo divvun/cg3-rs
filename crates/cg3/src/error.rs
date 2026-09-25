@@ -142,6 +142,36 @@ pub enum ParseErrorKind {
         text: Box<str>,
         cause: Box<ParseErrorKind>,
     },
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// A rule the running stream put where the engine cannot apply it. Marked
+    /// on the whole rule, as [`ParseErrorKind::RuntimeTag`] is: the grammar
+    /// loaded, and only this input showed the rule has nothing it can do.
+    #[error("{0}")]
+    RuleInapplicable(RuleInapplicable),
+}
+
+// [spec:cg3:req:robustness.accepted-grammars-run]
+/// Why a rule could not be applied to the input in hand.
+#[derive(Debug, thiserror::Error)]
+pub enum RuleInapplicable {
+    /// The C++ reported this and quit. A tag list with no wordform at all lands
+    /// here too; the C++ built a cohort without one and crashed using it.
+    #[error("there must be a wordform before any other tags in {rule}")]
+    WordformFirst { rule: &'static str },
+    /// The C++ reported this and quit.
+    #[error("there must be a baseform after the wordform in {rule}")]
+    BaseformAfterWordform { rule: &'static str },
+    /// The C++ reported this and quit.
+    #[error("there must be a baseform before any other tags in {rule}")]
+    BaseformFirst { rule: &'static str },
+    /// Only the sets listed in `STATIC-SETS` keep their names at run time; the
+    /// C++ read past the end of its name table for any other.
+    #[error("`SET:{name}` names no set kept for run time; list it in STATIC-SETS")]
+    SetNotStatic { name: Box<str> },
+    /// The rule's attaching context matched the cohort's wordform-line tags,
+    /// which belong to no reading the rule could select, remove or copy.
+    #[error("{rule} attached to a cohort by its wordform tags, which are no reading it can act on")]
+    AttachedToWordformTags { rule: &'static str },
 }
 
 impl ParseErrorKind {
@@ -388,6 +418,17 @@ pub enum RunError {
     /// and the rule's line when a rule was in flight (an `EXTERNAL` reply).
     #[error("{file}: empty tag on line {line}")]
     EmptyTag { file: String, line: u32 },
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// A rule the stream put where the engine cannot apply it, placed at the
+    /// rule with the grammar sources it quotes, as
+    /// [`RunError::TagConstruction`] is. The inner error's kind is
+    /// [`ParseErrorKind::RuleInapplicable`], saying why.
+    #[error("{source}")]
+    RuleInapplicable {
+        #[source]
+        source: Box<ParseError>,
+        sources: Vec<ParseSource>,
+    },
     /// C++ `addTagToReading`: a reading may carry at most one mapping tag, and
     /// a second distinct one was `CG3Quit(1)` — a fatal from the middle of the
     /// hot loop. `line` is the grammar line in flight.
@@ -410,6 +451,25 @@ pub enum RunError {
     UnsupportedInputFormat { format: String },
     #[error(transparent)]
     Io(#[from] std::io::Error),
+}
+
+impl RunError {
+    // [spec:cg3:req:diagnostics.runtime-placed]
+    /// The rule-placed diagnostic and the grammar sources it quotes, when this
+    /// failure was placed in the grammar that caused it.
+    pub fn placed(&self) -> Option<(&ParseError, &[ParseSource])> {
+        match self {
+            RunError::TagConstruction {
+                source, sources, ..
+            }
+            | RunError::RuleInapplicable { source, sources }
+                if !sources.is_empty() =>
+            {
+                Some((source, sources))
+            }
+            _ => None,
+        }
+    }
 }
 
 // [spec:cg3:req:errors.layered]
@@ -473,13 +533,10 @@ pub fn report_cli(e: &Cg3Error) {
         Cg3Error::Grammar(GrammarError::Parse { errors, sources }) => {
             crate::diagnostics::report_parse_failure(errors, sources);
         }
-        Cg3Error::Run(RunError::TagConstruction {
-            source, sources, ..
-        }) if !sources.is_empty() => {
-            crate::diagnostics::report_parse_failure(
-                std::slice::from_ref(source.as_ref()),
-                sources,
-            );
+        Cg3Error::Run(run) => {
+            if let Some((source, sources)) = run.placed() {
+                crate::diagnostics::report_parse_failure(std::slice::from_ref(source), sources);
+            }
         }
         _ => {}
     }

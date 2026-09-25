@@ -106,6 +106,7 @@ impl crate::grammar_applicator::Engine<'_> {
         Ok(anything_changed)
     }
 
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// C++ `override_cohortset` lambda. When `in_nested`, (re)build
     /// `current.nested_rule_to_cohorts` to hold the apply-to cohort plus every
     /// `T_CONTEXT` context cohort referenced by the rule's target set, and route
@@ -129,14 +130,18 @@ impl crate::grammar_applicator::Engine<'_> {
         let mut ctx_cohorts: Vec<CohortId> = Vec::new();
         let trie_special = self.grammar.set_by_number(rtarget).trie_special.clone();
         for &tid in trie_special.keys() {
-            let crp = self.grammar.single_tags_list.get(tid.0).context_ref_pos();
-            if self.grammar.tag_type(tid).intersects(crate::tag::T_CONTEXT)
-                && (crp as usize) <= ctx_len
+            // Only a T_CONTEXT tag holds a context position in its union; any
+            // other special tag (`VAR:foo=bar`) holds another role there.
+            if !self.grammar.tag_type(tid).intersects(crate::tag::T_CONTEXT) {
+                continue;
+            }
+            let crp = self.grammar.single_tags_list.get(tid.0).context_ref_pos() as usize;
+            if crp <= ctx_len
                 && let Some(Some(c)) = self
                     .scratch
                     .context_stack
                     .last()
-                    .map(|f| f.context.get((crp - 1) as usize).copied().flatten())
+                    .map(|f| f.context.get(crp.wrapping_sub(1)).copied().flatten())
             {
                 ctx_cohorts.push(c);
             }

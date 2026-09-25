@@ -291,7 +291,7 @@
 > [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn]
 > void GrammarApplicator::reflowRelationWindow(uint32_t max)
 
-> [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn]
+> [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn+1]
 > Resolves deferred named relations (`relations_input`, keyed by relation name
 > hash → set of target cohort ids) into concrete relations (`relations`, keyed
 > by name → set of resolved global cohort numbers) using
@@ -310,6 +310,12 @@
 > from `relations_input` (`rel = erase(rel)`); otherwise replace `rel->second =
 > newrel` and advance `++rel`. No return value; unresolved targets remain in
 > `relations_input` to be retried on a later reflow.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.accepted-grammars-run]`): a
+> current window holding only its `>>>` cohort — a hard limit or a `-D`
+> dependency cut can leave one — has no `cohorts[1]`, which the C++ read past.
+> The port starts the `prev` walk from the `>>>` cohort instead, which reaches
+> the same leftmost cohort.
 
 > [spec:cg3:def:grammar-applicator-reflow.cg3.grammar-applicator.reflow-textuals-cohort-fn]
 > void GrammarApplicator::reflowTextuals_Cohort(Cohort& c)

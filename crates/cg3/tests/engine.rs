@@ -747,8 +747,8 @@ fn a_shared_core_cannot_reach_the_writers() {
 // tmpl_context_t::clear for T:NccN/T:V-Prep uses, and its position-overridden
 // uses ((0 T:...), (-1 T:...)) drive posOutputHelper.
 // ===========================================================================
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn/test]
-// [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-test-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-single-test-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.get-cohort-in-window-fn/test]
@@ -804,24 +804,24 @@ fn engine_contextual_tests() {
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-line-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-regexp-match-reading-fn/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-regexp-match-reading-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn/test]
-// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.get-tags-matching-fn/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.get-tags-matching-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-trie-fn/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-trie-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-tags-fn/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-tags-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn/test]
-// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-test-linked-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-helper-fn/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-helper-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-normal-fn/test]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-normal-fn/test]
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn/test]
-// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-careful-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-careful-fn+1/test]
 #[test]
 fn engine_match_set() {
     run_fixtures(
@@ -853,8 +853,8 @@ fn engine_match_set() {
 // the IGNORE/PROTECT/DELAY flags; T_Variables SETVARIABLE/REMVARIABLE;
 // T_InputMarkup inline stream markup.
 // ===========================================================================
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.update-valid-rules-fn/test]
@@ -1112,8 +1112,8 @@ fn engine_dependencies() {
 // reflowRelationWindow and r:rel contexts resolve through runRelationTest.
 // T_OriginPassing (--no-pass-origin) covers relation-origin propagation.
 // ===========================================================================
-// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn/test]
-// [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-relation-test-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-relation-test-fn/test]
 #[test]
@@ -1257,4 +1257,299 @@ fn dependency_parent_minus_one_is_no_parent() {
 #[test]
 fn engine_context_accessors_and_unification() {
     run_fixtures("withctx", &["T_With", "T_Unification"]);
+}
+
+// ===========================================================================
+// 13. Every grammar that loads runs on every input
+// (`[spec:cg3:req:robustness.accepted-grammars-run]`). Each grammar and input
+// below panicked; each now runs, or stops with a run error naming the rule.
+// ===========================================================================
+
+/// Parse `grammar`, apply it to the CG text `input` with `configure` applied
+/// to the engine options, and return the output or the run's error.
+fn apply_grammar(
+    grammar: &str,
+    input: &str,
+    configure: fn(&mut cg3::grammar_applicator::EngineConfig),
+) -> Result<String, cg3::error::Cg3Error> {
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::textual_parser::TextualParser;
+
+    let mut parser = TextualParser::new(cg3::grammar::GrammarCore::default(), false);
+    parser
+        .parse_grammar_named(grammar.as_bytes(), "robustness.cg3")
+        .expect("grammar parses");
+    let mut core = parser.grammar;
+    let _ = core.reindex(false, false).expect("reindex");
+    let mut app = GrammarApplicator::new(core.into());
+    app.set_grammar().expect("applicator setup");
+    configure(&mut app.cfg);
+    let mut cursor = std::io::Cursor::new(input.as_bytes().to_vec());
+    let mut out: Vec<u8> = Vec::new();
+    app.run_grammar_on_text(&mut cursor, &mut out)?;
+    Ok(String::from_utf8(out).expect("output is UTF-8"))
+}
+
+/// [`apply_grammar`] with the default engine options.
+fn apply(grammar: &str, input: &str) -> Result<String, cg3::error::Cg3Error> {
+    apply_grammar(grammar, input, |_| {})
+}
+
+/// Why a run stopped at a rule it could not apply, and the rule's line.
+fn inapplicable(result: Result<String, cg3::error::Cg3Error>) -> (String, u32) {
+    use cg3::error::{Cg3Error, ParseErrorKind, RunError};
+    match result {
+        Err(Cg3Error::Run(RunError::RuleInapplicable { source, .. })) => match &source.kind {
+            ParseErrorKind::RuleInapplicable(why) => (format!("{why:?}"), source.line),
+            other => panic!("a rule failure carries its reason, not {other:?}"),
+        },
+        other => panic!("expected the run to stop at the rule, got {other:?}"),
+    }
+}
+
+/// `a(N) b(V,N) c(N) .` — one window.
+const ABC: &str =
+    "\"<a>\"\n\t\"a\" N\n\"<b>\"\n\t\"b\" V\n\t\"b\" N\n\"<c>\"\n\t\"c\" N\n\"<.>\"\n\t\".\" CLB\n";
+
+/// A careful context that attaches gives SELECT, REMOVE and COPY the reading
+/// head it matched, as a normal one does. The careful matcher recorded only
+/// the sub-reading, so all three dereferenced a missing reading.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-careful-fn+1/test]
+#[test]
+fn careful_attaching_context_acts_on_its_reading() {
+    let head = "DELIMITERS = \"<.>\" ;\n";
+    let cv = "\"<a>\"\n\t\"a\" N\n\"<b>\"\n\t\"b\" V\n\t\"b\" N\n\"<c>\"\n\t\"c\" N\n\t\"c\" V\n";
+    let out = apply(&format!("{head}SELECT (V) (-1CA (*)) ;"), cv).expect("SELECT runs");
+    assert!(
+        out.contains("\"<b>\"\n\t\"b\" N\n\"<c>\""),
+        "SELECT keeps the attached cohort's matched reading:\n{out}"
+    );
+    apply(&format!("{head}REMOVE (V) (1CA (*)) ;"), ABC).expect("REMOVE runs");
+    let out = apply(&format!("{head}COPY (Y) (V) (1CA (*)) ;"), ABC).expect("COPY runs");
+    assert!(
+        out.contains("\t\"c\" N Y\n"),
+        "COPY copies the attached reading:\n{out}"
+    );
+}
+
+/// An attaching context that matched the wordform-line tags has no reading
+/// for SELECT, REMOVE or COPY to act on.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+#[test]
+fn attaching_to_wordform_tags_is_a_run_error() {
+    let input = "\"<a>\"\n\t\"a\" N\n\"<b>\"\n\t\"b\" V\n\t\"b\" N\n\"<c>\" WTAG\n\t\"c\" N\n";
+    for rule in ["SELECT (V)", "REMOVE (V)", "COPY (Y) (V)"] {
+        let (why, line) = inapplicable(apply(&format!("\n{rule} (1A (WTAG)) ;"), input));
+        assert!(why.starts_with("AttachedToWordformTags"), "{rule}: {why}");
+        assert_eq!(line, 2, "{rule}: the error names the rule's line");
+    }
+}
+
+/// A tag list a cohort cannot be built from is refused when the rule fires:
+/// no wordform first, or a tag before any baseform. The first used to leave a
+/// cohort with no wordform, which panicked when it was given a reading.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1/test]
+#[test]
+fn cohort_tag_list_without_wordform_is_refused() {
+    let cases = [
+        (
+            "ADDCOHORT (\"x\" X) AFTER (V) ;",
+            "WordformFirst { rule: \"ADDCOHORT\" }",
+        ),
+        (
+            "MERGECOHORTS (\"m\" M) (N) WITH (1 (V)) ;",
+            "WordformFirst { rule: \"MERGECOHORTS\" }",
+        ),
+        (
+            "SPLITCOHORT (\"x\" X \"<y>\" \"y\" Y) (V) ;",
+            "WordformFirst { rule: \"SPLITCOHORT\" }",
+        ),
+        (
+            "SPLITCOHORT (X) (V) ;",
+            "WordformFirst { rule: \"SPLITCOHORT\" }",
+        ),
+        (
+            "ADDCOHORT (\"<x>\" X) AFTER (V) ;",
+            "BaseformAfterWordform { rule: \"ADDCOHORT\" }",
+        ),
+        (
+            "SPLITCOHORT (\"<x>\" \"x\" X \"<y>\" Y) (V) ;",
+            "BaseformAfterWordform { rule: \"SPLITCOHORT\" }",
+        ),
+        (
+            "APPEND (X \"x\") (V) ;",
+            "BaseformFirst { rule: \"APPEND\" }",
+        ),
+    ];
+    for (rule, want) in cases {
+        let (why, line) = inapplicable(apply(&format!("DELIMITERS = \"<.>\" ;\n{rule}"), ABC));
+        assert_eq!(why, want, "{rule}");
+        assert_eq!(line, 2, "{rule}: the error names the rule's line");
+    }
+    let out = apply("ADDCOHORT (\"<x>\" \"x\" X) AFTER (V) ;", ABC).expect("a full tag list runs");
+    assert!(out.contains("\"<x>\"\n\t\"x\" X\n"), "{out}");
+}
+
+/// A `SET:` tag resolves through the names `STATIC-SETS` keep for run time;
+/// any other name is a run error rather than a lookup in a cleared table.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+1/test]
+#[test]
+fn set_tag_resolves_only_static_sets() {
+    let out = apply(
+        "STATIC-SETS = NN ;\nLIST NN = N ;\nADD (@x) (SET:NN) ;",
+        ABC,
+    )
+    .expect("a static set resolves");
+    assert!(out.contains("\t\"a\" N @x\n"), "{out}");
+    for grammar in ["\nADD (@x) (SET:N) ;", "LIST NN = N ;\nADD (@x) (SET:NN) ;"] {
+        let (why, line) = inapplicable(apply(grammar, ABC));
+        assert!(why.starts_with("SetNotStatic"), "{grammar}: {why}");
+        assert_eq!(line, 2, "{grammar}: the error names the rule's line");
+    }
+}
+
+/// A `&&` set reached through a `SET:` tag in DELIMITERS is tested while the
+/// stream is read, when no rule has pushed a unification frame.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn+1/test]
+#[test]
+fn unified_set_matches_outside_a_rule() {
+    let grammar = "STATIC-SETS = U ;\nLIST A = N ;\nLIST B = V ;\nSET X = A OR B ;\n\
+                   SET U = &&X - (ZZ) ;\nDELIMITERS = SET:U ;\nADD (@x) (*) ;";
+    let out = apply(grammar, ABC).expect("the delimiter test runs");
+    assert!(out.contains("\t\"c\" N @x\n"), "{out}");
+}
+
+/// Variable tags carrying a value share the tag's union with other roles, and
+/// each reader now checks the role it reads.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+#[test]
+fn variable_tags_with_values_run() {
+    // Numerical as well as variable: compared numerically, as in the C++.
+    let numeric = "\"<a>\"\n\t\"a\" N <x=5>\n\"<b>\"\n\t\"b\" V <x=7>\n";
+    let out = apply("ADD (@x) (VAR:<x=5>) ;", numeric).expect("VAR:<x=5> runs");
+    assert!(
+        out.contains("\t\"a\" N <x=5> @x\n") && !out.contains("<x=7> @x"),
+        "{out}"
+    );
+
+    // A failed math offset overwrote the value: a bare test, as in the C++.
+    let setvar = "<STREAMCMD:SETVAR:<x=y>>\n\"<a>\"\n\t\"a\" N\n";
+    let out = apply("ADD (@v) (VAR:<x=5+>) ;", setvar).expect("VAR:<x=5+> runs");
+    assert!(out.contains("\t\"a\" N @v\n"), "{out}");
+
+    // A WITH body's target set holding a valued variable tag.
+    let grammar = "LIST N = N ;\nLIST V = V ;\nWITH N (1 V) { ADD (@y) (VAR:foo=bar) ; } ;";
+    apply(grammar, ABC).expect("WITH over VAR:foo=bar runs");
+}
+
+/// A numeric-math variable tag keeps its math offset through a `.cg3b`: the
+/// writer stores the union member, and the reader labels it by the tag's type.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+#[test]
+fn numeric_math_variable_tag_survives_cg3b() {
+    use cg3::binary_grammar::BinaryGrammar;
+    use cg3::grammar::GrammarCore;
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::textual_parser::TextualParser;
+
+    let mut parser = TextualParser::new(GrammarCore::default(), false);
+    parser
+        .parse_grammar_named(b"ADD (@m) (VAR:<x=5+1>) ;\n", "math.cg3")
+        .expect("grammar parses");
+    let mut core = parser.grammar;
+    let _ = core.reindex(false, false).expect("reindex");
+    let mut blob: Vec<u8> = Vec::new();
+    BinaryGrammar::new(core)
+        .write_binary_grammar(&mut blob)
+        .expect("the grammar writes");
+    let mut reader = BinaryGrammar::new(GrammarCore::default());
+    reader.parse_grammar_buffer(&blob).expect("the .cg3b reads");
+    let mut core = reader.grammar;
+    let _ = core.reindex(false, false).expect("reindex");
+
+    let mut app = GrammarApplicator::new(core.into());
+    app.set_grammar().expect("applicator setup");
+    let mut cursor = std::io::Cursor::new(b"\"<a>\"\n\t\"a\" N <x=6>\n".to_vec());
+    let mut out: Vec<u8> = Vec::new();
+    app.run_grammar_on_text(&mut cursor, &mut out)
+        .expect("the loaded grammar runs");
+    let out = String::from_utf8(out).expect("output is UTF-8");
+    assert!(out.contains("\t\"a\" N <x=6> @m\n"), "{out}");
+}
+
+/// SWITCHPARENT checks that its TARGET has a parent, but an attaching context
+/// makes it act on another cohort, which may have none: that cohort is left
+/// alone.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+#[test]
+fn switchparent_leaves_a_parentless_cohort_alone() {
+    let setparent = "DELIMITERS = \"<.>\" ;\nSETPARENT (\"a\") TO (1 (\"b\")) ;\n";
+    let before = apply(setparent, ABC).expect("SETPARENT runs");
+    let grammar = format!("{setparent}SWITCHPARENT (\"a\") (1A (\"b\")) ;");
+    let after = apply(&grammar, ABC).expect("SWITCHPARENT runs");
+    assert_eq!(after, before, "nothing to switch with, nothing switched");
+}
+
+/// A jump moves the position into the jump target's window; the SELF probe
+/// looked it up in the window the test left, past that window's end.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+1/test]
+#[test]
+fn jump_self_probe_reads_the_jump_window() {
+    let input = "\"<a>\"\n\t\"a\" A\n\"<.>\"\n\t\".\" CLB\n\"<c>\"\n\t\"c\" F\n\"<d>\"\n\t\"d\" F\n\
+                 \"<e>\"\n\t\"e\" F\n\"<f>\"\n\t\"f\" E\n\"<.>\"\n\t\".\" CLB\n";
+    let head = "DELIMITERS = \"<.>\" ;\n";
+    let hit = apply(&format!("{head}ADD (@x) (A) (1*>X (E)) (jMS (E)) ;"), input)
+        .expect("the jump test runs");
+    assert!(
+        hit.contains("\t\"a\" A @x\n"),
+        "SELF is the jump target:\n{hit}"
+    );
+    let miss = apply(&format!("{head}ADD (@x) (A) (1*>X (E)) (jMS (A)) ;"), input)
+        .expect("the jump test runs");
+    assert!(
+        !miss.contains("@x"),
+        "SELF is not the origin's window:\n{miss}"
+    );
+}
+
+/// A `%u`/`%l` case marker at the end of the text has no character to recase
+/// and vanishes, as in the C++ — including one carried in by captured text.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+#[test]
+fn case_marker_at_end_of_text_vanishes() {
+    let out = apply("ADD (VSTR:x$1%u) TARGET (\"<(.*)>\"r) ;", ABC).expect("%u at the end runs");
+    assert!(out.contains("\t\"a\" N xa\n"), "{out}");
+    let input = "\"<a\u{1}u>\"\n\t\"a\" N\n";
+    let out = apply("ADD (VSTR:x$1) (\"<(.*)>\"r) ;", input).expect("a captured marker runs");
+    assert!(out.contains("\t\"a\" N xa\n"), "{out}");
+}
+
+/// A dependency cut can leave the current window holding only its `>>>`
+/// cohort when relations are resolved.
+// [spec:cg3:req:robustness.accepted-grammars-run/test]
+// [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reflow-relation-window-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-reflow.cg3.grammar-applicator.reflow-relation-window-fn+1/test]
+#[test]
+fn relations_resolve_beside_a_bare_window() {
+    let mut input = String::new();
+    for i in 1..=500 {
+        input.push_str(&format!("\"<w{i}>\"\n\t\"w\" N #{i}->{}\n", i - 1));
+    }
+    input.push_str("\"<z>\"\n\t\"z\" N #1->0\n");
+    let out = apply_grammar("ADDRELATION (r) (N) TO (1 (*)) ;", &input, |cfg| {
+        cfg.dep_delimit = 10;
+        cfg.parse_dep = true;
+    })
+    .expect("the run completes");
+    assert!(out.contains("\"<z>\""), "{out}");
 }

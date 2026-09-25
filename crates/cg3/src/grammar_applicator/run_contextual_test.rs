@@ -552,10 +552,11 @@ impl Matcher<'_> {
         Ok(cohort)
     }
 
-    // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn]
-    // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn]
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn]
+    // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+1]
+    // [spec:cg3:sem:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-contextual-test-fn+1]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-contextual-test-fn+1]
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// The central contextual-test dispatcher. C++ `Cohort*
     /// runContextualTest(SingleWindow* sWindow, size_t position, const
     /// ContextualTest*, Cohort** deep, Cohort* origin)`. Returns the matched
@@ -583,7 +584,6 @@ impl Matcher<'_> {
 
         let mut cohort: Option<CohortId> = None;
         let mut retval = true;
-        let org_swin = sw;
 
         if test_pos.intersects(POS_JUMP) {
             let jump_pos = self.grammar.contexts_arena[test.id.0].jump_pos;
@@ -614,6 +614,11 @@ impl Matcher<'_> {
                 retval = false;
             }
         }
+        // The window `position` counts in, for the SELF probe: the jump
+        // target's once a jump moved it. DIVERGENCE: the C++ `orgSWin` is taken
+        // before the jump, and indexed the window the test left with a position
+        // from the one it jumped to.
+        let self_swin = sw;
 
         let test_offset = test.offset(&self.grammar.contexts_arena);
         let mut pos = si32(position) + test_offset;
@@ -820,7 +825,7 @@ impl Matcher<'_> {
 
             if let Some(sel) = it {
                 let args = TestArgs { test, deep, origin };
-                let (c, rv) = self.run_iter(sel, org_swin, position, cid, args, retval)?;
+                let (c, rv) = self.run_iter(sel, self_swin, position, cid, args, retval)?;
                 cohort = c;
                 retval = rv;
             }
@@ -906,13 +911,35 @@ impl Matcher<'_> {
         }
     }
 
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// The POS_SELF probe of [`Self::run_iter`]: run the test on the cohort at
+    /// `position` in `sw`, the window that position counts in. A position the
+    /// window does not reach fails the probe (the C++ asserted it could not
+    /// happen, and read out of bounds in a release build).
+    fn run_self_probe(
+        &mut self,
+        sw: Option<SwId>,
+        position: u32,
+        test: TestRef,
+        rvs: &mut u8,
+        deep: Option<&mut Option<CohortId>>,
+        origin: Option<CohortId>,
+    ) -> Result<(Option<CohortId>, bool), crate::error::RunError> {
+        let window = sw.map(|w| &self.single_windows.get(w.0).cohorts);
+        match window.and_then(|cohorts| cohorts.get(position as usize).copied()) {
+            Some(self_c) => self.run_single_test(self_c, test, rvs, deep, origin),
+            None => Ok((None, false)),
+        }
+    }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// The C++ generic-iterator arm (`if (it) { ... }`): resets nothing here (the
     /// port ctors already seat the iterator), runs the optional POS_SELF probe,
     /// then walks the iterator to the null sentinel. Returns `(cohort, retval)`.
     fn run_iter(
         &mut self,
         sel: ItSel,
-        org_swin: Option<SwId>,
+        self_swin: Option<SwId>,
         position: u32,
         cohort: CohortId,
         args: TestArgs<'_>,
@@ -935,15 +962,14 @@ impl Matcher<'_> {
                 || ((test_pos.intersects(POS_DEP_PARENT)) && (!test_pos.intersects(POS_DEP_GLOB))));
         if self_probe {
             seen += 1;
-            let org = org_swin.expect("run_iter: POS_SELF probe needs the origin window");
-            let sw_len = self.single_windows.get(org.0).cohorts.len();
-            assert!(
-                (position as usize) < sw_len,
-                "Somehow, the input position wasn't inside the current window."
-            );
-            let self_c = self.single_windows.get(org.0).cohorts[position as usize];
-            (nc, retval) =
-                self.run_single_test(self_c, test, &mut rvs, deep.as_deref_mut(), origin)?;
+            (nc, retval) = self.run_self_probe(
+                self_swin,
+                position,
+                test,
+                &mut rvs,
+                deep.as_deref_mut(),
+                origin,
+            )?;
             if !retval && (rvs & TRV_BREAK_DEFAULT != 0) {
                 rvs &= !(TRV_BREAK | TRV_BREAK_DEFAULT);
             }

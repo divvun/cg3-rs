@@ -97,7 +97,7 @@
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-careful-fn]
 > bool GrammarApplicator::doesSetMatchCohortCareful(Cohort& cohort, const uint32_t set, dSMC_Context* context)
 
-> [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-careful-fn]
+> [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-careful-fn+1]
 > Careful ("C"-flag) variant of cohort matching: the set must match EVERY
 > eligible reading of the cohort. `retval` starts false. Early-out guard: if a
 > context is present AND none of POS_LOOK_DELETED/POS_LOOK_DELAYED/
@@ -124,6 +124,14 @@
 > `context && !context->matched_target && (options & POS_NOT)`, set `retval =
 > doesSetMatchCohort_testLinked(cohort, *theset, context)` (run the linked
 > test even though nothing matched, for negation). Return `retval`.
+>
+> PORT DIVERGENCE: after each reading matches, the port also back-fills the
+> attach-to reading head (`attach_to.reading`) from the sub-reading
+> doesSetMatchCohort_helper recorded, as doesSetMatchCohortNormal does. The
+> C++ leaves it null here, so a SELECT, REMOVE or COPY whose attaching context
+> is careful (`1CA`) went on with a null reading and crashed; the port acts on
+> the last reading the careful test matched
+> (`[spec:cg3:req:robustness.accepted-grammars-run]`).
 
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-helper-fn]
 > inline bool GrammarApplicator::doesSetMatchCohort_helper(Cohort& cohort, Reading& reading, const Set& theset, dSMC_Context* context)
@@ -241,7 +249,7 @@
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn]
 > bool GrammarApplicator::doesSetMatchReading(const Reading& reading, const uint32_t set, bool bypass_index, bool unif_mode)
 
-> [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn]
+> [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn+1]
 > Tests whether a reading matches a set (LIST or SET), evaluating set operators
 > recursively, with a yes/no memo cache. Index cache: if `!bypass_index &&
 > !unif_mode`, then if `index_readingSet_no[set]` contains `reading.hash`
@@ -283,6 +291,12 @@
 > `index_readingSet_no[set]` (negative results from unify/tag-unify contexts
 > are NOT cached). Return `retval`. NOTE: these indexes are periodically
 > cleared elsewhere (every `((num_windows+4)*2+1)` windows) to bound memory.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.accepted-grammars-run]`): a
+> `&&`-unified set reached with no rule in flight — a `SET:` tag in DELIMITERS
+> is tested while the stream is read, before any rule pushes a context — has
+> no unification frame to record in. It matches when any of its sub-sets does,
+> recording nothing; the C++ read the back of an empty context stack.
 
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-tags-fn]
 > bool GrammarApplicator::doesSetMatchReading_tags(const Reading& reading, const Set& theset, bool unif_mode)
@@ -352,7 +366,7 @@
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn]
 > uint32_t GrammarApplicator::doesTagMatchReading(const Reading& reading, const Tag& tag, bool unif_mode, bool bypass_index)
 
-> [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn]
+> [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+1]
 > The central "does this single tag match this reading" dispatcher. `retval =
 > 0`, `match = 0`. A cascade of mutually-exclusive branches selected by
 > `tag.type` (first matching branch wins):
@@ -422,6 +436,18 @@
 > secondary/parenthetical text (`reading.parent->text`), unanchored via
 > `uregex_find(-1)`; the compiled pattern's own anchors (`/.../` = none,
 > otherwise `^..$`) and its `UREGEX_CASE_INSENSITIVE` flag govern matching.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.accepted-grammars-run]`): a
+> `SET:` name that `sets_by_name` does not hold — only the STATIC-SETS keep
+> their names past reindex — is a run error naming the rule, where the C++
+> dereferenced the end iterator. The variable value comparison reads
+> `variable_hash` only while the tag's union holds that role: parsing a
+> `VAR:<…>` tag as numerical can overwrite it, a failed math offset leaving 0
+> there (a bare test, as in the C++), and any other role left there is a bare
+> test as well, where the C++ looked up whatever number it found and
+> dereferenced the end iterator; a value hash no interned tag answers to
+> matches nothing. A T_CONTEXT position of 0 names no context rather than
+> indexing before the list.
 
 > [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-regexp-fn]
 > uint32_t GrammarApplicator::doesTagMatchRegexp(uint32_t test, const Tag& tag, bool bypass_index)

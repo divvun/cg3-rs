@@ -622,6 +622,7 @@ impl BinaryGrammar {
         Ok(())
     }
 
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// Read one tag record: the `tfields` bitmap followed by whatever
     /// fields it advertises, in the exact C++ order.
     ///
@@ -737,7 +738,7 @@ impl BinaryGrammar {
         if tfields & (1 << 13) != 0 {
             // variable_hash (the C++ union member).
             let v = read_be(input);
-            t.set_variable_hash(v);
+            t.set_variable_member(v);
         }
         if tfields & (1 << 14) != 0 {
             // context_ref_pos (the C++ union member).

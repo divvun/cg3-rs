@@ -193,6 +193,7 @@ pub fn tag_set_subset_of_t_set(
 
 // [spec:cg3:def:grammar-applicator-match-set.cg3.test-tag-numerical-fn]
 // [spec:cg3:sem:grammar-applicator-match-set.cg3.test-tag-numerical-fn]
+// [spec:cg3:req:robustness.accepted-grammars-run]
 /// C++ free fn `uint32_t test_tag_numerical(const Reading&, const Tag& tag,
 /// const Tag& itag)`. Kept a free fn (arena model): `reading.parent->getMin/getMax`
 /// read the cohorts + readings + grammar arenas (min/max computed on demand —
@@ -218,9 +219,15 @@ pub fn test_tag_numerical(
     }
     let parent = readings.get(reading.0).parent.unwrap();
     let mut compval = tag.comparison_val;
-    // `tag.comparison_offset` aliases the `dep_parent` union member (tag.rs).
-    let comparison_offset = tag.comparison_offset() as usize;
-    if grammar.tag_type(tag_id).intersects(T_NUMERIC_MATH) && comparison_offset != 0 {
+    // `tag.comparison_offset` shares the tag's union with `variable_hash`, so
+    // it is read only under T_NUMERIC_MATH, as the C++ `&&` does: a
+    // `VAR:<x=5>` tag is numerical too, and holds its variable value there.
+    let comparison_offset = if grammar.tag_type(tag_id).intersects(T_NUMERIC_MATH) {
+        tag.comparison_offset() as usize
+    } else {
+        0
+    };
+    if comparison_offset != 0 {
         let mn = cohort::get_min(cohorts, readings, grammar, parent, tag.comparison_hash);
         let mx = cohort::get_max(cohorts, readings, grammar, parent, tag.comparison_hash);
         let mut mp = MathParser::new(mn, mx);
@@ -315,10 +322,11 @@ fn group_count(tag: &Tag) -> i32 {
 // forwarders in mod.rs.
 // ===========================================================================
 impl Matcher<'_> {
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn]
-    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn]
-    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-tag-match-reading-fn+1]
+    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+1]
+    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-tag-match-reading-fn+1]
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// The central single-tag dispatcher. Mutually-exclusive branches on
     /// `tag.type` (first match wins). `reading` is an id (arena model); `tag` is an
     /// owned/borrowed pattern tag NOT aliasing `self.grammar` (callers clone it out
@@ -354,12 +362,7 @@ impl Matcher<'_> {
             }
         } else if ttype.intersects(T_SET) {
             // (2) inline set reference
-            let sh0 = hash_value_str(&tag.tag, 0);
-            let sh = {
-                let it = self.grammar.sets_by_name.find(sh0);
-                it.get().1
-            };
-            m = self.does_set_match_reading(reading, sh, bypass_index, unif_mode)? as u32;
+            m = self.does_set_tag_match(reading, tag, bypass_index, unif_mode)?;
         } else if ttype.intersects(T_VARSTRING) {
             // (3) varstring: generate the concrete tag, recurse
             let nt = self.generate_varstring_tag(tag_id, tag)?;
@@ -557,28 +560,10 @@ impl Matcher<'_> {
                         .find(|(k, _)| *k == tag.comparison_hash)
                         .map(|(_, v)| *v)
                 };
-                if let Some(itval) = found_value {
-                    if tag.variable_hash() == 0 {
-                        m = tag.hash.get();
-                    } else {
-                        let comp_tid = {
-                            let it = self.grammar.single_tags().find(tag.variable_hash());
-                            it.get().1
-                        };
-                        let comp_tag = self.grammar.single_tags_list[comp_tid.0].clone();
-                        let comp_type = self.grammar.tag_type(comp_tid);
-                        if comp_type.intersects(T_REGEXP) {
-                            if self.does_tag_match_regexp(itval, &comp_tag, bypass_index) != 0 {
-                                m = tag.hash.get();
-                            }
-                        } else if comp_type.intersects(T_CASE_INSENSITIVE) {
-                            if self.does_tag_match_icase(itval, &comp_tag, bypass_index) != 0 {
-                                m = tag.hash.get();
-                            }
-                        } else if comp_tag.hash.get() == itval {
-                            m = tag.hash.get();
-                        }
-                    }
+                if let Some(itval) = found_value
+                    && self.variable_value_matches(tag, itval, bypass_index)
+                {
+                    m = tag.hash.get();
                 }
             }
         } else if ttype.intersects(T_PAR_LEFT) {
@@ -652,10 +637,11 @@ impl Matcher<'_> {
             // (17) previous context frame's position list
             if self.scratch.context_stack.len() > 1 {
                 let idx = self.scratch.context_stack.len() - 2;
-                let crp = tag.context_ref_pos();
+                let crp = tag.context_ref_pos() as usize;
                 let pc = self.readings.get(reading.0).parent;
                 let list = &self.scratch.context_stack[idx].context;
-                if crp as usize <= list.len() && pc == list[(crp - 1) as usize] {
+                // `_C1_`..`_C9_` count from 1; a 0 names no context.
+                if list.get(crp.wrapping_sub(1)) == Some(&pc) {
                     m = self.grammar.tag_any;
                 }
             }
@@ -665,6 +651,64 @@ impl Matcher<'_> {
             retval = m;
         }
         Ok(retval)
+    }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// Whether variable value `itval` is the one a `VAR:name=value` tag asks
+    /// for; a bare `VAR:name` asks only that the variable be set.
+    ///
+    /// The value's hash shares the tag's union with the other roles, and a
+    /// `VAR:<…>` tag is parsed as numerical too, which can overwrite it: a failed
+    /// math offset leaves 0 there (`VAR:<x=5+>`), which the C++ reads as a bare
+    /// test and so does this. A slot holding any other role is a bare test as
+    /// well, and a value hash no interned tag answers to matches nothing.
+    fn variable_value_matches(&mut self, tag: &Tag, itval: u32, bypass_index: bool) -> bool {
+        let want = match tag.extra {
+            crate::tag::TagUnion::VariableHash(h) => h,
+            _ => 0,
+        };
+        if want == 0 {
+            return true;
+        }
+        let it = self.grammar.single_tags().find(want);
+        if it == self.grammar.single_tags().end() {
+            return false;
+        }
+        let comp_tid = it.get().1;
+        let comp_tag = self.grammar.single_tags_list[comp_tid.0].clone();
+        let comp_type = self.grammar.tag_type(comp_tid);
+        if comp_type.intersects(T_REGEXP) {
+            self.does_tag_match_regexp(itval, &comp_tag, bypass_index) != 0
+        } else if comp_type.intersects(T_CASE_INSENSITIVE) {
+            self.does_tag_match_icase(itval, &comp_tag, bypass_index) != 0
+        } else {
+            comp_tag.hash.get() == itval
+        }
+    }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// A `SET:name` tag: matches when the reading matches the set so named.
+    /// Only the `STATIC-SETS` keep their names past `reindex`, so a name that is
+    /// not one of them — written in the grammar, or built by a varstring — is a
+    /// run error naming the rule.
+    ///
+    /// DIVERGENCE: the C++ read past the end of its name table instead.
+    fn does_set_tag_match(
+        &mut self,
+        reading: ReadingId,
+        tag: &Tag,
+        bypass_index: bool,
+        unif_mode: bool,
+    ) -> Result<u32, crate::error::RunError> {
+        let it = self.grammar.sets_by_name.find(hash_value_str(&tag.tag, 0));
+        if it == self.grammar.sets_by_name.end() {
+            let why = crate::error::RuleInapplicable::SetNotStatic {
+                name: tag.tag.clone(),
+            };
+            return Err(self.rule_inapplicable(why));
+        }
+        let set = it.get().1;
+        Ok(self.does_set_match_reading(reading, set, bypass_index, unif_mode)? as u32)
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-trie-fn]
@@ -886,10 +930,66 @@ impl Matcher<'_> {
         Ok(retval)
     }
 
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn]
-    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn]
-    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn]
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// Case (c) of [`Self::does_set_match_reading`], a `&&`-unified set: its
+    /// first evaluation in a rule records each sub-set of `sets[0]` the reading
+    /// matches (tested with `first_unif`), and later ones match only against the
+    /// recorded sub-sets.
+    ///
+    /// DIVERGENCE: with no rule in flight there is no unification frame to
+    /// record in — a `SET:` tag in DELIMITERS reaches one while the stream is
+    /// read — and the set matches when any of its sub-sets does, recording
+    /// nothing. The C++ read the back of an empty context stack.
+    fn does_unified_set_match(
+        &mut self,
+        reading: ReadingId,
+        set: u32,
+        bypass_index: bool,
+        unif_mode: bool,
+        first_unif: bool,
+    ) -> Result<bool, crate::error::RunError> {
+        let snumber = self.grammar.set_by_number(SetNumber(set)).number.get();
+        let usets_idx = self.scratch.context_stack.last().and_then(|f| f.unif_sets);
+        let recorded: Vec<u32> = usets_idx
+            .and_then(|i| self.scratch.unif_sets_store[i].get(&snumber))
+            .map(|v| v.as_slice().to_vec())
+            .unwrap_or_default();
+        if !recorded.is_empty() {
+            // Subsequent evaluations: test the previously-stored sets.
+            let mut sets = self.scratch.ss_u32sv.get();
+            for usi in recorded {
+                if self.does_set_match_reading(reading, usi, bypass_index, unif_mode)? {
+                    sets.insert(usi);
+                }
+            }
+            return Ok(!sets.empty());
+        }
+        // First evaluation: gather all matching sub-sets of sets[0].
+        let uset_sets = {
+            let sets0 = self.grammar.set_by_number(SetNumber(set)).sets[0];
+            self.grammar.set_by_number(SetNumber(sets0)).sets.clone()
+        };
+        let mut any = false;
+        for tset_ref in uset_sets {
+            let tnum = self.grammar.set_by_number(SetNumber(tset_ref)).number.get();
+            if self.does_set_match_reading(reading, tnum, bypass_index, first_unif)? {
+                any = true;
+                if let Some(i) = usets_idx {
+                    self.scratch.unif_sets_store[i]
+                        .entry(snumber)
+                        .or_default()
+                        .insert(tnum);
+                }
+            }
+        }
+        Ok(any)
+    }
+
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-reading-fn+1]
+    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn+1]
+    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-reading-fn+1]
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// Tests whether a reading matches a LIST or SET set, evaluating operators
     /// recursively with a yes/no memo cache.
     pub fn does_set_match_reading(
@@ -929,55 +1029,9 @@ impl Matcher<'_> {
             retval = self.does_set_match_reading_tags(reading, snumber, tagunif || unif_mode)?;
         } else if stype.intersects(ST_SET_UNIFY) {
             // (c) &&-unified set
-            let usets_idx = self
-                .scratch
-                .context_stack
-                .last()
-                .unwrap()
-                .unif_sets
-                .unwrap();
-            let usets_empty = self.scratch.unif_sets_store[usets_idx]
-                .get(&snumber)
-                .map(|v| v.empty())
-                .unwrap_or(true);
-            if usets_empty {
-                // First evaluation: gather all matching sub-sets of sets[0].
-                let uset_sets = {
-                    let sets0 = self.grammar.set_by_number(SetNumber(set)).sets[0];
-                    self.grammar.set_by_number(SetNumber(sets0)).sets.clone()
-                };
-                for tset_ref in uset_sets {
-                    let tnum = self.grammar.set_by_number(SetNumber(tset_ref)).number.get();
-                    if self.does_set_match_reading(
-                        reading,
-                        tnum,
-                        bypass_index,
-                        tagunif || unif_mode,
-                    )? {
-                        self.scratch.unif_sets_store[usets_idx]
-                            .entry(snumber)
-                            .or_default()
-                            .insert(tnum);
-                    }
-                }
-                retval = !self.scratch.unif_sets_store[usets_idx]
-                    .get(&snumber)
-                    .map(|v| v.empty())
-                    .unwrap_or(true);
-            } else {
-                // Subsequent evaluations: test the previously-stored sets.
-                let stored: Vec<u32> = self.scratch.unif_sets_store[usets_idx]
-                    .get(&snumber)
-                    .map(|v| v.as_slice().to_vec())
-                    .unwrap_or_default();
-                let mut sets = self.scratch.ss_u32sv.get();
-                for usi in stored {
-                    if self.does_set_match_reading(reading, usi, bypass_index, unif_mode)? {
-                        sets.insert(usi);
-                    }
-                }
-                retval = !sets.empty();
-            }
+            let first_unif = tagunif || unif_mode;
+            retval =
+                self.does_unified_set_match(reading, set, bypass_index, unif_mode, first_unif)?;
         } else {
             // (d) SET set: apply operators (non-OR binds tighter than OR)
             let ssets = self.grammar.set_by_number(SetNumber(set)).sets.clone();
@@ -1293,6 +1347,7 @@ impl Matcher<'_> {
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-normal-fn]
     // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-normal-fn]
     // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-normal-fn]
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// Normal cohort matching: the set matches if ANY eligible reading matches.
     pub fn does_set_match_cohort_normal(
         &mut self,
@@ -1366,20 +1421,7 @@ impl Matcher<'_> {
                     context.as_deref_mut(),
                 )? {
                     retval = true;
-                    // Back-fill the attach_to parent reading (helper only knew the subreading).
-                    if !self.scratch.context_stack.is_empty() {
-                        let f = self.scratch.context_stack.last().unwrap();
-                        if f.attach_to.cohort == Some(cohort)
-                            && f.attach_to.subreading == Some(reading)
-                        {
-                            self.scratch
-                                .context_stack
-                                .last_mut()
-                                .unwrap()
-                                .attach_to
-                                .reading = Some(reading_head);
-                        }
-                    }
+                    self.backfill_attach_reading(cohort, reading, reading_head);
                 }
                 let has_linked = match context.as_deref() {
                     None => false,
@@ -1418,10 +1460,11 @@ impl Matcher<'_> {
         Ok(retval)
     }
 
-    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn]
-    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn]
-    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-careful-fn]
-    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-careful-fn]
+    // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn+1]
+    // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.does-set-match-cohort-careful-fn+1]
+    // [spec:cg3:def:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-careful-fn+1]
+    // [spec:cg3:sem:grammar-applicator-match-set.cg3.grammar-applicator.does-set-match-cohort-careful-fn+1]
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// Careful ("C") cohort matching: the set must match EVERY eligible reading.
     pub fn does_set_match_cohort_careful(
         &mut self,
@@ -1477,6 +1520,9 @@ impl Matcher<'_> {
                 if !retval {
                     break;
                 }
+                // DIVERGENCE: the C++ leaves attach_to.reading null here, and
+                // SELECT/REMOVE/COPY through a careful attaching context crash.
+                self.backfill_attach_reading(cohort, reading, reading0);
             }
             if !retval {
                 break 'outer;
@@ -1519,6 +1565,20 @@ impl Matcher<'_> {
             }
         }
         lists
+    }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// Back-fill the attach-to reading head once `reading` (possibly a
+    /// sub-reading of `head`) matched an attaching context:
+    /// `does_set_match_cohort_helper` knows only the sub-reading. Shared by the
+    /// two cohort matchers.
+    fn backfill_attach_reading(&mut self, cohort: CohortId, reading: ReadingId, head: ReadingId) {
+        if let Some(f) = self.scratch.context_stack.last_mut()
+            && f.attach_to.cohort == Some(cohort)
+            && f.attach_to.subreading == Some(reading)
+        {
+            f.attach_to.reading = Some(head);
+        }
     }
 
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.does-tag-match-regexp-fn]

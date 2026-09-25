@@ -357,6 +357,19 @@ impl Tag {
     pub fn set_comparison_offset(&mut self, v: u32) {
         self.extra = TagUnion::ComparisonOffset(v);
     }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// Store the member a `.cg3b` writes as `variable_hash` in the role it
+    /// actually holds: parsing a numeric-math variable tag (`VAR:<x=5+1>`)
+    /// overwrote its value hash with the math offset, and the writer stores
+    /// the member as it found it.
+    pub fn set_variable_member(&mut self, v: u32) {
+        if self.r#type.intersects(T_NUMERIC_MATH) {
+            self.set_comparison_offset(v);
+        } else {
+            self.set_variable_hash(v);
+        }
+    }
 }
 
 impl Tag {

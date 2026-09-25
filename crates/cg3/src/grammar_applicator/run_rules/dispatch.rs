@@ -412,6 +412,7 @@ impl crate::grammar_applicator::Engine<'_> {
     // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn]
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// C++ `reading_cb` lambda of `runRulesOnSingleWindow` — the per-matched-reading
     /// action. Dispatches every reading-level rule type. `&mut RRState` carries the
     /// mutable rule-loop state (`removed`/`selected`/`intersects`/`iter_val`/…).
@@ -430,28 +431,10 @@ impl crate::grammar_applicator::Engine<'_> {
         };
 
         if rtype == KSelect || (rtype == KIff && self.apply_to_matched_tests()) {
-            let r = self.get_apply_to().reading.unwrap();
+            let r = self.rr_apply_to_reading(rule)?;
             st.selected.push(r);
         } else if rtype == KRemove || rtype == KIff {
-            let cohort_readings = self
-                .doc
-                .store
-                .cohorts
-                .get(self.get_apply_to().cohort.unwrap().0)
-                .readings
-                .len();
-            if rtype == KRemove
-                && (rflags.intersects(RF_UNMAPLAST))
-                && st.removed.len() == cohort_readings - 1
-            {
-                let sr = self.get_apply_to().subreading.unwrap();
-                if self.unmap_reading(sr, rnumber) {
-                    st.readings_changed = true;
-                }
-            } else {
-                self.trace(rnumber, rsub_reading);
-                st.removed.push(self.get_apply_to().reading.unwrap());
-            }
+            self.rr_remove_reading(st, rtype, rflags, rnumber, rsub_reading)?;
         } else if rtype == KProtect {
             self.trace(rnumber, rsub_reading);
             self.doc
@@ -484,6 +467,40 @@ impl crate::grammar_applicator::Engine<'_> {
             .subreading
             .map(|sr| self.scratch.matched_tests.contains(&sr))
             .unwrap_or(false)
+    }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// REMOVE (and IFF acting as REMOVE) on one matched reading: queue it for
+    /// removal, or unmap it instead when UNMAPLAST meets the last reading left.
+    fn rr_remove_reading(
+        &mut self,
+        st: &mut RRState,
+        rtype: Keywords,
+        rflags: crate::rule::RuleFlags,
+        rnumber: u32,
+        rsub_reading: i32,
+    ) -> Result<(), crate::error::RunError> {
+        let cohort_readings = self
+            .doc
+            .store
+            .cohorts
+            .get(self.get_apply_to().cohort.unwrap().0)
+            .readings
+            .len();
+        if rtype == KRemove
+            && (rflags.intersects(RF_UNMAPLAST))
+            && st.removed.len() + 1 == cohort_readings
+        {
+            let sr = self.get_apply_to().subreading.unwrap();
+            if self.unmap_reading(sr, rnumber) {
+                st.readings_changed = true;
+            }
+        } else {
+            self.trace(rnumber, rsub_reading);
+            let r = self.rr_apply_to_reading(st.rule)?;
+            st.removed.push(r);
+        }
+        Ok(())
     }
 
     /// The tail of [`Self::reading_cb_dispatch`] — the non-SELECT/REMOVE reading
@@ -599,6 +616,52 @@ impl crate::grammar_applicator::Engine<'_> {
         Ok(out)
     }
 
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// [`rr_maplist_tags`](Self::rr_maplist_tags) for the rules that build
+    /// cohorts from it — ADDCOHORT, MERGECOHORTS, SPLITCOHORT — refused as a run
+    /// error unless the list opens with a wordform and every other tag follows a
+    /// baseform. SPLITCOHORT starts its readings afresh at each wordform; the
+    /// others carry on. The C++ reported these and quit, except for a list with
+    /// no wordform at all, which it turned into a cohort it then crashed on.
+    pub(crate) fn rr_cohort_maplist(
+        &mut self,
+        rule: RuleId,
+    ) -> Result<TagList, crate::error::RunError> {
+        use crate::error::RuleInapplicable::{BaseformAfterWordform, WordformFirst};
+        let tags = self.rr_maplist_tags(rule)?;
+        let rtype = self.grammar.rule_by_number.get(rule.0).r#type;
+        let name = match rtype {
+            KSplitcohort => "SPLITCOHORT",
+            KMergecohorts => "MERGECOHORTS",
+            _ => "ADDCOHORT",
+        };
+        let per_wordform = rtype == KSplitcohort;
+        let (mut wordform, mut baseform) = (false, false);
+        for &t in &tags {
+            let ttype = self.grammar.tag_type(t);
+            if ttype.intersects(T_WORDFORM) {
+                wordform = true;
+                baseform &= !per_wordform;
+                continue;
+            }
+            baseform |= ttype.intersects(T_BASEFORM);
+            if !wordform || !baseform {
+                let why = if wordform {
+                    BaseformAfterWordform { rule: name }
+                } else {
+                    WordformFirst { rule: name }
+                };
+                return Err(self.matcher().rule_inapplicable(why));
+            }
+        }
+        if !wordform {
+            return Err(self
+                .matcher()
+                .rule_inapplicable(WordformFirst { rule: name }));
+        }
+        Ok(tags)
+    }
+
     /// K_WITH: mark TRACE, then run each sub-rule (repeating while `RF_REPEAT`),
     /// aggregating `readings_changed`. `in_nested` is toggled around the block.
     fn rr_with(
@@ -636,14 +699,34 @@ impl crate::grammar_applicator::Engine<'_> {
         Ok(())
     }
 
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// K_SWITCHPARENT: reparent the target cohort above its current parent (and
     /// siblings) — the per-cohort dependency rotation.
+    ///
+    /// DIVERGENCE: the rule only checked that the TARGET has a parent, but an
+    /// attaching context makes it act on another cohort, which may have none.
+    /// That cohort is left alone; the C++ dereferenced a null parent.
     fn rr_switchparent(&mut self, rule: RuleId) -> Result<(), crate::error::RunError> {
-        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
         let child = self.get_apply_to().cohort.unwrap();
+        let parent = self.doc.store.cohorts.get(child.0).dep_parent;
+        match parent.and_then(|dp| self.doc.cohorts.cohort_map.get(&dp).copied()) {
+            Some(parent) => self.rr_switch_with_parent(rule, child, parent),
+            None => Ok(()),
+        }
+    }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// SWITCHPARENT once `child`'s parent is known to exist: `child` takes the
+    /// parent's place under the grandparent, and the parent and the siblings
+    /// matching `childset1` become its children.
+    fn rr_switch_with_parent(
+        &mut self,
+        rule: RuleId,
+        child: CohortId,
+        parent: CohortId,
+    ) -> Result<(), crate::error::RunError> {
+        let childset1 = self.grammar.rule_by_number.get(rule.0).childset1.get();
         let current = self.doc.store.cohorts.get(child.0).parent.unwrap();
-        let child_dp = self.doc.store.cohorts.get(child.0).dep_parent;
-        let parent = *self.doc.cohorts.cohort_map.get(&child_dp.unwrap()).unwrap();
         let parent_gn = self.doc.store.cohorts.get(parent.0).global_number;
         let grandparent_number = self.doc.store.cohorts.get(parent.0).dep_parent;
         let mut siblings: Vec<CohortId> = Vec::new();
@@ -919,6 +1002,7 @@ impl crate::grammar_applicator::Engine<'_> {
         Ok(())
     }
 
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// K_APPEND: append fresh readings (each starting at a baseform) to the cohort.
     fn rr_append(
         &mut self,
@@ -938,8 +1022,8 @@ impl crate::grammar_applicator::Engine<'_> {
                 readings.push(TagList::new());
             }
             if !have_bf {
-                // Error: baseform must come first (I/O omitted); skip.
-                continue;
+                let why = crate::error::RuleInapplicable::BaseformFirst { rule: "APPEND" };
+                return Err(self.matcher().rule_inapplicable(why));
             }
             readings.last_mut().unwrap().push(tter);
         }
@@ -1004,6 +1088,7 @@ impl crate::grammar_applicator::Engine<'_> {
         Ok(())
     }
 
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// K_COPY: clone the apply-to reading, then optionally strip `sublist` tags and
     /// splice in maplist tags (at a `childset1` spot or appended).
     fn rr_copy(
@@ -1014,34 +1099,7 @@ impl crate::grammar_applicator::Engine<'_> {
         _rsub_reading: i32,
     ) -> Result<(), crate::error::RunError> {
         let cohort = self.get_apply_to().cohort.unwrap();
-        let src = self.get_apply_to().reading.unwrap();
-        // C++ `allocateAppendReading(*get_apply_to().reading)` — exactly ONE
-        // copy-construction (number + 100, one deep clone of the next chain).
-        let src_snapshot = self.clone_reading_value(src);
-        let creading =
-            crate::cohort::allocate_append_reading_copy(&mut self.doc.store, cohort, &src_snapshot);
-        self.doc.num_readings = self.doc.num_readings.wrapping_add(1);
-        self.trace_reading(creading, rnumber);
-        {
-            let r = self.doc.store.readings.get_mut(creading.0);
-            r.hit_by.push(rnumber);
-            r.noprint = false;
-        }
-
-        let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
-        if let Some(sl) = sublist {
-            let tags = self.get_tag_list_of_set(sl, false);
-            let mut excepts = TagList::new();
-            self.get_tags_matching(creading, &tags, &mut excepts);
-            excepts.extend(tags.iter().copied());
-            let mut rc = Some(creading);
-            while let Some(r) = rc {
-                for &tter in &excepts {
-                    self.del_tag_from_reading(r, tter);
-                }
-                rc = self.doc.store.readings.get(r.0).next;
-            }
-        }
+        let creading = self.rr_copy_reading(rule, rnumber)?;
 
         let mut mappings = TagList::new();
         let maplist = self.grammar.rule_by_number.get(rule.0).maplist;
@@ -1094,6 +1152,64 @@ impl crate::grammar_applicator::Engine<'_> {
         st.readings_changed = true;
         self.reflow_reading(creading)?;
         Ok(())
+    }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// COPY's first half: clone the apply-to reading into a fresh reading of its
+    /// cohort, traced and hit by the rule, with the `sublist` tags (and the tags
+    /// matching them) stripped from the whole sub-reading chain.
+    fn rr_copy_reading(
+        &mut self,
+        rule: RuleId,
+        rnumber: u32,
+    ) -> Result<ReadingId, crate::error::RunError> {
+        let cohort = self.get_apply_to().cohort.unwrap();
+        let src = self.rr_apply_to_reading(rule)?;
+        // C++ `allocateAppendReading(*get_apply_to().reading)` — exactly ONE
+        // copy-construction (number + 100, one deep clone of the next chain).
+        let src_snapshot = self.clone_reading_value(src);
+        let creading =
+            crate::cohort::allocate_append_reading_copy(&mut self.doc.store, cohort, &src_snapshot);
+        self.doc.num_readings = self.doc.num_readings.wrapping_add(1);
+        self.trace_reading(creading, rnumber);
+        {
+            let r = self.doc.store.readings.get_mut(creading.0);
+            r.hit_by.push(rnumber);
+            r.noprint = false;
+        }
+
+        let sublist = self.grammar.rule_by_number.get(rule.0).sublist;
+        if let Some(sl) = sublist {
+            let tags = self.get_tag_list_of_set(sl, false);
+            let mut excepts = TagList::new();
+            self.get_tags_matching(creading, &tags, &mut excepts);
+            excepts.extend(tags.iter().copied());
+            let mut rc = Some(creading);
+            while let Some(r) = rc {
+                for &tter in &excepts {
+                    self.del_tag_from_reading(r, tter);
+                }
+                rc = self.doc.store.readings.get(r.0).next;
+            }
+        }
+        Ok(creading)
+    }
+
+    // [spec:cg3:req:robustness.accepted-grammars-run]
+    /// The reading head SELECT, REMOVE and COPY act on. There is none when an
+    /// attaching context matched the cohort's wordform-line tags, which belong
+    /// to no reading: that is a run error naming the rule.
+    ///
+    /// DIVERGENCE: the C++ went on with a null reading and crashed.
+    fn rr_apply_to_reading(&mut self, rule: RuleId) -> Result<ReadingId, crate::error::RunError> {
+        if let Some(r) = self.get_apply_to().reading {
+            return Ok(r);
+        }
+        let rtype = self.grammar.rule_by_number.get(rule.0).r#type;
+        let why = crate::error::RuleInapplicable::AttachedToWordformTags {
+            rule: crate::strings::KEYWORDS_STR[rtype as usize],
+        };
+        Err(self.matcher().rule_inapplicable(why))
     }
 
     /// `TRACE` variant that pushes `rnumber` onto a specific reading's `hit_by`

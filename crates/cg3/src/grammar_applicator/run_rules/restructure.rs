@@ -282,6 +282,7 @@ impl crate::grammar_applicator::Engine<'_> {
         }
     }
 
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// `add_cohort` lambda of `runSingleRule` — allocate a new cohort from the
     /// rule's `maplist` (wordform + baseform-led readings, `(*)` expansion),
     /// attach it dependency-wise, insert it into the window relative to the
@@ -308,7 +309,7 @@ impl crate::grammar_applicator::Engine<'_> {
             let gn = self.doc.cohorts.next_cohort_number();
             self.doc.store.cohorts.get_mut(ccohort.0).global_number = gn;
         }
-        let the_tags = self.rr_maplist_tags(rule)?;
+        let the_tags = self.rr_cohort_maplist(rule)?;
 
         // Partition into wordform + baseform-led readings.
         let mut wf: Option<TagId> = None;
@@ -330,7 +331,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 continue;
             }
             if wf.is_none() {
-                // Error: wordform must precede other tags (I/O omitted).
+                // Unreachable: rr_cohort_maplist refuses this list.
                 continue;
             }
             if ttype.intersects(T_BASEFORM) {
@@ -1076,6 +1077,7 @@ impl crate::grammar_applicator::Engine<'_> {
         Ok(())
     }
 
+    // [spec:cg3:req:robustness.accepted-grammars-run]
     /// K_SPLITCOHORT: replace the apply-to cohort with a run of new cohorts built
     /// from the rule's `maplist` (wordform-delimited groups), each carrying
     /// baseform-led readings. The scanf-parsed `%[0-9cd]->%[0-9pm]`
@@ -1092,7 +1094,7 @@ impl crate::grammar_applicator::Engine<'_> {
         let current = st.current;
         let rnumber = self.grammar.rule_by_number.get(rule.0).number;
 
-        let the_tags = self.rr_maplist_tags(rule)?;
+        let the_tags = self.rr_cohort_maplist(rule)?;
 
         // Partition into (cohort, readings) groups delimited by T_WORDFORM tags.
         // `cohorts` holds the new cohort ids; `groups` holds per-cohort reading
@@ -1111,7 +1113,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 continue;
             }
             if wf.is_none() {
-                // Error: wordform must precede other tags (I/O omitted).
+                // Unreachable: rr_cohort_maplist refuses this list.
                 continue;
             }
         }
@@ -1154,7 +1156,7 @@ impl crate::grammar_applicator::Engine<'_> {
                 bf = Some(tter);
             }
             if bf.is_none() {
-                // Error: baseform must follow the wordform (I/O omitted); skip.
+                // Unreachable: rr_cohort_maplist refuses this list.
                 continue;
             }
 

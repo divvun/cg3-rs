@@ -122,9 +122,10 @@ fn marked(kind: &crate::error::ParseErrorKind) -> &'static str {
         K::EmptyNumericBranch => "this branch",
         K::IncludeUnreadable { .. } => "this directive",
         // Marked on the whole rule: the tag that failed came off the running
-        // stream, so the only thing in the grammar to point at is the rule that
-        // asked for it (`[spec:cg3:req:diagnostics.runtime-placed]`).
-        K::RuntimeTag { .. } => "this rule asked for it",
+        // stream, or the rule met input it cannot be applied to, so the only
+        // thing in the grammar to point at is the rule that asked for it
+        // (`[spec:cg3:req:diagnostics.runtime-placed]`).
+        K::RuntimeTag { .. } | K::RuleInapplicable(_) => "this rule asked for it",
         // Spanless in practice — an empty input has no line to mark — so this
         // arm exists to keep the match total rather than to be read.
         K::EmptyInput => "here",

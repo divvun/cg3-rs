@@ -87,7 +87,7 @@
 > [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn]
 > uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const uint32IntervalVector& rules)
 
-> [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn]
+> [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+1]
 > Applies a set of rules to one window, driving runSingleRule per rule and
 > supplying the per-rule-type action callbacks. Returns a bitmask over
 > {RV_NOTHING=1, RV_SOMETHING=2, RV_DELIMITED=4, RV_TRACERULE=8}. Init
@@ -183,6 +183,19 @@
 > just traces. Each mutating action typically clears index_ruleCohort_no, sets
 > readings_changed, calls updateValidRules for new tags (re-seating iter_rules on
 > growth), and may set reset_cohorts_for_loop to restart cohort iteration.
+>
+> PORT DIVERGENCE (`[spec:cg3:req:robustness.accepted-grammars-run]`): a rule
+> the input puts where it cannot be applied is a run error naming the rule,
+> never a crash. ADDCOHORT, MERGECOHORTS and SPLITCOHORT refuse a tag list
+> that does not open with a wordform or has a tag before a baseform, and
+> APPEND one that does not open with a baseform — the C++ reported these and
+> quit, except for a list with no wordform at all, from which it built a
+> cohort it then crashed on. SELECT, REMOVE and COPY whose attaching context
+> matched a cohort's wordform-line tags (`wread`), which no reading owns, are
+> a run error where the C++ went on with a null reading. SWITCHPARENT leaves a
+> cohort with no parent alone: the rule checks the TARGET for one, but an
+> attaching context makes it act on another cohort, whose null parent the C++
+> dereferenced.
 
 > [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
 > bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, RuleCallback reading_cb, RuleCallback cohort_cb)
