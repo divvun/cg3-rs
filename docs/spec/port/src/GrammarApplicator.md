@@ -1648,13 +1648,14 @@
 > call `cohort_cb()` once, honoring the same flags. Pop the context and continue.
 > Return `anything_changed`.
 >
-> PORT DIVERGENCE (robustness: cross-window actions): reset_cohorts repositions
-> rocit just past the apply-to cohort only when that cohort belongs to
-> `current`; when the action reached a cohort in another window it repositions
-> just past the rule's own target instead. The C++ looks the apply-to cohort's
-> local number up in `current`, which for another window's cohort lands on an
-> unrelated cohort and can send the loop back to a target it has already acted
-> on, without end.
+> PORT DIVERGENCE (robustness: cross-window actions, termination):
+> reset_cohorts repositions rocit just past the apply-to cohort only when that
+> cohort belongs to `current` and does not sit before the rule's own target;
+> otherwise it repositions just past the target. The C++ always uses the
+> apply-to cohort, looked up in `current`: for another window's cohort that
+> lands on an unrelated cohort, and for an attached cohort before the target
+> it walks back over targets already acted on — either way a COPYCOHORT or
+> ADDCOHORT whose new cohort the rule matches applies again without end.
 
 > [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-test-fn]
 > Cohort* runSingleTest(Cohort* cohort, const ContextualTest* test, uint8_t& rvs, bool* retval, Cohort** deep = nullptr, Cohort* origin = nullptr)
