@@ -74,3 +74,19 @@ fn apertium_analysis_without_baseform_terminates() {
     assert!(out.status.success(), "cg-conv exited with {}", out.status);
     assert!(String::from_utf8_lossy(&out.stdout).contains("\"<a>\""));
 }
+
+// An attaching context that picks a cohort before the target made the rule
+// loop resume behind the target it had just done, so COPYCOHORT copied the
+// same cohort — and then its copies — without end.
+// [spec:cg3:req:robustness.terminates/test]
+#[test]
+fn copycohort_before_its_target_applies_once() {
+    let grammar = "DELIMITERS = \"<.>\" ;\nLIST X = X ;\nSECTION\n\
+                   COPYCOHORT (copied) X TO AFTER (-1*A (>>>)) ;\n";
+    let got = run(
+        grammar,
+        "\"<a>\"\n\t\"a\" N\n\"<b>\"\n\t\"b\" X\n\"<.>\"\n\t\".\" PU\n",
+    )
+    .expect("the run completes");
+    assert_eq!(got.matches("copied").count(), 1, "one copy: {got}");
+}

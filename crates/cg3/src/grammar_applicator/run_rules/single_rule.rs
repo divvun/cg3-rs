@@ -215,18 +215,27 @@ impl crate::grammar_applicator::Engine<'_> {
     }
 
     // [spec:cg3:req:robustness.cross-window-actions]
+    // [spec:cg3:req:robustness.terminates]
     /// The cohort `reset_cohorts` resumes after: the apply-to cohort when it
-    /// belongs to the window the rule runs on, else the rule's own target.
+    /// belongs to the window the rule runs on and does not sit before the
+    /// rule's own target, else the target.
     ///
-    /// DIVERGENCE: the C++ always looks the apply-to cohort's position up in
-    /// the current window, so an action on another window's cohort sends the
-    /// rule loop to an unrelated cohort — back before the target, where the
+    /// DIVERGENCE: the C++ always resumes after the apply-to cohort, looked up
+    /// in the current window. An action on another window's cohort sends the
+    /// loop to an unrelated cohort, and an attaching context that picks a
+    /// cohort BEFORE the target sends it back over targets it has done — with
+    /// COPYCOHORT or ADDCOHORT adding a cohort the rule matches each time, the
     /// rule applies again without end.
     fn rr_reset_anchor(&self, current: SwId, gac: CohortId, target: CohortId) -> CohortId {
-        if self.doc.store.cohorts.get(gac.0).parent == Some(current) {
-            gac
-        } else {
+        let cohorts = &self.doc.store.cohorts;
+        let (g, t) = (cohorts.get(gac.0), cohorts.get(target.0));
+        if g.parent != Some(current) {
+            return target;
+        }
+        if t.parent == Some(current) && t.local_number > g.local_number {
             target
+        } else {
+            gac
         }
     }
 
