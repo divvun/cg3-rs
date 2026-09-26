@@ -204,7 +204,7 @@
 > [spec:cg3:def:relabeller.cg3.relabeller.relabel-fn]
 > void Relabeller::relabel()
 
-> [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn]
+> [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn+1]
 > Top-level driver that applies all collected relabel rules to the target
 > grammar. Steps:
 > (1) Build `tag_by_str`, an `unordered_map<UString, Tag*, hash_ustring>`,
@@ -232,6 +232,14 @@
 > `grammar->reindex()`, then `grammar->num_tags = grammar->
 > single_tags_list.size()`. No return value; the grammar is mutated in
 > place.
+>
+> PORT DIVERGENCE: the order of steps (3) and (4) sets the numbers of the sets
+> and tags they add, so it decides the bytes of the relabelled `.cg3b`. The C++
+> walks `relabel_as_list` and `relabel_as_set` in its standard library's
+> `unordered_map` bucket order, which differs between libstdc++ and libc++, and
+> each `sets_by_tag` entry in `Set*` address order. The port MUST walk both maps
+> in tag-string order and each `sets_by_tag` entry in set allocation order, so
+> a grammar relabels to the same bytes on every run and every platform.
 
 > [spec:cg3:def:relabeller.cg3.relabeller.relabeller-fn]
 > Relabeller::Relabeller(Grammar& res, const Grammar& relabels, std::ostream& ux_err)

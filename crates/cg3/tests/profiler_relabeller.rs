@@ -92,7 +92,7 @@ fn apply_relabelled(fixture: &Path, grammar: &Path, stem: &str) -> String {
 }
 
 // [spec:cg3:sem:relabeller.cg3.relabeller.relabeller-fn+1/test]
-// [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn/test]
+// [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn+1/test]
 // [spec:cg3:sem:relabeller.cg3.relabeller.relabel-as-list-fn/test]
 // [spec:cg3:sem:relabeller.cg3.relabeller.transfer-tags-fn/test]
 // [spec:cg3:sem:relabeller.cg3.relabeller.add-taglists-to-set-fn/test]
@@ -126,67 +126,53 @@ fn relabel_list_protocol() {
 // relabel set into the target grammar (copy_relabel_set_to_grammar, which
 // re-interns tries via the two-arg relabeller trie_copy), registers the new
 // sets (add_set_to_grammar) and reindexes the reshaped OR set (reindex_set).
-//
-// NOTE 1: T_RelabelSet's run.pl treats the diff against expected.txt as an
-// EXPECTED failure ("Fail (expected)" — it does not set $bad); the C++ binaries
-// emit six extra `N Prop @bad` / `N Gen @bad` readings. This test therefore
-// gates only on what run.pl gates on (pipeline success + non-empty grammars)
-// plus invariants stable across runs.
-// NOTE 2 (port divergence, reported): the relabelled grammar is NOT stable
-// across processes — Relabeller::relabel iterates std HashMap/HashSet
-// (RandomState) where C++ iterates unordered_map (fixed order per build), so
-// ~1 in 5 runs the output drops the two `"y" N Gen` readings. The majority
-// outcome is byte-identical to the C++ binaries' actual output.
+// The copy has to read N and Prop out of the relabels grammar, since the same
+// ids in the target name other tags.
 #[test]
 fn relabel_set_protocol() {
-    const KNOWN_EXTRAS: &[&str] = &[
-        "\t\"Y\" N Prop @bad",
-        "\t\"Ys\" N Prop @bad",
-        "\t\"y\" N Gen @bad",
-        "\t\"W\" N Prop @bad",
-        "\t\"W\" N Prop @bad",
-        "\t\"W\" N Prop @bad",
-    ];
     let fixture = repo_root().join("test/T_RelabelSet");
     let g = compile_and_relabel(&fixture, "set");
     let got = apply_relabelled(&fixture, &g, "set");
     let want = std::fs::read_to_string(fixture.join("expected.txt")).unwrap();
-
-    // Stable invariant 1: the cohort/wordform structure matches expected.txt
-    // exactly (disambiguation never deletes cohorts).
-    let want_wf: Vec<&str> = want.lines().filter(|l| l.starts_with("\"<")).collect();
-    let got_wf: Vec<&str> = got.lines().filter(|l| l.starts_with("\"<")).collect();
-    assert_eq!(
-        got_wf, want_wf,
-        "cohort structure differs from expected.txt:\n{got}"
+    assert!(
+        diff_b_equal(&want, &got),
+        "T_RelabelSet output differs from expected.txt:\n{got}"
     );
+}
 
-    // Stable invariant 2: every output reading is drawn from expected.txt plus
-    // the six known C++ extras — nothing outside the C++-observed behavior.
-    let allowed: std::collections::BTreeSet<&str> = want
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .chain(KNOWN_EXTRAS.iter().copied())
-        .collect();
-    for line in got.lines().filter(|l| !l.trim().is_empty()) {
+// [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn+1/test]
+// Every relabel fixture relabels to the same bytes in every process. Each
+// cg-relabel run is its own process, so a walk in hashed order would change
+// the relabelled grammar from one run to the next.
+#[test]
+fn relabelling_is_byte_stable() {
+    for name in ["T_RelabelList", "T_RelabelList_Apertium", "T_RelabelSet"] {
+        let fixture = repo_root().join("test").join(name);
+        let compiled = tmp(&format!("stable-{name}.cg3b"));
+        let mut comp = Command::new(env!("CARGO_BIN_EXE_cg-comp"));
+        comp.current_dir(&fixture).arg("grammar.cg3").arg(&compiled);
+        run_ok(comp, "cg-comp");
+        let relabelled: Vec<Vec<u8>> = (0..8)
+            .map(|i| {
+                let out = tmp(&format!("stable-{name}-{i}.cg3b"));
+                let mut relabel = Command::new(env!("CARGO_BIN_EXE_cg-relabel"));
+                relabel
+                    .current_dir(&fixture)
+                    .arg(&compiled)
+                    .arg("relabel.cg3r")
+                    .arg(&out);
+                run_ok(relabel, "cg-relabel");
+                let bytes = std::fs::read(&out).unwrap();
+                let _ = std::fs::remove_file(&out);
+                bytes
+            })
+            .collect();
+        let _ = std::fs::remove_file(&compiled);
         assert!(
-            allowed.contains(line),
-            "unexpected output line {line:?}:\n{got}"
+            relabelled.iter().all(|b| *b == relabelled[0]),
+            "{name}: cg-relabel wrote different bytes across runs"
         );
     }
-
-    // Stable invariant 3: the relabelled rules demonstrably applied — the
-    // as-list-relabelled `SELECT det` picked the Det reading, and the
-    // as-set-relabelled `SELECT (N) - (Prop)` left the Prop readings marked
-    // @bad by the C++-reproduced deviation.
-    assert!(
-        got.contains("\t\"w\" Det @gold"),
-        "SELECT det did not apply:\n{got}"
-    );
-    assert!(
-        got.contains("\t\"Y\" N Prop @bad"),
-        "SELECT n relabelling did not apply:\n{got}"
-    );
 }
 
 /// The test/T_RelabelList_Apertium run.pl protocol — same compile+relabel
@@ -212,45 +198,94 @@ fn relabel_list_apertium_protocol() {
     );
 }
 
+/// A source grammar holding `det`, `ind` and `noun`, a trie over them
+/// (`det ind` and `noun`), and a target grammar where the same ids name other
+/// tags, so a copy that read the target at a source id would pick those up.
+fn cross_grammar_trie() -> (
+    cg3::grammar::GrammarDraft,
+    cg3::grammar::GrammarDraft,
+    cg3::tag_trie::TagTrie,
+) {
+    use cg3::grammar::GrammarDraft;
+    use cg3::tag_trie::{TagTrie, trie_insert};
+
+    let mut source = GrammarDraft::default();
+    let det = source.allocate_tag("det").unwrap();
+    let ind = source.allocate_tag("ind").unwrap();
+    let noun = source.allocate_tag("noun").unwrap();
+    let mut target = GrammarDraft::default();
+    for other in ["x", "y", "z", "w"] {
+        target.allocate_tag(other).unwrap();
+    }
+
+    let mut trie = TagTrie::new();
+    assert!(trie_insert(&mut trie, &vec![det, ind], 0));
+    assert!(trie_insert(&mut trie, &vec![noun], 0));
+    (source, target, trie)
+}
+
+/// The text of each top-level key of `copied`, as `target` names it.
+fn top_level_texts(
+    copied: &cg3::tag_trie::TagTrie,
+    target: &cg3::grammar::GrammarDraft,
+) -> Vec<String> {
+    let mut texts: Vec<String> = copied
+        .keys()
+        .map(|k| target.single_tags_list[k.0].tag.to_string())
+        .collect();
+    texts.sort();
+    texts
+}
+
+// [spec:cg3:sem:relabeller.cg3.trie-copy-fn/test]
+// The top level of the copy holds the source's tags, interned into the target.
+// Nested levels keep the source's ids (the reproduced quirk).
+#[test]
+fn relabeller_trie_copy_reads_the_source_grammar() {
+    use cg3::relabeller::trie_copy;
+
+    let (source, mut target, trie) = cross_grammar_trie();
+    let copied = trie_copy(&trie, &source.single_tags_list, &mut target);
+    assert_eq!(top_level_texts(&copied, &target), ["det", "noun"]);
+}
+
 // [spec:cg3:sem:relabeller.cg3.trie-copy-helper-fn/test]
 // The two-argument re-interning trie-copy helper is DEAD CODE in the C++ (both
 // trie_copy and the helper itself recurse through TagTrie.hpp's one-argument
 // helper), so no fixture can reach it; it is driven directly in-process here.
 #[test]
 fn relabeller_trie_copy_helper_reintern() {
-    use cg3::grammar::GrammarDraft;
     use cg3::relabeller::trie_copy_helper_reintern;
-    use cg3::tag_trie::{TagTrie, trie_insert};
 
-    let mut g = GrammarDraft::default();
-    let foo = g.allocate_tag("foo").unwrap();
-    let bar = g.allocate_tag("bar").unwrap();
-    let baz = g.allocate_tag("baz").unwrap();
+    let (source, mut target, trie) = cross_grammar_trie();
+    let ind = source.single_tags_list.capacity() - 2;
+    let copied = trie_copy_helper_reintern(&trie, &source.single_tags_list, &mut target);
+    assert_eq!(top_level_texts(&copied, &target), ["det", "noun"]);
 
-    let mut trie = TagTrie::new();
-    assert!(trie_insert(&mut trie, &vec![foo, bar], 0));
-    assert!(trie_insert(&mut trie, &vec![baz], 0));
-
-    let copied = trie_copy_helper_reintern(&trie, &mut g);
-
-    // Top level: each tag is deep-copied and re-interned via Grammar::add_tag;
-    // within one grammar the dedup returns the canonical (same) TagId.
-    assert_eq!(copied.len(), 2);
+    let id_of = |text: &str| {
+        *copied
+            .keys()
+            .find(|k| target.single_tags_list[k.0].tag.to_string() == text)
+            .unwrap()
+    };
     assert!(
-        !copied[&foo].terminal,
-        "inner node of foo->bar must not be terminal"
+        !copied[&id_of("det")].terminal,
+        "inner node of det->ind must not be terminal"
     );
-    assert!(copied[&baz].terminal, "single-tag path must be terminal");
-    assert!(copied[&baz].trie.is_none());
+    assert!(
+        copied[&id_of("noun")].terminal,
+        "single-tag path must be terminal"
+    );
+    assert!(copied[&id_of("noun")].trie.is_none());
 
     // Nested level: copied through the ONE-arg helper — keyed by the ORIGINAL
     // TagId without re-interning (the reproduced quirk).
-    let sub = copied[&foo]
+    let sub = copied[&id_of("det")]
         .trie
         .as_ref()
-        .expect("foo must keep its child level");
+        .expect("det must keep its child level");
     assert_eq!(sub.len(), 1);
-    assert!(sub[&bar].terminal);
+    assert!(sub.keys().all(|k| k.0 == ind));
 }
 
 // [spec:cg3:sem:profiler.cg3.profiler.add-string-fn/test]

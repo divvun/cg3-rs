@@ -217,7 +217,7 @@ fn nonblank(s: &str) -> Vec<&str> {
 // relabeller one: its indexes are given up and rebuilt whatever it was loaded
 // from. The T_RelabelList protocol, relabelling in-process.
 // [spec:cg3:req:grammar-phases.index-rebuilds/test]
-// [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn/test]
+// [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn+1/test]
 #[test]
 fn text_grammar_relabels_like_its_cg3b() {
     let dir = repo_root().join("test/T_RelabelList");

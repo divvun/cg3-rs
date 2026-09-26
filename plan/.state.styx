@@ -548,4 +548,11 @@ impl_evidence (
         {impl_name target-impl, rule grammar-phases.indexed-only}
         {impl_name target-impl, rule grammar-phases.loaders}
     )}
+    {id relabel-tags-and-order, covered_rules (
+        relabeller.cg3.relabeller.relabel-fn
+        relabeller.cg3.trie-copy-fn
+    ), covered_claims (
+        {impl_name target-impl, rule relabeller.cg3.relabeller.relabel-fn}
+        {impl_name target-impl, rule relabeller.cg3.trie-copy-fn}
+    )}
 )

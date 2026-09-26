@@ -25,9 +25,10 @@
 //! * `grammar->addTag(new Tag(*tag_r))` (deep-copy then intern) → clone the tag
 //!   value out of the source arena and hand it to [`TagSpace::add_tag`] (by value),
 //!   which interns/dedups and returns the canonical [`TagId`].
-//! * The relabel rules are keyed by tag STRING; the two maps use
-//!   `HashMap<String, SetId>` (the `Set*` value is the relabel target's SetId in
-//!   the RELABELS grammar).
+//! * The relabel rules are keyed by tag STRING; the two maps are
+//!   `BTreeMap<String, SetId>` (the `Set*` value is the relabel target's SetId in
+//!   the RELABELS grammar), walked in key order where the C++ walks an
+//!   `unordered_map` in its standard library's bucket order.
 //!
 //! ## Flagged bugs reproduced
 //! * The `%d special tags` warning format string has THREE conversions (%S, %d,
@@ -51,13 +52,13 @@
 //!   re-interning into the target grammar (the C++ carried a `// TODO: does this
 //!   get copied correctly?` comment).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use crate::arena::{SetId, TagId};
+use crate::arena::{Arena, SetId, TagId};
 use crate::grammar::{GrammarCore, GrammarNumbered, Phase, TagSpace};
 use crate::set::Set;
 use crate::strings::Keywords;
-use crate::tag::{T_SPECIAL, TagVector, TagVectorSet};
+use crate::tag::{T_SPECIAL, Tag, TagVector, TagVectorSet};
 use crate::tag_trie::{
     TagTrie, TrieNode, trie_copy_helper, trie_delete, trie_get_tag_list, trie_get_tags_ordered,
     trie_insert,
@@ -85,7 +86,11 @@ pub type StringMap = HashMap<String, String>;
 // [spec:cg3:def:relabeller.cg3.relabeller.u-string-set-map]
 /// C++ header typedef: an unordered map from string to `Set*`.
 /// The `Set*` value is a relabel-target set in the RELABELS grammar → [`SetId`].
-pub type StringSetMap = HashMap<String, SetId>;
+///
+/// Ordered by key: `relabel` walks it, and the walk's order sets the numbers
+/// of the sets and tags it adds, so a hashed map would give different bytes on
+/// every run.
+pub type StringSetMap = BTreeMap<String, SetId>;
 
 // [spec:cg3:def:relabeller.cg3.freq-sorter]
 /// C++ `struct freq_sorter` — a comparator that sorts tags by DESCENDING
@@ -150,16 +155,21 @@ struct RelabelCopy {
 // [spec:cg3:sem:relabeller.cg3.trie-copy-fn]
 /// The TWO-argument, tag-re-interning copy of a tag trie (a different overload
 /// from the one-argument [`crate::tag_trie::trie_copy`]). Iterates each entry of
-/// `trie`: deep-copies the tag (clone the `Tag` value out of `grammar`'s arena)
-/// and re-interns it via [`TagSpace::add_tag`], keying the new node by the
-/// canonical target-grammar [`TagId`]; copies `terminal`; and for a child trie
-/// recurses.
+/// `trie`: deep-copies the tag out of `source`, the arena `trie`'s ids belong
+/// to, and re-interns it into `grammar` via [`TagSpace::add_tag`], keying the
+/// new node by the canonical target-grammar [`TagId`]; copies `terminal`; and
+/// for a child trie recurses. A `TagId` names a tag only in its own arena, so
+/// the copy is read from `source`, as the C++ reads `*p.first`.
 ///
 /// QUIRK (reproduced): the recursive call is the ONE-argument
 /// [`crate::tag_trie::trie_copy_helper`], so nested child levels are copied by the
 /// ORIGINAL `TagId` WITHOUT re-interning into `grammar`. Only the top level has
 /// its tags transferred; deeper levels keep source-grammar tag ids.
-pub fn trie_copy<P: Phase>(trie: &TagTrie, grammar: &mut GrammarCore<P>) -> TagTrie {
+pub fn trie_copy<P: Phase>(
+    trie: &TagTrie,
+    source: &Arena<Tag>,
+    grammar: &mut GrammarCore<P>,
+) -> TagTrie {
     let mut nt = TagTrie::new();
     // Collect the source keys/nodes first so the `&mut grammar` re-intern borrow
     // does not alias an immutable borrow of `trie` (which lives inside a Set in
@@ -167,7 +177,7 @@ pub fn trie_copy<P: Phase>(trie: &TagTrie, grammar: &mut GrammarCore<P>) -> TagT
     let entries: Vec<(TagId, TrieNode)> = trie.iter().map(|(k, n)| (*k, n.clone())).collect();
     for (k, node) in entries {
         // Tag* t = new Tag(*p.first); t = grammar.addTag(t);
-        let tagcopy = grammar.single_tags_list[k.0].clone();
+        let tagcopy = source[k.0].clone();
         let t = grammar.add_tag(tagcopy);
         let n = nt.entry(t).or_default();
         n.terminal = node.terminal;
@@ -194,12 +204,13 @@ pub fn trie_copy<P: Phase>(trie: &TagTrie, grammar: &mut GrammarCore<P>) -> TagT
 /// re-interning of nested trie levels does not occur.
 pub fn trie_copy_helper_reintern<P: Phase>(
     trie: &TagTrie,
+    source: &Arena<Tag>,
     grammar: &mut GrammarCore<P>,
 ) -> Box<TagTrie> {
     let mut nt = Box::new(TagTrie::new());
     let entries: Vec<(TagId, TrieNode)> = trie.iter().map(|(k, n)| (*k, n.clone())).collect();
     for (k, node) in entries {
-        let tagcopy = grammar.single_tags_list[k.0].clone();
+        let tagcopy = source[k.0].clone();
         let t = grammar.add_tag(tagcopy);
         let n = nt.entry(t).or_default();
         n.terminal = node.terminal;
@@ -645,9 +656,17 @@ impl<'r> Relabeller<'r> {
 
         // Copy the tries WITH tag transfer (two-arg trie_copy).
         let src_trie = self.relabels.sets_list[s_r.0].trie.clone();
-        let new_trie = trie_copy(&src_trie, &mut self.grammar);
+        let new_trie = trie_copy(
+            &src_trie,
+            &self.relabels.single_tags_list,
+            &mut self.grammar,
+        );
         let src_trie_sp = self.relabels.sets_list[s_r.0].trie_special.clone();
-        let new_trie_sp = trie_copy(&src_trie_sp, &mut self.grammar);
+        let new_trie_sp = trie_copy(
+            &src_trie_sp,
+            &self.relabels.single_tags_list,
+            &mut self.grammar,
+        );
         {
             let node = self.grammar.sets_list.get_mut(s_g.0);
             node.trie = new_trie;
@@ -795,8 +814,8 @@ impl<'r> Relabeller<'r> {
         self.reindex_set(set_g);
     }
 
-    // [spec:cg3:def:relabeller.cg3.relabeller.relabel-fn]
-    // [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn]
+    // [spec:cg3:def:relabeller.cg3.relabeller.relabel-fn+1]
+    // [spec:cg3:sem:relabeller.cg3.relabeller.relabel-fn+1]
     /// Top-level driver. Builds `tag_by_str` (tag string → target-grammar TagId,
     /// last-wins) and `sets_by_tag` (tag string → set of target sets whose MAIN
     /// trie mentions it), applies RELABEL AS LIST then RELABEL AS SET for every
@@ -823,8 +842,11 @@ impl<'r> Relabeller<'r> {
         }
 
         // (2) sets_by_tag: for every set in sets_list, index its MAIN-trie tags.
-        // Iterate the C++ sets_list vector (the numbered order).
-        let mut sets_by_tag: HashMap<String, HashSet<SetId>> = HashMap::new();
+        // Iterate the C++ sets_list vector (the numbered order). Each entry is
+        // walked in SetId order, the order the sets were allocated in, which
+        // is what the C++ `std::set<Set*>` gives when the allocator hands out
+        // rising addresses.
+        let mut sets_by_tag: HashMap<String, BTreeSet<SetId>> = HashMap::new();
         let set_ids: Vec<SetId> = self.grammar.sets_list_order.clone();
         for sid in &set_ids {
             let trie = self.grammar.sets_list[sid.0].trie.clone();
