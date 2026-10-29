@@ -320,9 +320,12 @@ pub struct Applied {
 }
 
 // [spec:cg3:req:wasm.no-process]
-/// Runs `grammar` on `input`. A failure is the library error's message; an
-/// `EXTERNAL` rule fails here, where its process would start, because a target
-/// without processes refuses to start one.
+// [spec:cg3:req:wasm.parity+1]
+/// Runs `grammar` on `input` through `CompiledGrammar::run`, the operation
+/// vislcg3 runs every grammar through, so the two write the same bytes;
+/// parity/parity.mjs checks that over the corpus. A failure is the library
+/// error's message; an `EXTERNAL` rule fails here, where its process would
+/// start, because a target without processes refuses to start one.
 pub fn apply(
     grammar: &CompiledGrammar,
     input: &str,

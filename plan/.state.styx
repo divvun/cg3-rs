@@ -645,4 +645,9 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule wasm.module}
     )}
+    {id wasm.parity, covered_rules (
+        wasm.parity
+    ), covered_claims (
+        {impl_name target-impl, rule wasm.parity}
+    )}
 )

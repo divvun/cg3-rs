@@ -53,8 +53,11 @@ computes in `size_t`, a 32-bit build has to produce what a 64-bit one does.
 > An `EXTERNAL` rule MUST fail its run with the error a process that cannot start
 > gives, naming the rule's line.
 
-> [spec:cg3:req:wasm.parity]
+> [spec:cg3:req:wasm.parity+1]
 > For every grammar in the golden corpus, compiled to `.cg3b`, the package MUST
 > produce the output vislcg3 produces for the same `.cg3b`, input and options,
-> byte for byte. Tests whose grammar runs an `EXTERNAL` rule or whose stream is
-> binary are exempt. CI MUST run this check.
+> byte for byte, or fail where vislcg3 fails. A test is exempt when its grammar
+> runs an `EXTERNAL` rule, its stream is binary, or it passes an option the
+> package does not offer, such as vislcg3's load-time `--nrules` filters or
+> `--vislcg-compat`; the check MUST name each exemption and its reason. CI MUST
+> run this check.
