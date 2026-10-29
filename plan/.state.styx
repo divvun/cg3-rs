@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-10-29T14:05:48.252065Z
+last_sync_at 2026-10-29T14:15:37.998882Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -243,7 +243,6 @@ assertions (
     {id w4-unsafe-elimination, kind @complete, author "brendan@necessary.nu", at 2026-07-19T23:21:00.160291Z}
     {id w4-utf8-native-strings, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:40.500409Z}
     {id wasm.spec, kind @complete, author "brendan@necessary.nu", at 2026-10-29T13:58:23.741133Z}
-    {id wasm.cli-crate, kind @doing, author "brendan@necessary.nu", at 2026-10-29T14:08:30.585017Z}
 )
 
 impl_evidence (
@@ -584,6 +583,19 @@ impl_evidence (
         {id scoped-stack.cg3.scoped-stack.proxy.operator-fn, version 0}
         {id scoped-stack.cg3.scoped-stack.proxy.proxy-fn, version 0}
     )}
+    {id wasm.cli-crate, covered_rules (
+        crate-split.cli
+        crate-split.library
+        crate-split.no-cli-deps
+        crate-split.one-version
+        crate-split.tools-unchanged
+    ), covered_claims (
+        {impl_name target-impl, rule crate-split.cli}
+        {impl_name target-impl, rule crate-split.library}
+        {impl_name target-impl, rule crate-split.no-cli-deps}
+        {impl_name target-impl, rule crate-split.one-version}
+        {impl_name target-impl, rule crate-split.tools-unchanged}
+    )}
     {id wasm.target-32bit, covered_rules (
         flat-unordered-map.cg3.flat-unordered-map.hash-value-sz-fn
         flat-unordered-set.cg3.flat-unordered-set.hash-value-sz-fn
@@ -594,5 +606,10 @@ impl_evidence (
         {impl_name target-impl, rule flat-unordered-set.cg3.flat-unordered-set.hash-value-sz-fn}
         {impl_name target-impl, rule wasm.library-builds}
         {impl_name target-impl, rule wasm.width-independent}
+    ), rule_versions_seen (
+        {id flat-unordered-map.cg3.flat-unordered-map.hash-value-sz-fn, version 1}
+        {id flat-unordered-set.cg3.flat-unordered-set.hash-value-sz-fn, version 1}
+        {id wasm.library-builds, version 0}
+        {id wasm.width-independent, version 0}
     )}
 )

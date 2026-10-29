@@ -80,6 +80,17 @@ dependencies = [
  "regex",
  "rusqlite",
  "serde_json",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "cg3-cli"
+version = "0.4.0"
+dependencies = [
+ "cg3",
+ "regex",
+ "rusqlite",
  "sigpipe",
  "thiserror",
  "tracing",

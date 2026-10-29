@@ -3,11 +3,11 @@
 //! `argv`: `[prog, out_db, base_db, in_db...]`. Reads `base_db` into `out`, then
 //! folds each `in_db` (argv[3..]) into it (summing match/fail/context counts and
 //! filling in missing example windows), and writes the result to `out_db`.
-//! LIVE flow (pure [`crate::profiler::Profiler`] I/O).
+//! LIVE flow (pure [`cg3::profiler::Profiler`] I/O).
 
 use std::collections::BTreeMap;
 
-use crate::profiler::Profiler;
+use cg3::profiler::Profiler;
 
 use super::{EXIT_FAILURE, EXIT_SUCCESS, ProfileReadError, basename, read_profile};
 

@@ -1,17 +1,17 @@
 //! Port of `src/cg-comp.cpp` — compile a text grammar into a binary `.cg3b`.
 //!
 //! Reads `grammar_file` (text form), reindexes, and writes `output_file` in
-//! binary form via [`crate::binary_grammar::BinaryGrammar::write_binary_grammar`].
+//! binary form via [`cg3::binary_grammar::BinaryGrammar::write_binary_grammar`].
 //! Rejects an already-binary input. This whole flow is LIVE (no gated engine
 //! paths): text parse → reindex → binary write.
 
 use std::fs::File;
 use std::io::{Read, Write};
 
-use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::GrammarDraft;
-use crate::inlines::is_cg3b;
-use crate::textual_parser::TextualParser;
+use cg3::binary_grammar::BinaryGrammar;
+use cg3::grammar::GrammarDraft;
+use cg3::inlines::is_cg3b;
+use cg3::textual_parser::TextualParser;
 
 use super::{EXIT_FAILURE, basename, divvun_version_line, emit, fail};
 
@@ -106,7 +106,7 @@ pub fn main_comp(args: &[String]) -> i32 {
         Err(e) => return fail(&e),
     };
 
-    // Info banner to stderr (container sizes; see tools/mod.rs on Arena counts).
+    // Info banner to stderr (container sizes; see lib.rs on Arena counts).
     tracing::info!(
         "Sections: {}, Rules: {}, Sets: {}, Tags: {}",
         grammar.sections.len(),
@@ -141,7 +141,7 @@ pub fn main_comp(args: &[String]) -> i32 {
             }
             let _ = gout.flush();
             // [spec:cg3:req:diagnostics.sidecar+1]
-            crate::grammar_sources::write_beside(
+            cg3::grammar_sources::write_beside(
                 std::path::Path::new(&args[2]),
                 &blob,
                 &grammar,

@@ -21,18 +21,18 @@
 
 use std::io::Read;
 
-use crate::apertium_applicator::ApertiumApplicator;
-use crate::binary_applicator::BinaryApplicator;
-use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered};
-use crate::grammar_applicator::GrammarApplicator;
-use crate::inlines::is_cg3b;
-use crate::matxin_applicator::MatxinApplicator;
-use crate::options::{
+use cg3::apertium_applicator::ApertiumApplicator;
+use cg3::binary_applicator::BinaryApplicator;
+use cg3::binary_grammar::BinaryGrammar;
+use cg3::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered};
+use cg3::grammar_applicator::GrammarApplicator;
+use cg3::inlines::is_cg3b;
+use cg3::matxin_applicator::MatxinApplicator;
+use cg3::options::{
     grammar_options_default, grammar_options_override, options, options_default, options_override,
 };
-use crate::options_parser::{merge_options, parse_opts};
-use crate::textual_parser::TextualParser;
+use cg3::options_parser::{merge_options, parse_opts};
+use cg3::textual_parser::TextualParser;
 
 use super::{
     EXIT_FAILURE, basename, divvun_version, divvun_version_line, emit, fail, parse_opts_env,
@@ -504,7 +504,7 @@ pub fn main_proc(args: &[String]) -> i32 {
     // stdin, and a diagnostic should say so rather than claim a name.
     base.cfg.input_name = input_path
         .cloned()
-        .unwrap_or_else(|| crate::grammar_applicator::STDIN_SOURCE_NAME.to_string());
+        .unwrap_or_else(|| cg3::grammar_applicator::STDIN_SOURCE_NAME.to_string());
 
     // -r single rule: match rule name and push its number into valid_rules.
     if !single_rule.is_empty() {
@@ -547,7 +547,7 @@ pub fn main_proc(args: &[String]) -> i32 {
         Applicator::Base(mut b) => b.run_grammar_on_text(&mut cursor, &mut out),
         Applicator::Binary(mut b) => {
             // Most-derived object is the BinaryApplicator: binary print vtable.
-            let mut fmt = crate::binary_applicator::BinaryFormat::default();
+            let mut fmt = cg3::binary_applicator::BinaryFormat::default();
             BinaryApplicator::new(&mut b).run_grammar_on_text(&mut fmt, &mut cursor, &mut out)
         }
     };

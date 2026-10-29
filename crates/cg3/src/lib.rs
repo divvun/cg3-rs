@@ -11,7 +11,7 @@
 // [spec:cg3:req:robustness.panic-sites-justified]
 // [spec:cg3:req:robustness.no-input-panics+1]
 // A panic site that remains is allowed where it stands, with the invariant
-// that keeps input from reaching it. The binaries are shims over `tools`.
+// that keeps input from reaching it.
 #![cfg_attr(
     not(test),
     deny(
@@ -23,6 +23,22 @@
         clippy::unimplemented
     )
 )]
+
+// [spec:cg3:req:crate-split.library]
+// [spec:cg3:req:crate-split.no-cli-deps]
+// Everything a grammar's load, compile, write and run need, the option
+// language a grammar's CMDARGS share with vislcg3 included, and nothing only a
+// process has: argv, the environment, standard streams and exit codes are
+// cg3-cli's.
+/// The library's version. cg3-cli carries the same one and its banners report it.
+///
+/// The command-line tools are not part of the library's API:
+///
+/// ```compile_fail
+/// use cg3::tools;
+/// ```
+// [spec:cg3:req:crate-split.library/test]
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // --- Wave 2 foundation layer (pointer-agnostic: containers + utilities) ---
 pub mod arena;
@@ -61,7 +77,6 @@ pub mod ast;
 pub mod filesystem;
 pub mod igrammar_parser;
 pub mod options;
-pub mod options_conv;
 pub mod options_parser;
 pub mod process;
 pub mod streambuf;
@@ -90,6 +105,3 @@ pub mod niceline_applicator;
 pub mod plaintext_applicator;
 pub mod profiler;
 pub mod relabeller;
-
-// --- Wave 2 CLI tool entry points ---
-pub mod tools;

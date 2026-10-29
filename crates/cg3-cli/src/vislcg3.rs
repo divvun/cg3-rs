@@ -2,11 +2,11 @@
 //!
 //! Parses the full vislcg3 option set, loads a grammar (binary or text),
 //! reindexes, optionally runs it over stdin→stdout via a
-//! [`crate::format_converter::FormatConverter`] (configured through its public
+//! [`cg3::format_converter::FormatConverter`] (configured through its public
 //! shared-base accessors — the composition analogue of the C++ public
 //! inheritance), and optionally writes the grammar back out in textual
-//! ([`crate::grammar_writer::GrammarWriter`]) and/or binary
-//! ([`crate::binary_grammar::BinaryGrammar`]) form.
+//! ([`cg3::grammar_writer::GrammarWriter`]) and/or binary
+//! ([`cg3::binary_grammar::BinaryGrammar`]) form.
 //!
 //! Remaining NOTEd elision: `--stderr` creates the redirect file (same
 //! truncation side effect as the C++) but diagnostics still go to process
@@ -14,22 +14,22 @@
 
 use std::io::{Read, Write};
 
-use crate::arg_parser::parse_args;
-use crate::binary_grammar::BinaryGrammar;
+use cg3::arg_parser::parse_args;
+use cg3::binary_grammar::BinaryGrammar;
 use std::sync::Arc;
 
-use crate::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered, Phase};
-use crate::grammar_writer::GrammarWriter;
-use crate::igrammar_parser::IGrammarParser;
-use crate::inlines::is_cg3b;
-use crate::options::{
+use cg3::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered, Phase};
+use cg3::grammar_writer::GrammarWriter;
+use cg3::igrammar_parser::IGrammarParser;
+use cg3::inlines::is_cg3b;
+use cg3::options::{
     Opt, OptionsTable, grammar_options_default, grammar_options_override, options, options_default,
     options_override,
 };
-use crate::options_parser::{merge_options, parse_opts};
-use crate::profiler::Profiler;
-use crate::tag_regex::{TagRegex, TagRegexError, compile_tag_regex};
-use crate::textual_parser::TextualParser;
+use cg3::options_parser::{merge_options, parse_opts};
+use cg3::profiler::Profiler;
+use cg3::tag_regex::{TagRegex, TagRegexError, compile_tag_regex};
+use cg3::textual_parser::TextualParser;
 
 use super::{
     CG3_TOO_OLD, EXIT_FAILURE, EXIT_SUCCESS, divvun_copyright, divvun_version_line, emit, fail,
@@ -64,7 +64,7 @@ struct NrulesError {
 /// filter selects MORE rules than asked for.
 // [spec:cg3:req:tag-regex.single-seam+1]
 fn nrules_pattern(
-    options: &crate::options::OptionsTable,
+    options: &cg3::options::OptionsTable,
     opt: Opt,
     flag: &'static str,
 ) -> Result<Option<TagRegex>, NrulesError> {
@@ -114,7 +114,7 @@ pub fn main_run(args: &[String]) -> i32 {
     parse_opts_env("CG3_OVERRIDE", &mut options_override);
     merge_options(&mut options, &options_default, &options_override, None);
 
-    let occ = |opts: &crate::options::OptionsTable, o: Opt| opts[o as usize].does_occur;
+    let occ = |opts: &cg3::options::OptionsTable, o: Opt| opts[o as usize].does_occur;
 
     // --debug: the C++ `debug_level` flag only ever gated verbose diagnostics, so
     // the port collapses it to "raise the tracing level to DEBUG" (no engine state).
@@ -302,7 +302,7 @@ pub fn main_run(args: &[String]) -> i32 {
     // the companion file it writes. Retaining a multi-megabyte grammar text for
     // the whole run of every other invocation is exactly what
     // `[spec:cg3:req:diagnostics.source-lazy]` forbids.
-    let mut grammar_sources: Vec<crate::error::ParseSource> = Vec::new();
+    let mut grammar_sources: Vec<cg3::error::ParseSource> = Vec::new();
 
     // Loaded in the phase its loader builds, and finished where the C++
     // reindexes: after the grammar's own options are merged and `--prefix` is
@@ -444,9 +444,9 @@ pub fn main_run(args: &[String]) -> i32 {
     // the writers take it back below.
     let grammar = Arc::new(grammar);
     if !occ(&options, Opt::GrammarOnly) {
-        use crate::grammar_applicator::{GrammarApplicator, StreamFormatKind};
+        use cg3::grammar_applicator::{GrammarApplicator, StreamFormatKind};
         let base = GrammarApplicator::new(Grammar::default());
-        let mut applicator = match crate::format_converter::FormatConverter::new(base) {
+        let mut applicator = match cg3::format_converter::FormatConverter::new(base) {
             Ok(a) => a,
             Err(e) => return fail(&e),
         };
@@ -553,12 +553,12 @@ pub fn main_run(args: &[String]) -> i32 {
 ///
 /// A free function rather than an inline branch so `main_run`, which is already
 /// one long option-dispatch, does not grow another.
-fn input_name(options: &crate::options::OptionsTable) -> String {
+fn input_name(options: &cg3::options::OptionsTable) -> String {
     let opt = &options[Opt::Stdin as usize];
     if opt.does_occur {
         return opt.value.clone();
     }
-    crate::grammar_applicator::STDIN_SOURCE_NAME.to_string()
+    cg3::grammar_applicator::STDIN_SOURCE_NAME.to_string()
 }
 
 /// What vislcg3 does with a grammar between loading and finishing it, in
@@ -608,17 +608,16 @@ fn apply_grammar_options<P: Phase>(
 /// Both writers EDIT what they serialise, so they need the grammar back from
 /// the run; the applicator, main's only other holder, is gone by now.
 fn write_grammars(
-    options: &crate::options::OptionsTable,
+    options: &cg3::options::OptionsTable,
     grammar: Arc<GrammarCore>,
-    sources: &[crate::error::ParseSource],
+    sources: &[cg3::error::ParseSource],
     stream_relations: bool,
-) -> Result<(), crate::error::Cg3Error> {
+) -> Result<(), cg3::error::Cg3Error> {
     let occurs = |o: Opt| options[o as usize].does_occur;
     if !occurs(Opt::GrammarOut) && !occurs(Opt::GrammarBin) {
         return Ok(());
     }
-    let mut grammar =
-        Arc::try_unwrap(grammar).map_err(|_| crate::error::GrammarError::CoreShared)?;
+    let mut grammar = Arc::try_unwrap(grammar).map_err(|_| cg3::error::GrammarError::CoreShared)?;
 
     // --grammar-out: write the grammar in textual form. LIVE.
     if occurs(Opt::GrammarOut) {
@@ -656,9 +655,9 @@ fn write_grammars(
 fn write_grammar_bin(
     path: &str,
     mut grammar: GrammarCore,
-    sources: &[crate::error::ParseSource],
+    sources: &[cg3::error::ParseSource],
     stream_relations: bool,
-) -> Result<(), crate::error::Cg3Error> {
+) -> Result<(), cg3::error::Cg3Error> {
     // The run's binary-stream `has_relations` (C++ stamps it straight onto the
     // grammar mid-run, and this writer sees it) — folded in here so the emitted
     // BINF_RELATIONS bit is what it always was.
@@ -674,13 +673,13 @@ fn write_grammar_bin(
     };
     gout.write_all(&blob)
         .and_then(|()| gout.flush())
-        .map_err(crate::error::RunError::Io)?;
+        .map_err(cg3::error::RunError::Io)?;
 
     // Only for a grammar that came from text: a binary-to-binary pass has no
     // sources to describe, and an empty companion file says nothing more than
     // an absent one.
     if !sources.is_empty() {
-        crate::grammar_sources::write_beside(std::path::Path::new(path), &blob, &grammar, sources);
+        cg3::grammar_sources::write_beside(std::path::Path::new(path), &blob, &grammar, sources);
     }
     Ok(())
 }
@@ -688,7 +687,7 @@ fn write_grammar_bin(
 /// The `--help` usage banner (C++ inlined in `main`). Emits to stdout.
 // faithful port: the C++ `for (i=0; i<NUM_OPTIONS; ++i)` scans cover the whole
 // table — its length IS the enum constant (`OptionsTable`).
-fn print_help(options: &crate::options::OptionsTable) {
+fn print_help(options: &cg3::options::OptionsTable) {
     let mut out = String::new();
     out.push_str("Usage: vislcg3 [OPTIONS]\n");
     out.push('\n');

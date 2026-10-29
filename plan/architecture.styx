@@ -174,8 +174,6 @@ elements (
             [spec:cg3:req:crate-split.tools-unchanged]
         )
         exposes (
-            "crates/cg3/src/bin/**"
-            "crates/cg3/src/tools/**"
             "crates/cg3-cli/**"
         )
         depends_on ([arch:cg3:error-model] [arch:cg3:embedding])

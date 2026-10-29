@@ -1,19 +1,19 @@
 //! Port of `src/options_conv.hpp` (`OptionsConv::options_conv`).
 //!
 //! The cg-conv CLI option enum ([`Opt`]) and its `ArgOption` table (plus the
-//! default/override copies). Like [`crate::options`], each table entry is
+//! default/override copies). Like [`cg3::options`], each table entry is
 //! indexed by its matching [`Opt`] enumerator, so the table order matches
 //! the enum order.
 //!
-//! cg-conv shares vislcg3's [`ArgOption`] entry type, from [`crate::options`].
+//! cg-conv shares vislcg3's [`ArgOption`] entry type, from [`cg3::options`].
 //!
 //! ## Global-vs-function (NOTE)
 //! `options_conv.hpp` defines `options_conv` and its four `inline auto` copies
 //! (`options_default`, `options_override`, `grammar_options_default`,
-//! `grammar_options_override`) as mutable globals; as in [`crate::options`],
+//! `grammar_options_override`) as mutable globals; as in [`cg3::options`],
 //! they are exposed here as constructor functions returning fresh arrays.
 
-use crate::options::{ArgOption, HasArg};
+use cg3::options::{ArgOption, HasArg};
 
 // [spec:cg3:def:options-conv.options-conv.options]
 /// C++ `enum OPTIONS` (`options_conv.hpp`); each variant camel-cases its C++

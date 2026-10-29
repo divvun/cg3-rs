@@ -178,7 +178,7 @@ fn vislcg3(dir: &Path, args: &[String]) -> Option<String> {
     argv.extend_from_slice(args);
     let cwd = std::env::current_dir().unwrap();
     std::env::set_current_dir(dir).unwrap();
-    let outcome = catch_unwind(AssertUnwindSafe(|| cg3::tools::vislcg3::main_run(&argv)));
+    let outcome = catch_unwind(AssertUnwindSafe(|| cg3_cli::vislcg3::main_run(&argv)));
     std::env::set_current_dir(cwd).unwrap();
     outcome.err().map(|payload| {
         payload

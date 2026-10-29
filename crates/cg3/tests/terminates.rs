@@ -2,9 +2,6 @@
 //! (`[spec:cg3:req:robustness.terminates]`). The test runner kills a test
 //! after 10 s, so each of these fails by timing out if its loop comes back.
 
-use std::io::Write as _;
-use std::process::{Command, Stdio};
-
 use cg3::error::{Cg3Error, RunError};
 use cg3::grammar::GrammarCore;
 use cg3::grammar_applicator::GrammarApplicator;
@@ -48,30 +45,6 @@ fn single_varstring_expansion_still_applies() {
     let grammar = "DELIMITERS = \"<$.>\" ;\nSECTION\nADD (VSTR:got-$1) (\"<(.*)>\"r) ;\n";
     let got = run(grammar, "\"<w>\"\n\t\"x\" N\n").expect("the run completes");
     assert!(got.contains("got-w"), "the expanded tag is added: {got}");
-}
-
-// An Apertium analysis in which no tag parses as a baseform: an escaped `<`
-// lemma becomes the wordform-shaped `"<x>"`, so the C++'s tag-assignment
-// rescan never consumes anything.
-// [spec:cg3:req:robustness.terminates/test]
-#[test]
-fn apertium_analysis_without_baseform_terminates() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_cg-conv"))
-        .arg("--in-apertium")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn cg-conv");
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(b"^a/\\<x\\>$\n")
-        .unwrap();
-    let out = child.wait_with_output().expect("wait cg-conv");
-    assert!(out.status.success(), "cg-conv exited with {}", out.status);
-    assert!(String::from_utf8_lossy(&out.stdout).contains("\"<a>\""));
 }
 
 // An attaching context that picks a cohort before the target made the rule

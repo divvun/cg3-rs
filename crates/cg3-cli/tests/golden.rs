@@ -124,6 +124,7 @@ fn run_textual(dir: &Path, grammar: &Path) -> Result<(), String> {
     }
 }
 
+// [spec:cg3:req:crate-split.tools-unchanged/test]
 #[test]
 fn golden_textual() {
     run_all("golden_textual", |dir| {

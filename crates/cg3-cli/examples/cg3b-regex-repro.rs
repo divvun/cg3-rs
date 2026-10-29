@@ -16,7 +16,7 @@ fn main() {
         std::process::exit(2);
     };
 
-    cg3::tools::init_diagnostics();
+    cg3_cli::init_diagnostics();
 
     let mut parser = BinaryGrammar::new(GrammarCore::default());
     match parser.parse_grammar_filename(&path) {

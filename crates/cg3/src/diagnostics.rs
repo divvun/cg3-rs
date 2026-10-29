@@ -12,7 +12,7 @@
 //! ## Why this bypasses `tracing`
 //! A rendered report is a multi-line block laid out for a terminal — box-drawing
 //! characters, a gutter, colour — not an event with fields. Passing it through
-//! the subscriber [`crate::tools::init_diagnostics`] installs would prefix every
+//! the subscriber cg3-cli's `init_diagnostics` installs would prefix every
 //! line with `ERROR` and strip the colour it deliberately disables
 //! (`.with_ansi(false)`). So the report goes to the stream directly, and the
 //! per-error `tracing` event that used to carry the same text is a `debug!`

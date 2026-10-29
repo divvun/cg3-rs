@@ -20,7 +20,7 @@
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
-use crate::profiler::{ET_CONTEXT, ET_RULE, Profiler};
+use cg3::profiler::{ET_CONTEXT, ET_RULE, Profiler};
 
 use super::{EXIT_FAILURE, EXIT_SUCCESS, ProfileReadError, basename, read_profile};
 
@@ -266,7 +266,7 @@ fn grammar_tags(
                 // u = stoul(after " u=\"")
                 let u: u32 = attr(ast, last, " u=\"")?;
 
-                let mut k = crate::profiler::Key {
+                let mut k = cg3::profiler::Key {
                     r#type: ET_RULE,
                     id: u,
                 };
@@ -306,7 +306,7 @@ fn grammar_tags(
 /// The anchor opening a rule's or context's annotation: a link to its usage
 /// example page, classed good or bad by whether it matched, with its counts.
 /// A context under a known rule (`rid`) shows its matches for that rule.
-fn entry_anchor(profiler: &Profiler, id: u32, entry: &crate::profiler::Entry, rid: u32) -> String {
+fn entry_anchor(profiler: &Profiler, id: u32, entry: &cg3::profiler::Entry, rid: u32) -> String {
     let mut html = String::new();
     html.push_str("<a href=\"");
     if entry.r#type == ET_RULE {
@@ -365,7 +365,7 @@ fn write_report(
     }
 
     // Helper to write out usage examples.
-    let entries: Vec<(u32, crate::profiler::Entry)> =
+    let entries: Vec<(u32, cg3::profiler::Entry)> =
         profiler.entries.iter().map(|(k, e)| (k.id, *e)).collect();
     for (id, e) in entries {
         if e.example_window != 0 {
@@ -477,7 +477,7 @@ fn write_grammar(
 fn write_entry(
     strings: &BTreeMap<usize, String>,
     id: u32,
-    e: &crate::profiler::Entry,
+    e: &cg3::profiler::Entry,
     g: &[u16],
 ) -> Result<(), AnnotateError> {
     let sget = |id: usize| -> String { strings.get(&id).cloned().unwrap_or_default() };

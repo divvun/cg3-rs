@@ -43,12 +43,7 @@ pub struct ArgOption {
 
 impl ArgOption {
     /// An option with help text.
-    pub(crate) fn new(
-        long: &'static str,
-        short: char,
-        has_arg: HasArg,
-        desc: &'static str,
-    ) -> Self {
+    pub fn new(long: &'static str, short: char, has_arg: HasArg, desc: &'static str) -> Self {
         ArgOption {
             long_name: Some(long),
             short_name: short,
@@ -60,7 +55,7 @@ impl ArgOption {
     }
 
     /// An option with no help text, which `--help` does not list.
-    pub(crate) fn hidden(long: &'static str, short: char, has_arg: HasArg) -> Self {
+    pub fn hidden(long: &'static str, short: char, has_arg: HasArg) -> Self {
         ArgOption {
             long_name: Some(long),
             short_name: short,

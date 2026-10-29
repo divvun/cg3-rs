@@ -2,17 +2,17 @@
 //! file.
 //!
 //! Loads `input_grammar_file` (must be binary) and `relabel_rule_file`, runs the
-//! [`crate::relabeller::Relabeller`], and writes the relabelled grammar back out
+//! [`cg3::relabeller::Relabeller`], and writes the relabelled grammar back out
 //! in binary form. LIVE flow (binary parse → relabel → binary write).
 
 use std::fs::File;
 use std::io::{Read, Write};
 
-use crate::binary_grammar::BinaryGrammar;
-use crate::grammar::{GrammarCore, GrammarDraft, GrammarNumbered};
-use crate::inlines::is_cg3b;
-use crate::relabeller::{RelabelRuleError, Relabeller};
-use crate::textual_parser::TextualParser;
+use cg3::binary_grammar::BinaryGrammar;
+use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered};
+use cg3::inlines::is_cg3b;
+use cg3::relabeller::{RelabelRuleError, Relabeller};
+use cg3::textual_parser::TextualParser;
 
 use super::{EXIT_FAILURE, basename, divvun_version_line, emit, fail};
 
@@ -59,13 +59,13 @@ enum GrammarLoadError {
     Parse {
         path: String,
         #[source]
-        source: crate::error::Cg3Error,
+        source: cg3::error::Cg3Error,
     },
     #[error("Error: Grammar {path} could not be reindexed!")]
     Reindex {
         path: String,
         #[source]
-        source: crate::error::Cg3Error,
+        source: cg3::error::Cg3Error,
     },
 }
 
@@ -163,7 +163,7 @@ enum RelabelFailure {
     #[error(transparent)]
     Rule(#[from] RelabelRuleError),
     #[error(transparent)]
-    Relabel(#[from] crate::error::Cg3Error),
+    Relabel(#[from] cg3::error::Cg3Error),
 }
 
 /// Report a [`RelabelFailure`] on the way out of [`main_relabel`], and derive
@@ -226,7 +226,7 @@ pub fn main_relabel(args: &[String]) -> i32 {
             // Relabelling rewrote tags and sets, not rule numbering, so the
             // input's companion still describes this grammar — but it is
             // stamped against the binary just superseded.
-            crate::grammar_sources::carry_beside(
+            cg3::grammar_sources::carry_beside(
                 std::path::Path::new(&args[1]),
                 std::path::Path::new(&args[3]),
             );

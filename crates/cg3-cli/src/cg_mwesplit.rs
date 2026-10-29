@@ -1,12 +1,12 @@
 //! Port of `src/cg-mwesplit.cpp` — the MWE (multi-word expression) splitter.
 //!
 //! Reads a CG stream on stdin, splits multi-word cohorts into their component
-//! words via [`crate::mwesplit_applicator::MweSplitApplicator`], and writes the
+//! words via [`cg3::mwesplit_applicator::MweSplitApplicator`], and writes the
 //! result to stdout. No grammar file: the applicator builds its own minimal
 //! dummy grammar in its constructor.
 
-use crate::arg_parser::parse_args;
-use crate::options::{ArgOption, HasArg};
+use cg3::arg_parser::parse_args;
+use cg3::options::{ArgOption, HasArg};
 
 use super::{emit_usage, fail, to_argv};
 
@@ -86,9 +86,8 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
     // MweSplitApplicator applicator(std::cerr);
     // The port's applicator OWNS its GrammarApplicator base (which owns a fresh
     // Grammar); the ctor builds+installs the minimal dummy grammar.
-    let base =
-        crate::grammar_applicator::GrammarApplicator::new(crate::grammar::Grammar::default());
-    let mut applicator = match crate::mwesplit_applicator::MweSplitApplicator::new(base) {
+    let base = cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
+    let mut applicator = match cg3::mwesplit_applicator::MweSplitApplicator::new(base) {
         Ok(a) => a,
         Err(e) => return fail(&e),
     };

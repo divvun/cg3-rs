@@ -1078,3 +1078,9 @@ fn cg_merge_annotations_main_sums_counts() {
     let _ = std::fs::remove_file(&in_db);
     let _ = std::fs::remove_file(&merged_db);
 }
+
+// [spec:cg3:req:crate-split.one-version/test]
+#[test]
+fn the_tools_carry_the_library_version() {
+    assert_eq!(cg3_cli::DIVVUN_VERSION, cg3::VERSION);
+}

@@ -1,17 +1,17 @@
 [package]
 name = "cg3"
-version = "0.4.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "VISL CG-3 (Constraint Grammar) engine — Rust port"
-license = "GPL-3.0-or-later"
-repository = "https://github.com/divvun/cg3-rs"
-homepage = "https://github.com/divvun/cg3-rs"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 readme = "README.md"
 keywords = ["constraint-grammar", "nlp", "linguistics", "cg3"]
 categories = ["text-processing"]
 
 [lints.rust]
-# The whole crate — lib, binaries, example, tests — is unsafe-free; the one
+# The whole crate — lib, examples, tests — is unsafe-free; the one
 # historically-unsafe construct (address-keyed unification identity) was
 # re-keyed off values. Enforced here so every target inherits the forbid.
 unsafe_code = "forbid"
@@ -20,23 +20,12 @@ unsafe_code = "forbid"
 name = "cg3"
 path = "src/lib.rs"
 
-# The two profiling-report tools are the only SQLite consumers; they build only
-# with the `profiler` feature (the other six binaries auto-discover as usual).
-[[bin]]
-name = "cg-annotate"
-path = "src/bin/cg-annotate.rs"
-required-features = ["profiler"]
-
-[[bin]]
-name = "cg-merge-annotations"
-path = "src/bin/cg-merge-annotations.rs"
-required-features = ["profiler"]
-
 [features]
 default = []
-# `vislcg3 --profile` plus the cg-annotate / cg-merge-annotations report tools,
-# which persist to a SQLite database via rusqlite (bundled SQLite). Off by
-# default so the base build pulls in no C toolchain / SQLite.
+# The profiler, which persists to a SQLite database via rusqlite (bundled
+# SQLite). Off by default so the base build pulls in no C toolchain / SQLite;
+# cg3-cli's `profiler` feature turns it on for `vislcg3 --profile` and the
+# cg-annotate / cg-merge-annotations report tools.
 profiler = ["dep:rusqlite"]
 
 [dependencies]
@@ -48,9 +37,8 @@ serde_json = "1"
 # Profiler DB (replaces the C sqlite3 API) — only pulled in by the `profiler` feature.
 rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 # All diagnostics/logging (the C++ ux_stderr/std::cerr messages) are tracing
-# events; the binaries install a stderr subscriber.
+# events; whoever runs the library installs the subscriber (cg3-cli: stderr).
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
 # Typed bit-flag sets (T_*/ST_*/CT_*/RF_*/POS_* families) per the sanctioned idiom list.
 bitflags = "2"
 # Tag + text-delimiter patterns come from grammars authored against ICU, so they
@@ -62,18 +50,9 @@ bitflags = "2"
 # `src/tag_regex.rs` for the seam and the backtrack limit.
 fancy-regex = "0.19"
 thiserror = "2.0.20"
-# Restores the default SIGPIPE disposition when a tool starts, so a tool whose
-# reader has gone is ended by the signal as the C++ tools are, rather than
-# writing on into a closed pipe.
-sigpipe = "0.1.3"
 # Source-quoting diagnostics for grammar syntax errors (src/diagnostics.rs).
 # The `auto-color` feature (concolor) is deliberately NOT enabled: this crate
 # already decides colour from `IsTerminal` on the stream it is writing to, per
 # `[spec:cg3:req:diagnostics.colour-at-tty]`, and a second detector reading
 # process-global state would only disagree with it.
 ariadne = "0.6"
-
-[dev-dependencies]
-# The conformance harness (tests/golden.rs, tests/apertium.rs) uses regex for the
-# ported cg-untrace / cg-sort / cg-stabilize-relations stream filters.
-regex = "1"

@@ -1,0 +1,52 @@
+[package]
+name = "cg3-cli"
+version.workspace = true
+edition.workspace = true
+description = "VISL CG-3 (Constraint Grammar) command-line tools — Rust port"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+keywords = ["constraint-grammar", "nlp", "linguistics", "cg3", "vislcg3"]
+categories = ["text-processing", "command-line-utilities"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lib]
+name = "cg3_cli"
+path = "src/lib.rs"
+
+# The two profiling-report tools are the only SQLite consumers; they build only
+# with the `profiler` feature (the other six binaries auto-discover as usual).
+[[bin]]
+name = "cg-annotate"
+path = "src/bin/cg-annotate.rs"
+required-features = ["profiler"]
+
+[[bin]]
+name = "cg-merge-annotations"
+path = "src/bin/cg-merge-annotations.rs"
+required-features = ["profiler"]
+
+[features]
+default = []
+# `vislcg3 --profile` plus the cg-annotate / cg-merge-annotations report tools.
+profiler = ["cg3/profiler", "dep:rusqlite"]
+
+[dependencies]
+cg3 = { path = "../cg3", version = "0.4.0" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
+thiserror = "2.0.20"
+# The report tools name the profiler database's error type.
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+# Restores the default SIGPIPE disposition when a tool starts, so a tool whose
+# reader has gone is ended by the signal as the C++ tools are, rather than
+# writing on into a closed pipe.
+sigpipe = "0.1.3"
+
+[dev-dependencies]
+# The conformance harness (tests/golden.rs, tests/apertium.rs) uses regex for the
+# ported cg-untrace / cg-sort / cg-stabilize-relations stream filters.
+regex = "1"

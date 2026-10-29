@@ -79,16 +79,17 @@ RapidJSON:
 
 ## Building
 
-Released on crates.io as [`cg3`](https://crates.io/crates/cg3)
-(`cargo add cg3`, or `cargo install cg3` for the binaries). To build from a
+The library is released on crates.io as [`cg3`](https://crates.io/crates/cg3)
+(`cargo add cg3`). The command-line tools are the `cg3-cli` crate in this
+workspace (`cargo install --path crates/cg3-cli`). To build from a
 checkout of [`divvun/cg3-rs`](https://github.com/divvun/cg3-rs):
 
 ```sh
 cargo build                       # the library + the six default binaries
 cargo build --features profiler   # also builds cg-annotate / cg-merge-annotations
-cargo nextest run -p cg3          # the full test suite (unit + integration + the
+cargo nextest run --workspace     # the full test suite (unit + integration + the
                                   # golden/Apertium conformance corpus)
-# or: cargo test -p cg3
+# or: cargo test --workspace
 ```
 
 The `profiler` feature is off by default; it pulls in `rusqlite` (bundled
@@ -154,9 +155,12 @@ The port mirrors the C++ source file-for-file:
 - **Stream formats** — eight applicators (CG, Niceline, Apertium, Matxin, FST,
   Plaintext, JSONL, Binary) behind a `StreamFormat` trait, plus
   `format_converter`.
-- **CLI** — the eight `src/bin/` tools and `options` parsing.
+- **Options** — `options`, `options_parser` and `arg_parser`: the option
+  language the command line and a grammar's `CMDARGS` share.
+- **CLI** — the `cg3-cli` crate: the eight tools in `crates/cg3-cli/src/bin/`,
+  their argument handling, environment option tables and banners.
 
-See `cargo doc -p cg3 --open` for the full surface.
+See `cargo doc -p cg3 --open` for the library's full surface.
 
 ## Specification
 

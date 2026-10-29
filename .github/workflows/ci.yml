@@ -37,10 +37,10 @@ jobs:
       # are the full compile-and-lint gate. `--features profiler` additionally
       # pulls in rusqlite + the cg-annotate / cg-merge-annotations binaries.
       - name: Clippy (default features)
-        run: cargo clippy --all-targets -p cg3 -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Clippy (profiler feature)
-        run: cargo clippy --all-targets -p cg3 --features profiler -- -D warnings
+        run: cargo clippy --workspace --all-targets --features profiler -- -D warnings
 
       # The npm package builds the library for wasm32, where usize is 32 bits
       # wide; this is the build that catches code assuming 64.
@@ -48,10 +48,10 @@ jobs:
         run: cargo check -p cg3 --lib --target wasm32-unknown-unknown
 
       - name: Tests (default features)
-        run: cargo nextest run -p cg3
+        run: cargo nextest run --workspace
 
       - name: Tests (profiler feature)
-        run: cargo nextest run -p cg3 --features profiler
+        run: cargo nextest run --workspace --features profiler
 
       - name: Doctests
-        run: cargo test -p cg3 --doc
+        run: cargo test --workspace --doc

@@ -1,7 +1,7 @@
 //! Port of `src/cg-conv.cpp` — the stream format converter.
 //!
 //! Parses cg-conv options, configures a
-//! [`crate::format_converter::FormatConverter`] (via its public shared-base
+//! [`cg3::format_converter::FormatConverter`] (via its public shared-base
 //! accessors — the composition analogue of the C++ public inheritance), and
 //! runs it over stdin→stdout. stdin is buffered into a seekable Cursor because
 //! the ported drivers need `R: Read + Seek`. FST/plaintext-only options are
@@ -13,8 +13,8 @@
 //! as a no-op. See plan node `option-wiring`.
 
 use super::parse_opts_env;
-use crate::arg_parser::parse_args;
 use crate::options_conv::{Opt, options_conv, options_default, options_override};
+use cg3::arg_parser::parse_args;
 
 use super::{EXIT_FAILURE, EXIT_SUCCESS, emit_usage, fail, to_argv};
 
@@ -146,9 +146,8 @@ pub fn main_conv(args: &[String]) -> i32 {
             .next()
             .unwrap_or('\0')
     });
-    let base =
-        crate::grammar_applicator::GrammarApplicator::new(crate::grammar::Grammar::default());
-    let conv = crate::format_converter::FormatConverter::with_conv_grammar(base, |grammar| {
+    let base = cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
+    let conv = cg3::format_converter::FormatConverter::with_conv_grammar(base, |grammar| {
         if ordered {
             grammar.ordered = true;
         }
@@ -171,10 +170,10 @@ pub fn main_conv(args: &[String]) -> i32 {
     let mut input_bytes = Vec::new();
     let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut input_bytes);
     let mut instream = std::io::Cursor::new(input_bytes);
-    crate::uextras::strip_bom(&mut instream);
+    cg3::uextras::strip_bom(&mut instream);
 
     // cg3_sformat fmt = CG3SF_INVALID;
-    use crate::grammar_applicator::StreamFormatKind;
+    use cg3::grammar_applicator::StreamFormatKind;
     let mut fmt = StreamFormatKind::Invalid;
 
     // if (ADD_TAGS) { options_conv[IN_PLAIN].doesOccur = true; ...add_tags = true; }

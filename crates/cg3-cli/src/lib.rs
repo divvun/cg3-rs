@@ -7,12 +7,12 @@
 //! verbatim `[spec:cg3:def:<id>]` + `[spec:cg3:sem:<id>]` annotation.
 //!
 //! ## Shared conventions
-//! * **Options.** Arg parsing routes through [`crate::options`] /
-//!   [`crate::options_conv`] tables and [`crate::options_parser::parse_opts`] /
-//!   [`crate::arg_parser::parse_args`], exactly as the C++ does. The mutable
+//! * **Options.** Arg parsing routes through [`cg3::options`] /
+//!   [`crate::options_conv`] tables and [`cg3::options_parser::parse_opts`] /
+//!   [`cg3::arg_parser::parse_args`], exactly as the C++ does. The mutable
 //!   global `std::array` option tables become owned local copies (the port
 //!   exposes them as constructor functions — see the module NOTE in
-//!   [`crate::options`]), so each tool owns its `options` / `options_conv` /
+//!   [`cg3::options`]), so each tool owns its `options` / `options_conv` /
 //!   `*_default` / `*_override` arrays and mutates them in place.
 //! * **`parse_args` argv.** The argument parser consumes `&mut [Vec<char>]`;
 //!   each tool converts its incoming `&[String]` argv into that shape and reads
@@ -23,7 +23,7 @@
 //!   that, so those calls are dropped. Where the C++ returns its status as the
 //!   exit code, the port returns `EXIT_SUCCESS` or `EXIT_FAILURE`.
 //! * **Grammar ownership.** The ported parsers OWN their `Grammar` (see
-//!   [`crate::textual_parser`] / [`crate::binary_grammar`]); the C++ passes an
+//!   [`cg3::textual_parser`] / [`cg3::binary_grammar`]); the C++ passes an
 //!   externally-held `Grammar&` and later `parser.reset()`s. The port therefore
 //!   moves the built grammar OUT of the parser (`parser.grammar`) after parsing,
 //!   which is the faithful analogue of "the grammar outlives the parser".
@@ -41,6 +41,12 @@
 
 use std::io::Write;
 
+// [spec:cg3:req:crate-split.cli]
+// [spec:cg3:req:crate-split.tools-unchanged]
+// The tools, and what only a process needs: argv, the environment option
+// tables, files named on the command line, standard streams, exit codes,
+// banners, the stderr subscriber and the SIGPIPE disposition. Loading and
+// running a grammar is the library's.
 #[cfg(feature = "profiler")]
 pub mod cg_annotate;
 pub mod cg_comp;
@@ -50,6 +56,7 @@ pub mod cg_merge_annotations;
 pub mod cg_mwesplit;
 pub mod cg_proc;
 pub mod cg_relabel;
+pub mod options_conv;
 pub mod vislcg3;
 
 // --- Diagnostics ----------------------------------------------------------------
@@ -123,8 +130,8 @@ pub(crate) const EXIT_FAILURE: i32 = 1;
 /// maps to is a property of THIS command-line contract, not of the failure: an
 /// embedder handling the same value cares about the variant and wants nothing to
 /// do with an exit status.
-pub(crate) fn fail(e: &crate::error::Cg3Error) -> i32 {
-    crate::error::report_cli(e);
+pub(crate) fn fail(e: &cg3::error::Cg3Error) -> i32 {
+    cg3::error::report_cli(e);
     EXIT_FAILURE
 }
 
@@ -145,8 +152,8 @@ pub(crate) struct ProfileReadError {
 /// throws. The tools refuse the database rather than go on with an empty
 /// profile.
 #[cfg(feature = "profiler")]
-pub(crate) fn read_profile(path: &str) -> Result<crate::profiler::Profiler, ProfileReadError> {
-    let mut profiler = crate::profiler::Profiler::default();
+pub(crate) fn read_profile(path: &str) -> Result<cg3::profiler::Profiler, ProfileReadError> {
+    let mut profiler = cg3::profiler::Profiler::default();
     match profiler.read(path) {
         Ok(()) => Ok(profiler),
         Err(source) => Err(ProfileReadError {
@@ -164,15 +171,17 @@ pub(crate) fn read_profile(path: &str) -> Result<crate::profiler::Profiler, Prof
 // Reads env var `which`; if set, parses its value into `where_`. (The C++
 // copied the value and appended the guard NUL the old scanner needed; the
 // native-string scanner needs no terminators.)
-pub fn parse_opts_env(which: &str, where_: &mut [crate::options::ArgOption]) {
+pub fn parse_opts_env(which: &str, where_: &mut [cg3::options::ArgOption]) {
     if let Ok(env) = std::env::var(which) {
-        crate::options_parser::parse_opts(&env, where_);
+        cg3::options_parser::parse_opts(&env, where_);
     }
 }
 
 // --- Divvun package identity ---------------------------------------------------
 
-/// Release metadata supplied by Cargo from this package's manifest.
+// [spec:cg3:req:crate-split.one-version]
+/// Release metadata supplied by Cargo from this package's manifest. The
+/// version is the workspace's, so it is the library's too.
 pub const DIVVUN_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DIVVUN_REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 pub const DIVVUN_BUILD_DATE: &str = env!("CG3_BUILD_DATE");
@@ -366,8 +375,8 @@ pub(crate) fn basename(name: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::options::{ArgOption, HasArg};
-    use crate::options_parser::parse_opts;
+    use cg3::options::{ArgOption, HasArg};
+    use cg3::options_parser::parse_opts;
 
     fn opt(long: &'static str, short: char, has_arg: HasArg) -> ArgOption {
         ArgOption::hidden(long, short, has_arg)
