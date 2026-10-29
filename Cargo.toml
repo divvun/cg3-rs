@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/cg3", "crates/cg3-cli"]
+members = ["crates/cg3", "crates/cg3-cli", "crates/cg3-wasm"]
 
 # One version for the library and the tools: every banner reports it.
 [workspace.package]

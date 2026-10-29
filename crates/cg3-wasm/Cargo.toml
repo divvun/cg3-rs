@@ -1,0 +1,30 @@
+[package]
+name = "cg3-wasm"
+version.workspace = true
+edition.workspace = true
+description = "The @divvun/cg3 npm package: VISL CG-3 compiled grammars for JavaScript"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cg3 = { path = "../cg3", version = "0.4.0" }
+# Pinned: the wasm-bindgen CLI that generates the JavaScript glue must be this
+# exact version, or the module it writes does not match the one built here.
+wasm-bindgen = "=0.2.118"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+js-sys = "0.3"
+tracing = "0.1"
+# A panic is a trap on wasm32; this writes its message to the console first.
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"

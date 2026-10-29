@@ -629,4 +629,15 @@ impl_evidence (
         {impl_name target-impl, rule embed.run-options}
         {impl_name target-impl, rule embed.runs-independent}
     )}
+    {id wasm.bindings, covered_rules (
+        wasm.apply
+        wasm.errors
+        wasm.grammar-load
+        wasm.no-process
+    ), covered_claims (
+        {impl_name target-impl, rule wasm.apply}
+        {impl_name target-impl, rule wasm.errors}
+        {impl_name target-impl, rule wasm.grammar-load}
+        {impl_name target-impl, rule wasm.no-process}
+    )}
 )

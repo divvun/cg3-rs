@@ -36,12 +36,13 @@ computes in `size_t`, a 32-bit build has to produce what a 64-bit one does.
 > `CompiledGrammar::info` reports, and `grammar.free()` MUST release the
 > grammar's memory.
 
-> [spec:cg3:req:wasm.apply]
+> [spec:cg3:req:wasm.apply+1]
 > `grammar.apply(input, options)` MUST run the grammar on a string through
-> `CompiledGrammar::run` and return the output as a string, with the warnings the
-> run logged, in order, as strings. `options` MUST name each run option after its
-> vislcg3 long option in camelCase, and MUST offer every stream format except the
-> binary one.
+> `CompiledGrammar::run` and return the output as a string, with every warning
+> and non-fatal error the run logged, in order, as strings. `options` MUST name
+> each run option after its vislcg3 long option in camelCase, MUST refuse an
+> option it does not know, and MUST offer every stream format except the binary
+> one.
 
 > [spec:cg3:req:wasm.errors]
 > A load or run that fails MUST throw an `Error` whose message is the library

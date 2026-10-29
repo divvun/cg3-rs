@@ -3273,6 +3273,13 @@ children (
                         kind @note
                         text "These compile for wasm32-unknown-unknown but cannot work there: EXTERNAL rules (process.rs spawns through std::process), parse_grammar_filename, the grammar source sidecar lookup, and options read from the environment. All of them already return errors rather than panic. Load through BinaryGrammar::parse_grammar_buffer, which has no file behind it, so no binary_path and no sidecar. info() reports summary counts (rules, sets, tags, sections); a full inspection view of the arena-indexed model is out of scope."
                     }
+
+                    {
+                        at 2026-10-29T14:51:30.63939Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 
