@@ -3157,7 +3157,12 @@ children (
                 title "Build the library for wasm32: the flat containers' probe hash computes in u64 and truncates to usize, as the C++ does on a 32-bit size_t, so slots and iteration order match the 64-bit build; CI checks the wasm32 build"
                 kind @fix
                 implements {
-                    target-impl ([spec:cg3:req:wasm.library-builds] [spec:cg3:req:wasm.width-independent])
+                    target-impl (
+                        [spec:cg3:req:wasm.library-builds]
+                        [spec:cg3:req:wasm.width-independent]
+                        [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.hash-value-sz-fn]
+                        [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.hash-value-sz-fn]
+                    )
                 }
                 deps (wasm.spec)
                 log (
@@ -3166,6 +3171,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @decision
                         text "cargo check --lib --target wasm32-unknown-unknown fails only on four overflowing_literals errors: the 64-bit LCG constants in hash_value_sz in flat_unordered_map.rs and flat_unordered_set.rs. With that lint allowed, the rest of the library builds; it uses no threads, Instant or mmap. Compute in u64 and truncate with `as usize`. That is the C++ semantics: on a 32-bit size_t the ull literals promote the expression to unsigned long long, and the return converts it back to size_t. The low bits of the result match the 64-bit build, and the probe masks with capacity - 1, so slots and iteration order are identical. The two sem rules (flat-unordered-map and flat-unordered-set hash-value-sz-fn) say \"evaluated in size_type width\", so they need +1 with that wording. Bumping a rule un-covers its bare annotation sites, so re-annotate them in the same commit."
+                    }
+
+                    {
+                        at 2026-10-29T14:00:07.051717Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
                     }
                 )
             }

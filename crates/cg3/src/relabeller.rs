@@ -768,10 +768,9 @@ impl<'r> Relabeller<'r> {
         let s_gr_num = self.copy_relabel_set_to_grammar(set_r);
 
         // (7) Determine s_gI.
-        let s_gi_num: u32;
-        if tvs_with_from.is_empty() {
+        let s_gi_num: u32 = if tvs_with_from.is_empty() {
             // avoid intersecting with ∅ (never matches).
-            s_gi_num = s_gr_num;
+            s_gr_num
         } else {
             let s_gw = self.grammar.allocate_set();
             self.add_taglists_to_set(&tvs_with_from, s_gw);
@@ -800,8 +799,8 @@ impl<'r> Relabeller<'r> {
                 node.set_ops = vec![S_PLUS];
             }
             self.add_set_to_grammar(s_gi);
-            s_gi_num = self.grammar.sets_list[s_gi.0].number.get();
-        }
+            self.grammar.sets_list[s_gi.0].number.get()
+        };
 
         // (8) Reshape set_g into an OR: { s_gN->number, s_gI_num }, ops { S_OR }.
         let s_gn_number = self.grammar.sets_list[s_gn.0].number.get();
