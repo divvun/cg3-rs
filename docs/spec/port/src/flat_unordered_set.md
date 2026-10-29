@@ -162,16 +162,19 @@
 > [spec:cg3:def:flat-unordered-set.cg3.flat-unordered-set.hash-value-sz-fn]
 > size_type hash_value_sz(size_type t) const
 
-> [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.hash-value-sz-fn]
+> [spec:cg3:sem:flat-unordered-set.cg3.flat-unordered-set.hash-value-sz-fn+1]
 > Computes the probe hash of a slot index / value t: returns
-> t * 3663850746527583589 + 11210403176660999867, where both constants are
-> unsigned 64-bit (ull) literals and the whole expression is evaluated in
-> size_type (size_t) width with modular wraparound. This is a linear-
+> t * 3663850746527583589 + 11210403176660999867. Both constants are
+> unsigned 64-bit (ull) literals, so t converts to unsigned long long and the
+> expression wraps modulo 2^64; the return then converts it to size_type,
+> which keeps its low 32 bits where size_t is 32 bits wide. This is a linear-
 > congruential mix used both to seed the open-addressing probe (via
 > hash_value) and to advance it (spot = hash_value_sz(spot) & max). PARITY:
-> the Rust port must do wrapping multiply-then-add in the platform size_t
-> width (typically u64) with these exact constants; results differ if a
-> 32-bit size_t is used.
+> the Rust port does the wrapping multiply-then-add in u64 with these exact
+> constants and truncates to usize. Every use masks the result with
+> capacity - 1, and the low bits of a wrapping multiply-add depend only on
+> the low bits of its operands, so 32- and 64-bit builds probe the same
+> slots.
 
 > [spec:cg3:def:flat-unordered-set.cg3.flat-unordered-set.insert-fn]
 > void insert(T t)

@@ -198,16 +198,22 @@ impl<K: Sentinel, V> FlatUnorderedMap<K, V> {
         FlatUnorderedMap::default()
     }
 
-    // [spec:cg3:def:flat-unordered-map.cg3.flat-unordered-map.hash-value-sz-fn]
-    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.hash-value-sz-fn]
-    // LCG probe hash `t * 3663850746527583589 + 11210403176660999867` in
-    // size_t (usize) width with modular wraparound — the container's OWN
+    // [spec:cg3:def:flat-unordered-map.cg3.flat-unordered-map.hash-value-sz-fn+1]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.hash-value-sz-fn+1]
+    // [spec:cg3:req:wasm.width-independent]
+    // [spec:cg3:req:wasm.library-builds]
+    // LCG probe hash `t * 3663850746527583589 + 11210403176660999867`, wrapping
+    // in u64 and truncated to usize, as the C++ ull arithmetic and size_t
+    // return are. Every use masks it with `capacity() - 1`, and the low bits
+    // of a wrapping multiply-add depend only on the low bits of its operands,
+    // so 32- and 64-bit builds probe the same slots. The container's OWN
     // private member, NOT `crate::inlines::hash_value_sz` (that is the 65599
     // mixer; delegating to it produced a fixed-stride probe and a different
     // physical slot / iteration order than the C++).
     fn hash_value_sz(&self, t: usize) -> usize {
-        t.wrapping_mul(3663850746527583589)
-            .wrapping_add(11210403176660999867)
+        (t as u64)
+            .wrapping_mul(3663850746527583589)
+            .wrapping_add(11210403176660999867) as usize
     }
 
     // [spec:cg3:def:flat-unordered-map.cg3.flat-unordered-map.hash-value-fn]
@@ -584,18 +590,18 @@ mod tests {
     }
 
     // The private LCG probe hashers. `hash_value_sz` is the container's OWN
-    // member `t*3663850746527583589 + 11210403176660999867` (usize wraparound)
+    // member `t*3663850746527583589 + 11210403176660999867` (u64 wraparound)
     // and MUST differ from `crate::inlines::hash_value_sz` (the 65599 mixer).
     // `hash_value` widens the key via `static_cast<size_type>` then mixes.
-    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.hash-value-sz-fn/test]
+    // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.hash-value-sz-fn+1/test]
     // [spec:cg3:sem:flat-unordered-map.cg3.flat-unordered-map.hash-value-fn/test]
     #[test]
     fn lcg_probe_hash_formula() {
         let m: Uint32FlatHashMap = FlatUnorderedMap::new();
-        // Exact LCG constants, in usize width with wrapping.
         let expect = |t: usize| {
-            t.wrapping_mul(3663850746527583589usize)
-                .wrapping_add(11210403176660999867usize)
+            (t as u64)
+                .wrapping_mul(3663850746527583589)
+                .wrapping_add(11210403176660999867) as usize
         };
         assert_eq!(m.hash_value_sz(0), expect(0));
         assert_eq!(m.hash_value_sz(1), expect(1));
@@ -612,6 +618,33 @@ mod tests {
             mixer,
             "container LCG must differ from inlines mixer"
         );
+    }
+
+    // A 32-bit C++ build evaluates the same expression and returns its low 32
+    // bits; computed here directly in u32, independently of `hash_value_sz`.
+    // Equal low halves mean every mask a 32-bit capacity allows picks the same
+    // slot, so the probe walks match step for step.
+    // [spec:cg3:req:wasm.width-independent/test]
+    #[test]
+    fn probe_matches_a_32_bit_size_t() {
+        let m: Uint32FlatHashMap = FlatUnorderedMap::new();
+        let hash32 = |t: u32| {
+            t.wrapping_mul(3663850746527583589u64 as u32)
+                .wrapping_add(11210403176660999867u64 as u32)
+        };
+        for key in [0u32, 1, 7, 12345, 0x8000_0000, u32::MAX - 2] {
+            assert_eq!(m.hash_value(key) as u32, hash32(key), "key {key}");
+        }
+        for cap_bits in [4u32, 10, 20, 31] {
+            let max = (1usize << cap_bits) - 1;
+            let mut spot = m.hash_value(12345) & max;
+            let mut spot32 = hash32(12345) as usize & max;
+            for _ in 0..256 {
+                assert_eq!(spot, spot32, "capacity 2^{cap_bits}");
+                spot = m.hash_value_sz(spot) & max;
+                spot32 = hash32(spot32 as u32) as usize & max;
+            }
+        }
     }
 
     // Default ctor + insert + find/count/contains, begin/end iteration,
