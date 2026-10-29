@@ -206,6 +206,7 @@ assertions (
     {id w4-tag-union-enum, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:24.394764Z}
     {id w4-unsafe-elimination, kind @complete, author "brendan@necessary.nu", at 2026-07-19T23:21:00.160291Z}
     {id w4-utf8-native-strings, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:40.500409Z}
+    {id wasm.spec, kind @complete, author "brendan@necessary.nu", at 2026-10-29T13:58:23.741133Z}
 )
 
 impl_evidence (

@@ -3134,19 +3134,20 @@ children (
                 id wasm.spec
                 title "State the crate split and the wasm package in the spec and the AKM: rules for a library with no command-line code that builds for wasm32, its load-and-run API, the JavaScript surface, and wasm output matching native; a decision for the split; elements for the CLI and wasm crates"
                 kind @docs
-            }
-
-            {
-                id wasm.engine-config
-                title "Stop the engine reading the command-line option table: set_options becomes a CLI-side translation from parsed options into EngineConfig, so the library takes typed configuration only"
-                kind @refactor
-                deps (wasm.spec)
+                sealed true
                 log (
                     {
-                        at 2026-10-29T13:47:04.604965Z
+                        at 2026-10-29T13:49:42.99827Z
                         author "brendan@necessary.nu"
-                        kind @note
-                        text "GrammarApplicator::set_options (grammar_applicator/core.rs:1512, 166 lines) reads the CLI OptionsTable into the engine's flags; it is the only library use of crate::options. Its callers are tools/vislcg3.rs:483 and tools/cg_proc.rs:486. Its def and sem set-options-fn rules move with it to the CLI side. tests/cli_robustness.rs covers its numeric options."
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-10-29T13:58:23.741133Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
@@ -3155,6 +3156,9 @@ children (
                 id wasm.target-32bit
                 title "Build the library for wasm32: the flat containers' probe hash computes in u64 and truncates to usize, as the C++ does on a 32-bit size_t, so slots and iteration order match the 64-bit build; CI checks the wasm32 build"
                 kind @fix
+                implements {
+                    target-impl ([spec:cg3:req:wasm.library-builds] [spec:cg3:req:wasm.width-independent])
+                }
                 deps (wasm.spec)
                 log (
                     {
@@ -3168,9 +3172,18 @@ children (
 
             {
                 id wasm.cli-crate
-                title "Move the command line into crates/cg3-cli: the binaries, tools/, argument and option parsing, the option translation and every test that runs a binary, with sigpipe and tracing-subscriber; crates/cg3 keeps what a run shares, and the commit checks cover both crates"
+                title "Move the command-line tools into crates/cg3-cli: the binaries, tools/, the environment option tables, cg-conv's option table and every test that runs a binary, with sigpipe, tracing-subscriber and the banner build script; merge_options moves into the library beside parse_opts"
                 kind @refactor
-                deps (wasm.engine-config)
+                implements {
+                    target-impl (
+                        [spec:cg3:req:crate-split.library]
+                        [spec:cg3:req:crate-split.cli]
+                        [spec:cg3:req:crate-split.no-cli-deps]
+                        [spec:cg3:req:crate-split.one-version]
+                        [spec:cg3:req:crate-split.tools-unchanged]
+                    )
+                }
+                deps (wasm.spec)
                 log (
                     {
                         at 2026-10-29T13:47:11.578274Z
@@ -3178,20 +3191,54 @@ children (
                         kind @note
                         text "Used only by the tools: arg_parser, options_parser and options_conv; options too, once wasm.engine-config lands. tracing-subscriber is used only in tools/mod.rs. filesystem.rs has no users at all. relabeller is a grammar transformation and stays in the library, with cg-relabel calling it. Tests that use CARGO_BIN_EXE_* (golden.rs, stream_text.rs and others) must move, because that variable exists only for binaries in the same package. cg3-cli forwards the profiler feature for cg-annotate and cg-merge-annotations. The checks in .config/nplan/config.styx name -p cg3 and need to cover cg3-cli as well. This is breaking for anyone who runs `cargo install cg3`: the binaries then come from cg3-cli."
                     }
+
+                    {
+                        at 2026-10-29T13:57:45.19316Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "This replaces the earlier note's claim that `options` would leave the library once wasm.engine-config landed. That node is gone and the table stays. A grammar carries vislcg3 options in CMDARGS and CMDARGS-OVERRIDE, so the option table, parse_opts, parse_args, merge_options and set_options all belong to the library ([dec:cg3:library-cli-split]). What moves: tools/, bin/, parse_opts_env (the CG3_DEFAULT, CG3_OVERRIDE and CG3_CONV_* tables), options_conv (cg-conv's own table), the build script and banner constants, sigpipe, tracing-subscriber, and the tests that use CARGO_BIN_EXE_*."
+                    }
                 )
             }
 
             {
                 id wasm.embed-api
-                title "Give the library one load-and-run API: a grammar loaded from .cg3b bytes into a shared core, a runner per pipeline with typed options (formats, trace, sections), bytes in and bytes out; vislcg3 loads and runs through it"
+                title "Give the library one load-and-run API: CompiledGrammar::from_cg3b over bytes into a shared indexed core, info, and run from bytes to bytes with typed RunOptions merged with the grammar's CMDARGS as vislcg3 merges them; each run independent; vislcg3 runs every grammar through it"
                 kind @feat
+                implements {
+                    target-impl (
+                        [spec:cg3:req:embed.load]
+                        [spec:cg3:req:embed.info]
+                        [spec:cg3:req:embed.run-options]
+                        [spec:cg3:req:embed.grammar-options]
+                        [spec:cg3:req:embed.run]
+                        [spec:cg3:req:embed.runs-independent]
+                        [spec:cg3:req:embed.cli-runs-through]
+                    )
+                }
                 deps (wasm.cli-crate grammar-phases.load-types)
+                log (
+                    {
+                        at 2026-10-29T13:57:34.145128Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Build RunOptions as Option<T> fields, one per option set_options reads (about 40, from AlwaysSpan to Verbose), plus the input and output formats. Run them into an OptionsTable, setting does_occur only for fields that are set. Merge the grammar's cmdargs and cmdargs_override with merge_options, then hand the table to set_options, so there is one translation from options to a run. For a .cg3b the merge after finish is equivalent to vislcg3's merge before finish: the only grammar-side option, --prefix, is a check that must match for a binary grammar. Each run takes a fresh GrammarApplicator over Grammar::from_core on the shared Arc, because document state lives for one stream. vislcg3 keeps its own load (nrules filters, compatibility, verbosity, --grammar-out) and wraps the finished core into a CompiledGrammar to run."
+                    }
+                )
             }
 
             {
                 id wasm.bindings
-                title "Add crates/cg3-wasm, wasm-bindgen glue over the load-and-run API: Grammar.fromBytes, apply and info; load and run errors as JavaScript Errors; warnings returned with the result; a clear error for EXTERNAL rules"
+                title "Add crates/cg3-wasm, wasm-bindgen glue over the load-and-run API: Grammar.fromBytes, info, apply with camelCase run options and the run's warnings, free; failures thrown as Errors without trapping; EXTERNAL rules fail where their process would start"
                 kind @feat
+                implements {
+                    target-impl (
+                        [spec:cg3:req:wasm.grammar-load]
+                        [spec:cg3:req:wasm.apply]
+                        [spec:cg3:req:wasm.errors]
+                        [spec:cg3:req:wasm.no-process]
+                    )
+                }
                 deps (wasm.embed-api wasm.target-32bit)
                 log (
                     {
@@ -3207,6 +3254,9 @@ children (
                 id wasm.package
                 title "Package the wasm build as @divvun/cg3: one ESM module from wasm-bindgen --target web, a hand-written package.json with types, a size-tuned release profile and wasm-opt, and the wasm-bindgen CLI pinned to the crate's version"
                 kind @build
+                implements {
+                    target-impl ([spec:cg3:req:wasm.module])
+                }
                 deps (wasm.bindings)
             }
 
@@ -3214,6 +3264,9 @@ children (
                 id wasm.parity
                 title "Show the package runs a grammar exactly as vislcg3 does: unit tests under Node, and a harness that compiles each test/T_* grammar to .cg3b natively, applies it through the package and diffs against expected.txt; record size, load time and memory for a real Divvun grammar"
                 kind @test
+                implements {
+                    target-impl ([spec:cg3:req:wasm.parity])
+                }
                 deps (wasm.package)
             }
 

@@ -166,15 +166,71 @@ elements (
         name "CLI boundary"
         kind @boundary
         lifecycle @active
-        owns ()
+        owns (
+            [spec:cg3:req:crate-split.library]
+            [spec:cg3:req:crate-split.cli]
+            [spec:cg3:req:crate-split.no-cli-deps]
+            [spec:cg3:req:crate-split.one-version]
+            [spec:cg3:req:crate-split.tools-unchanged]
+        )
         exposes (
             "crates/cg3/src/bin/**"
             "crates/cg3/src/tools/**"
+            "crates/cg3-cli/**"
         )
-        depends_on ([arch:cg3:error-model])
-        decisions ([dec:cg3:results-not-unwinding])
+        depends_on ([arch:cg3:error-model] [arch:cg3:embedding])
+        decisions ([dec:cg3:results-not-unwinding] [dec:cg3:library-cli-split])
         log (
             {at "2026-08-14T00:00:00Z", kind @established, by "[dec:cg3:results-not-unwinding]"}
+            {at "2026-10-29T00:00:00Z", kind @modified, by "[dec:cg3:library-cli-split]"}
+        )
+    }
+
+    {
+        id [arch:cg3:embedding]
+        name "Load-and-run API"
+        kind @module
+        lifecycle @provisional
+        owns (
+            [spec:cg3:req:embed.load]
+            [spec:cg3:req:embed.info]
+            [spec:cg3:req:embed.run-options]
+            [spec:cg3:req:embed.grammar-options]
+            [spec:cg3:req:embed.run]
+            [spec:cg3:req:embed.runs-independent]
+            [spec:cg3:req:embed.cli-runs-through]
+        )
+        exposes (
+            "crates/cg3/src/embed.rs"
+            "crates/cg3/src/embed/**"
+        )
+        depends_on ([arch:cg3:error-model] [arch:cg3:grammar-model] [arch:cg3:binary-format])
+        decisions ([dec:cg3:wasm-package])
+        log (
+            {at "2026-10-29T00:00:00Z", kind @established, by "[dec:cg3:wasm-package]"}
+        )
+    }
+
+    {
+        id [arch:cg3:wasm-package]
+        name "wasm package"
+        kind @boundary
+        lifecycle @provisional
+        owns (
+            [spec:cg3:req:wasm.module]
+            [spec:cg3:req:wasm.grammar-load]
+            [spec:cg3:req:wasm.apply]
+            [spec:cg3:req:wasm.errors]
+            [spec:cg3:req:wasm.no-process]
+            [spec:cg3:req:wasm.parity]
+        )
+        exposes (
+            "crates/cg3-wasm/**"
+        )
+        depends_on ([arch:cg3:embedding])
+        decisions ([dec:cg3:wasm-package])
+        log (
+            {at "2026-10-29T00:00:00Z", kind @established, by "[dec:cg3:wasm-package]"}
         )
     }
 )
