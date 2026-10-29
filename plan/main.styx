@@ -1086,7 +1086,7 @@ children (
         title "Re-attest the existing vislcg3 main implementation and integration test at main.main-fn v1 after the Divvun banner semantics revision"
         kind @docs
         implements {
-            target-impl ([spec:cg3:def:main.main-fn] [spec:cg3:sem:main.main-fn])
+            target-impl ([spec:cg3:sem:main.main-fn])
         }
         deps (issue-2-version-banner.impl)
         log (
@@ -3121,6 +3121,107 @@ children (
                 author "brendan@necessary.nu"
                 kind @status
                 text "Todo → Doing (nplan start)"
+            }
+        )
+    }
+
+    {
+        id wasm
+        title "Ship @divvun/cg3: an npm package that loads a compiled .cg3b and runs it in browsers, Deno and Node, built from the shared library compiled to wasm32"
+        kind @feat
+        children (
+            {
+                id wasm.spec
+                title "State the crate split and the wasm package in the spec and the AKM: rules for a library with no command-line code that builds for wasm32, its load-and-run API, the JavaScript surface, and wasm output matching native; a decision for the split; elements for the CLI and wasm crates"
+                kind @docs
+            }
+
+            {
+                id wasm.engine-config
+                title "Stop the engine reading the command-line option table: set_options becomes a CLI-side translation from parsed options into EngineConfig, so the library takes typed configuration only"
+                kind @refactor
+                deps (wasm.spec)
+                log (
+                    {
+                        at 2026-10-29T13:47:04.604965Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "GrammarApplicator::set_options (grammar_applicator/core.rs:1512, 166 lines) reads the CLI OptionsTable into the engine's flags; it is the only library use of crate::options. Its callers are tools/vislcg3.rs:483 and tools/cg_proc.rs:486. Its def and sem set-options-fn rules move with it to the CLI side. tests/cli_robustness.rs covers its numeric options."
+                    }
+                )
+            }
+
+            {
+                id wasm.target-32bit
+                title "Build the library for wasm32: the flat containers' probe hash computes in u64 and truncates to usize, as the C++ does on a 32-bit size_t, so slots and iteration order match the 64-bit build; CI checks the wasm32 build"
+                kind @fix
+                deps (wasm.spec)
+                log (
+                    {
+                        at 2026-10-29T13:46:56.234147Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "cargo check --lib --target wasm32-unknown-unknown fails only on four overflowing_literals errors: the 64-bit LCG constants in hash_value_sz in flat_unordered_map.rs and flat_unordered_set.rs. With that lint allowed, the rest of the library builds; it uses no threads, Instant or mmap. Compute in u64 and truncate with `as usize`. That is the C++ semantics: on a 32-bit size_t the ull literals promote the expression to unsigned long long, and the return converts it back to size_t. The low bits of the result match the 64-bit build, and the probe masks with capacity - 1, so slots and iteration order are identical. The two sem rules (flat-unordered-map and flat-unordered-set hash-value-sz-fn) say \"evaluated in size_type width\", so they need +1 with that wording. Bumping a rule un-covers its bare annotation sites, so re-annotate them in the same commit."
+                    }
+                )
+            }
+
+            {
+                id wasm.cli-crate
+                title "Move the command line into crates/cg3-cli: the binaries, tools/, argument and option parsing, the option translation and every test that runs a binary, with sigpipe and tracing-subscriber; crates/cg3 keeps what a run shares, and the commit checks cover both crates"
+                kind @refactor
+                deps (wasm.engine-config)
+                log (
+                    {
+                        at 2026-10-29T13:47:11.578274Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Used only by the tools: arg_parser, options_parser and options_conv; options too, once wasm.engine-config lands. tracing-subscriber is used only in tools/mod.rs. filesystem.rs has no users at all. relabeller is a grammar transformation and stays in the library, with cg-relabel calling it. Tests that use CARGO_BIN_EXE_* (golden.rs, stream_text.rs and others) must move, because that variable exists only for binaries in the same package. cg3-cli forwards the profiler feature for cg-annotate and cg-merge-annotations. The checks in .config/nplan/config.styx name -p cg3 and need to cover cg3-cli as well. This is breaking for anyone who runs `cargo install cg3`: the binaries then come from cg3-cli."
+                    }
+                )
+            }
+
+            {
+                id wasm.embed-api
+                title "Give the library one load-and-run API: a grammar loaded from .cg3b bytes into a shared core, a runner per pipeline with typed options (formats, trace, sections), bytes in and bytes out; vislcg3 loads and runs through it"
+                kind @feat
+                deps (wasm.cli-crate grammar-phases.load-types)
+            }
+
+            {
+                id wasm.bindings
+                title "Add crates/cg3-wasm, wasm-bindgen glue over the load-and-run API: Grammar.fromBytes, apply and info; load and run errors as JavaScript Errors; warnings returned with the result; a clear error for EXTERNAL rules"
+                kind @feat
+                deps (wasm.embed-api wasm.target-32bit)
+                log (
+                    {
+                        at 2026-10-29T13:47:19.721993Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "These compile for wasm32-unknown-unknown but cannot work there: EXTERNAL rules (process.rs spawns through std::process), parse_grammar_filename, the grammar source sidecar lookup, and options read from the environment. All of them already return errors rather than panic. Load through BinaryGrammar::parse_grammar_buffer, which has no file behind it, so no binary_path and no sidecar. info() reports summary counts (rules, sets, tags, sections); a full inspection view of the arena-indexed model is out of scope."
+                    }
+                )
+            }
+
+            {
+                id wasm.package
+                title "Package the wasm build as @divvun/cg3: one ESM module from wasm-bindgen --target web, a hand-written package.json with types, a size-tuned release profile and wasm-opt, and the wasm-bindgen CLI pinned to the crate's version"
+                kind @build
+                deps (wasm.bindings)
+            }
+
+            {
+                id wasm.parity
+                title "Show the package runs a grammar exactly as vislcg3 does: unit tests under Node, and a harness that compiles each test/T_* grammar to .cg3b natively, applies it through the package and diffs against expected.txt; record size, load time and memory for a real Divvun grammar"
+                kind @test
+                deps (wasm.package)
+            }
+
+            {
+                id wasm.publish
+                title "Publish @divvun/cg3 from CI: on a release tag the workflow builds the package, runs the parity harness and publishes it to npm"
+                kind @ci
+                deps (wasm.parity)
             }
         )
     }
