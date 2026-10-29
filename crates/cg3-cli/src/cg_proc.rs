@@ -28,10 +28,8 @@ use cg3::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered};
 use cg3::grammar_applicator::GrammarApplicator;
 use cg3::inlines::is_cg3b;
 use cg3::matxin_applicator::MatxinApplicator;
-use cg3::options::{
-    grammar_options_default, grammar_options_override, options, options_default, options_override,
-};
-use cg3::options_parser::{merge_options, parse_opts};
+use cg3::options::{options, options_default, options_override};
+use cg3::options_parser::{merge_grammar_options, merge_options};
 use cg3::textual_parser::TextualParser;
 
 use super::{
@@ -385,8 +383,6 @@ pub fn main_proc(args: &[String]) -> i32 {
     let mut options = options();
     let mut options_default = options_default();
     let mut options_override = options_override();
-    let mut grammar_options_default = grammar_options_default();
-    let mut grammar_options_override = grammar_options_override();
 
     parse_opts_env("CG3_DEFAULT", &mut options_default);
     parse_opts_env("CG3_OVERRIDE", &mut options_override);
@@ -425,17 +421,10 @@ pub fn main_proc(args: &[String]) -> i32 {
         Err(code) => return code,
     };
 
-    // Grammar cmdargs → parse_opts into grammar_options_{default,override}.
-    if !grammar.cmdargs.is_empty() {
-        parse_opts(&grammar.cmdargs, &mut grammar_options_default);
-    }
-    if !grammar.cmdargs_override.is_empty() {
-        parse_opts(&grammar.cmdargs_override, &mut grammar_options_override);
-    }
-    merge_options(
+    merge_grammar_options(
         &mut options,
-        &grammar_options_default,
-        &grammar_options_override,
+        &grammar.cmdargs,
+        &grammar.cmdargs_override,
         Some(&options_override),
     );
 

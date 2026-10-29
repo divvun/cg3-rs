@@ -45,6 +45,8 @@ merges them, and its output is what vislcg3 writes.
 > variable, an external process — MUST NOT reach another, so runs of one grammar
 > MAY happen in any order, and at once on several threads.
 
-> [spec:cg3:req:embed.cli-runs-through]
-> vislcg3 MUST run every grammar through `CompiledGrammar::run`, whichever way it
-> loaded the grammar.
+> [spec:cg3:req:embed.cli-runs-through+1]
+> vislcg3 MUST run every grammar, whichever way it loaded it, through
+> `CompiledGrammar::prepare` and `PreparedRun::run`, the two steps
+> `CompiledGrammar::run` is made of, with the option table it merged itself.
+> Preparing MUST report a bad option before any input is read.

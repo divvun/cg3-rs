@@ -3243,6 +3243,13 @@ children (
                         kind @decision
                         text "Build RunOptions as Option<T> fields, one per option set_options reads (about 40, from AlwaysSpan to Verbose), plus the input and output formats. Run them into an OptionsTable, setting does_occur only for fields that are set. Merge the grammar's cmdargs and cmdargs_override with merge_options, then hand the table to set_options, so there is one translation from options to a run. For a .cg3b the merge after finish is equivalent to vislcg3's merge before finish: the only grammar-side option, --prefix, is a check that must match for a binary grammar. Each run takes a fresh GrammarApplicator over Grammar::from_core on the shared Arc, because document state lives for one stream. vislcg3 keeps its own load (nrules filters, compatibility, verbosity, --grammar-out) and wraps the finished core into a CompiledGrammar to run."
                     }
+
+                    {
+                        at 2026-10-29T14:37:17.748741Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

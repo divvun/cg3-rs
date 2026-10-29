@@ -155,6 +155,8 @@ The port mirrors the C++ source file-for-file:
 - **Stream formats** — eight applicators (CG, Niceline, Apertium, Matxin, FST,
   Plaintext, JSONL, Binary) behind a `StreamFormat` trait, plus
   `format_converter`.
+- **Embedding** — `embed`: load a `.cg3b` from bytes and run it from bytes to
+  bytes, with typed options merged with the grammar's own as vislcg3 merges them.
 - **Options** — `options`, `options_parser` and `arg_parser`: the option
   language the command line and a grammar's `CMDARGS` share.
 - **CLI** — the `cg3-cli` crate: the eight tools in `crates/cg3-cli/src/bin/`,

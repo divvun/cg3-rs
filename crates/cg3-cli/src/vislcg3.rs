@@ -18,15 +18,12 @@ use cg3::arg_parser::parse_args;
 use cg3::binary_grammar::BinaryGrammar;
 use std::sync::Arc;
 
-use cg3::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered, Phase};
+use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered, Phase};
 use cg3::grammar_writer::GrammarWriter;
 use cg3::igrammar_parser::IGrammarParser;
 use cg3::inlines::is_cg3b;
-use cg3::options::{
-    Opt, OptionsTable, grammar_options_default, grammar_options_override, options, options_default,
-    options_override,
-};
-use cg3::options_parser::{merge_options, parse_opts};
+use cg3::options::{Opt, OptionsTable, options, options_default, options_override};
+use cg3::options_parser::{merge_grammar_options, merge_options};
 use cg3::profiler::Profiler;
 use cg3::tag_regex::{TagRegex, TagRegexError, compile_tag_regex};
 use cg3::textual_parser::TextualParser;
@@ -99,8 +96,6 @@ pub fn main_run(args: &[String]) -> i32 {
     let mut options = options();
     let mut options_default = options_default();
     let mut options_override = options_override();
-    let mut grammar_options_default = grammar_options_default();
-    let mut grammar_options_override = grammar_options_override();
 
     let mut argv = to_argv(args);
     let mut argc = parse_args(
@@ -321,13 +316,7 @@ pub fn main_run(args: &[String]) -> i32 {
         }
         let mut g = parser.grammar;
         g.verbosity_level = verbosity_level;
-        if let Err(code) = apply_grammar_options(
-            &mut g,
-            &mut options,
-            &mut grammar_options_default,
-            &mut grammar_options_override,
-            &options_override,
-        ) {
+        if let Err(code) = apply_grammar_options(&mut g, &mut options, &options_override) {
             return code;
         }
         if verbose {
@@ -381,13 +370,7 @@ pub fn main_run(args: &[String]) -> i32 {
 
         let mut g = parser.grammar;
         g.verbosity_level = verbosity_level;
-        if let Err(code) = apply_grammar_options(
-            &mut g,
-            &mut options,
-            &mut grammar_options_default,
-            &mut grammar_options_override,
-            &options_override,
-        ) {
+        if let Err(code) = apply_grammar_options(&mut g, &mut options, &options_override) {
             return code;
         }
         if verbose {
@@ -444,70 +427,28 @@ pub fn main_run(args: &[String]) -> i32 {
     // the writers take it back below.
     let grammar = Arc::new(grammar);
     if !occ(&options, Opt::GrammarOnly) {
-        use cg3::grammar_applicator::{GrammarApplicator, StreamFormatKind};
-        let base = GrammarApplicator::new(Grammar::default());
-        let mut applicator = match cg3::format_converter::FormatConverter::new(base) {
-            Ok(a) => a,
-            Err(e) => return fail(&e),
-        };
-        applicator.base_mut().cfg.fmt_input = StreamFormatKind::Cg;
-        if occ(&options, Opt::InCg) {
-            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Cg;
-        } else if occ(&options, Opt::InNiceline) {
-            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Niceline;
-        } else if occ(&options, Opt::InApertium) {
-            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Apertium;
-        } else if occ(&options, Opt::InFst) {
-            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Fst;
-        } else if occ(&options, Opt::InPlain) {
-            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Plain;
-        } else if occ(&options, Opt::InJsonl) {
-            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Jsonl;
-        } else if occ(&options, Opt::InBinary) {
-            applicator.base_mut().cfg.fmt_input = StreamFormatKind::Binary;
-        }
-
-        // applicator.setGrammar(&grammar); — the C++ points the applicator at
-        // the grammar main holds, and main goes on holding it. Here the
-        // applicator gets a run over the shared grammar (replacing the ctor's
-        // dummy conv grammar) and main keeps its own handle for the writers.
-        //
-        // One grammar, two holders, and this is the seam a host repeats N times:
-        // every extra pipeline costs an overlay, not a grammar.
-        applicator.base_mut().grammar = Grammar::from_core(Arc::clone(&grammar));
-        if let Err(e) = applicator.base_mut().set_grammar() {
-            return fail(&e);
-        }
-        if let Err(e) = applicator.base_mut().set_options(&options) {
-            return fail(&e);
-        }
-        // [spec:cg3:req:diagnostics.runtime-input-named]
-        applicator.base_mut().cfg.input_name = input_name(&options);
-
-        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Cg;
-        if occ(&options, Opt::OutApertium) {
-            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Apertium;
-            applicator.base_mut().cfg.unicode_tags = true;
-        } else if occ(&options, Opt::OutFst) {
-            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Fst;
-        } else if occ(&options, Opt::OutNiceline) {
-            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Niceline;
-        } else if occ(&options, Opt::OutPlain) {
-            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Plain;
-        } else if occ(&options, Opt::OutJsonl) {
-            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Jsonl;
-        } else if occ(&options, Opt::OutBinary) {
-            applicator.base_mut().cfg.fmt_output = StreamFormatKind::Binary;
-        }
-
         // C++: `applicator.profiler = profiler.get();` — move the profiler into
         // the engine for the run (taken back after, for the final write).
-        if occ(&options, Opt::Profiling) {
-            applicator.base_mut().diag.profiler = profiler.take();
-        }
+        let context = cg3::embed::RunContext {
+            // [spec:cg3:req:diagnostics.runtime-input-named]
+            input_name: Some(input_name(&options)),
+            profiler: if occ(&options, Opt::Profiling) {
+                profiler.take()
+            } else {
+                None
+            },
+        };
+        // [spec:cg3:req:embed.cli-runs-through+1]
+        // One grammar, two holders, and this is the seam a host repeats N times:
+        // every extra pipeline costs an overlay, not a grammar.
+        let run = match cg3::embed::CompiledGrammar::from(Arc::clone(&grammar))
+            .prepare(&options, context)
+        {
+            Ok(run) => run,
+            Err(e) => return fail(&e),
+        };
 
-        // The ported driver needs `R: Read + Seek`; buffer the input stream
-        // into a Cursor.
+        // The ported driver needs `R: Read + Seek`; buffer the input stream.
         let mut input_bytes = Vec::new();
         match stdin_file {
             Some(mut f) => {
@@ -517,20 +458,19 @@ pub fn main_run(args: &[String]) -> i32 {
                 let _ = std::io::stdin().read_to_end(&mut input_bytes);
             }
         }
-        let mut cursor = std::io::Cursor::new(input_bytes);
-        if let Err(e) = applicator.run_grammar_on_text(&mut cursor, &mut out_stream) {
-            return fail(&e);
-        }
+        let report = match run.run(&input_bytes, &mut out_stream) {
+            Ok(report) => report,
+            Err(e) => return fail(&e),
+        };
 
         // Carry out what the run learned that main's copy cannot see, and take
         // back the profiler (for the final `Profiler::write`). The grammar does
-        // not travel: main never gave it away. Dropping the applicator at the
-        // end of this block releases its handle on the core, which is what lets
-        // the writers below take it back.
-        stream_relations = applicator.base().cfg.stream_relations;
+        // not travel: main never gave it away. The run has released its handle
+        // on the core, which is what lets the writers below take it back.
+        stream_relations = report.stream_relations;
         #[cfg(feature = "profiler")]
         if profiler.is_none() {
-            profiler = applicator.base_mut().diag.profiler.take();
+            profiler = report.profiler;
         }
     }
 
@@ -567,21 +507,12 @@ fn input_name(options: &cg3::options::OptionsTable) -> String {
 fn apply_grammar_options<P: Phase>(
     grammar: &mut GrammarCore<P>,
     options: &mut OptionsTable,
-    grammar_options_default: &mut OptionsTable,
-    grammar_options_override: &mut OptionsTable,
     options_override: &OptionsTable,
 ) -> Result<(), i32> {
-    // Grammar cmdargs → parse_opts into grammar_options_{default,override}, merge.
-    if !grammar.cmdargs.is_empty() {
-        parse_opts(&grammar.cmdargs, grammar_options_default);
-    }
-    if !grammar.cmdargs_override.is_empty() {
-        parse_opts(&grammar.cmdargs_override, grammar_options_override);
-    }
-    merge_options(
+    merge_grammar_options(
         options,
-        grammar_options_default,
-        grammar_options_override,
+        &grammar.cmdargs,
+        &grammar.cmdargs_override,
         Some(options_override),
     );
 

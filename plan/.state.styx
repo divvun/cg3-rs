@@ -612,4 +612,21 @@ impl_evidence (
         {id wasm.library-builds, version 0}
         {id wasm.width-independent, version 0}
     )}
+    {id wasm.embed-api, covered_rules (
+        embed.cli-runs-through
+        embed.grammar-options
+        embed.info
+        embed.load
+        embed.run
+        embed.run-options
+        embed.runs-independent
+    ), covered_claims (
+        {impl_name target-impl, rule embed.cli-runs-through}
+        {impl_name target-impl, rule embed.grammar-options}
+        {impl_name target-impl, rule embed.info}
+        {impl_name target-impl, rule embed.load}
+        {impl_name target-impl, rule embed.run}
+        {impl_name target-impl, rule embed.run-options}
+        {impl_name target-impl, rule embed.runs-independent}
+    )}
 )

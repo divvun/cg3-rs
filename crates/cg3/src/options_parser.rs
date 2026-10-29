@@ -95,6 +95,28 @@ pub fn merge_options(
     }
 }
 
+// [spec:cg3:req:embed.grammar-options]
+/// Merge the options a grammar carries onto `options`, as vislcg3 and cg-proc
+/// merge them with their command line: `cmdargs` (`CMDARGS`) fill only what is
+/// still unset, `cmdargs_override` (`CMDARGS-OVERRIDE`) win, except over what
+/// `already_forced` names.
+pub fn merge_grammar_options(
+    options: &mut crate::options::OptionsTable,
+    cmdargs: &str,
+    cmdargs_override: &str,
+    already_forced: Option<&crate::options::OptionsTable>,
+) {
+    let mut defaults = crate::options::grammar_options_default();
+    let mut overrides = crate::options::grammar_options_override();
+    if !cmdargs.is_empty() {
+        parse_opts(cmdargs, &mut defaults);
+    }
+    if !cmdargs_override.is_empty() {
+        parse_opts(cmdargs_override, &mut overrides);
+    }
+    merge_options(options, &defaults, &overrides, already_forced);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

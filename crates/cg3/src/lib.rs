@@ -93,6 +93,9 @@ pub mod textual_parser;
 // --- Wave 2 application engine ---
 pub mod grammar_applicator;
 
+// --- Loading and running a grammar from a program ---
+pub mod embed;
+
 // --- Wave 2 output/format applicators + profiler + relabeller ---
 pub mod apertium_applicator;
 pub mod binary_applicator;
