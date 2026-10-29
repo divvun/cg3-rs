@@ -3291,6 +3291,14 @@ children (
                     target-impl ([spec:cg3:req:wasm.module])
                 }
                 deps (wasm.bindings)
+                log (
+                    {
+                        at 2026-10-29T15:01:41.478161Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

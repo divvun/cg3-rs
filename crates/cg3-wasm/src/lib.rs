@@ -13,6 +13,8 @@ use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Level, Metadata};
 use wasm_bindgen::prelude::*;
 
+// [spec:cg3:req:wasm.module]
+// The declarations package.sh ships beside the ES module wasm-bindgen writes.
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
 /** A stream format, as vislcg3's `--in-*` and `--out-*` options name them. */
@@ -84,6 +86,13 @@ export interface GrammarInfo {
 }
 "#;
 
+#[wasm_bindgen]
+extern "C" {
+    /// The options object JavaScript passes, declared as `ApplyOptions`.
+    #[wasm_bindgen(typescript_type = "ApplyOptions")]
+    pub type JsApplyOptions;
+}
+
 /// A compiled grammar, loaded once and applied any number of times.
 #[wasm_bindgen]
 pub struct Grammar {
@@ -111,17 +120,14 @@ impl Grammar {
     // [spec:cg3:req:wasm.apply+1]
     // [spec:cg3:req:wasm.errors]
     #[wasm_bindgen(unchecked_return_type = "ApplyResult")]
-    pub fn apply(
-        &self,
-        input: &str,
-        #[wasm_bindgen(unchecked_param_type = "ApplyOptions | undefined")] options: JsValue,
-    ) -> Result<JsValue, JsError> {
-        let options = if options.is_undefined() || options.is_null() {
-            ApplyOptions::default()
-        } else {
-            let json = js_sys::JSON::stringify(&options)
-                .map_err(|_| JsError::new("options are not a plain object"))?;
-            parse_options(&String::from(json)).map_err(|e| JsError::new(&e))?
+    pub fn apply(&self, input: &str, options: Option<JsApplyOptions>) -> Result<JsValue, JsError> {
+        let options = match options.map(JsValue::from).filter(|o| !o.is_null()) {
+            None => ApplyOptions::default(),
+            Some(options) => {
+                let json = js_sys::JSON::stringify(&options)
+                    .map_err(|_| JsError::new("options are not a plain object"))?;
+                parse_options(&String::from(json)).map_err(|e| JsError::new(&e))?
+            }
         };
         let applied = apply(&self.inner, input, &options).map_err(|e| JsError::new(&e))?;
         to_js(&applied)

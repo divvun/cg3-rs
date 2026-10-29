@@ -640,4 +640,9 @@ impl_evidence (
         {impl_name target-impl, rule wasm.grammar-load}
         {impl_name target-impl, rule wasm.no-process}
     )}
+    {id wasm.package, covered_rules (
+        wasm.module
+    ), covered_claims (
+        {impl_name target-impl, rule wasm.module}
+    )}
 )

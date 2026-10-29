@@ -52,10 +52,7 @@ fn loading_reports_what_the_library_says() {
 fn apply_takes_and_returns_javascript_values() {
     let grammar = Grammar::from_bytes(&cg3b(r#"DELIMITERS = "<.>" ; SELECT (n) ;"#)).unwrap();
     let applied = grammar
-        .apply(
-            "\"<word>\"\n\t\"word\" n\n\t\"word\" v\n",
-            JsValue::UNDEFINED,
-        )
+        .apply("\"<word>\"\n\t\"word\" n\n\t\"word\" v\n", None)
         .unwrap();
     assert_eq!(
         field(&applied, "output").as_string().unwrap(),
@@ -68,7 +65,7 @@ fn apply_takes_and_returns_javascript_values() {
 
     let options = js_sys::JSON::parse(r#"{"noMapings": true}"#).unwrap();
     assert!(
-        grammar.apply("", options).is_err(),
+        grammar.apply("", Some(options.unchecked_into())).is_err(),
         "a misspelt option is refused"
     );
 }
@@ -82,7 +79,7 @@ fn an_external_rule_fails_its_run_without_trapping() {
     ))
     .unwrap();
     let failed = grammar
-        .apply("\"<word>\"\n\t\"word\" n\n", JsValue::UNDEFINED)
+        .apply("\"<word>\"\n\t\"word\" n\n", None)
         .expect_err("no process can start");
     let message = message(failed);
     assert!(
@@ -92,6 +89,6 @@ fn an_external_rule_fails_its_run_without_trapping() {
 
     let applied = Grammar::from_bytes(&cg3b(r#"DELIMITERS = "<.>" ; SELECT (n) ;"#))
         .unwrap()
-        .apply("\"<word>\"\n\t\"word\" n\n", JsValue::UNDEFINED);
+        .apply("\"<word>\"\n\t\"word\" n\n", None);
     assert!(applied.is_ok(), "the module still runs after a failed run");
 }

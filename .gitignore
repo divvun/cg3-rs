@@ -4,3 +4,6 @@
 # Editor / OS backups
 *~
 *.bak
+
+# The npm package crates/cg3-wasm/package.sh builds.
+/crates/cg3-wasm/pkg
