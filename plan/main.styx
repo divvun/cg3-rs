@@ -3331,12 +3331,27 @@ children (
                 title "Publish @divvun/cg3 from CI: on a release tag the workflow builds the package, runs the parity harness and publishes it to npm"
                 kind @ci
                 deps (wasm.parity)
+                sealed true
                 log (
                     {
                         at 2026-10-29T15:23:33.734192Z
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-10-29T15:40:44.721607Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Divvun CI is Buildkite, through divvun-actions, not GitHub Actions; .github is deleted (50f941a). divvun-actions 542404b, in pipelines/cg3-rs.ts:\n- The tools are built from cg3-cli. The crate split had left `-p cg3 --bins` building nothing.\n- A wasm package step runs on every build: the wasm32 check, the Node tests, package.sh, loading the package in Node, deno check and corpus parity. It uploads cg3-npm-package.tgz.\n- On a v* tag, `divvun-actions run cg3-rs-npm-publish` publishes that package with `npm publish --access public`, after checking that the tag names the package version.\nNot yet run on Buildkite. The first release needs the npm/token secret in OpenBao, with publish rights on @divvun."
+                    }
+
+                    {
+                        at 2026-10-29T15:40:46.997202Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
