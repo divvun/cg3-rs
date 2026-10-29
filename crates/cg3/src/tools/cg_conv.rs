@@ -12,9 +12,9 @@
 //! FormatConverter has a Matxin arm); the option is removed rather than carried
 //! as a no-op. See plan node `option-wiring`.
 
+use super::parse_opts_env;
 use crate::arg_parser::parse_args;
 use crate::options_conv::{Opt, options_conv, options_default, options_override};
-use crate::options_parser::parse_opts_env;
 
 use super::{EXIT_FAILURE, EXIT_SUCCESS, emit_usage, fail, to_argv};
 

@@ -3210,6 +3210,13 @@ children (
                         kind @decision
                         text "This replaces the earlier note's claim that `options` would leave the library once wasm.engine-config landed. That node is gone and the table stays. A grammar carries vislcg3 options in CMDARGS and CMDARGS-OVERRIDE, so the option table, parse_opts, parse_args, merge_options and set_options all belong to the library ([dec:cg3:library-cli-split]). What moves: tools/, bin/, parse_opts_env (the CG3_DEFAULT, CG3_OVERRIDE and CG3_CONV_* tables), options_conv (cg-conv's own table), the build script and banner constants, sigpipe, tracing-subscriber, and the tests that use CARGO_BIN_EXE_*."
                     }
+
+                    {
+                        at 2026-10-29T14:08:30.585017Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

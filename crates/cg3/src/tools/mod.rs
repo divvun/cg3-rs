@@ -156,29 +156,17 @@ pub(crate) fn read_profile(path: &str) -> Result<crate::profiler::Profiler, Prof
     }
 }
 
-// --- Option-table merging --------------------------------------------------------
+// --- Environment option tables ------------------------------------------------
 
-/// Merge one pair of option tables onto `options`: `defaults` fill only what is
-/// still unset, `overrides` win outright.
-///
-/// Each tool runs this twice — once for the `CG3_DEFAULT` / `CG3_OVERRIDE`
-/// environment tables, once for the grammar's own `cmdargs`. The second pass
-/// additionally declines to overwrite anything the environment already forced,
-/// which is what `already_forced` names.
-pub(crate) fn merge_options(
-    options: &mut crate::options::OptionsTable,
-    defaults: &crate::options::OptionsTable,
-    overrides: &crate::options::OptionsTable,
-    already_forced: Option<&crate::options::OptionsTable>,
-) {
-    for i in 0..crate::options::Opt::NumOptions as usize {
-        if defaults[i].does_occur && !options[i].does_occur {
-            options[i] = defaults[i].clone();
-        }
-        let forced = already_forced.is_some_and(|t| t[i].does_occur);
-        if overrides[i].does_occur && !forced {
-            options[i] = overrides[i].clone();
-        }
+// [spec:cg3:def:options-parser.options.parse-opts-env-fn]
+// [spec:cg3:sem:options-parser.options.parse-opts-env-fn]
+//
+// Reads env var `which`; if set, parses its value into `where_`. (The C++
+// copied the value and appended the guard NUL the old scanner needed; the
+// native-string scanner needs no terminators.)
+pub fn parse_opts_env(which: &str, where_: &mut [crate::options::ArgOption]) {
+    if let Ok(env) = std::env::var(which) {
+        crate::options_parser::parse_opts(&env, where_);
     }
 }
 
@@ -372,5 +360,58 @@ pub(crate) fn basename(name: &str) -> &str {
     match name.rfind('/') {
         Some(i) => &name[i + 1..],
         None => name,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::{ArgOption, HasArg};
+    use crate::options_parser::parse_opts;
+
+    fn opt(long: &'static str, short: char, has_arg: HasArg) -> ArgOption {
+        ArgOption::hidden(long, short, has_arg)
+    }
+
+    // `parse_opts_env` reads an environment variable; when set, its value is
+    // parsed into the option table; when unset, the table is left untouched.
+    //
+    // The "set" branch delegates verbatim to `parse_opts` (verified by
+    // `options_parser`'s `tokenizes_and_populates_options` and
+    // `double_quotes_and_trailing_bare_token`), so this exercises the wrapper's env plumbing without mutating the
+    // process environment (which `std::env::set_var`/`remove_var` require an
+    // `unsafe` block for under Edition 2024, due to the getenv/setenv data race).
+    // We read whatever value the runner already has for a couple of well-known
+    // vars and confirm the forward-vs-untouched contract holds for both a
+    // present var and a guaranteed-absent one.
+    // [spec:cg3:sem:options-parser.options.parse-opts-env-fn/test]
+    #[test]
+    fn env_var_set_and_unset() {
+        // A name essentially never present in the environment -> `env::var`
+        // yields `Err`, so `parse_opts_env` must leave the table untouched.
+        let absent = "CG3_TEST_PARSE_OPTS_ENV_DEFINITELY_UNSET_9f3a";
+        assert!(
+            std::env::var(absent).is_err(),
+            "test precondition: {absent} must be unset"
+        );
+        let mut where_ = [opt("verbose", 'v', HasArg::No)];
+        parse_opts_env(absent, &mut where_);
+        assert!(!where_[0].does_occur, "unset env leaves options untouched");
+
+        // Present var: `PATH` is set in every runner environment. `parse_opts_env`
+        // must read it and forward its value to `parse_opts` (which tokenizes it);
+        // since `PATH` contains no recognized options, the table stays untouched,
+        // but the delegation is what we assert did not panic / mis-handle.
+        if let Ok(path) = std::env::var("PATH") {
+            let mut where2 = [opt("verbose", 'v', HasArg::No)];
+            parse_opts_env("PATH", &mut where2);
+            // Forwarding is equivalent to calling parse_opts on the raw value.
+            let mut where3 = [opt("verbose", 'v', HasArg::No)];
+            parse_opts(&path, &mut where3);
+            assert_eq!(
+                where2[0].does_occur, where3[0].does_occur,
+                "parse_opts_env forwards the env value to parse_opts"
+            );
+        }
     }
 }

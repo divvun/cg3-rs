@@ -26,14 +26,14 @@ use crate::options::{
     Opt, OptionsTable, grammar_options_default, grammar_options_override, options, options_default,
     options_override,
 };
-use crate::options_parser::{parse_opts, parse_opts_env};
+use crate::options_parser::{merge_options, parse_opts};
 use crate::profiler::Profiler;
 use crate::tag_regex::{TagRegex, TagRegexError, compile_tag_regex};
 use crate::textual_parser::TextualParser;
 
 use super::{
     CG3_TOO_OLD, EXIT_FAILURE, EXIT_SUCCESS, divvun_copyright, divvun_version_line, emit, fail,
-    merge_options, to_argv,
+    parse_opts_env, to_argv,
 };
 
 /// A `--nrules` / `--nrules-v` pattern that would not compile.

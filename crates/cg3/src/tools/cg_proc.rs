@@ -31,11 +31,11 @@ use crate::matxin_applicator::MatxinApplicator;
 use crate::options::{
     grammar_options_default, grammar_options_override, options, options_default, options_override,
 };
-use crate::options_parser::{parse_opts, parse_opts_env};
+use crate::options_parser::{merge_options, parse_opts};
 use crate::textual_parser::TextualParser;
 
 use super::{
-    EXIT_FAILURE, basename, divvun_version, divvun_version_line, emit, fail, merge_options,
+    EXIT_FAILURE, basename, divvun_version, divvun_version_line, emit, fail, parse_opts_env,
 };
 
 // [spec:cg3:def:cg-proc.end-program-fn+3]

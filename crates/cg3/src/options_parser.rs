@@ -1,5 +1,7 @@
-//! Port of `src/options_parser.hpp` (`parse_opts` / `parse_opts_env`) —
-//! wave 4 (native-string) form.
+//! Port of `src/options_parser.hpp` (`parse_opts`) in native-string form, and
+//! the merge of one option table onto another. The header's
+//! `parse_opts_env` reads the process environment, so it is the tools', not
+//! the library's.
 //!
 //! Tokenizes a command line embedded in text (an env var, or a grammar
 //! `CMDARGS` directive) into an `argv` vector and feeds it to `parse_args` to
@@ -69,15 +71,27 @@ pub fn parse_opts(p: &str, where_: &mut [ArgOption]) {
     parse_args(argv.len() as i32, &mut argv, n_opts, where_);
 }
 
-// [spec:cg3:def:options-parser.options.parse-opts-env-fn]
-// [spec:cg3:sem:options-parser.options.parse-opts-env-fn]
-//
-// Reads env var `which`; if set, parses its value into `where_`. (The C++
-// copied the value and appended the guard NUL the old scanner needed; the
-// native-string scanner needs no terminators.)
-pub fn parse_opts_env(which: &str, where_: &mut [ArgOption]) {
-    if let Ok(env) = std::env::var(which) {
-        parse_opts(&env, where_);
+/// Merge one pair of option tables onto `options`: `defaults` fill only what is
+/// still unset, `overrides` win outright.
+///
+/// vislcg3 and cg-proc run this twice — once for the `CG3_DEFAULT` /
+/// `CG3_OVERRIDE` environment tables, once for the grammar's own `cmdargs`. The
+/// second pass additionally declines to overwrite anything the environment
+/// already forced, which is what `already_forced` names.
+pub fn merge_options(
+    options: &mut crate::options::OptionsTable,
+    defaults: &crate::options::OptionsTable,
+    overrides: &crate::options::OptionsTable,
+    already_forced: Option<&crate::options::OptionsTable>,
+) {
+    for i in 0..crate::options::Opt::NumOptions as usize {
+        if defaults[i].does_occur && !options[i].does_occur {
+            options[i] = defaults[i].clone();
+        }
+        let forced = already_forced.is_some_and(|t| t[i].does_occur);
+        if overrides[i].does_occur && !forced {
+            options[i] = overrides[i].clone();
+        }
     }
 }
 
@@ -122,45 +136,36 @@ mod tests {
         assert_eq!(where_[0].value, "a b");
     }
 
-    // `parse_opts_env` reads an environment variable; when set, its value is
-    // parsed into the option table; when unset, the table is left untouched.
-    //
-    // The "set" branch delegates verbatim to `parse_opts` (verified by
-    // `tokenizes_and_populates_options` / `double_quotes_and_trailing_bare_token`
-    // above), so this exercises the wrapper's env plumbing without mutating the
-    // process environment (which `std::env::set_var`/`remove_var` require an
-    // `unsafe` block for under Edition 2024, due to the getenv/setenv data race).
-    // We read whatever value the runner already has for a couple of well-known
-    // vars and confirm the forward-vs-untouched contract holds for both a
-    // present var and a guaranteed-absent one.
-    // [spec:cg3:sem:options-parser.options.parse-opts-env-fn/test]
+    // A grammar's CMDARGS reach a run through this merge, so its three cases are
+    // the library's contract: a default fills only an unset option, an override
+    // replaces a set one, and an option the first pass forced keeps its value.
     #[test]
-    fn env_var_set_and_unset() {
-        // A name essentially never present in the environment -> `env::var`
-        // yields `Err`, so `parse_opts_env` must leave the table untouched.
-        let absent = "CG3_TEST_PARSE_OPTS_ENV_DEFINITELY_UNSET_9f3a";
-        assert!(
-            std::env::var(absent).is_err(),
-            "test precondition: {absent} must be unset"
-        );
-        let mut where_ = [opt("verbose", 'v', HasArg::No)];
-        parse_opts_env(absent, &mut where_);
-        assert!(!where_[0].does_occur, "unset env leaves options untouched");
+    fn merge_defaults_fill_overrides_win_forced_stays() {
+        use crate::options::{Opt, options};
+        let set = |table: &mut crate::options::OptionsTable, o: Opt, value: &str| {
+            table[o as usize].does_occur = true;
+            table[o as usize].value = value.to_string();
+        };
 
-        // Present var: `PATH` is set in every runner environment. `parse_opts_env`
-        // must read it and forward its value to `parse_opts` (which tokenizes it);
-        // since `PATH` contains no recognized options, the table stays untouched,
-        // but the delegation is what we assert did not panic / mis-handle.
-        if let Ok(path) = std::env::var("PATH") {
-            let mut where2 = [opt("verbose", 'v', HasArg::No)];
-            parse_opts_env("PATH", &mut where2);
-            // Forwarding is equivalent to calling parse_opts on the raw value.
-            let mut where3 = [opt("verbose", 'v', HasArg::No)];
-            parse_opts(&path, &mut where3);
-            assert_eq!(
-                where2[0].does_occur, where3[0].does_occur,
-                "parse_opts_env forwards the env value to parse_opts"
-            );
-        }
+        let mut run = options();
+        set(&mut run, Opt::NumWindows, "3");
+        let mut defaults = options();
+        set(&mut defaults, Opt::NumWindows, "9");
+        set(&mut defaults, Opt::SoftLimit, "100");
+        let mut overrides = options();
+        set(&mut overrides, Opt::HardLimit, "200");
+        merge_options(&mut run, &defaults, &overrides, None);
+        assert_eq!(run[Opt::NumWindows as usize].value, "3");
+        assert_eq!(run[Opt::SoftLimit as usize].value, "100");
+        assert_eq!(run[Opt::HardLimit as usize].value, "200");
+
+        let mut forced = options();
+        set(&mut forced, Opt::HardLimit, "200");
+        let mut grammar_overrides = options();
+        set(&mut grammar_overrides, Opt::HardLimit, "1");
+        set(&mut grammar_overrides, Opt::SoftLimit, "7");
+        merge_options(&mut run, &options(), &grammar_overrides, Some(&forced));
+        assert_eq!(run[Opt::HardLimit as usize].value, "200");
+        assert_eq!(run[Opt::SoftLimit as usize].value, "7");
     }
 }
