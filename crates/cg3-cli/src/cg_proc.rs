@@ -340,13 +340,8 @@ pub fn main_proc(args: &[String]) -> i32 {
     }
     for (c, optarg) in &getopt.events {
         match c {
-            'd' => {
-                if cmd == '\0' {
-                    cmd = 'd';
-                } else {
-                    return end_program(prog);
-                }
-            }
+            'd' if cmd == '\0' => cmd = 'd',
+            'd' => return end_program(prog),
             'f' => {
                 stream_format = atoi(optarg.as_deref());
             }

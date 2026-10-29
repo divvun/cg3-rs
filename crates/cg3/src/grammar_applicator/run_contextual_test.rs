@@ -1642,8 +1642,9 @@ impl Matcher<'_> {
             self.single_windows.get(cur_parent.unwrap().0).number,
             self.single_windows.get(coh_parent.unwrap().0).number,
         );
-        !(((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT)) && coh_win < cur_win)
-            || ((!test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT)) && coh_win > cur_win))
+        let spans_left = test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_LEFT);
+        let spans_right = test_pos.intersects(POS_SPAN_BOTH | POS_SPAN_RIGHT);
+        (coh_win >= cur_win || spans_left) && (coh_win <= cur_win || spans_right)
     }
 
     // [spec:cg3:def:grammar-applicator-run-contextual-test.cg3.grammar-applicator.run-parenthesis-test-fn]
