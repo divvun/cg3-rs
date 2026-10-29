@@ -7,3 +7,10 @@
 # slow test.
 [profile.default]
 slow-timeout = { period = "10s", terminate-after = 1 }
+
+# engine_external_pipe_protocol compiles the EXTERNAL example program with
+# cargo before it runs it. On a cold build directory, or beside a run with other
+# features, that compile alone outlasts a limit meant to catch hangs.
+[[profile.default.overrides]]
+filter = "test(=engine_external_pipe_protocol)"
+slow-timeout = { period = "120s", terminate-after = 1 }

@@ -3331,6 +3331,14 @@ children (
                 title "Publish @divvun/cg3 from CI: on a release tag the workflow builds the package, runs the parity harness and publishes it to npm"
                 kind @ci
                 deps (wasm.parity)
+                log (
+                    {
+                        at 2026-10-29T15:23:33.734192Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
         )
     }
