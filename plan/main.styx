@@ -3421,7 +3421,14 @@ children (
                 id js-surface.publish
                 title "Publish @divvun/cg3 0.4.0 to npm with a script the operator runs: it builds from the pushed main first and only then calls npm publish with the operator's one-time password; verify a clean install from the registry"
                 kind @chore
-                deps (js-surface.runtimes js-surface.readme)
+                deps (js-surface.runtimes js-surface.readme js-surface.ci)
+            }
+
+            {
+                id js-surface.ci
+                title "divvun-actions repo: pipelines/cg3-rs.ts builds @divvun/cg3 with node js/build.mjs, runs the JS suite where the agents have the runtimes, and packs js/cg3 for its npm publish step, in place of package.sh, smoke/ and parity/; lands by an operator-run script when the wrapper reaches cg3 main, so CI does not break"
+                kind @ci
+                deps (js-surface.runtimes)
             }
         )
     }
