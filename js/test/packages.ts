@@ -58,6 +58,11 @@ export function packageTests(dir: URL, name: string): void {
     assert(copying.includes("Version 3, 29 June 2007"), "version 3 of it");
   });
 
+  test("the package ships a README naming it", async () => {
+    const readme = await readText(new URL("README.md", dir));
+    assert(readme.startsWith(`# ${name}`), "README.md is the package's");
+  });
+
   // [spec:cg3:req:wasm.module+1/test]
   // [spec:cg3:req:wasm.typed-surface/test]
   test("the entry module and its declarations are where the exports map says", async () => {

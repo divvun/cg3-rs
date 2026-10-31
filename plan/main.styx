@@ -3423,6 +3423,22 @@ children (
                 title "README for @divvun/cg3 in the layout of @divvun/hfst's, every example output from a real run of a GiellaLT grammar compiled to .cg3b; the tarball ships README and COPYING"
                 kind @docs
                 deps (js-surface.wrapper)
+                sealed true
+                log (
+                    {
+                        at 2026-10-31T22:30:44.433608Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-10-31T22:35:09.701334Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
 
             {
