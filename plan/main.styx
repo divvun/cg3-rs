@@ -3446,6 +3446,14 @@ children (
                 title "Publish @divvun/cg3 0.4.0 to npm with a script the operator runs: it builds from the pushed main first and only then calls npm publish with the operator's one-time password; verify a clean install from the registry"
                 kind @chore
                 deps (js-surface.runtimes js-surface.readme js-surface.ci)
+                log (
+                    {
+                        at 2026-10-31T22:37:26.826624Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

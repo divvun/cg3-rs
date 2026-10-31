@@ -9,6 +9,7 @@ interface Manifest {
   version: string;
   description: string;
   license: string;
+  author: string;
   type: string;
   files: string[];
   exports: { ".": { types: string; default: string } };
@@ -46,6 +47,7 @@ export function packageTests(dir: URL, name: string): void {
     assertEqual(manifest.name, name, "name");
     assert(/^\d+\.\d+\.\d+$/.test(manifest.version), `a release version: ${manifest.version}`);
     assertEqual(manifest.license, "GPL-3.0-or-later", "license");
+    assertEqual(manifest.author, "UiT The Arctic University of Norway", "author");
     assertEqual(manifest.type, "module", "type");
     assert(manifest.description.includes("VISL CG-3"), "the description names VISL CG-3");
     assertEqual(manifest.files.join(" "), "dist", "files");
