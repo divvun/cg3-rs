@@ -3357,4 +3357,44 @@ children (
             }
         )
     }
+
+    {
+        id js-surface
+        title "Bring @divvun/cg3 to the standard of @divvun/hfst and @divvun/fst, then publish it: a TypeScript wrapper over the wasm-bindgen glue with init that finds its .wasm in every runtime, Cg3Error with stable codes and poisoned instances, free/using/FinalizationRegistry, logging, tests under Node, Bun, Deno and Chromium, a README with real examples, and a publish script the operator runs"
+        kind @feat
+        children (
+            {
+                id js-surface.spec
+                title "Spec the JavaScript surface in docs/spec/port/src/wasm.md as @divvun/hfst's javascript.md does: wasm.module+1 (one entry, .wasm beside it, Workers and Bun too, licence shipped), wasm.init (no work on import, init(source?) finds the .wasm in every runtime, not-initialised), wasm.grammar-load+1 (readGrammar), wasm.errors+1 (Cg3Error codes, trap poisons), wasm.handle-lifetime, wasm.typed-surface, wasm.logging, wasm.parity+2 (Node, Bun, Deno, Chromium page and Worker); a TypeScript impl in .config/nspec and a deno check gate"
+                kind @docs
+            }
+
+            {
+                id js-surface.wrapper
+                title "The TypeScript package in js/cg3, laid out as hfst's js/hfst: index.ts (init, version, readGrammar, Grammar with apply/info/free/dispose, Cg3Error, setLogger, setLogLevel), core/handle/errors/logging modules, js/build.mjs building pkg and dist with the licence, a root deno.json workspace; it replaces crates/cg3-wasm/package.sh, npm/ and smoke/"
+                deps (js-surface.spec)
+            }
+
+            {
+                id js-surface.runtimes
+                title "Run the golden-corpus parity check and the contract tests (init, errors, poisoning, handle lifetime, logging) under Node, Bun, Deno and headless Chromium on a page and in a Web Worker, from one runner as hfst's js/test/run.mjs does; it replaces crates/cg3-wasm/parity"
+                kind @test
+                deps (js-surface.wrapper)
+            }
+
+            {
+                id js-surface.readme
+                title "README for @divvun/cg3 in the layout of @divvun/hfst's, every example output from a real run of a GiellaLT grammar compiled to .cg3b; the tarball ships README and COPYING"
+                kind @docs
+                deps (js-surface.wrapper)
+            }
+
+            {
+                id js-surface.publish
+                title "Publish @divvun/cg3 0.4.0 to npm with a script the operator runs: it builds from the pushed main first and only then calls npm publish with the operator's one-time password; verify a clean install from the registry"
+                kind @chore
+                deps (js-surface.runtimes js-surface.readme)
+            }
+        )
+    }
 )
