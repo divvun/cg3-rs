@@ -1,0 +1,8 @@
+{
+  "workspace": ["./js"],
+  "exclude": ["target/"],
+  "lock": false,
+  "imports": {
+    "./js/cg3/pkg/cg3_wasm.js": "./js/cg3/glue-stub.d.ts"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@divvun/cg3",
+  "version": "0.4.0",
+  "description": "VISL CG-3 (Constraint Grammar) for JavaScript: runs compiled .cg3b grammars and gives the output vislcg3 gives, as WebAssembly for browsers, Web Workers, Deno, Node and Bun.",
+  "keywords": ["constraint-grammar", "cg3", "vislcg3", "divvun", "nlp", "linguistics", "webassembly"],
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/divvun/cg3-rs.git",
+    "directory": "js/cg3"
+  },
+  "homepage": "https://github.com/divvun/cg3-rs/tree/main/js/cg3#readme",
+  "bugs": "https://github.com/divvun/cg3-rs/issues",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

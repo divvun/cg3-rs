@@ -5,5 +5,7 @@
 *~
 *.bak
 
-# The npm package crates/cg3-wasm/package.sh builds.
-/crates/cg3-wasm/pkg
+# What js/build.mjs builds.
+/js/cg3/pkg/
+/js/cg3/dist/
+/js/**/node_modules/

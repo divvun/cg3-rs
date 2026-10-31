@@ -92,9 +92,9 @@ cargo nextest run --workspace     # the full test suite (unit + integration + th
 # or: cargo test --workspace
 ```
 
-`crates/cg3-wasm/package.sh` builds the npm package, `@divvun/cg3`, into
-`crates/cg3-wasm/pkg`; it needs the `wasm32-unknown-unknown` target, the
-`wasm-bindgen` CLI at the version `cg3-wasm` pins, and `wasm-opt`.
+`node js/build.mjs` builds the npm package, `@divvun/cg3`, into `js/cg3`; it
+needs the `wasm32-unknown-unknown` target, the `wasm-bindgen` CLI at the
+version `cg3-wasm` pins, `wasm-opt` and `npx`.
 
 The `profiler` feature is off by default; it pulls in `rusqlite` (bundled
 SQLite, which needs a C toolchain to build) for `vislcg3 --profile` and the two
