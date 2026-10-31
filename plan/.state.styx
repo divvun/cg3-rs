@@ -652,4 +652,24 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule wasm.parity}
     )}
+    {id js-surface.wrapper, covered_rules (
+        wasm.errors
+        wasm.grammar-load
+        wasm.handle-lifetime
+        wasm.init
+        wasm.logging
+        wasm.module
+        wasm.typed-surface
+    ), covered_claims (
+        {impl_name js-impl, rule wasm.errors}
+        {impl_name js-impl, rule wasm.grammar-load}
+        {impl_name js-impl, rule wasm.handle-lifetime}
+        {impl_name js-impl, rule wasm.init}
+        {impl_name js-impl, rule wasm.logging}
+        {impl_name js-impl, rule wasm.module}
+        {impl_name js-impl, rule wasm.typed-surface}
+        {impl_name target-impl, rule wasm.errors}
+        {impl_name target-impl, rule wasm.grammar-load}
+        {impl_name target-impl, rule wasm.module}
+    )}
 )

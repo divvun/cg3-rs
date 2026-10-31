@@ -21,6 +21,19 @@ platforms (
             }
         }
     }
+
+    // The globs stop short of js/cg3/pkg and js/cg3/dist, which hold build
+    // output. deno check needs no build: the root deno.json stands a
+    // hand-declared module in for the generated glue.
+    {
+        platform "typescript"
+        files (js/cg3/*.ts js/test/**/*.ts)
+        checks {
+            typecheck {
+                cmd "cd js && deno check"
+            }
+        }
+    }
 )
 
 quality {

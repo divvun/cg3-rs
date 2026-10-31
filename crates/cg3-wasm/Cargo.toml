@@ -2,17 +2,25 @@
 name = "cg3-wasm"
 version.workspace = true
 edition.workspace = true
-description = "The @divvun/cg3 npm package: VISL CG-3 compiled grammars for JavaScript"
+description = "wasm-bindgen glue behind @divvun/cg3, VISL CG-3 for JavaScript"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+# The glue reaches users only through the npm package under js/cg3.
 publish = false
 
 [lints.rust]
 unsafe_code = "forbid"
 
+# The rlib is for the host tests, which call the glue's plain Rust functions.
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[features]
+# Exports a small owned object, a panic and log events for the JavaScript test
+# suite. Only `js/build.mjs --test` turns it on, and that build writes outside
+# the package directory.
+test-hooks = []
 
 [dependencies]
 cg3 = { path = "../cg3", version = "0.4.0" }
@@ -23,8 +31,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 js-sys = "0.3"
 tracing = "0.1"
-# A panic is a trap on wasm32; this writes its message to the console first.
-console_error_panic_hook = "0.1"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
