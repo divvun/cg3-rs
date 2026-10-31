@@ -244,6 +244,7 @@ assertions (
     {id w4-utf8-native-strings, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:40.500409Z}
     {id wasm.spec, kind @complete, author "brendan@necessary.nu", at 2026-10-29T13:58:23.741133Z}
     {id wasm.publish, kind @complete, author "brendan@necessary.nu", at 2026-10-29T15:40:46.997202Z}
+    {id js-surface.spec, kind @complete, author "brendan@necessary.nu", at 2026-10-31T20:47:54.593271Z}
 )
 
 impl_evidence (

@@ -3258,12 +3258,7 @@ children (
                 title "Add crates/cg3-wasm, wasm-bindgen glue over the load-and-run API: Grammar.fromBytes, info, apply with camelCase run options and the run's warnings, free; failures thrown as Errors without trapping; EXTERNAL rules fail where their process would start"
                 kind @feat
                 implements {
-                    target-impl (
-                        [spec:cg3:req:wasm.grammar-load]
-                        [spec:cg3:req:wasm.apply]
-                        [spec:cg3:req:wasm.errors]
-                        [spec:cg3:req:wasm.no-process]
-                    )
+                    target-impl ([spec:cg3:req:wasm.apply] [spec:cg3:req:wasm.no-process])
                 }
                 deps (wasm.embed-api wasm.target-32bit)
                 log (
@@ -3287,9 +3282,6 @@ children (
                 id wasm.package
                 title "Package the wasm build as @divvun/cg3: one ESM module from wasm-bindgen --target web, a hand-written package.json with types, a size-tuned release profile and wasm-opt, and the wasm-bindgen CLI pinned to the crate's version"
                 kind @build
-                implements {
-                    target-impl ([spec:cg3:req:wasm.module])
-                }
                 deps (wasm.bindings)
                 log (
                     {
@@ -3305,9 +3297,6 @@ children (
                 id wasm.parity
                 title "Show the package runs a grammar exactly as vislcg3 does: unit tests under Node, and a harness that compiles each test/T_* grammar to .cg3b natively, applies it through the package and diffs against expected.txt; record size, load time and memory for a real Divvun grammar"
                 kind @test
-                implements {
-                    target-impl ([spec:cg3:req:wasm.parity])
-                }
                 deps (wasm.package)
                 log (
                     {
@@ -3367,11 +3356,46 @@ children (
                 id js-surface.spec
                 title "Spec the JavaScript surface in docs/spec/port/src/wasm.md as @divvun/hfst's javascript.md does: wasm.module+1 (one entry, .wasm beside it, Workers and Bun too, licence shipped), wasm.init (no work on import, init(source?) finds the .wasm in every runtime, not-initialised), wasm.grammar-load+1 (readGrammar), wasm.errors+1 (Cg3Error codes, trap poisons), wasm.handle-lifetime, wasm.typed-surface, wasm.logging, wasm.parity+2 (Node, Bun, Deno, Chromium page and Worker); a TypeScript impl in .config/nspec and a deno check gate"
                 kind @docs
+                sealed true
+                log (
+                    {
+                        at 2026-10-31T20:45:35.26258Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-10-31T20:47:54.147999Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Rules written in docs/spec/port/src/wasm.md: wasm.module+1, wasm.init, wasm.grammar-load+1, wasm.errors+1 (codes not-initialised, init-failed, poisoned, freed, invalid-argument, invalid-grammar, run-failed), wasm.handle-lifetime, wasm.typed-surface, wasm.logging, wasm.parity+2. js-impl added to .config/nspec (js/**/*.ts). Target-impl ownership of the three bumped rules moved from wasm.bindings and wasm.package to js-surface.wrapper, and of wasm.parity from wasm.parity to js-surface.runtimes, so the nodes that meet the new versions own them. The deno check gate moves to js-surface.wrapper: it cannot pass before js/ exists."
+                    }
+
+                    {
+                        at 2026-10-31T20:47:54.593271Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
 
             {
                 id js-surface.wrapper
                 title "The TypeScript package in js/cg3, laid out as hfst's js/hfst: index.ts (init, version, readGrammar, Grammar with apply/info/free/dispose, Cg3Error, setLogger, setLogLevel), core/handle/errors/logging modules, js/build.mjs building pkg and dist with the licence, a root deno.json workspace; it replaces crates/cg3-wasm/package.sh, npm/ and smoke/"
+                implements {
+                    js-impl (
+                        [spec:cg3:req:wasm.module]
+                        [spec:cg3:req:wasm.init]
+                        [spec:cg3:req:wasm.grammar-load]
+                        [spec:cg3:req:wasm.errors]
+                        [spec:cg3:req:wasm.handle-lifetime]
+                        [spec:cg3:req:wasm.typed-surface]
+                        [spec:cg3:req:wasm.logging]
+                    )
+                    target-impl ([spec:cg3:req:wasm.module] [spec:cg3:req:wasm.grammar-load] [spec:cg3:req:wasm.errors])
+                }
                 deps (js-surface.spec)
             }
 
@@ -3379,6 +3403,10 @@ children (
                 id js-surface.runtimes
                 title "Run the golden-corpus parity check and the contract tests (init, errors, poisoning, handle lifetime, logging) under Node, Bun, Deno and headless Chromium on a page and in a Web Worker, from one runner as hfst's js/test/run.mjs does; it replaces crates/cg3-wasm/parity"
                 kind @test
+                implements {
+                    js-impl ([spec:cg3:req:wasm.parity])
+                    target-impl ([spec:cg3:req:wasm.parity])
+                }
                 deps (js-surface.wrapper)
             }
 
