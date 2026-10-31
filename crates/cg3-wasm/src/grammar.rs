@@ -91,11 +91,12 @@ pub struct Applied {
 }
 
 // [spec:cg3:req:wasm.no-process]
-// [spec:cg3:req:wasm.parity+1]
+// [spec:cg3:req:wasm.parity+2]
 // [spec:cg3:req:wasm.errors+1]
 /// Runs `grammar` on `input` through `CompiledGrammar::run`, the operation
 /// vislcg3 runs every grammar through, so the two write the same bytes;
-/// parity/parity.mjs checks that over the corpus. A failure is the library
+/// tests/parity.rs checks that over the corpus on the host, and
+/// js/test/parity.ts through the built package in every runtime. A failure is the library
 /// error's message, under `run-failed`; an `EXTERNAL` rule fails here, where
 /// its process would start, because a target without processes refuses to
 /// start one.

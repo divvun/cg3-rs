@@ -3408,6 +3408,14 @@ children (
                     target-impl ([spec:cg3:req:wasm.parity])
                 }
                 deps (js-surface.wrapper)
+                log (
+                    {
+                        at 2026-10-31T21:42:32.625523Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

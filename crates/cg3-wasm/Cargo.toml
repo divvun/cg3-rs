@@ -34,3 +34,8 @@ tracing = "0.1"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+
+# tests/parity.rs runs cg-comp and vislcg3 in its own process, to compare the
+# binding with them. The tools need processes, so the wasm32 tests go without.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+cg3-cli = { path = "../cg3-cli" }

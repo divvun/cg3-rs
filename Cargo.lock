@@ -131,6 +131,7 @@ name = "cg3-wasm"
 version = "0.4.0"
 dependencies = [
  "cg3",
+ "cg3-cli",
  "js-sys",
  "serde",
  "serde_json",

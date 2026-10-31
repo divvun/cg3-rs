@@ -103,6 +103,9 @@ export class Grammar extends Handle<GrammarGlue> {
     return this.use((glue) => glue.info());
   }
 
+  // [spec:cg3:req:wasm.parity+2]
+  // The input and options reach the module unchanged and the output comes
+  // back as the module wrote it, so a run gives what vislcg3 gives.
   /**
    * Runs the grammar on `input`, as vislcg3 runs it on one standard input,
    * and returns the output with every warning and non-fatal error the run

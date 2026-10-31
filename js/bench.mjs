@@ -1,14 +1,16 @@
 // What a grammar costs in the package, beside what it costs vislcg3:
 //
-//   node crates/cg3-wasm/parity/bench.mjs VISLCG3 GRAMMAR.cg3b INPUT
+//   node js/build.mjs && node js/bench.mjs VISLCG3 GRAMMAR.cg3b INPUT
 //
-// Prints the .wasm and .cg3b sizes, the package's load time and the memory
-// the module holds once the grammar is loaded and after a run, and each run's
-// wall time, and fails unless both runs write the same bytes.
+// Prints the .wasm and .cg3b sizes, the package's start and load times and
+// the memory the module holds once the grammar is loaded and after a run, and
+// each run's wall time, and fails unless both runs write the same bytes.
+
 import { spawnSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { performance } from "node:perf_hooks";
-import init, { Grammar } from "../pkg/cg3.js";
+import { init, readGrammar, setLogLevel } from "./cg3/dist/index.js";
+import initGlue from "./cg3/dist/pkg/cg3_wasm.js";
 
 const [vislcg3, grammarPath, inputPath] = process.argv.slice(2);
 if (!vislcg3 || !grammarPath || !inputPath) {
@@ -17,23 +19,27 @@ if (!vislcg3 || !grammarPath || !inputPath) {
 }
 const mib = (bytes) => `${(bytes / 1048576).toFixed(1)} MiB`;
 const ms = (t) => `${t.toFixed(0)} ms`;
-const wasmFile = new URL("../pkg/cg3_bg.wasm", import.meta.url);
+const wasmFile = new URL("./cg3/dist/pkg/cg3_wasm_bg.wasm", import.meta.url);
 
+// The wrapper does not expose the module's memory. Instantiating the glue
+// first gets it; the wrapper's init then finds the instance already made.
 let t = performance.now();
-const wasm = await init({ module_or_path: readFileSync(wasmFile) });
+const { memory } = await initGlue({ module_or_path: readFileSync(wasmFile) });
+await init();
 const initMs = performance.now() - t;
+setLogLevel("off");
 const bytes = readFileSync(grammarPath);
 const input = readFileSync(inputPath, "utf8");
 
 t = performance.now();
-const grammar = Grammar.fromBytes(bytes);
+const grammar = readGrammar(bytes);
 const loadMs = performance.now() - t;
-const loaded = wasm.memory.buffer.byteLength;
+const loaded = memory.buffer.byteLength;
 
 t = performance.now();
 const { output, warnings } = grammar.apply(input);
 const applyMs = performance.now() - t;
-const afterRun = wasm.memory.buffer.byteLength;
+const afterRun = memory.buffer.byteLength;
 const info = grammar.info();
 grammar.free();
 
@@ -46,7 +52,7 @@ if (native.status !== 0) {
 }
 const same = Buffer.compare(Buffer.from(output, "utf8"), native.stdout) === 0;
 
-console.log(`module      ${mib(statSync(wasmFile).size)}, instantiated in ${ms(initMs)}`);
+console.log(`module      ${mib(statSync(wasmFile).size)}, started in ${ms(initMs)}`);
 console.log(`grammar     ${mib(bytes.length)}: ${info.rules} rules, ${info.sets} sets, ${info.tags} tags`);
 console.log(`load        ${ms(loadMs)}; module memory ${mib(loaded)} loaded, ${mib(afterRun)} after the run`);
 console.log(`run         package ${ms(applyMs)}, vislcg3 ${ms(nativeMs)} (process included); ${warnings.length} warnings`);

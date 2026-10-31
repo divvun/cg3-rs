@@ -1,5 +1,53 @@
-// A small test harness for Node and Bun. Nothing here has node: types, so
-// deno check can check the suite without @types/node.
+// A small test harness for Node, Bun and Deno. Nothing here has node: types,
+// so deno check can check the suite without @types/node. Each scenario runs in
+// a process of its own, because a module instance, once started, stays
+// started for the life of the process.
+
+import type * as Entry from "../cg3/index.ts";
+
+/** What the package exports. */
+export type Package = typeof Entry;
+
+/** What `run.mjs` hands each scenario process, as JSON in its first argument. */
+export interface ScenarioArgs {
+  /** URL of the package entry module under test. */
+  module: string;
+  /** `file:` URL of the package's `.wasm` file. */
+  wasm: string;
+  /** `http:` URL the runner serves the same `.wasm` file at. */
+  http: string;
+  package: string;
+  /** The version the package declares. */
+  version: string;
+  /** `file:` URL of the directory of fixtures, ending in a slash. */
+  fixtures: string;
+  /** Which variant of the scenario to run. */
+  variant: string;
+  /** Names the package, scenario and variant in the test output. */
+  label: string;
+}
+
+const deno: unknown = Reflect.get(globalThis, "Deno");
+
+/** The runtime this process is, by the global each one alone defines. */
+export const runtime = deno !== undefined ? "deno" : Reflect.has(globalThis, "Bun") ? "bun" : "node";
+
+/** Deno hands a script its own arguments; Node and Bun put the runtime and script paths first. */
+export function scenarioArgs(): ScenarioArgs {
+  const argv: unknown =
+    typeof deno === "object" && deno !== null
+      ? Reflect.get(deno, "args")
+      : Reflect.get(Reflect.get(globalThis, "process"), "argv");
+  const own = runtime === "deno" ? argv : Array.isArray(argv) ? argv.slice(2) : undefined;
+  if (!Array.isArray(own) || typeof own[0] !== "string") {
+    throw new Error("a scenario takes its arguments as JSON in its first argument");
+  }
+  return JSON.parse(own[0]);
+}
+
+export async function loadPackage(args: ScenarioArgs): Promise<Package> {
+  return await import(args.module);
+}
 
 interface NodeFs {
   readFile(path: URL): Promise<Uint8Array<ArrayBuffer>>;
@@ -14,7 +62,8 @@ export async function readBytes(url: string): Promise<Uint8Array<ArrayBuffer>> {
 
 /**
  * Collects garbage and gives finalizers a turn until `done()` holds, at most
- * 50 times. Node needs --expose-gc for this.
+ * 50 times. Node needs --expose-gc for this, and Deno --v8-flags=--expose-gc;
+ * run.mjs passes them.
  */
 export async function collectUntil(done: () => boolean): Promise<boolean> {
   const bun: unknown = Reflect.get(globalThis, "Bun");
@@ -59,8 +108,6 @@ const tests: { name: string; body: Body }[] = [];
 export function test(name: string, body: Body): void {
   tests.push({ name, body });
 }
-
-const runtime = Reflect.has(globalThis, "Bun") ? "bun" : "node";
 
 /** Runs the registered tests in order and throws if any failed. */
 export async function runTests(name: string): Promise<void> {

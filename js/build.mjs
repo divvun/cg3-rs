@@ -11,13 +11,16 @@
 //
 // A test build turns on the crate's test-hooks feature and adds the testing
 // entry module. It is written to target/js-test, never to js/, so the hooks
-// cannot reach the published package.
+// cannot reach the published package. It also builds the cg3 tools, writes
+// the fixtures to target/js-test/fixtures, and compiles the parity check for
+// browsers to target/js-test/browser.
 
 import { execFileSync } from "node:child_process";
 import { cpSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isPublicDeclaration, usesAny } from "./test/declarations.ts";
+import { buildFixtures, buildTools } from "./test/fixtures.mjs";
 
 const js = dirname(fileURLToPath(import.meta.url));
 const root = dirname(js);
@@ -116,11 +119,16 @@ function buildTestPackage() {
   const dist = join(testBuild, "dist");
   tsc(join(packageDir, "tsconfig.test.json"), dist);
   bindgen(cargoBuild(true), join(dist, "pkg"));
+  // A browser runs no TypeScript, so the parity check it runs is compiled.
+  tsc(join(js, "test", "tsconfig.browser.json"), join(testBuild, "browser"));
 }
 
 // The tests import this module for its checks, so it builds only when run.
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const bytes = buildPackage();
-  if (process.argv.includes("--test")) buildTestPackage();
+  if (process.argv.includes("--test")) {
+    buildTestPackage();
+    buildFixtures(buildTools(root, run), join(root, "test"), join(testBuild, "fixtures"));
+  }
   console.log(`@divvun/cg3: ${bytes} bytes of WebAssembly (${(bytes / 1024).toFixed(1)} KiB)`);
 }
