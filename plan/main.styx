@@ -3446,12 +3446,27 @@ children (
                 title "Publish @divvun/cg3 0.4.0 to npm with a script the operator runs: it builds from the pushed main first and only then calls npm publish with the operator's one-time password; verify a clean install from the registry"
                 kind @chore
                 deps (js-surface.runtimes js-surface.readme js-surface.ci)
+                sealed true
                 log (
                     {
                         at 2026-10-31T22:37:26.826624Z
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-10-31T22:47:03.831759Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Published 2026-10-31: @divvun/cg3@0.4.0 on npm (GPL-3.0-or-later, author UiT The Arctic University of Norway, public access), built by the operator's publish-cg3.sh from main 25894d0; tarball 24 files, 748.8 kB, shasum 127d33096844b213e5ba497d4765d2bd15c8da55. Verified from the registry: a clean npm install in an empty directory runs init() with no argument under Node, readGrammar with using, and apply of lang-kal's disambiguator .cg3b on \"Inuit nunaat.\", giving the README's output with no warnings. The script builds and publishes in two steps, since a one-time password expires before a build ends."
+                    }
+
+                    {
+                        at 2026-10-31T22:47:03.914913Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
                     }
                 )
             }
