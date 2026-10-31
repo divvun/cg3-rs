@@ -255,6 +255,7 @@ assertions (
     {id wasm.spec, kind @complete, author "brendan@necessary.nu", at 2026-10-29T13:58:23.741133Z}
     {id wasm.publish, kind @complete, author "brendan@necessary.nu", at 2026-10-29T15:40:46.997202Z}
     {id js-surface.spec, kind @complete, author "brendan@necessary.nu", at 2026-10-31T20:47:54.593271Z}
+    {id js-surface.ci, kind @complete, author "brendan@necessary.nu", at 2026-10-31T22:28:26.220871Z}
 )
 
 impl_evidence (

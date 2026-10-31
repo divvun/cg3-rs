@@ -3437,6 +3437,29 @@ children (
                 title "divvun-actions repo: pipelines/cg3-rs.ts builds @divvun/cg3 with node js/build.mjs, runs the JS suite where the agents have the runtimes, and packs js/cg3 for its npm publish step, in place of package.sh, smoke/ and parity/; lands by an operator-run script when the wrapper reaches cg3 main, so CI does not break"
                 kind @ci
                 deps (js-surface.runtimes)
+                sealed true
+                log (
+                    {
+                        at 2026-10-31T22:28:25.269578Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-10-31T22:28:25.984253Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Landed on divvun-actions main as d45579a. pipelines/cg3-rs.ts: the wasm package step runs node js/build.mjs --test, deno check and node js/test/run.mjs (runtimes the agent lacks are skipped), and packs js/cg3 into cg3-npm-package.tgz; runCg3RsNpmPublish reads package.json from the cg3 directory of that archive. deno check passes in divvun-actions. The tag-triggered publish step stays; @divvun/cg3 0.4.0 itself goes out by the operator's local script."
+                    }
+
+                    {
+                        at 2026-10-31T22:28:26.220871Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
         )
     }
