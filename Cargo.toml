@@ -10,7 +10,7 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/divvun/cg3-rs"
 homepage = "https://github.com/divvun/cg3-rs"
 
-# The npm package's build (crates/cg3-wasm/package.sh): small over fast, since
+# The npm package's build (js/build.mjs): small over fast, since
 # every user downloads it.
 [profile.wasm-release]
 inherits = "release"
