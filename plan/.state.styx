@@ -260,6 +260,7 @@ assertions (
     {id js-surface.publish, kind @complete, author "brendan@necessary.nu", at 2026-10-31T22:47:03.914913Z}
     {id upstream-1-7-0.reference, kind @complete, author "brendan@necessary.nu", at 2026-11-05T21:55:20.272951Z}
     {id upstream-1-7-0.remcohort-loop.intent, kind @complete, author "brendan@necessary.nu", at 2026-11-05T22:03:25.472304Z}
+    {id test-paths-with-spaces, kind @complete, author "brendan@necessary.nu", at 2026-11-05T22:18:37.103092Z}
 )
 
 impl_evidence (

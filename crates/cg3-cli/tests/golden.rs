@@ -75,6 +75,21 @@ fn tmp(name: &str, tag: &str, ext: &str) -> PathBuf {
     std::env::temp_dir().join(format!("cg3-{name}-{tag}-{}.{ext}", std::process::id()))
 }
 
+/// Copy the files directly in `from` into a fresh `to`, so a grammar there
+/// resolves its relative includes (T_Include's sets.cg3, rules.cg3) as it
+/// would in the fixture dir.
+fn copy_fixture(from: &Path, to: &Path) -> std::io::Result<()> {
+    let _ = std::fs::remove_dir_all(to);
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let path = entry?.path();
+        if path.is_file() {
+            std::fs::copy(&path, to.join(path.file_name().unwrap()))?;
+        }
+    }
+    Ok(())
+}
+
 fn expected(dir: &Path) -> String {
     std::fs::read_to_string(dir.join("expected.txt")).unwrap()
 }
@@ -218,15 +233,16 @@ fn golden_binary_grammar() {
 fn golden_binary_stream() {
     run_all("golden_binary_stream", |dir| {
         let name = name_of(dir);
-        // `Include Static <grammar.cg3> ;` — an absolute path so the bsf grammar
-        // can live in a temp dir while grammar.cg3 stays dir-local.
-        let grammar_abs = dir.join("grammar.cg3");
-        let bsf = tmp(&name, "bsf", "cg3");
-        std::fs::write(
-            &bsf,
-            format!("Include Static {} ;\n", grammar_abs.display()),
-        )
-        .map_err(|e| format!("write bsf grammar: {e}"))?;
+        // runall.pl writes `Include Static grammar.cg3 ;` beside grammar.cg3.
+        // The wrapper goes beside a copy instead, so the corpus is never
+        // written to, and the include stays relative: an INCLUDE path ends at
+        // the first whitespace and cannot be quoted, so an absolute path breaks
+        // in any checkout whose path has a space.
+        let bsf_dir = tmp(&name, "bsf", "d");
+        copy_fixture(dir, &bsf_dir).map_err(|e| format!("copy fixture: {e}"))?;
+        let bsf = bsf_dir.join("grammar.bsf.cg3");
+        std::fs::write(&bsf, "Include Static grammar.cg3 ;\n")
+            .map_err(|e| format!("write bsf grammar: {e}"))?;
         let bsf_s = bsf.to_str().unwrap();
 
         let base = read_args(dir);
@@ -250,7 +266,7 @@ fn golden_binary_stream() {
             dir,
             &b2,
         );
-        let _ = std::fs::remove_file(&bsf);
+        let _ = std::fs::remove_dir_all(&bsf_dir);
         if !(ok1 && ok2 && ok3) {
             return Err("a binary-stream stage exited non-zero".to_string());
         }

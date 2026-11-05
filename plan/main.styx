@@ -3707,4 +3707,26 @@ children (
             }
         )
     }
+
+    {
+        id test-paths-with-spaces
+        title "Let the test suite pass from a checkout whose path contains a space, as every nplan worktree under Application Support does: golden_binary_stream writes the fixture's absolute path into an Include, which CG-3 cannot quote, and engine_external_pipe_protocol writes the example's path into EXTERNAL unquoted"
+        kind @test
+        sealed true
+        log (
+            {
+                at 2026-11-05T22:11:53.454389Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+
+            {
+                at 2026-11-05T22:18:37.103092Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Doing → Done (nplan complete)"
+            }
+        )
+    }
 )

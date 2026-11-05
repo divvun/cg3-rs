@@ -327,8 +327,17 @@ fn engine_external_pipe_protocol() {
     // Point the grammar's EXTERNAL directive at the compiled example. grammar.cg3
     // has no relative INCLUDE, so the rewritten grammar can live in a temp dir;
     // vislcg3 still runs with cwd = the fixture dir for input.txt.
+    //
+    // The command passes through two parsers: the grammar's, which takes a
+    // double-quoted command and strips the quotes, then `sh -c`. Single quotes
+    // inside keep a target dir with a space in it one shell word.
+    let helper = helper.to_str().unwrap();
+    assert!(
+        !helper.contains(['"', '\'']),
+        "example path {helper} has a quote the EXTERNAL command cannot carry"
+    );
     let grammar = std::fs::read_to_string(dir.join("grammar.cg3")).unwrap();
-    let grammar = grammar.replace("./cg3-external-example", helper.to_str().unwrap());
+    let grammar = grammar.replace("./cg3-external-example", &format!("\"'{helper}'\""));
     let pid = std::process::id();
     let tmp_grammar = std::env::temp_dir().join(format!("cg3-external-{pid}.cg3"));
     std::fs::write(&tmp_grammar, &grammar).expect("write temp grammar");
