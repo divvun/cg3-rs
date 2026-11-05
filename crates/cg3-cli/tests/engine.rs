@@ -208,7 +208,7 @@ fn run_group(label: &str) {
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.reset-indexes-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-text-fn/test]
-// [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+2/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-window-fn+1/test]
 // [spec:cg3:sem:grammar-applicator-run-rules.grammar-applicator.run-grammar-on-window-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-single-window-fn/test]

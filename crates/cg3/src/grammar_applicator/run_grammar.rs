@@ -1067,13 +1067,15 @@ impl super::Engine<'_> {
                                 let tid = super::core::tag_by_hash(self.grammar, self.cfg.endtag);
                                 self.add_tag_to_reading(r, tid)?;
                             }
-                            // cReading = lReading = nullptr; etc.
-                            l_reading = None;
-                            c_cohort = None;
-                            l_cohort = None;
-                            c_swindow = None;
-                            l_swindow = None;
                         }
+                        // Cleared with or without a pending cohort: a text
+                        // delimiter leaves l_swindow set and c_cohort unset,
+                        // and the windows freed below include l_swindow.
+                        l_reading = None;
+                        c_cohort = None;
+                        l_cohort = None;
+                        c_swindow = None;
+                        l_swindow = None;
                         while self.rotate_next().is_some() {
                             self.run_grammar_on_window_with(fmt, output)?;
                             if self.doc.num_windows.is_multiple_of(reset_after) {
@@ -1437,8 +1439,8 @@ impl super::Engine<'_> {
 // setup-owned `cfg` the split view holds read-only) BEFORE splitting into the
 // `Engine<'_>` view that runs the driver body.
 impl super::GrammarApplicator {
-    // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+1]
-    // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+1]
+    // [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+2]
+    // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+2]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-grammar-on-text-fn]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-grammar-on-text-fn]
     /// C++ `void GrammarApplicator::runGrammarOnText(std::istream& input,

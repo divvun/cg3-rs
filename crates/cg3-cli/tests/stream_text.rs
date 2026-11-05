@@ -137,6 +137,30 @@ fn jsonl_num_windows_zero_survives_a_delimiter() {
     }
 }
 
+// A text delimiter closes the window and leaves no cohort pending; a FLUSH
+// then prints and frees that window and forgets it, so the next text line has
+// no window or cohort to join and is printed as it is read.
+// [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+2/test]
+#[test]
+fn flush_after_text_delimiter_forgets_the_freed_window() {
+    let grammar = std::env::temp_dir().join(format!("cg3-flush-reset-{}.cg3", std::process::id()));
+    std::fs::write(&grammar, "DELIMITERS = \"<.>\" ;\nSELECT (N) ;\n").unwrap();
+    let grammar_arg = grammar.to_string_lossy().into_owned();
+    let input = "\"<a>\"\n\t\"a\" N\nTEXTDELIM\n<STREAMCMD:FLUSH>\nlost text?\n\
+                 \"<b>\"\n\t\"b\" N\n\t\"b\" V\n";
+    let (ok, out, err) = run_tool(
+        env!("CARGO_BIN_EXE_vislcg3"),
+        &["-g", &grammar_arg, "--text-delimit", "/^TEXTDELIM$/"],
+        input.as_bytes(),
+    );
+    let _ = std::fs::remove_file(&grammar);
+    assert!(ok, "{err}");
+    assert_eq!(
+        out,
+        "\"<a>\"\n\t\"a\" N\nTEXTDELIM\n<STREAMCMD:FLUSH>\nlost text?\n\"<b>\"\n\t\"b\" N\n"
+    );
+}
+
 // A sub-reading's wordform tag that is blank inside leaves no word to split
 // out, so the cohort is printed whole rather than trimmed past its end.
 // [spec:cg3:req:robustness.stream-text/test]

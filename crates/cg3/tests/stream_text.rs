@@ -209,7 +209,7 @@ fn empty_stream_tags_are_errors_not_interned() {
 // format that carries one; an empty JSONL value beside `=` is `*`, as the CG
 // reader reads the same command.
 // [spec:cg3:req:robustness.empty-tag/test]
-// [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+2/test]
 // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn+1/test]
 // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+1/test]
 #[test]

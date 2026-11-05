@@ -36,7 +36,7 @@
 > [spec:cg3:def:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn]
 > void GrammarApplicator::runGrammarOnText(std::istream& input, std::ostream& output)
 
-> [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+1]
+> [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+2]
 > The main CG stream driver: reads the standard "VISL CG-3" text format line by
 > line, builds Windows -> Cohorts -> Readings, runs the grammar window by window
 > as enough windows accumulate, and writes results. Setup: store `&input` in
@@ -129,7 +129,9 @@
 > (4) Everything else / `istext`: if it looked like a reading with no containing
 > cohort, (verbose) warn. If `line` is non-empty, recognize stream commands by
 > comparing `cleaned`: FLUSH (mark the back window flush_after, close and append
-> the pending cohort adding endtag, drain all pending windows via
+> the pending cohort adding endtag if there is one, clear the current and last
+> SingleWindow/Cohort/Reading pointers on every FLUSH whether or not a cohort was
+> pending, drain all pending windows via
 > shuffleWindowsDown+runGrammarOnWindow, print+free all previous windows, emit
 > the FLUSH command if there was no back window, clear `line`, clear
 > `variables`, flush all streams); IGNORE (set ignoreinput=true, echo the
