@@ -3544,6 +3544,22 @@ children (
                 id upstream-1-7-0.reference
                 title "Build upstream v1.7.0 as a C++ reference binary beside ../cg3-old-port, so behaviour the tag changed can be compared byte for byte rather than read from source"
                 kind @chore
+                sealed true
+                log (
+                    {
+                        at 2026-11-05T21:55:14.593351Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Upstream CG-3 v1.7.0 is built as a C++ reference binary at /Users/brendan/git/necessary/cg3-upstream, a git clone of https://github.com/GrammarSoft/cg3 (origin points at GitHub) checked out detached at tag v1.7.0, commit 4dd86c3c926bc4af93aa046d3579832513a4cac2. vislcg3 --version reports \"VISL CG-3 Disambiguator version 1.7.0.13898\", so it writes and reads .cg3b binary revision 13898, the same revision the port targets.\n\nConfigure (run from the clone root, out of source into build/): cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DICU_ROOT=/opt/homebrew/opt/icu4c@79 -DBoost_ROOT=/opt/homebrew/opt/boost -DRapidJSON_INCLUDE_DIRS=/opt/homebrew/opt/rapidjson/include -DCMAKE_PREFIX_PATH=\"/opt/homebrew/opt/icu4c@79;/opt/homebrew/opt/boost;/opt/homebrew/opt/rapidjson;/opt/homebrew/opt/sqlite\". Build: cmake --build build -j\"$(sysctl -n hw.ncpu)\". Nothing was installed; the binaries run from the build tree, link ICU 79.1 from the icu4c@79 keg and SQLite from the sqlite keg (profiling stays on, the upstream default), and use Boost 1.92 headers. Python bindings are off, which is the upstream default. The -DRapidJSON_INCLUDE_DIRS flag is required on Homebrew: upstream reads the mixed-case RapidJSON_INCLUDE_DIRS, but Homebrew's RapidJSON 1.1.0 config only sets the upper-case RAPIDJSON_INCLUDE_DIRS. Without the flag, libcg3.cpp fails on rapidjson/document.h. No upstream source was patched.\n\nBinaries, all in /Users/brendan/git/necessary/cg3-upstream/build/src: vislcg3, cg-conv, cg-proc, cg-comp, cg-mwesplit, cg-relabel, plus cg-annotate, cg-merge-annotations, test_libcg3 and the shared library libcg3.1.dylib.\n\nVerification: test/runall.pl found build/src/vislcg3 on its own and reports 70 / 70 tests passing (exit 0). One caveat is T_MweSplit: its run.pl calls GNU \"diff -ZB\", which macOS /usr/bin/diff rejects, so that test's own check passes without comparing anything. Its output was checked by hand instead and matches expected.txt both under plain diff -B and with trailing whitespace stripped, so it genuinely passes. test/Apertium/runall.pl passes all 39 tests (exit 0), and ctest in build/ passes its single t_libcg3 test. The test outputs are gitignored, so the clone's working tree stays clean after a run."
+                    }
+
+                    {
+                        at 2026-11-05T21:55:20.272951Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
 
             {
