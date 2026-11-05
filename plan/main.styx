@@ -3624,13 +3624,28 @@ children (
                         id upstream-1-7-0.jsonl.spec
                         title "Re-transcribe docs/spec/port/src/JsonlApplicator.md from the rewritten C++: revise the changed sem rules, add rules for getJsonString, addSingleMapping, printText and printVariables, and move testStringAgainst's rule to inlines, where upstream moved the function"
                         kind @docs
+                        sealed true
+                        log (
+                            {
+                                at 2026-11-05T22:34:19.015302Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Doing → Done (nplan complete)"
+                            }
+                        )
                     }
 
                     {
                         id upstream-1-7-0.jsonl.reader
                         title "Port the rewritten JSONL reader: cohort, reading, text and command objects read as the CG reader reads them, mapping tags split into readings, rels and id restore relations, drs only with --deleted, and bad lines skipped with a warning"
                         implements {
-                            target-impl ([spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn] [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn] [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn])
+                            target-impl (
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn]
+                            )
                         }
                         deps (upstream-1-7-0.jsonl.spec)
                     }
@@ -3646,6 +3661,9 @@ children (
                                 [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn]
                                 [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
                                 [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-text-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-variables-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.write-json-line-fn]
                             )
                         }
                         deps (upstream-1-7-0.jsonl.spec)

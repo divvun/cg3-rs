@@ -171,21 +171,3 @@
 > naming the input and `lines`
 > (`[spec:cg3:sem:uextras.cg3.get-line-clean-fn+1]`).
 
-> [spec:cg3:def:grammar-applicator-run-grammar.cg3.test-string-against-fn]
-> inline bool testStringAgainst(const UString& str, std::vector<URegularExpression*>& rxs)
-
-> [spec:cg3:sem:grammar-applicator-run-grammar.cg3.test-string-against-fn]
-> Free function. Tests whether `str` matches any of the pre-compiled ICU regexes
-> in `rxs`, with a move-to-front (MRU) reordering side effect. Set rv=false.
-> Iterate i from 0 to rxs.size()-1: reset the ICU error status; call
-> `uregex_setText(rxs[i], str.data(), str.size(), &status)` to bind the subject
-> text; if status is not U_ZERO_ERROR, CG3Quit(1) (fatal). Reset status; call
-> `uregex_find(rxs[i], -1, &status)` — start index -1 means "search the whole
-> region", and find is UNANCHORED, so it succeeds if the pattern matches
-> anywhere in `str`. If it returns true: set rv=true; if i != 0, swap rxs[0]
-> with rxs[i] so the matching regex moves to the front for faster future hits;
-> break out of the loop. If after the find status is not U_ZERO_ERROR,
-> CG3Quit(1). Return rv. In the port this must map to `regex` crate `is_match`
-> (unanchored search) over each pattern, preserving the front-swap heuristic.
-> Used by runGrammarOnText to detect text-delimiter lines via `text_delimiters`.
-
