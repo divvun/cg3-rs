@@ -789,7 +789,7 @@ fn attaching_to_wordform_tags_is_a_run_error() {
 /// cohort with no wordform, which panicked when it was given a reading.
 // [spec:cg3:req:robustness.accepted-grammars-run/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+3/test]
 #[test]
 fn cohort_tag_list_without_wordform_is_refused() {
     let cases = [

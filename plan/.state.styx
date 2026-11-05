@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-11-05T22:27:33.701891Z
+last_sync_at 2026-11-05T22:31:12.989862Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -45,7 +45,7 @@ rule_versions (
     {id flat-unordered-set.cg3.flat-unordered-set.hash-value-sz-fn, version 1}
     {id grammar-applicator-reflow.cg3.grammar-applicator.add-tag-to-reading-fn, version 0}
     {id grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn, version 2}
-    {id grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn, version 2}
+    {id grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn, version 3}
     {id grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn, version 1}
     {id grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn, version 0}
     {id grammar-applicator.cg3.unif-key, version 0}
@@ -648,6 +648,13 @@ impl_evidence (
     ), rule_versions_seen (
         {id grammar-applicator.cg3.unif-key, version 0}
     )}
+    {id upstream-1-7-0.flush-reset, covered_rules (
+        grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn
+    ), covered_claims (
+        {impl_name target-impl, rule grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn}
+    ), rule_versions_seen (
+        {id grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn, version 2}
+    )}
     {id version-banner-build-provenance.impl, covered_rules (
         tools.build-provenance
     ), covered_claims (
@@ -735,9 +742,9 @@ impl_evidence (
         {id wasm.library-builds, version 0}
         {id wasm.width-independent, version 0}
     )}
-    {id upstream-1-7-0.flush-reset, covered_rules (
-        grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn
+    {id upstream-1-7-0.mergecohorts-wblank, covered_rules (
+        grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn
     ), covered_claims (
-        {impl_name target-impl, rule grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn}
+        {impl_name target-impl, rule grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn}
     )}
 )

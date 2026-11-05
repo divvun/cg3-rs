@@ -87,7 +87,7 @@
 > [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn]
 > uint32_t GrammarApplicator::runRulesOnSingleWindow(SingleWindow& current, const uint32IntervalVector& rules)
 
-> [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2]
+> [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+3]
 > Applies a set of rules to one window, driving runSingleRule per rule and
 > supplying the per-rule-type action callbacks. Returns a bitmask over
 > {RV_NOTHING=1, RV_SOMETHING=2, RV_DELIMITED=4, RV_TRACERULE=8}. Init
@@ -132,7 +132,10 @@
 >   the target cohort's own tags; build the readings (splitting mapping tags,
 >   updateValidRules per added tag), register it in cohort_map/dep_window, attach
 >   dependencies/relations for ADDCOHORT (attachParentChild when addcohort_attach)
->   or MERGECOHORTS, init an empty cohort if it ended up reading-less, then insert
+>   or MERGECOHORTS without RF_DETACH (where the merged cohort also takes the
+>   longest wblank among the `withs` it absorbs, the first one on ties, lengths
+>   counted in UTF-16 code units as `UString::size()` counts them), init an empty
+>   cohort if it ended up reading-less, then insert
 >   it into current.cohorts/all_cohorts before/after the collected subtree of
 >   `cohort` (per ADDCOHORT_BEFORE/AFTER), renumber and rebuild links; returns the
 >   new cohort.

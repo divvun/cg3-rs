@@ -515,7 +515,8 @@ impl crate::grammar_applicator::Engine<'_> {
         Ok((ccohort, spaces_in_added_wf))
     }
 
-    /// MERGECOHORTS dependency/relation re-attachment for a freshly added cohort.
+    /// MERGECOHORTS dependency/relation re-attachment for a freshly added cohort,
+    /// which also takes the longest word-bound blank of the cohorts it absorbs.
     /// A focused port of the C++ `add_cohort` `K_MERGECOHORTS` block (the `withs`
     /// set drives which siblings/relations transfer). The nearest-un-merged-token
     /// walk is preserved.
@@ -626,6 +627,25 @@ impl crate::grammar_applicator::Engine<'_> {
                     }
                     self.doc.store.cohorts.get_mut(ccohort.0).r#type |= CT_RELATED;
                 }
+            }
+        }
+
+        if let Some(withs) = withs {
+            let cohorts = &self.doc.store.cohorts;
+            // C++ `UString::size()` counts UTF-16 code units, which pick a
+            // different blank than UTF-8 byte lengths when blanks are non-ASCII.
+            let mut longest = cohorts.get(ccohort.0).wblank.encode_utf16().count();
+            let mut from = None;
+            for &c in withs.as_slice() {
+                let len = cohorts.get(c.0).wblank.encode_utf16().count();
+                if len > longest {
+                    longest = len;
+                    from = Some(c);
+                }
+            }
+            if let Some(c) = from {
+                let wblank = self.doc.store.cohorts.get(c.0).wblank.clone();
+                self.doc.store.cohorts.get_mut(ccohort.0).wblank = wblank;
             }
         }
 

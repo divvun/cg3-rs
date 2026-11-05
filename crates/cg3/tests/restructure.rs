@@ -1,5 +1,5 @@
 //! Restructuring actions across windows and around PARENTHESES enclosures,
-//! run in process.
+//! and the word-bound blank of a merged cohort, run in process.
 
 // ===========================================================================
 // Restructuring across windows and around enclosures. Each grammar below
@@ -51,7 +51,7 @@ const TWO_WINDOWS: &[&str] = &["a X", ". PU", "x X", "y X", "w X", "z X", ". PU"
 
 // [spec:cg3:req:robustness.cross-window-actions/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+3/test]
 #[test]
 fn addcohort_inserts_into_the_attached_cohorts_window() {
     let grammar = "DELIMITERS = \"<.>\" ;\nSECTION\n\
@@ -187,7 +187,7 @@ fn a_window_emptied_mid_rule_outlives_the_rule() {
 }
 
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+3/test]
 #[test]
 fn actions_never_displace_the_window_start() {
     let input = cg_stream(&["p X", "y X", "q X", ". PU", "a X", "b X", ". PU"]);
@@ -290,4 +290,46 @@ fn a_removed_cohort_inside_an_enclosure_stays_hidden() {
         run_in_process(grammar, &input, false),
         cg_stream(&["a X", ". PU", "( PU", "e2 X", ") PU", ". PU"]),
     );
+}
+
+fn run_apertium(grammar: &str, input: &str) -> String {
+    use cg3::apertium_applicator::ApertiumApplicator;
+    use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::textual_parser::TextualParser;
+
+    let mut parser = TextualParser::new(cg3::grammar::GrammarCore::default(), false);
+    parser
+        .parse_grammar_named(grammar.as_bytes(), "actions.cg3")
+        .expect("grammar parses");
+    let core = parser.grammar.finish().expect("reindex");
+    let mut base = GrammarApplicator::new(core.into());
+    base.set_grammar().expect("applicator setup");
+    let mut app = ApertiumApplicator::new(base);
+    let mut cursor = std::io::Cursor::new(input.as_bytes().to_vec());
+    let mut out: Vec<u8> = Vec::new();
+    app.run_grammar_on_text(&mut cursor, &mut out)
+        .expect("the run completes");
+    String::from_utf8(out).expect("UTF-8 output")
+}
+
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+3/test]
+#[test]
+fn merged_cohort_takes_the_longest_word_bound_blank() {
+    let grammar = "DELIMITERS = \".\" ;\nSECTION\n\
+                   MERGECOHORTS (\"<a b>\" \"ab\" N) (\"a\") WITH (1 (\"b\")) ;\n";
+    for (a, b, want) in [
+        ("[[x]]", "[[x; y]]", "[[x; y]]"),
+        ("[[x; y]]", "[[x]]", "[[x; y]]"),
+        ("[[x]]", "[[y]]", "[[x]]"),
+        ("", "[[y]]", "[[y]]"),
+        // 12 UTF-16 code units in 20 UTF-8 bytes against 11 units in 25 bytes.
+        ("[[𝄞𝄞𝄞𝄞]]", "[[中中中中中中中]]", "[[𝄞𝄞𝄞𝄞]]"),
+    ] {
+        let input = format!("{a}^a/a<N>$ {b}^b/b<N>$\n");
+        assert_eq!(
+            run_apertium(grammar, &input),
+            format!("{want}^a b/ab<N>$\n"),
+            "{a} {b}",
+        );
+    }
 }
