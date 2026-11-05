@@ -23,8 +23,8 @@
 //! "symbols later rebuilt into a string" carve-out (see `inlines::scan`); the
 //! line-oriented Niceline/Plaintext readers use the native-`String` scanners.
 
-// [spec:cg3:def:grammar-applicator-run-grammar.cg3.test-string-against-fn]
-// [spec:cg3:sem:grammar-applicator-run-grammar.cg3.test-string-against-fn]
+// [spec:cg3:def:inlines.cg3.test-string-against-fn]
+// [spec:cg3:sem:inlines.cg3.test-string-against-fn]
 /// C++ free fn `testStringAgainst`.
 ///
 /// Tests whether `str` matches any of the pre-compiled regexes in `rxs`. The

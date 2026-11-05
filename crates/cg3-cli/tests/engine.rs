@@ -256,7 +256,7 @@ fn engine_printers_and_subreadings() {
 // as the closest genuine test (limitation reported).
 // ===========================================================================
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.set-text-delimiter-fn/test]
-// [spec:cg3:sem:grammar-applicator-run-grammar.cg3.test-string-against-fn/test]
+// [spec:cg3:sem:inlines.cg3.test-string-against-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.print-debug-rule-fn+1/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-profiling-example-fn+1/test]
 #[test]

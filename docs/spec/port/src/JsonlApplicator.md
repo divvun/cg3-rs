@@ -1,56 +1,75 @@
 # src/JsonlApplicator.cpp, src/JsonlApplicator.hpp
 
-> [spec:cg3:def:jsonl-applicator.cg3.json-to-ustring-fn]
-> UString json_to_ustring(const json::Value& val)
-
-> [spec:cg3:sem:jsonl-applicator.cg3.json-to-ustring-fn]
-> Free function converting a JSON value to a UString (UTF-16). If `val` is a JSON
-> string, take its UTF-8 bytes (`GetString`) and length (`GetStringLength`),
-> decode via `icu::UnicodeString::fromUTF8(icu::StringPiece(bytes, len))`, and
-> return a `UString` built from that UnicodeString's buffer and length. For any
-> non-string value (null, number, bool, array, object, or missing), return an
-> empty UString. In the Rust port using serde_json, treat this as: `Value::String`
-> -> the string decoded to the internal wide representation; anything else -> "".
-
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator]
 > class JsonlApplicator : public virtual GrammarApplicator
+
+> [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn]
+> void JsonlApplicator::addSingleMapping(Reading& reading, TagList& mappings)
+
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn]
+> Gives a reading that cannot be split into several readings (a sub-reading
+> or a deleted reading) the first of the mapping tags collected for it. If
+> `mappings` is empty, return. Otherwise, for each mapping tag after the
+> first, in order, warn "Warning: Mapping tag <tag> on line <numLines> will be
+> discarded, as this reading can only have one.", where `<tag>` is the tag's
+> text. Then `addTagToReading(reading, mappings.front())` and clear
+> `mappings`.
 
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn]
 > void JsonlApplicator::buildJsonReading(const Reading* reading, json::Value& reading_json, json::Document::AllocatorType& allocator)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn]
-> Builds the JSON object `reading_json` (asserted to already be an object) for one
-> reading. The reading object shape is `{"l": <baseform>, "ts": [<tags>], "s":
-> {<subreading>}}` where `ts` and `s` are only present when non-empty.
-> Baseform ("l"): if `reading->baseform` is non-zero, look it up in
-> `grammar->single_tags`; if found, take its tag text and, if it is at least 2
-> chars and starts and ends with `"`, strip those surrounding quotes; otherwise
-> use the whole tag. UTF-8-encode the result. Always add member `"l"` (an empty
-> string when there is no baseform).
-> Tags ("ts"): create a JSON array, fill it via `buildJsonTags(reading, ...)`, and
-> add it as member `"ts"` only if it is non-empty.
-> Subreading ("s"): if `reading->next` is non-null, recursively build a JSON
-> object for `reading->next` and add it as member `"s"` only if that object is
-> non-empty. (Because it recurses on `->next`, nesting follows the subreading
-> linked-list; deleted-ness/noprint of the sub is not checked here.)
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn+1]
+> Fills the JSON object `reading_json` (asserted to already be an object) for
+> one reading. Members are added in this order, each only under its
+> condition: `"l"`, `"ts"`, `"tr"`, `"s"`.
+> Baseform (`"l"`, always added): if `reading->baseform` is non-zero and
+> `grammar->single_tags` has it, take that tag's text, and if the text is at
+> least 2 characters long and both starts and ends with `"`, drop the first
+> and the last character. With no baseform, or a hash that is not in
+> `single_tags`, the value is the empty string.
+> Tags (`"ts"`): an array filled by `buildJsonTags(reading, ...)`, added only
+> if it is non-empty.
+> Trace (`"tr"`): only if `trace` is set and `reading->hit_by` is non-empty.
+> An array with one string per entry of `hit_by`, in order: the text
+> `printTrace` writes for that entry, such as `SELECT:12` or
+> `ADDRELATION(subj):8`.
+> Sub-reading (`"s"`): if `reading->next` is non-null, an object built by
+> recursing on `reading->next`. The sub-reading of a sub-reading is nested in
+> its own `"s"`. The recursion does not test the sub-reading's `deleted` or
+> `noprint` flag.
 
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn]
 > void JsonlApplicator::buildJsonTags(const Reading* reading, json::Value& tags_json, json::Document::AllocatorType& allocator)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn]
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn+1]
 > Fills the JSON array `tags_json` (asserted to already be an array) with a
-> reading's printable tags as UTF-8 strings. Iterates `reading->tags_list` in
-> order, keeping a `uint32SortedVector unique`. For each tag hash `tter`, skip it
-> when: (`!show_end_tags` and `tter == endtag`) or `tter == begintag`; or `tter ==
-> reading->baseform`; or the reading has a parent and `tter ==
-> reading->parent->wordform->hash`. If `unique_tags` is set and `tter` is already
-> in `unique`, skip; otherwise insert it. Look up `tag = grammar->single_tags[tter]`;
-> skip if `(tag->type & T_DEPENDENCY)` and `has_dep` and not `dep_original`; skip
-> if `(tag->type & T_RELATION)` and `has_relations`. Otherwise convert `tag->tag`
-> to UTF-8 and `PushBack` it as a JSON string. Order is preserved from
-> `tags_list`. (In the Rust/serde port, note that the C++ builds each string via a
-> C-string constructor, so a tag containing an embedded NUL would be truncated at
-> the NUL.)
+> reading's printable tags as strings, mapping tags last. Walk
+> `reading->tags_list` in order, keeping a `uint32SortedVector unique` and a
+> `TagList mappings`. For each tag hash `tter`, skip it when:
+> (`!show_end_tags` and `tter == endtag`) or `tter == begintag`; or `tter ==
+> reading->baseform`; or `tter == reading->parent->wordform->hash`. If
+> `unique_tags` is set, skip `tter` when it is already in `unique`, else
+> insert it. Look up `tag = grammar->single_tags[tter]`; skip it if
+> `(tag->type & T_DEPENDENCY)` and `has_dep` and not `dep_original`; skip it
+> if `(tag->type & T_RELATION)` and `has_relations`. If `(tag->type &
+> T_MAPPING)`, append `tag` to `mappings` and go on to the next hash;
+> otherwise push the tag's text. After the walk, push the text of each tag in
+> `mappings`, in order. The other tags keep their `tags_list` order, and each
+> string is the tag's whole text, any NUL character included.
+
+> [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn]
+> bool JsonlApplicator::getJsonString(const json::Value& obj, const char* key, UString& out)
+
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn]
+> Reads the string member `key` of the JSON object `obj` into `out`. Look the
+> member up with `FindMember`, which finds the first member of that name. If
+> there is none, return false, with no warning. If its value is not a string,
+> warn "Warning: '<key>' on line <numLines> is not a string - ignored." and
+> return false. Otherwise set `out` to the value decoded from UTF-8 over its
+> full length (`GetString`, `GetStringLength`), so a NUL character inside the
+> string is kept, and return true. `out` is unchanged when the result is
+> false. In the port the value is a UTF-8 string already and is taken as it
+> is.
 
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.jsonl-applicator-fn]
 > JsonlApplicator::JsonlApplicator(std::ostream& ux_err)
@@ -61,254 +80,453 @@
 > destructor `~JsonlApplicator()` present only to anchor the vtable.) No side
 > effects.
 
-> [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn]
-> void JsonlApplicator::parseJsonCohort(const json::Value& obj, SingleWindow* cSWindow, Cohort*& cCohort)
+> [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+1]
+> Cohort* JsonlApplicator::parseJsonCohort(const json::Value& obj, SingleWindow* cSWindow)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+1]
-> Parses one cohort object `obj` into a new cohort, assigning it into the output
-> parameter `cCohort`. Consumes the cohort object shape: `{"w": wordform, "sts":
-> [static tags], "z": text, "rs": [readings], "drs": [deleted readings], "ds":
-> dep_self, "dp": dep_parent}`.
-> Steps: allocate `cCohort = alloc_cohort(cSWindow)`, set `global_number =
-> gWindow->cohort_counter++`, `++numCohorts`.
-> Wordform ("w"): if member `"w"` exists, `wform_str = json_to_ustring(obj["w"])`;
-> else warn "Warning: JSON cohort on line <numLines> missing 'w' (wordform). Using
-> empty." Build the wordform tag `"\"<" + wform_str + ">\""` and `cCohort->wordform
-> = addTag(...)`.
-> Text ("z"): clear `cCohort->wblank`; if member `"z"` exists, set `cCohort->text =
-> json_to_ustring(obj["z"])`.
-> Static tags ("sts"): if member `"sts"` exists and is an array: if
-> `cCohort->wread` is null, allocate it, add the wordform to it, and set its
-> `baseform = cCohort->wordform->hash`; then for each array element with a
-> non-empty string, `addTag` it and push its hash onto `cCohort->wread->tags_list`
-> (pushed directly to the list, NOT via addTagToReading).
-> Readings ("rs"): if member `"rs"` exists and is an array, iterate; for each
-> element that is not an object, warn "Warning: Non-object found in 'rs' (readings)
-> array on line <numLines>. Skipping." and continue; otherwise call
-> `parseJsonReading(reading_val, cCohort)`; on success `cCohort->appendReading` and
-> `++numReadings`; on failure print "Error: Failed to parse main reading on line
-> <numLines>."
-> If `cCohort->readings` ends up empty, call `initEmptyCohort(*cCohort)`. Then
-> `insert_if_exists(cCohort->possible_sets, grammar->sets_any)`.
-> Dependency: if member `"ds"` exists and is an unsigned int, set `cCohort->dep_self
-> = obj["ds"].GetUint()`; if member `"dp"` exists and is an unsigned int, set
-> `cCohort->dep_parent = obj["dp"].GetUint()`.
-> Deleted readings ("drs"): if member `"drs"` exists and is an array, iterate;
-> skip non-object elements; otherwise `parseJsonReading(dr_val, cCohort)`; on
-> success set `delR->deleted = true` and push onto `cCohort->deleted`; on failure
-> print "Error: Failed to parse deleted reading on line <numLines>."
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+2]
+> Builds a cohort of `cSWindow` from the cohort object `obj` and returns it.
+> The caller has checked that `obj` has a non-empty string `"w"`, and appends
+> the cohort to the window itself. Members are read in this order, which is
+> also the order of their warnings: `"w"`, `"wb"`, `"z"`, `"sts"`, `"rs"`,
+> `"id"`, `"rels"`, `"drs"`, `"ds"`, `"dp"`. Other members are ignored.
+> Setup: `cCohort = alloc_cohort(cSWindow)`, `cCohort->global_number =
+> gWindow->cohort_counter++`, `cCohort->line_number = numLines`,
+> `++numCohorts`.
+> Wordform (`"w"`): read with `getJsonString`; `cCohort->wordform =
+> addTag("\"<" + w + ">\"")`.
+> Word-bound blank (`"wb"`): if `getJsonString` reads it, `cCohort->wblank`
+> is its value.
+> Text (`"z"`): if `getJsonString` reads it, `cCohort->text` is its value
+> followed by `"\n"`, so an empty `"z"` is one blank line.
+> Static tags (`"sts"`): if present and not an array, warn "Warning: 'sts'
+> (static tags) on line <numLines> is not an array - ignored.". Otherwise,
+> for each element in order: if it is not a string, warn "Warning:
+> Non-string found in 'sts' (static tags) array on line <numLines> -
+> skipping." and go on; skip an empty string; if `cCohort->wread` is null,
+> set it to `alloc_reading(cCohort)` and `addTagToReading` the wordform to
+> it; then `addTagToReading(*cCohort->wread, addTag(str))`. Without a
+> non-empty string, `wread` stays null.
+> Readings (`"rs"`): if present and not an array, warn "Warning: 'rs'
+> (readings) on line <numLines> is not an array - ignored.". Otherwise, with
+> an empty `all_mappings_t all_mappings`, for each element in order: if it is
+> not an object, warn "Warning: Non-object found in 'rs' (readings) array on
+> line <numLines> - skipping." and go on; else, with a fresh `TagList
+> mappings`, `reading = parseJsonReading(element, cCohort, mappings)`,
+> `cCohort->appendReading(reading)`, set `all_mappings[reading] = mappings`
+> if `mappings` is non-empty, and `++numReadings`. After the loop,
+> `splitAllMappings(all_mappings, *cCohort, true)`: a reading with several
+> mapping tags becomes one reading per mapping tag.
+> Cohort id (`"id"`): if present and not an unsigned 32-bit integer, or 0,
+> warn "Warning: 'id' on line <numLines> is not a positive integer -
+> ignored.". Otherwise `gWindow->relation_map[id] = cCohort->global_number`.
+> Relations (`"rels"`): if present and not an object, warn "Warning: 'rels'
+> (relations) on line <numLines> is not an object - ignored.". Otherwise, for
+> each member in order, repeated names included: if its value is not an
+> array, warn "Warning: Relation targets on line <numLines> are not an array
+> - ignored." and go on; else `name = addTag(<member name>)`, and for each
+> element in order: if it is not an unsigned 32-bit integer, warn "Warning:
+> Relation target on line <numLines> is not a non-negative integer -
+> skipping."; else insert it into `cCohort->relations_input[name->hash]`.
+> After the members, set `has_relations = true` and call
+> `cCohort->setRelated()`. An object `"rels"`, even `{}`, therefore marks the
+> cohort as related. `"id"` and `"rels"` are read before the next step so
+> that `setRelated()` does not make the placeholder reading printable.
+> Empty cohort: if `cCohort->readings` is empty, `initEmptyCohort(*cCohort)`.
+> Then `insert_if_exists(cCohort->possible_sets, grammar->sets_any)`.
+> Deleted readings (`"drs"`): if present and `pipe_deleted` (`--deleted`) is
+> not set, ignore it, and if `verbosity_level > 0` print "Info: Ignoring
+> 'drs' (deleted readings) on line <numLines>; use --deleted to read them."
+> to stderr. Else if it is not an array, warn "Warning: 'drs' (deleted
+> readings) on line <numLines> is not an array - ignored.". Otherwise, for
+> each element in order: if it is not an object, warn "Warning: Non-object
+> found in 'drs' (deleted readings) array on line <numLines> - skipping." and
+> go on; else, with a fresh `TagList mappings`, `delR =
+> parseJsonReading(element, cCohort, mappings)`, `addSingleMapping(*delR,
+> mappings)`, set `deleted = true` on `delR` and on every reading of its
+> `next` chain, `cCohort->appendReading(delR, cCohort->deleted)`, and
+> `++numReadings`.
+> Dependency (`"ds"`, `"dp"`): if `"ds"` is present: if it is not an unsigned
+> 32-bit integer, or is 0, warn "Warning: 'ds' (dependency self) on line
+> <numLines> is not a positive integer - ignored." and do not read `"dp"`.
+> Otherwise set `cCohort->dep_self` to it; then, if `"dp"` is present: if it
+> is not an unsigned 32-bit integer, warn "Warning: 'dp' (dependency parent)
+> on line <numLines> is not a non-negative integer - ignored."; else, if it
+> differs from `dep_self`, set `cCohort->dep_parent` to it. A `"dp"` equal to
+> `"ds"` leaves `dep_parent` at `DEP_NO_PARENT`. Then set `has_dep = true`.
+> If `"ds"` is absent and `"dp"` is present, warn "Warning: 'dp' (dependency
+> parent) on line <numLines> without 'ds' (dependency self) - ignored.".
+> Return `cCohort`.
 >
-> PORT DIVERGENCE: a `"ds"` of `UINT32_MAX` or `UINT32_MAX-1`, or a `"dp"` of
-> `UINT32_MAX-1`, is refused with a run error naming the member, before either
-> is stored (`[spec:cg3:req:robustness.reserved-keys]`). They key and probe the
-> window's `dep_map`, whose flat hash container reserves both values as
-> sentinels; the C++ stores them and a debug build asserts, a release build
-> corrupts the map. A `"dp"` of `UINT32_MAX` is `DEP_NO_PARENT` and still means
-> no parent.
+> PORT DIVERGENCE: a number that the flat hash containers reserve as a
+> sentinel is refused with a run error naming the member, before it is
+> stored (`[spec:cg3:req:robustness.reserved-keys]`): a `"ds"` or `"id"` of
+> `UINT32_MAX` or `UINT32_MAX-1`, a `"dp"` of `UINT32_MAX-1`, and a relation
+> target of either value. `"ds"` keys the window's `dep_map` and `"dp"`
+> probes it; `"id"` keys `gWindow->relation_map` and a relation target probes
+> it. The C++ stores them, and a debug build asserts where a release build
+> corrupts the map. A `"dp"` of `UINT32_MAX` is `DEP_NO_PARENT` and still
+> means no parent. A relation whose name is empty is a run error naming the
+> line, where the C++ `addTag`s the empty string
+> (`[spec:cg3:req:robustness.empty-tag]`).
 
-> [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn]
-> Reading* JsonlApplicator::parseJsonReading(const json::Value& reading_obj, Cohort* parentCohort)
+> [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn+1]
+> Reading* JsonlApplicator::parseJsonReading(const json::Value& reading_obj, Cohort* cohort, TagList& mappings)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn]
-> Parses one reading object into a `Reading*`, recursing into subreadings.
-> Consumes the object shape `{"l": baseform, "ts": [tags], "s": {subreading}}`.
-> If `reading_obj` is not a JSON object, print to stderr "Error: Expected reading
-> object, but got different type on line <numLines>." and return `nullptr`.
-> Allocate `cReading = alloc_reading(parentCohort)` and `addTagToReading(*cReading,
-> parentCohort->wordform)`.
-> Baseform ("l"): if member `"l"` exists, `base_str = json_to_ustring(l_val)`; if
-> non-empty, build a tag string `"\"" + base_str + "\""` (wrap in quotes),
-> `addTag` it, and `addTagToReading`. If `"l"` is present but empty, warn
-> "Warning: Empty 'l' (baseform) in reading on line <numLines>." If `"l"` is
-> missing, warn "Warning: Reading missing 'l' (baseform) on line <numLines>."
-> Tags ("ts"): if member `"ts"` exists and is an array, iterate it; for each
-> element, `tag_str = json_to_ustring`; if non-empty, `tag = addTag(tag_str)`;
-> if `tag->type & T_MAPPING` OR its first char equals `grammar->mapping_prefix`,
-> collect it into a local `mappings` TagList; otherwise `addTagToReading`. After
-> the loop, if `mappings` is non-empty call `splitMappings(mappings, *parentCohort,
-> *cReading, true)`.
-> Subreading ("s"): if member `"s"` exists and is an object, recursively parse it
-> with the SAME `parentCohort`; on success set `cReading->next = subReading`, else
-> print "Error: Failed to parse subreading object on line <numLines>." If `"s"`
-> exists but is not an object, warn "Warning: Value for 's' (sub_reading) is not
-> an object on line <numLines>. Skipping."
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn+1]
+> Builds a reading of `cohort` from the reading object `reading_obj`,
+> recursing into its sub-reading, and returns it. The caller has checked that
+> `reading_obj` is an object. The reading's mapping tags are not added to it
+> but appended to `mappings`, for the caller to split (`splitAllMappings`) or
+> to reduce to one (`addSingleMapping`). Members are read in the order
+> `"l"`, `"ts"`, `"s"`; others are ignored, `"tr"` included.
+> Setup: `cReading = alloc_reading(cohort)`, `addTagToReading(*cReading,
+> cohort->wordform)`.
+> Baseform (`"l"`): if absent, warn "Warning: Reading missing 'l' (baseform)
+> on line <numLines>.". Otherwise read it with `getJsonString`; if that
+> succeeds with an empty value, warn "Warning: Empty 'l' (baseform) in
+> reading on line <numLines>."; if it succeeds with a non-empty value,
+> `addTagToReading(*cReading, addTag("\"" + l + "\""))`.
+> Tags (`"ts"`): if present and not an array, warn "Warning: 'ts' (tags) on
+> line <numLines> is not an array - ignored.". Otherwise, for each element in
+> order: if it is not a string, warn "Warning: Non-string found in 'ts'
+> (tags) array on line <numLines> - skipping." and go on; skip an empty
+> string; `tag = addTag(str)`; if `tag->type & T_MAPPING`, or the tag's first
+> character is `grammar->mapping_prefix`, set `T_MAPPING` in `tag->type` and
+> append `tag` to `mappings`; otherwise `addTagToReading(*cReading, tag)`.
+> Sub-reading (`"s"`): if present and an object, parse it by recursion with
+> the same `cohort` and a fresh `TagList sub_mappings`, set `cReading->next`
+> to the result, and `addSingleMapping(*cReading->next, sub_mappings)`. If
+> present and not an object, warn "Warning: Value for 's' (sub-reading) is
+> not an object on line <numLines> - skipping.". The sub-reading is parsed
+> before the next step, so its warnings come first.
 > Fallback: if `cReading->baseform` is still 0, set it to
-> `parentCohort->wordform->hash` and warn "Warning: Reading on line <numLines>
-> ended up with no baseform. Using wordform." Return `cReading`.
+> `cohort->wordform->hash` and warn "Warning: Reading on line <numLines>
+> ended up with no baseform. Using wordform.".
+> Finally call `cReading->rehash()`, because the hash covers the sub-reading,
+> which was attached after the tags, and return `cReading`.
 
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn]
 > void JsonlApplicator::printCohort(Cohort* cohort, std::ostream& output, bool profiling)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn]
-> Serializes one cohort as a single JSON object on its own line. Emitted object
-> shape: `{"w": wordform, "sts": [...], "z": text, "ds": u, "dp": u, "rs": [...],
-> "drs": [...]}` (each optional member is present only under the conditions below;
-> RapidJSON emits members in insertion order: w, sts, z, ds, dp, rs, drs).
-> If `cohort->local_number == 0` or `cohort->type & CT_REMOVED`, return without
-> printing anything. If not `profiling`, call `cohort->unignoreAll()`.
-> Wordform ("w"): from `cohort->wordform->tag`; if it has size ≥ 4 and starts with
-> `"<` and ends with `>"`, strip both (the substring between them); otherwise use
-> the whole tag. UTF-8-encode and add member `"w"`.
-> Static tags ("sts"): if `cohort->wread` exists and its `tags_list` is non-empty,
-> build an array of each tag's text, skipping the entry equal to the wordform
-> hash, applying `unique_tags` dedup; add member `"sts"` only if the array is
-> non-empty.
-> Text ("z"): if `cohort->text` is non-empty, copy it, pop a single trailing
-> `'\n'` if present, and if still non-empty add it (UTF-8) as member `"z"`.
-> Dependency: if `has_dep` and not `CT_REMOVED`, add member `"ds"` = `cohort->dep_self`
-> if non-zero else `cohort->global_number`; and if `cohort->dep_parent !=
-> DEP_NO_PARENT`, add member `"dp"` = `cohort->dep_parent`.
-> Readings ("rs"): sort `cohort->readings` by `Reading::cmp_number`; for each
-> reading whose `noprint` is false, build a reading object via `buildJsonReading`
-> and push it if non-empty; add member `"rs"` only if the array is non-empty.
-> (Quirk: a code comment mentions optionally printing only the single best
-> reading, but the `break` is commented out, so ALL non-noprint readings are
-> emitted.)
-> Deleted readings ("drs"): if `cohort->deleted` is non-empty, sort by
-> `cmp_number`, build a reading object for each (the `noprint` flag is NOT checked
-> here), and add member `"drs"` if non-empty. Deleted readings are emitted with
-> the same shape as normal readings (no deleted marker in the object itself).
-> Finally serialize the document with a RapidJSON `Writer` and write
-> `<json>` + `"\n"` to `output`, then `output.flush()`.
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn+1]
+> Writes one cohort as one JSON object on its own line. If
+> `cohort->local_number == 0` (the window's `>>>` cohort) or `cohort->type &
+> CT_REMOVED`, write no object: call `printText(cohort->text, output)`, so
+> that the text after the cohort is still written, and return. If not
+> `profiling`, call `cohort->unignoreAll()`. Members are added in this order,
+> each only under its condition: `"w"`, `"wb"`, `"sts"`, `"z"`, `"ds"`,
+> `"dp"`, `"id"`, `"rels"`, `"rs"`, `"drs"`.
+> Wordform (`"w"`, always added): the wordform tag's text; if it is at least
+> 4 characters long, starts with `"<` and ends with `>"`, the first two and
+> the last two characters are dropped.
+> Word-bound blank (`"wb"`): `cohort->wblank`, if it is non-empty.
+> Static tags (`"sts"`): if `cohort->wread` exists, an array of the text of
+> each tag in `wread->tags_list`, in order, except the wordform's hash, with
+> no `unique_tags` filtering; added if non-empty.
+> Text (`"z"`): if `cohort->text` contains a character not in `ws` (space and
+> tab, and `\n` as well unless `add_spacing`), the text without its last
+> character when that is a newline character (`ISNL`). Newlines inside the
+> text stay, so several lines of text are one `"z"` with `\n` between them.
+> Dependency (`"ds"`, `"dp"`): only if `has_dep`. The parent cohort `pr` is:
+> none if `cohort->dep_parent == DEP_NO_PARENT`; the window's `>>>` cohort
+> (`cohort->parent->cohorts[0]`) if `dep_parent == 0`; else the cohort that
+> `gWindow->cohort_map` maps `dep_parent` to, or none if the map does not
+> have it. If `dep_absolute` or `dep_has_spanned`: `"ds"` is
+> `cohort->global_number` and, if `pr` exists, `"dp"` is 0 when
+> `pr->local_number == 0`, else `pr->global_number`. Otherwise `"ds"` is
+> `cohort->local_number` and, if `pr` exists, `"dp"` is `pr->local_number`.
+> The root is therefore always 0, and `"dp"` is left out when the cohort has
+> no parent.
+> Cohort id (`"id"`): `cohort->global_number`, if `has_relations` or
+> `print_ids` is set.
+> Relations (`"rels"`): if `cohort->type & CT_RELATED`, an object, added even
+> when it is empty. For each entry of `cohort->relations`, in its order
+> (ascending by the relation name's hash), the member name is the name tag's
+> text and the value is the array of the entry's target numbers, ascending.
+> Readings (`"rs"`): sort `cohort->readings` in place by
+> `Reading::cmp_number`; for each reading whose `noprint` is false, append
+> the object `buildJsonReading` builds for it; added if non-empty.
+> Deleted readings (`"drs"`): only if `trace` is set and `trace_no_removed`
+> is not, the condition under which the CG writer prints delayed and
+> deleted readings. Sort `cohort->delayed` and `cohort->deleted` in place by
+> `Reading::cmp_number`; then, for `delayed` followed by `deleted`, for each
+> reading whose `noprint` is false, append the object `buildJsonReading`
+> builds for it; added if non-empty. Deleted readings have the same shape as
+> the other readings.
+> Write the object with `write_json_line`, then flush `output`.
 
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
 > void JsonlApplicator::printPlainTextLine(UStringView line, std::ostream& output)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
-> Emits plain text as one JSONL object `{"t": <line>}`. Builds a JSON object,
-> UTF-8-encodes `line`, adds it as member `"t"`, serializes with a RapidJSON
-> `Writer`, and writes `<json>` + `"\n"` to `output`. Does NOT flush. (Any
-> newlines embedded in `line` are JSON-escaped by the writer, so the output is
-> still exactly one physical line.)
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn+1]
+> Writes text as `{"t": ...}` objects, one per line of the text. If `line` is
+> non-empty and its last character is a newline character (`ISNL`), drop that
+> character. Split what remains at each `\n`, and write each piece, empty
+> pieces included, with `write_json_line` as an object whose only member is
+> `"t"`. Text without a `\n` is one object, and empty text is one object
+> with an empty `"t"`. Only `\n` separates lines: other `ISNL` characters
+> inside the text stay in the strings. Does not flush. This is the format's
+> override of the virtual `printPlainTextLine`, so the text that other
+> readers pass through is written the same way.
 
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn]
 > void JsonlApplicator::printSingleWindow(SingleWindow* window, std::ostream& output, bool profiling)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn]
-> Serializes a whole window as a sequence of JSONL lines. Steps, in order:
-> (1) For each `var` in `window->variables_output`, build a stream-command string
-> and emit it via `printStreamCommand`. `key = grammar->single_tags[var]`. If
-> `var` is in `window->variables_set`: if its value is not `grammar->tag_any`,
-> command = `STR_CMD_SETVAR + key->tag + "=" + value->tag + ">"`; else command =
-> `STR_CMD_SETVAR + key->tag + ">"`. If `var` is not in `variables_set` (removed),
-> command = `STR_CMD_REMVAR + key->tag + ">"`.
-> (2) If `window->text` (pre-text) is non-empty, emit it via `printPlainTextLine`.
-> (3) For each cohort in `window->all_cohorts`, call `printCohort(cohort, output,
-> profiling)`.
-> (4) If `window->text_post` is non-empty, emit it via `printPlainTextLine`.
-> (5) If `window->flush_after`, emit `printStreamCommand(STR_CMD_FLUSH, output)`.
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn+1]
+> Writes a whole window. In order: (1) `printVariables(window->variables_output,
+> window->variables_set, output)`; (2) `printText(window->text, output)`; (3)
+> `printCohort(cohort, output, profiling)` for each cohort in
+> `window->all_cohorts`, the `>>>` cohort and removed cohorts included, which
+> `printCohort` reduces to their text; (4) `printText(window->text_post,
+> output)`; (5) if `window->flush_after`, `printStreamCommand(STR_CMD_FLUSH,
+> output)`. Then flush `output`.
 
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
 > void JsonlApplicator::printStreamCommand(UStringView cmd, std::ostream& output)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
-> Emits a stream command as one JSONL object `{"cmd": <cmd>}`. Builds a JSON
-> object, UTF-8-encodes `cmd`, adds it as member `"cmd"`, serializes with a
-> RapidJSON `Writer`, and writes `<json>` + `"\n"` to `output`. Does NOT flush.
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn+1]
+> Writes a stream command as one JSONL object `{"cmd": <cmd>}`: an object
+> whose only member is `"cmd"`, holding the whole of `cmd`, any NUL character
+> included, written with `write_json_line`. Does not flush.
+
+> [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-text-fn]
+> void JsonlApplicator::printText(const UString& text, std::ostream& output)
+
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-text-fn]
+> Writes text that is not only whitespace. If `text` is non-empty and
+> contains a character not in `ws` (space and tab, and `\n` as well unless
+> `add_spacing`), call `printPlainTextLine(text, output)`; otherwise write
+> nothing. The CG writer applies the same test to window and cohort text.
+
+> [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-variables-fn]
+> void JsonlApplicator::printVariables(const uint32SortedVector& vars_output, const uint32FlatHashMap& vars_set, std::ostream& output)
+
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-variables-fn]
+> Writes one stream command per variable in `vars_output`, in its order
+> (ascending by the variable name's hash). For each hash `var`, `key =
+> grammar->single_tags[var]`. If `vars_set` maps `var` to a value other than
+> `grammar->tag_any`, the command is `STR_CMD_SETVAR + key->tag + "=" +
+> value->tag + ">"`, where `value` is the tag of that value's hash; if it
+> maps `var` to `tag_any`, the command is `STR_CMD_SETVAR + key->tag + ">"`;
+> if `vars_set` does not have `var`, the command is `STR_CMD_REMVAR +
+> key->tag + ">"`. Each command is written with `printStreamCommand`. A
+> SETVAR or REMVAR that named several variables therefore comes out as one
+> command per variable.
 
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn]
 > void JsonlApplicator::runGrammarOnText(std::istream& input, std::ostream& output)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+1]
-> Reads JSON-Lines input (one JSON object per line), builds windows, runs the
-> grammar, and prints JSONL output. Each input object is one of: a command
-> (`{"cmd": ...}`), a plain-text line (`{"t": ...}` with no `"w"`), or a cohort
-> (`{"w": ...}`, parsed by `parseJsonCohort`).
-> Setup: store `&input`/`&output` in `ux_stdin`/`ux_stdout`. If `!input.good()`
-> print "Error: Input is null..." + `CG3Quit(1)`; if `input.eof()` print "Error:
-> Input is empty..." + quit; if `!output` print "Error: Output is null..." +
-> quit; if `!grammar` print "Error: No grammar provided..." + quit. Warn if the
-> grammar lacks hard (and/or soft) delimiters. Call `index()`. Compute `resetAfter
-> = (num_windows + 4) * 2 + 1`. `ignoreinput = false`. Null the pointers
-> `cSWindow/cCohort/lSWindow/lCohort`. Set `gWindow->window_span = num_windows`.
-> Declare LOCAL variable-tracking state `variables_set` (map hash->hash),
-> `variables_rem` (set), `variables_output` (sorted vector). Call
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+2]
+> Reads a JSONL stream, one JSON object per line, builds windows from it, runs
+> the grammar on them, and writes them out. Each object is a stream command
+> (`"cmd"`), a cohort (`"w"`) or a line of text (`"t"`), tested in that
+> order, so an object with both `"w"` and `"t"` is a cohort and its `"t"` is
+> ignored.
+>
+> Setup: store `&input` and `&output` in `ux_stdin` and `ux_stdout`. If
+> `!input.good()`, print "Error: Input is null - nothing to parse!" and
+> `CG3Quit(1)`; if `input.eof()`, print "Error: Input is empty - nothing to
+> parse!" and quit; if `!output`, print "Error: Output is null - cannot write
+> to nothing!" and quit; if `!grammar`, print "Error: No grammar provided -
+> cannot continue! Hint: call setGrammar() first." and quit. If
+> `grammar->delimiters` is null or empty: if `grammar->soft_delimiters` is
+> null or empty too, warn "Warning: No soft or hard delimiters defined in
+> grammar. Hard limit of <hard_limit> cohorts may break windows."; else warn
+> "Warning: No hard delimiters defined in grammar. Soft limit of <soft_limit>
+> cohorts may break windows.". Call `index()`. `resetAfter = (num_windows +
+> 4) * 2 + 1`. Local state, all false or null: `ignoreinput`,
+> `did_soft_lookback`, `cSWindow` (the window being filled, null once it has
+> been delimited), and `lSWindow` and `lCohort` (the last window and the
+> last cohort, which receive the text that follows them). Set
+> `gWindow->window_span = num_windows`. Local variable state, empty:
+> `variables_set` (`uint32FlatHashMap`), `variables_rem`
+> (`uint32FlatHashSet`), `variables_output` (`uint32SortedVector`). Call
 > `ux_stripBOM(input)`.
-> Main loop: `std::getline(input, line_str)`. `++numLines`. Skip lines that are
-> empty or all whitespace (` \t\n\v\f\r`). Parse the line with RapidJSON; on parse
-> error print "Warning: Failed to parse JSON on line <numLines>: <error> (offset
-> <off>). Skipping line." and continue. If the parsed value is not an object,
-> print "Warning: JSON on line <numLines> is not an object. Skipping line." and
-> continue.
-> Command handling: if the object has member `"cmd"`, `cmd_ustr =
-> json_to_ustring(doc["cmd"])`. If empty, warn "Warning: Empty 'cmd' value..." and
-> continue. Otherwise:
-> - `STR_CMD_FLUSH`: if `verbosity_level > 0` log an Info line. Set `backSWindow =
->   gWindow->back()`; if non-null set `backSWindow->flush_after = true`. If
->   `lCohort` is the last cohort of `cSWindow`, add `endtag` to all of `lCohort`'s
->   readings. Null `lCohort/cSWindow/lSWindow`. Drain buffered windows: while
->   `gWindow->next` non-empty, `shuffleWindowsDown` + `runGrammarOnWindow` +
->   `resetIndexes` when `numWindows % resetAfter == 0` (+ optional progress). Then
->   `shuffleWindowsDown()` once and, while `gWindow->previous` non-empty, pop
->   front, `printSingleWindow`, `free_swindow`, erase. If there was NO back window,
->   emit `printStreamCommand(cmd_ustr, output)`. Then `variables.clear()` (the
->   member map — note the LOCAL `variables_set/rem/output` are NOT cleared here),
->   flush output and stderr.
-> - `STR_CMD_IGNORE`: set `ignoreinput = true`, `printStreamCommand(cmd_ustr)`.
-> - `STR_CMD_RESUME`: set `ignoreinput = false`, `printStreamCommand(cmd_ustr)`.
-> - `STR_CMD_EXIT`: `printStreamCommand(cmd_ustr)` then `goto` the exit label
->   (skips all end-of-stream draining).
-> - Prefix `STR_CMD_SETVAR` (`"<STREAMCMD:SETVAR:"`, matched with `u_strncmp` over
->   its length): payload = `cmd_ustr.substr(SETVAR.size(), size - SETVAR.size() -
->   1)` (strips the prefix and the final char, assumed `>`). Find `'='`: if
->   present, `key = payload[0..=)`, `value = payload[=+1..]`, `key_tag =
->   addTag(key)`, `value_hash = addTag(value)->hash`; else `key_tag =
->   addTag(payload)`, `value_hash = grammar->tag_any`. Then `variables_set[key_tag
->   ->hash] = value_hash`, erase from `variables_rem`, insert into
->   `variables_output`.
-> - Prefix `STR_CMD_REMVAR` (`"<STREAMCMD:REMVAR:"`): payload strips prefix and
->   final char; `key_tag = addTag(payload)`; erase from `variables_set`, insert
->   into `variables_rem`, insert into `variables_output`.
-> After handling any command, `continue`.
-> Ignore mode: if `ignoreinput` is set, then if the object has member `"t"` and it
-> is a non-empty string, emit it via `printPlainTextLine`; continue (all
-> non-command input is passed through as text and cohorts are not built).
-> Plain text: else if the object has `"t"` and NOT `"w"`: `t_ustr =
-> json_to_ustring(doc["t"])`; if non-empty (optionally logged when `verbosity_level
-> > 1`), append it to `lCohort->text` if `lCohort` exists, else to
-> `lSWindow->text` if that exists, else emit via `printPlainTextLine`. If empty,
-> warn "Warning: Empty 't' value...". Continue.
-> Cohort: else if the object has `"w"`: if `cSWindow` is null, allocate a new
-> SingleWindow (`allocAppendSingleWindow` + `initEmptySingleWindow`), TRANSFER the
-> local variable state into it (`cSWindow->variables_set = variables_set` then
-> clear the local, likewise `variables_rem` and `variables_output`), `++numWindows`,
-> set `lSWindow = cSWindow`. Call `parseJsonCohort(doc, cSWindow, cCohort)`; if
-> `cCohort` is null print "Error: Failed to create cohort from JSON on line
-> <numLines>." and continue. Append `cCohort` to `cSWindow`, set `lCohort =
-> cCohort`. Delimiting (`did_delim = false`): if `cSWindow->cohorts.size() >=
-> soft_limit` and soft delimiters exist and `cCohort` matches
-> `grammar->soft_delimiters` (via `doesSetMatchCohortNormal`), optionally log,
-> add `endtag` to all readings, null `cSWindow`/`cCohort`, `did_delim = true`.
-> Else if `cSWindow->cohorts.size() >= hard_limit` OR (`grammar->delimiters` exists
-> and `cCohort` matches them): if the hard limit triggered warn "Warning: Hard
-> limit ... forcing break.", add `endtag` to all readings, null
-> `cSWindow`/`cCohort`, `did_delim = true`. Then if `did_delim` OR
-> `gWindow->next.size() > num_windows`: `shuffleWindowsDown` + `runGrammarOnWindow`
-> + `resetIndexes` when `numWindows % resetAfter == 0` (+ optional progress).
-> Finally null `cCohort`.
-> End of stream: if `cSWindow` exists and is non-empty, add `endtag` to all
-> readings of its last cohort. While `gWindow->next` non-empty, `shuffleWindowsDown`
-> + `runGrammarOnWindow`. If `gWindow->current` exists, `runGrammarOnWindow`. Then
-> `shuffleWindowsDown()` and drain `gWindow->previous` (print + free + erase).
-> Flush `output`. Then emit any still-pending GLOBAL variable commands: for each
-> `var` in the LOCAL `variables_output`, build a SETVAR/SETVAR-any/REMVAR command
-> string (same rule as `printSingleWindow`) from `variables_set` and emit via
-> `printStreamCommand`.
-> Exit label (`CGCMD_EXIT_JSONL`, reached by EXIT or normal fall-through): if
-> `verbosity_level > 0` print a final "Progress: ... - Done." line to stderr.
-> Note: no regex is used; commands are matched by exact string equality or
-> `u_strncmp` prefix comparison.
+>
+> Helpers:
+> - `add_end_tag(cohort)`: add `endtag` to each reading in
+>   `cohort->readings` whose `tags` does not have it yet.
+> - `new_window()`: `cSWindow = gWindow->allocAppendSingleWindow()`,
+>   `initEmptySingleWindow(cSWindow)`, `lSWindow = cSWindow`, `++numWindows`,
+>   `did_soft_lookback = false`. Then move the local variable state into the
+>   window: insert `variables_set`, `variables_rem` and `variables_output`
+>   into the window's members of the same names, and clear the locals.
+> - `check_dep_span(window)`: for each cohort in `window->cohorts` whose
+>   `dep_parent` is neither 0 nor `DEP_NO_PARENT` and whose type has
+>   `CT_DEP_DONE`, look `dep_parent` up in `gWindow->cohort_map`; if it is
+>   there and that cohort's window is not this cohort's window, set
+>   `dep_has_spanned = true` and stop. JSONL has no marker for dependencies
+>   that span windows, so the reader detects them once they are resolved.
+>   Windows are written a few runs later, so the CG writer can still switch
+>   to its spanning numbering.
+> - `run_window()`: `gWindow->shuffleWindowsDown()`, `runGrammarOnWindow()`.
+>   If `has_dep` is set and `dep_has_spanned` is not, `check_dep_span` on
+>   `gWindow->current` and on each window in `gWindow->next`. If `numWindows
+>   % resetAfter == 0`, `resetIndexes()`. If `verbosity_level > 0`, print
+>   "Progress: L:<numLines>, W:<numWindows>, C:<numCohorts>,
+>   R:<numReadings>\r" to stderr and flush it.
+> - `flush_windows()`: while `gWindow->next` is non-empty, `run_window()`.
+>   Then `gWindow->shuffleWindowsDown()`, and while `gWindow->previous` is
+>   non-empty, `printSingleWindow` its first window to `output`,
+>   `free_swindow` it, and erase it.
+> - `add_text(text)`: if `lSWindow` and `lCohort` are set and
+>   `testStringAgainst(text, text_delimiters)` matches (`--text-delimit`),
+>   append `text` to `lSWindow->text_post`, and if `cSWindow == lSWindow`,
+>   `add_end_tag(cSWindow->cohorts.back())` and null `cSWindow`; then null
+>   `lCohort`. Else if `lCohort` is set, append `text` to `lCohort->text`.
+>   Else if `lSWindow` is set, append `text` to `lSWindow->text_post` if that
+>   is non-empty, otherwise to `lSWindow->text`. Else write it at once with
+>   `printPlainTextLine(text, output)`.
+>
+> Main loop: read each line with `std::getline` and `++numLines`. Skip a line
+> that is empty or holds only the characters ` \t\n\v\f\r`, with no warning.
+> Parse the line as one JSON document (RapidJSON `Document::Parse` over the
+> line's bytes and length, default flags). On a parse error, warn "Warning:
+> Failed to parse JSON on line <numLines>: <message> (offset <offset>).
+> Skipping line.", where `<message>` is RapidJSON's English text for the
+> error code (`GetParseError_En`, such as "Missing a name for object
+> member.") and `<offset>` is the byte offset of the error, and go to the
+> next line. If the document is not an object, warn "Warning: JSON on line
+> <numLines> is not an object. Skipping line." and go to the next line. A
+> member name that occurs more than once in an object is read at its first
+> occurrence, since `HasMember` and `FindMember` find the first.
+>
+> Commands, if the object has a `"cmd"` member: read it with
+> `getJsonString`, and go to the next line if that fails. If the command is
+> empty, warn "Warning: Empty 'cmd' value on line <numLines>." and go to the
+> next line. Commands are handled whether or not `ignoreinput` is set. A
+> command starts with a prefix when it is longer than the prefix, ends with
+> `>`, and begins with the prefix. The first case that applies is taken:
+> - `STR_CMD_FLUSH` (exact): if `verbosity_level > 0`, print "Info: FLUSH
+>   encountered on line <numLines>. Flushing..." to stderr. `backSWindow =
+>   gWindow->back()`; if it is non-null, set its `flush_after`. If
+>   `cSWindow` is set, `add_end_tag(cSWindow->cohorts.back())`. Null
+>   `lCohort`, `cSWindow` and `lSWindow`, and call `flush_windows()`. If
+>   there was no `backSWindow`, `printStreamCommand(STR_CMD_FLUSH, output)`.
+>   Clear the member `variables`; the local variable state is kept. Flush
+>   `output` and stderr.
+> - `STR_CMD_IGNORE` (exact): if `verbosity_level > 0`, print "Info: IGNORE
+>   encountered on line <numLines>. Passing through all input..." to stderr.
+>   Set `ignoreinput` and `printStreamCommand(STR_CMD_IGNORE, output)`.
+> - `STR_CMD_RESUME` (exact): if `verbosity_level > 0`, print "Info: RESUME
+>   encountered on line <numLines>. Resuming CG..." to stderr. Clear
+>   `ignoreinput` and `printStreamCommand(STR_CMD_RESUME, output)`.
+> - `STR_CMD_EXIT` (exact): if `verbosity_level > 0`, print "Info: EXIT
+>   encountered on line <numLines>. Exiting..." to stderr.
+>   `printStreamCommand(STR_CMD_EXIT, output)`, then go to the exit label,
+>   so buffered windows are neither run nor written.
+> - Starts with `STR_CMD_SETVAR`: the payload is the text between the prefix
+>   and the final `>`. Split it at each `,` into items; an empty payload is
+>   one empty item, and a trailing `,` gives a last, empty item. For each
+>   item, the key is the text before its first `=`, or the whole item if it
+>   has none, and the variable `a` and the value `v` both start as
+>   `grammar->tag_any`. If the key is empty, warn "Warning: SETVAR on line
+>   <numLines> had an empty identifier! Defaulting to identifier *."; else `a
+>   = addTag(key)->hash`. If the item has a `=`: if nothing follows it, warn
+>   "Warning: SETVAR on line <numLines> had no value after the =! Defaulting
+>   to value *."; else `v = addTag(<the text after the first =>)->hash`.
+>   Then `variables_set[a] = v`, erase `a` from `variables_rem`, and insert
+>   `a` into `variables_output`. So `<STREAMCMD:SETVAR:a=1,b>` sets `a` to
+>   `1` and `b` to `*`.
+> - Starts with `STR_CMD_REMVAR`: the payload is found and split the same
+>   way, and empty items are skipped. For each other item, `a =
+>   addTag(item)->hash`; erase `a` from `variables_set`, and insert it into
+>   `variables_rem` and into `variables_output`.
+> - Otherwise: warn "Warning: Unknown or malformed stream command <cmd> on
+>   line <numLines> - treated as text." and `add_text(cmd + "\n")`. A SETVAR
+>   or REMVAR without its closing `>` is handled here.
+>
+> Then go to the next line.
+>
+> Cohorts, if the object has a `"w"` member:
+> - If `ignoreinput` is set, the line is passed through as text: decode the
+>   whole line from UTF-8, append `"\n"`, `add_text` it, and go to the next
+>   line. `"w"` is not checked.
+> - Read `"w"` with `getJsonString`. If that fails or the value is empty,
+>   warn "Warning: Cohort on line <numLines> has an empty or invalid 'w'
+>   (wordform). Skipping line." and go to the next line.
+> - Soft-limit look-back: if `cSWindow` is set,
+>   `cSWindow->cohorts.size() > soft_limit`, `grammar->soft_delimiters` is
+>   set, and `did_soft_lookback` is not: set `did_soft_lookback`, and walk
+>   `cSWindow->cohorts` from last to first. At the first cohort `c` that
+>   matches the soft delimiters (`doesSetMatchCohortNormal(*c,
+>   grammar->soft_delimiters->number)`), clear `did_soft_lookback`, set
+>   `cSWindow = delimitAt(*cSWindow, c)->parent->next` (the window that
+>   `delimitAt` splits off after `c`) and `lSWindow = cSWindow`; if
+>   `verbosity_level > 0`, warn "Warning: Soft limit of <soft_limit> cohorts
+>   reached at line <numLines> but found suitable soft delimiter in
+>   buffer."; and stop the walk.
+> - If `cSWindow` is null, `new_window()`.
+> - If `gWindow->next.size() > num_windows + 1`, `run_window()`, so rules
+>   see `num_windows` windows ahead.
+> - `cCohort = parseJsonCohort(doc, cSWindow)`.
+> - Dependency delimiting (`--dep-delimit`): if `dep_delimit`,
+>   `dep_highest_seen` and `cCohort->dep_self` are all non-zero,
+>   `cSWindow->cohorts.size() > 1`, and either `cCohort->dep_self <=
+>   dep_highest_seen` or `cCohort->dep_self - dep_highest_seen >
+>   dep_delimit`: `reflowDependencyWindow(cCohort->global_number)`,
+>   `add_end_tag(cSWindow->cohorts.back())`, `new_window()`,
+>   `dep_highest_seen = 0`, `cCohort->parent = cSWindow`, and, if
+>   `grammar->has_bag_of_tags`, `reflowReading` each of `cCohort`'s readings.
+>   A cohort without a `"ds"` never starts a new window here.
+> - `cSWindow->appendCohort(cCohort)` and `lCohort = cCohort`.
+> - Delimiting, with the new cohort already counted: if
+>   `cSWindow->cohorts.size() > soft_limit`, `grammar->soft_delimiters` is
+>   set, and `cCohort` matches the soft delimiters: if `verbosity_level > 0`,
+>   warn "Warning: Soft limit of <soft_limit> cohorts reached at line
+>   <numLines> but found suitable soft delimiter."; `add_end_tag(cCohort)`;
+>   null `cSWindow`. Else if `cSWindow->cohorts.size() > hard_limit`, or
+>   `dep_delimit` is 0, `grammar->delimiters` is set, and `cCohort` matches
+>   the delimiters: if `is_conv` is not set and the hard limit was passed,
+>   warn "Warning: Hard limit of <hard_limit> cohorts reached at line
+>   <numLines> - forcing break."; `add_end_tag(cCohort)`; null `cSWindow`.
+>
+> Then go to the next line.
+>
+> Text, if the object has a `"t"` member: if `getJsonString` reads it,
+> `add_text(t + "\n")`, so an empty `"t"` is a blank line. Text is handled
+> the same way whether or not `ignoreinput` is set. Then go to the next line.
+>
+> Any other object: warn "Warning: JSON object on line <numLines> has none of
+> 'w', 't' or 'cmd'. Skipping line.".
+>
+> End of stream: set `input_eof = true`. If `cSWindow` is set,
+> `add_end_tag(cSWindow->cohorts.back())` and null it. Call
+> `flush_windows()` and flush `output`. Then `printVariables(variables_output,
+> variables_set, output)`: the variables set or removed after the last window
+> was made.
+>
+> Exit label (`CGCMD_EXIT_JSONL`, reached by EXIT or at the end of the
+> stream): if `verbosity_level > 0`, print "Progress: L:<numLines>,
+> W:<numWindows>, C:<numCohorts>, R:<numReadings> - Done." and a newline to
+> stderr, and flush it.
 >
 > PORT DIVERGENCE: a line that is not UTF-8 MUST be a run error naming the
-> input and the line (`[spec:cg3:req:robustness.stream-invalid-utf8]`), not
-> the end of the stream. No empty tag may be interned
-> (`[spec:cg3:req:robustness.empty-tag]`): a SETVAR or REMVAR with nothing
-> after its prefix is skipped, and an empty key or value beside a SETVAR's
-> `=` is `*`, with the warning the CG reader gives for the same command,
-> where the C++ `addTag`s the empty string. And with `--num-windows 0` a
-> delimiter shuffles the only window out, leaving `gWindow->current` null
-> for the `runGrammarOnWindow` that follows, which the C++ dereferences; the
-> port runs nothing when there is no current window.
+> input and the line (`[spec:cg3:req:robustness.stream-invalid-utf8]`). The
+> C++ does not check: RapidJSON's default parse does not validate the bytes
+> inside strings, and decoding them through ICU replaces each invalid
+> sequence with U+FFFD.
+
+> [spec:cg3:def:jsonl-applicator.cg3.write-json-line-fn]
+> void write_json_line(const json::Document& doc, std::ostream& output)
+
+> [spec:cg3:sem:jsonl-applicator.cg3.write-json-line-fn]
+> Free function in an anonymous namespace. Serialises `doc` with a RapidJSON
+> `Writer` into a `StringBuffer`, writes the result followed by `"\n"` to
+> `output`, and does not flush. The `Writer` writes no whitespace between
+> tokens, object members in the order they were added, array elements in
+> order, and unsigned integers in decimal. In strings it writes characters
+> from U+0080 up as raw UTF-8; it escapes `"` and `\` with a backslash,
+> writes U+0008, U+0009, U+000A, U+000C and U+000D as `\b`, `\t`, `\n`, `\f`
+> and `\r`, and writes every other character below U+0020, NUL included, as
+> `\u00XX` with uppercase hex digits. `/` and U+007F are not escaped. A
+> serialised document holds no raw newline, so each call writes exactly one
+> line.
+>
+> serde_json's own serialiser differs in two ways that the port has to undo
+> to write the same bytes: its `\u00xx` escapes use lowercase hex digits,
+> and without the `preserve_order` feature a `Map` writes its members sorted
+> by name rather than in the order they were added.
 
 `[spec:cg3:def:jsonl-applicator.cg3.ustring-to-utf8-fn]` and its `sem` rule
 stood here, naming `std::string ustring_to_utf8(UStringView ustr)`. They are
@@ -320,3 +538,12 @@ The C++ behaviour, recorded for completeness: two `u_strToUTF8` passes, the
 first with a null buffer to measure the required length (its overflow status
 ignored), the second to fill a string resized to that length.
 
+The C++ keeps `ustring_to_utf8` and `write_json_line` in an anonymous
+namespace with two more helpers, which have no rules of their own either.
+`UString utf8_to_ustring(const char* str, size_t len)` is the reverse
+conversion, decoding `len` bytes through ICU's `UnicodeString::fromUTF8`; it
+is the identity in the port for the same reason. `json::Value
+to_json(UStringView str, json::Document::AllocatorType& allocator)` builds a
+JSON string from the UTF-8 form of `str` with an explicit length, so a NUL
+character inside `str` is kept. The rules of the members that call them state
+what they contribute.
