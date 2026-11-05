@@ -65,7 +65,7 @@ fn addcohort_inserts_into_the_attached_cohorts_window() {
 
 // [spec:cg3:req:robustness.cross-window-actions/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2/test]
 #[test]
 fn cross_window_addcohort_applies_once_per_target() {
     // The attached `w` sits at a lower position in its window than two of the
@@ -290,6 +290,38 @@ fn a_removed_cohort_inside_an_enclosure_stays_hidden() {
         run_in_process(grammar, &input, false),
         cg_stream(&["a X", ". PU", "( PU", "e2 X", ") PU", ". PU"]),
     );
+}
+
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2/test]
+#[test]
+fn remcohort_goes_on_to_the_next_cohort() {
+    // The rule goes on to remove `b` before the REMOVE runs, so no X precedes
+    // `c` when the REMOVE tests it. The C++ stops after `a` and removes "c" V.
+    let grammar = "DELIMITERS = \"<.>\" ;\nSECTION\n\
+                   REMCOHORT (X) ;\n\
+                   REMOVE (V) IF (-1 (X)) ;\n";
+    let c = "\"<c>\"\n\t\"c\" N\n\t\"c\" V\n";
+    let input = format!("{}{c}{}", cg_stream(&["a X", "b X"]), cg_stream(&[". CLB"]));
+    let mut want = String::from("; \"<a>\"\n;\t\"a\" X REMCOHORT:3\n");
+    want.push_str("; \"<b>\"\n;\t\"b\" X REMCOHORT:3\n");
+    want.push_str(c);
+    want.push_str(&cg_stream(&[". CLB"]));
+    assert_eq!(run_in_process(grammar, &input, true), want);
+}
+
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2/test]
+#[test]
+fn remcohort_of_the_last_cohort_ends_the_loop() {
+    // `c` is the window's last cohort, so nothing follows it to resume at;
+    // the REMOVE then finds `<<<` moved onto `b`.
+    let grammar = "DELIMITERS = \"<.>\" ;\nSECTION\n\
+                   REMCOHORT (X) ;\n\
+                   REMOVE (V) IF (0 (<<<)) ;\n";
+    let a = "\"<a>\"\n\t\"a\" N\n\t\"a\" V\n";
+    let input = format!("{a}\"<b>\"\n\t\"b\" N\n\t\"b\" V\n{}", cg_stream(&["c X"]));
+    let mut want = format!("{a}\"<b>\"\n\t\"b\" N\n;\t\"b\" V REMOVE:4\n");
+    want.push_str("; \"<c>\"\n;\t\"c\" X REMCOHORT:3\n");
+    assert_eq!(run_in_process(grammar, &input, true), want);
 }
 
 fn run_apertium(grammar: &str, input: &str) -> String {

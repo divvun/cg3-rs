@@ -459,7 +459,7 @@ fn engine_match_set() {
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-rules-on-single-window-fn+2/test]
 // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn+3/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1/test]
-// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1/test]
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.update-valid-rules-fn/test]
 // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.update-valid-rules-fn/test]
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.update-rule-to-cohorts-fn/test]

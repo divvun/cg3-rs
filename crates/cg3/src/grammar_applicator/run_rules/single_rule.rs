@@ -52,8 +52,8 @@ impl crate::grammar_applicator::Engine<'_> {
         order.push_front(test);
     }
 
-    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
-    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2]
+    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
     /// C++ `bool runSingleRule(SingleWindow& current, const Rule& rule,
@@ -246,6 +246,11 @@ impl crate::grammar_applicator::Engine<'_> {
 
     /// The cohort-loop cursor just past `anchor` in `cs`: the `reset_cohorts`
     /// lower-bound probe, stepping over `anchor` unless it has left the window.
+    ///
+    /// DIVERGENCE: for a removed anchor the C++ ends the loop. The port gives
+    /// it the same probe as an ignored one, so the rule goes on to the cohort
+    /// that took its place and is tried on every cohort in the window before
+    /// the next rule runs.
     fn rr_cursor_after(
         &self,
         current: SwId,
@@ -253,11 +258,11 @@ impl crate::grammar_applicator::Engine<'_> {
         anchor: CohortId,
     ) -> usize {
         let local = self.doc.store.cohorts.get(anchor.0).local_number as usize;
-        // C++ reads `current.cohorts[gac->local_number]` unchecked. After a
-        // REMCOHORT of the last cohort, `local_number == cohorts.size()` and
-        // the C++ reads the stale vector slot, which still holds the removed
-        // cohort's own pointer (erase of the tail element moves nothing).
-        // Emulate that by probing with the cohort itself when out of range.
+        // An anchor that has left the window keeps its local number, and the
+        // window's cohorts close up over it: the slot there holds the cohort
+        // after it, or the first cohort of a split. When the anchor was the
+        // window's last cohort there is no such slot; the anchor itself,
+        // numbered past every cohort left, probes to the end of `cs`.
         let front_at_local = self
             .doc
             .store
