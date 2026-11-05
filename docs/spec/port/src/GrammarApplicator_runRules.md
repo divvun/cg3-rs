@@ -227,7 +227,7 @@
 > [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn]
 > bool GrammarApplicator::runSingleRule(SingleWindow& current, const Rule& rule, RuleCallback reading_cb, RuleCallback cohort_cb)
 
-> [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
+> [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2]
 > Iterates one rule over its candidate cohorts in the window, decides which
 > readings are valid targets (matching both the target set and all contextual
 > tests), and invokes the caller-supplied `reading_cb`/`cohort_cb` to perform the
@@ -327,10 +327,21 @@
 > unless K_IFF), set it as the current context, reset reset_cohorts_for_loop, and
 > call reading_cb(); if reading_cb cleared finish_cohort_loop, pop context and
 > return anything_changed; if it set reset_cohorts_for_loop, call the
-> reset_cohorts helper (re-fetch the cohortset and reposition rocit just past the
-> apply-to cohort) and break; if it cleared finish_reading_loop, break. Then call
-> cohort_cb() once (same finish_cohort_loop/reset_cohorts handling). Pop the
-> context and move to the next cohort. Return anything_changed.
+> reset_cohorts helper and break; if it cleared finish_reading_loop, break. Then
+> call cohort_cb() once (same finish_cohort_loop/reset_cohorts handling). Pop
+> the context and move to the next cohort. Return anything_changed.
+>
+> The reset_cohorts helper re-fetches cohortset =
+> &current.rule_to_cohorts[rule.number], runs override_cohortset, stores the
+> result in cohortsets.back(), and repositions rocit from the apply-to cohort
+> gac = get_apply_to().cohort. If gac is CT_REMOVED, the lower bound lb is
+> cohortset->end(); otherwise lb = cohortset->lower_bound(
+> current.cohorts[gac->local_number]). rocit = cohortset->size() when lb is the
+> end, else cohortset->find_n(*lb). Then, when gac is neither CT_REMOVED nor
+> CT_IGNORED and rocit < cohortset->size(), ++rocit steps past it. A removed
+> apply-to cohort therefore ends the rule's cohort loop for the window; an
+> ignored one resumes at the cohort that holds its position; any other resumes
+> just past it.
 >
 > PORT DIVERGENCE (robustness: cross-window actions, termination):
 > reset_cohorts repositions rocit just past the apply-to cohort only when that
@@ -340,6 +351,22 @@
 > lands on an unrelated cohort, and for an attached cohort before the target
 > it walks back over targets already acted on — either way a COPYCOHORT or
 > ADDCOHORT whose new cohort the rule matches applies again without end.
+>
+> PORT DIVERGENCE (REMCOHORT goes on to the next cohort): after REMCOHORT
+> removes the apply-to cohort, the port MUST resume the cohort loop at the
+> next cohort in the window, so that the rule is tried on every cohort in the
+> window before the next rule runs, as the CG-3 manual states. reset_cohorts
+> probes a CT_REMOVED apply-to cohort as it does a CT_IGNORED one: the removed
+> cohort keeps its local_number, current.cohorts has closed up over it so that
+> position holds the cohort that followed it, and rocit is not stepped past
+> that cohort. The C++ ends the loop there instead, so a later rule in the
+> section can act while cohorts the REMCOHORT rule has not tried remain in the
+> window. The source cohort a SPLITCOHORT replaces takes the same path: the
+> port resumes at the first cohort of the split, where the C++ ends the loop.
+> When the removed cohort was the window's last, no cohort holds its position;
+> the port probes with the removed cohort itself, whose local_number exceeds
+> that of every cohort left in the window, so lb is the end of the set and the
+> loop ends in both.
 
 > [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.update-rule-to-cohorts-fn]
 > bool GrammarApplicator::updateRuleToCohorts(Cohort& c, const uint32_t& rsit)

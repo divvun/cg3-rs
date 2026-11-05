@@ -61,8 +61,8 @@ impl crate::grammar_applicator::Engine<'_> {
         }
     }
 
-    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
-    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2]
+    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
     /// C++ `cohort_cb` lambda of `runRulesOnSingleWindow` — the per-cohort action
@@ -453,8 +453,8 @@ impl crate::grammar_applicator::Engine<'_> {
         Ok(())
     }
 
-    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
-    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+1]
+    // [spec:cg3:def:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2]
+    // [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2]
     // [spec:cg3:def:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
     // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.run-single-rule-fn+1]
     // [spec:cg3:req:robustness.accepted-grammars-run]
