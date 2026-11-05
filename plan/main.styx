@@ -3571,6 +3571,22 @@ children (
                         title "Establish whether upstream meant 22e3fdb5 to stop the loop: confirm the predicted output difference against the v1.7.0 reference, and ask upstream, since the change undoes what 5f47afb6 (\"so REMCOHORT doesn't skip cohorts\") set out to keep"
                         kind @docs
                         deps (upstream-1-7-0.reference)
+                        sealed true
+                        log (
+                            {
+                                at 2026-11-05T21:59:08.516054Z
+                                author "brendan@necessary.nu"
+                                kind @note
+                                text "Confirmed against the v1.7.0 reference binary (cg3-upstream/build/src/vislcg3). Grammar `DELIMITERS = \"<.>\" ; SECTION REMCOHORT (X) ; REMOVE (V) IF (-1 (X)) ;` on `\"<a>\" \"a\" X`, `\"<b>\" \"b\" X`, `\"<c>\" \"c\" N / \"c\" V`, `\"<.>\" \".\" CLB` with --trace. v1.7.0 removes \"c\" V (REMOVE:4); the port keeps it. Both remove both X cohorts. So 22e3fdb5 does change output whenever a later rule in the section can see a cohort REMCOHORT has not reached yet. Asking upstream whether that was intended is outward-facing and waits on the operator."
+                            }
+
+                            {
+                                at 2026-11-05T22:03:25.472304Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Todo → Done (nplan complete)"
+                            }
+                        )
                     }
 
                     {
@@ -3588,6 +3604,13 @@ children (
                         author "brendan@necessary.nu"
                         kind @decision
                         text "Open question, operator to decide. 22e3fdb5 (\"Fix segfault\") makes reset_cohorts set lb = end whenever the apply-to cohort is CT_REMOVED, so rocit = size and the rule stops scanning the window. Before it, a removed non-last cohort resumed at the cohort that took its slot; that is the port's behaviour too (rr_cursor_after). Sections rerun, so final output usually converges, but rules in between see a different state. Predicted from the code, not yet confirmed on a binary: grammar `SECTION REMCOHORT (X) ; REMOVE (V) IF (-1 (X)) ;` on `a X, b X, c N/V, .` keeps \"c\" V in the port and removes it in v1.7.0. Upstream's corpus outputs did not change. Recommendation: keep the port's behaviour and ask upstream whether the loop stop was meant, since 5f47afb6 exists precisely so REMCOHORT does not skip cohorts."
+                    }
+
+                    {
+                        at 2026-11-05T22:03:17.146584Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Answered: the correct behaviour is the port's. After REMCOHORT removes its target, the rule goes on to the next cohort in the window. Four reasons. (1) The manual (compatibility.xml) states that CG-3 \"will try the current rule on all cohorts in the window before moving on to the next rule\". v1.7.0 lets the next rule run while cohorts the REMCOHORT rule has not tried remain. (2) Upstream said so directly in 5f47afb6, \"so REMCOHORT doesn't skip cohorts\". (3) The code continued to the next cohort from Nested Rules (2023) until 22e3fdb5, first as `rocit = gac->local_number`, then via lower_bound on the cohort that took the slot. (4) The segfault 22e3fdb5 fixes is only the last-cohort case, where current.cohorts[local_number] is past the end. The port already handles that case by probing with the removed cohort itself, which also yields the end of the set. So the port has upstream's crash fix without its change in output. The operator chose not to ask upstream. remcohort-loop.pin records this as a port divergence in the run-single-rule spec and pins it with a test."
                     }
                 )
             }
