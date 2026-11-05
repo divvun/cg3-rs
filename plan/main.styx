@@ -3502,4 +3502,170 @@ children (
             }
         )
     }
+
+    {
+        id upstream-1-7-0
+        title "Bring the port up to upstream CG-3 v1.7.0 (b6d5aed0..4dd86c3c): the FLUSH reset, MergeCohorts keeping the longest wblank, the JSONL rewrite and its corpus, the REMCOHORT loop question, and the help-text refresh"
+        kind @fix
+        children (
+            {
+                id upstream-1-7-0.flush-reset
+                title "Clear the CG driver's cursor state on every FLUSH, as upstream 8d5fa4dd does: the reset sits inside the pending-cohort branch, so a FLUSH after a text-delimiter line keeps l_swindow on a freed window and the next text line panics with a stale GenArena id"
+                implements {
+                    target-impl ([spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn])
+                }
+                log (
+                    {
+                        at 2026-11-05T21:07:03.062705Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Reproduced on main (8f9ca17) with grammar `DELIMITERS = \"<.>\" ; SELECT (N) ;`, `--text-delimit '/^TEXTDELIM$/'`, and the input `\"<a>\"` / `\"a\" N` / `TEXTDELIM` / `<STREAMCMD:FLUSH>` / `lost text?` / `\"<b>\"` / `\"b\" N` / `\"b\" V`. vislcg3 panics at arena.rs:198 with \"GenArena: stale id\". The text delimiter clears c_cohort, so the FLUSH branch's `if let (Some(cc), Some(sw))` skips the reset, and l_swindow still names the window FLUSH just freed. The fix moves the reset out of that branch, as upstream does. The JSONL reader already resets unconditionally. While here, check the binary stream reader's FLUSH path for the same shape."
+                    }
+                )
+            }
+
+            {
+                id upstream-1-7-0.mergecohorts-wblank
+                title "Give a merged cohort the longest wblank of the cohorts it absorbs, as upstream 0250250f does (issue #182), and take the second test/Apertium/T_MergeCohorts case that pins it"
+                implements {
+                    target-impl ([spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn])
+                }
+                log (
+                    {
+                        at 2026-11-05T21:07:05.459428Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "The port has no wblank handling in rr_mergecohorts_attach (restructure.rs). Upstream adds a loop over `withs` after the CT_RELATED transfer that copies any longer wblank onto the merged cohort. Upstream compares sizes in UTF-16 code units and the port's strings are UTF-8, so the two can only pick differently when candidates tie or nearly tie. Compare char or UTF-16 counts, not byte lengths, to match exactly. The new T_MergeCohorts input line is `[[t:a:a; t:b:b]]^Aa/...$ [[t:a:a; t:b:b; t:c:c]]^Bb/...$`, and the expected merged cohort carries the longer blank."
+                    }
+                )
+            }
+
+            {
+                id upstream-1-7-0.reference
+                title "Build upstream v1.7.0 as a C++ reference binary beside ../cg3-old-port, so behaviour the tag changed can be compared byte for byte rather than read from source"
+                kind @chore
+            }
+
+            {
+                id upstream-1-7-0.remcohort-loop
+                title "Settle what a rule does after REMCOHORT removes its target: upstream 22e3fdb5 now ends the rule's cohort loop for the window, where the port (and upstream before it) resumes at the next cohort"
+                children (
+                    {
+                        id upstream-1-7-0.remcohort-loop.intent
+                        title "Establish whether upstream meant 22e3fdb5 to stop the loop: confirm the predicted output difference against the v1.7.0 reference, and ask upstream, since the change undoes what 5f47afb6 (\"so REMCOHORT doesn't skip cohorts\") set out to keep"
+                        kind @docs
+                        deps (upstream-1-7-0.reference)
+                    }
+
+                    {
+                        id upstream-1-7-0.remcohort-loop.pin
+                        title "Pin the decided REMCOHORT resume behaviour: implement it in rr_reset_cohorts / rr_cursor_after if the port follows upstream, or record it as a divergence if not, and cover it with a test where a later rule in the section sees the difference"
+                        implements {
+                            target-impl ([spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn])
+                        }
+                        deps (upstream-1-7-0.remcohort-loop.intent)
+                    }
+                )
+                log (
+                    {
+                        at 2026-11-05T21:07:07.325329Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Open question, operator to decide. 22e3fdb5 (\"Fix segfault\") makes reset_cohorts set lb = end whenever the apply-to cohort is CT_REMOVED, so rocit = size and the rule stops scanning the window. Before it, a removed non-last cohort resumed at the cohort that took its slot; that is the port's behaviour too (rr_cursor_after). Sections rerun, so final output usually converges, but rules in between see a different state. Predicted from the code, not yet confirmed on a binary: grammar `SECTION REMCOHORT (X) ; REMOVE (V) IF (-1 (X)) ;` on `a X, b X, c N/V, .` keeps \"c\" V in the port and removes it in v1.7.0. Upstream's corpus outputs did not change. Recommendation: keep the port's behaviour and ask upstream whether the loop stop was meant, since 5f47afb6 exists precisely so REMCOHORT does not skip cohorts."
+                    }
+                )
+            }
+
+            {
+                id upstream-1-7-0.jsonl
+                title "Port the rewritten JSONL stream format (upstream c73c9413, #181): JSONL input and output now behave like the CG format, with the wb, id, rels and tr keys, mapping-tag splitting, per-variable commands, and warnings for bad lines"
+                kind @feat
+                children (
+                    {
+                        id upstream-1-7-0.jsonl.spec
+                        title "Re-transcribe docs/spec/port/src/JsonlApplicator.md from the rewritten C++: revise the changed sem rules, add rules for getJsonString, addSingleMapping, printText and printVariables, and move testStringAgainst's rule to inlines, where upstream moved the function"
+                        kind @docs
+                    }
+
+                    {
+                        id upstream-1-7-0.jsonl.reader
+                        title "Port the rewritten JSONL reader: cohort, reading, text and command objects read as the CG reader reads them, mapping tags split into readings, rels and id restore relations, drs only with --deleted, and bad lines skipped with a warning"
+                        implements {
+                            target-impl ([spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn] [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn] [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn])
+                        }
+                        deps (upstream-1-7-0.jsonl.spec)
+                    }
+
+                    {
+                        id upstream-1-7-0.jsonl.writer
+                        title "Port the rewritten JSONL writer: wb, id, rels and tr written when they apply, mapping tags last, text after a cohort as z and other text as t lines, and one command object per SETVAR or REMVAR variable"
+                        implements {
+                            target-impl (
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn]
+                                [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn]
+                            )
+                        }
+                        deps (upstream-1-7-0.jsonl.spec)
+                    }
+
+                    {
+                        id upstream-1-7-0.jsonl.corpus
+                        title "Import test/T_Jsonl and drive its eight cases from a Rust harness: CG to JSONL and back, JSONL to JSONL, without --deleted, rules with and without --trace, and the error input's stdout and stderr"
+                        kind @test
+                        deps (upstream-1-7-0.jsonl.reader upstream-1-7-0.jsonl.writer)
+                    }
+
+                    {
+                        id upstream-1-7-0.jsonl.round-trip-leg
+                        title "Add runall.pl's JSONL leg to golden.rs: run every corpus test CG to JSONL, through the grammar as JSONL, and back to CG against expected.bsf.txt, skipping tests that carry a skip-jsonl.txt (T_Dependency)"
+                        kind @test
+                        deps (upstream-1-7-0.jsonl.reader upstream-1-7-0.jsonl.writer)
+                    }
+                )
+                log (
+                    {
+                        at 2026-11-05T21:07:09.36447Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Against the new fixtures, the port's cg-conv differs by 14 lines on cg-to-jsonl, 3 on jsonl-to-cg and 10 on errors. Examples: a t line carries a trailing \"\\n\", static tags lose their quoting, and a SETVAR command after text lands on the text's line. The full format is in upstream manual/streamformats.xml (stream-jsonl) and the header comment of JsonlApplicator.hpp. The writer change alters JSONL output for existing consumers; say so once, in the delivering commit. Rules the spec node adds for the new C++ functions (getJsonString, addSingleMapping, printText, printVariables) need claiming by reader or writer once they exist."
+                    }
+                )
+            }
+
+            {
+                id upstream-1-7-0.help-text
+                title "Take v1.7.0's user-facing text: drop \"(experimental)\" from the JSONL and binary options, the new cg-conv help wording and JSONL key table, and the GrammarSoft notice's 2007-2026 range"
+                implements {
+                    target-impl ([spec:cg3:sem:cg-conv.main-fn] [spec:cg3:def:options.options.options] [spec:cg3:def:options-conv.options-conv.options])
+                }
+                deps (upstream-1-7-0.jsonl.reader upstream-1-7-0.jsonl.writer)
+            }
+
+            {
+                id upstream-1-7-0.baseline
+                title "Record v1.7.0 (4dd86c3c) as the port's C++ reference in the README, replacing the unnamed b6d5aed0 base, so the next upstream release is diffed from a stated commit"
+                kind @docs
+                deps (
+                    upstream-1-7-0.flush-reset
+                    upstream-1-7-0.mergecohorts-wblank
+                    upstream-1-7-0.remcohort-loop.pin
+                    upstream-1-7-0.jsonl.corpus
+                    upstream-1-7-0.jsonl.round-trip-leg
+                    upstream-1-7-0.help-text
+                )
+            }
+        )
+        log (
+            {
+                at 2026-11-05T21:06:59.409711Z
+                author "brendan@necessary.nu"
+                kind @note
+                text "Review of b6d5aed0..v1.7.0 (2026-11-05). Nine commits. CG3_REVISION and CG3_FEATURE_REV stay 13898, so .cg3b compatibility is unaffected. Two commits need no port work: b92eeef7 (the Substitute guard against an empty tag list) is already in the port at dispatch.rs, and 4dd86c3c only touches Fedora install docs. The rest are the children of this node. The npm package exposes \"jsonl\" as a Format, so the JSONL rewrite changes what @divvun/cg3 writes as well as the CLI."
+            }
+        )
+    }
 )
