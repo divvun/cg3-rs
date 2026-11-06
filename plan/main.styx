@@ -3834,4 +3834,26 @@ children (
             }
         )
     }
+
+    {
+        id js-test-full-gc
+        title "Make the JS test harness collect with a full GC on V8, so dropped-object tests stop depending on the object still being young"
+        kind @test
+        sealed true
+        log (
+            {
+                at 2026-11-06T14:55:44.001635Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+
+            {
+                at 2026-11-06T15:53:52.665378Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Doing → Done (nplan complete)"
+            }
+        )
+    }
 )

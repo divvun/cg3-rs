@@ -300,6 +300,7 @@ assertions (
     {id upstream-1-7-0.baseline, kind @complete, author "brendan@necessary.nu", at 2026-11-06T09:33:06.264161Z}
     {id upstream-1-7-0.remcohort-loop.splitcohort-pin, kind @complete, author "brendan@necessary.nu", at 2026-11-06T09:44:03.607265Z}
     {id release-0-5-0, kind @complete, author "brendan@necessary.nu", at 2026-11-06T09:57:33.533223Z}
+    {id js-test-full-gc, kind @complete, author "brendan@necessary.nu", at 2026-11-06T15:53:52.665378Z}
 )
 
 impl_evidence (

@@ -67,11 +67,14 @@ export async function readBytes(url: string): Promise<Uint8Array<ArrayBuffer>> {
  */
 export async function collectUntil(done: () => boolean): Promise<boolean> {
   const bun: unknown = Reflect.get(globalThis, "Bun");
-  const gc: unknown =
-    typeof bun === "object" && bun !== null ? Reflect.get(bun, "gc") : Reflect.get(globalThis, "gc");
+  const onBun = typeof bun === "object" && bun !== null;
+  const gc: unknown = onBun ? Reflect.get(bun, "gc") : Reflect.get(globalThis, "gc");
   if (typeof gc !== "function") throw new Error("no gc(): run node with --expose-gc");
+  // Bun.gc(true) is a synchronous full collection. V8's gc(true) is a minor
+  // one, which never frees an object that has reached the old generation.
+  const full = onBun ? [true] : [];
   for (let round = 0; round < 50 && !done(); round += 1) {
-    Reflect.apply(gc, bun, [true]);
+    Reflect.apply(gc, bun, full);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   return done();
