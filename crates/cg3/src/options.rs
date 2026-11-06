@@ -542,14 +542,9 @@ pub fn options() -> OptionsTable {
             "in-jsonl",
             '\0',
             HasArg::No,
-            "sets input format to JSONL (experimental)",
+            "sets input format to JSONL; see cg-conv --help for the format",
         ),
-        ArgOption::new(
-            "in-binary",
-            '\0',
-            HasArg::No,
-            "sets input format to binary (experimental)",
-        ),
+        ArgOption::new("in-binary", '\0', HasArg::No, "sets input format to binary"),
         ArgOption::new(
             "out-cg",
             '\0',
@@ -584,13 +579,13 @@ pub fn options() -> OptionsTable {
             "out-jsonl",
             '\0',
             HasArg::No,
-            "sets output format to JSONL (experimental)",
+            "sets output format to JSONL; see cg-conv --help for the format",
         ),
         ArgOption::new(
             "out-binary",
             '\0',
             HasArg::No,
-            "sets output format to binary (experimental)",
+            "sets output format to binary",
         ),
     ]
 }

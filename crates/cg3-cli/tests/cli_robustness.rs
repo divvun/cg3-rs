@@ -220,7 +220,7 @@ type ConvCase = (
 );
 
 // [spec:cg3:req:robustness.cli-arguments/test]
-// [spec:cg3:sem:cg-conv.main-fn+1/test]
+// [spec:cg3:sem:cg-conv.main-fn+2/test]
 // `-W` and `--dep-delimit` values that are not numbers the option can hold —
 // on the command line or from `CG3_CONV_DEFAULT` — are refused by name.
 #[test]
@@ -287,7 +287,7 @@ fn numeric_options_refuse_values_that_are_not_numbers() {
     assert!(out.status.success(), "a real number still goes through");
 }
 
-// [spec:cg3:sem:cg-conv.main-fn+1/test]
+// [spec:cg3:sem:cg-conv.main-fn+2/test]
 // The numbers those options do name still go through, bare `--dep-delimit`
 // included.
 #[test]

@@ -350,7 +350,7 @@ fn refuse(e: &CommandLineError) -> i32 {
 
 pub const CG3_TOO_OLD: u32 = 10373;
 pub const CG3_COPYRIGHT_STRING: &str =
-    "Copyright (C) 2007-2025 GrammarSoft ApS. Licensed under GPLv3+";
+    "Copyright (C) 2007-2026 GrammarSoft ApS. Licensed under GPLv3+";
 
 // --- Shared argv helper --------------------------------------------------------
 

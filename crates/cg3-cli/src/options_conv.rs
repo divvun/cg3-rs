@@ -100,14 +100,9 @@ pub fn options_conv() -> ConvOptionsTable {
             "in-jsonl",
             'j',
             HasArg::No,
-            "sets input format to JSONL (experimental, specs below)",
+            "sets input format to JSONL (specs below)",
         ),
-        ArgOption::new(
-            "in-binary",
-            'z',
-            HasArg::No,
-            "sets input format to binary (experimental)",
-        ),
+        ArgOption::new("in-binary", 'z', HasArg::No, "sets input format to binary"),
         ArgOption::new(
             "add-tags",
             '\0',
@@ -149,13 +144,13 @@ pub fn options_conv() -> ConvOptionsTable {
             "out-jsonl",
             'J',
             HasArg::No,
-            "sets output format to JSONL (experimental, specs below)",
+            "sets output format to JSONL (specs below)",
         ),
         ArgOption::new(
             "out-binary",
             'Z',
             HasArg::No,
-            "sets output format to binary (experimental)",
+            "sets output format to binary",
         ),
         ArgOption::new(
             "wfactor",

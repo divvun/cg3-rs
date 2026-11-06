@@ -3,7 +3,7 @@
 > [spec:cg3:def:cg-conv.main-fn]
 > int main(int argc, char* argv[])
 
-> [spec:cg3:sem:cg-conv.main-fn+1]
+> [spec:cg3:sem:cg-conv.main-fn+2]
 > Entry point for `cg-conv`, the stream format converter. It reads stdin,
 > converts between CG-family formats via a `FormatConverter` applicator, and
 > writes stdout. Uses the `options_conv` UOption array (enum in
@@ -19,11 +19,23 @@
 >   it into `options_conv[i]` unconditionally (override wins).
 > - Help/error: if `argc < 0` OR HELP1 (`--help`/`-h`) OR HELP2 (`--?`/`-?`):
 >   choose `out=stderr` if `argc<0` else `stdout`; print `"Usage: cg-conv
->   [OPTIONS]"`, the two env-var descriptions (`CG3_CONV_DEFAULT`,
->   `CG3_CONV_OVERRIDE`), then the aligned option list (same layout as the other
->   tools: skip options with empty description or whose description starts with
->   `'!'`; pad long names to the longest), then a fixed "Keys for JSONL format"
->   legend block. Return `argc<0 ? U_ILLEGAL_ARGUMENT_ERROR : U_ZERO_ERROR`.
+>   [OPTIONS]"`, then under `"Environment variable:"` the two env-var
+>   descriptions, `" CG3_CONV_DEFAULT: Sets default cmdline options, which the
+>   actual passed options will override."` and `" CG3_CONV_OVERRIDE: Sets forced
+>   cmdline options, which will override any passed option."`, then the aligned
+>   option list (same layout as the other tools: skip options with empty
+>   description or whose description starts with `'!'`; pad long names to the
+>   longest), then a fixed legend block headed `"Keys for JSONL format (one JSON
+>   object per line; full spec in the manual):"` and fenced by two 79-character
+>   `=` rules. The legend lays the JSONL keys out in columns titled `Cohort:`,
+>   `Reading:`, `Stream command:` and `Plain text:`: the cohort keys `w`
+>   (wordform, no `"<>"`), `wb` (word-bound blank), `sts` (static tags), `rs`
+>   (readings), `drs` (deleted readings), `ds` (dependency self), `dp`
+>   (dependency parent), `id` (cohort ID), `rels` (relations) and `z` (text
+>   after cohort); the reading keys `l` (baseform, no `""`), `ts` (tags, incl.
+>   mapping), `s` (sub-reading) and `tr` (rule trace); the command key `cmd`
+>   (`<STREAMCMD:...>`); and the text key `t` (one line of text). Return
+>   `argc<0 ? U_ILLEGAL_ARGUMENT_ERROR : U_ZERO_ERROR`.
 > - Aliases: if IN_CG2 (`-v`) occurred, force IN_CG on; if OUT_CG2 (`-V`)
 >   occurred, force OUT_CG on.
 > - `ucnv_setDefaultName("UTF-8")`; save `codepage_default = ucnv_getDefaultName()`

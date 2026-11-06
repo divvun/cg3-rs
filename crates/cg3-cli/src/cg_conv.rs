@@ -18,8 +18,8 @@ use cg3::arg_parser::parse_args;
 
 use super::{EXIT_FAILURE, EXIT_SUCCESS, emit_usage, fail, to_argv};
 
-// [spec:cg3:def:cg-conv.main-fn+1]
-// [spec:cg3:sem:cg-conv.main-fn+1]
+// [spec:cg3:def:cg-conv.main-fn+2]
+// [spec:cg3:sem:cg-conv.main-fn+2]
 /// C++ `int main(int argc, char* argv[])`.
 // faithful port: the C++ `for (i=0; i<NUM_OPTIONS_CONV; ++i)` scans cover the
 // whole table — its length IS the enum constant (`ConvOptionsTable`).
@@ -60,8 +60,8 @@ pub fn main_conv(args: &[String]) -> i32 {
         out.push_str("Usage: cg-conv [OPTIONS]\n");
         out.push('\n');
         out.push_str("Environment variable:\n");
-        out.push_str(" CG3_CONV_DEFAULT: Sets default cmdline options_conv, which the actual passed options_conv will override.\n");
-        out.push_str(" CG3_CONV_OVERRIDE: Sets forced cmdline options_conv, which will override any passed option.\n");
+        out.push_str(" CG3_CONV_DEFAULT: Sets default cmdline options, which the actual passed options will override.\n");
+        out.push_str(" CG3_CONV_OVERRIDE: Sets forced cmdline options, which will override any passed option.\n");
         out.push('\n');
         out.push_str("Options:\n");
 
@@ -91,20 +91,27 @@ pub fn main_conv(args: &[String]) -> i32 {
             }
         }
 
-        out.push_str("\n\nKeys for JSONL format:\n");
+        out.push_str(
+            "\n\nKeys for JSONL format (one JSON object per line; full spec in the manual):\n",
+        );
         out.push_str(
             "===============================================================================\n",
         );
-        out.push_str("Cohort:                     Reading:                   Stream Command:\n");
+        out.push_str("Cohort:                     Reading:                   Stream command:\n");
         out.push_str(
-            "    w  wordform/token          l  lemma/base form        cmd  stream command\n",
+            "    w  wordform, no \"<>\"        l  baseform, no \"\"       cmd  <STREAMCMD:...>\n",
         );
-        out.push_str("  sts  static tags            ts  tags\n");
-        out.push_str("   rs  readings                s  subreading\n");
-        out.push_str("  drs  deleted readings                                Plain text:\n");
-        out.push_str("   ds  dependency self                                     t  text line\n");
+        out.push_str("   wb  word-bound blank        ts  tags, incl. mapping\n");
+        out.push_str("  sts  static tags              s  sub-reading         Plain text:\n");
+        out.push_str(
+            "   rs  readings                tr  rule trace              t  one line of text\n",
+        );
+        out.push_str("  drs  deleted readings\n");
+        out.push_str("   ds  dependency self\n");
         out.push_str("   dp  dependency parent\n");
-        out.push_str("    z  text line(s) suffix\n");
+        out.push_str("   id  cohort ID\n");
+        out.push_str(" rels  relations\n");
+        out.push_str("    z  text after cohort\n");
         out.push_str(
             "===============================================================================\n",
         );

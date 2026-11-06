@@ -804,4 +804,13 @@ impl_evidence (
         {id wasm.library-builds, version 0}
         {id wasm.width-independent, version 0}
     )}
+    {id upstream-1-7-0.help-text, covered_rules (
+        cg-conv.main-fn
+        options-conv.options-conv.options
+        options.options.options
+    ), covered_claims (
+        {impl_name target-impl, rule cg-conv.main-fn}
+        {impl_name target-impl, rule options-conv.options-conv.options}
+        {impl_name target-impl, rule options.options.options}
+    )}
 )

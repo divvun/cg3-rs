@@ -74,7 +74,7 @@ fn assert_divvun_version(binary_name: &str, binary: &str, product: &str, args: &
     let want = format!(
         "{}\n\
 Copyright (C) 2026 UiT The Arctic University of Norway\n\
-Copyright (C) 2007-2025 GrammarSoft ApS. Licensed under GPLv3+\n\
+Copyright (C) 2007-2026 GrammarSoft ApS. Licensed under GPLv3+\n\
 Source: {}\n",
         divvun_version_line(product),
         env!("CARGO_PKG_REPOSITORY")
@@ -176,6 +176,39 @@ fn vislcg3_help_uses_build_provenance() {
             .unwrap()
             .starts_with(&format!("{}\n", divvun_version_line("Disambiguator")))
     );
+}
+
+// [spec:cg3:sem:main.main-fn+3/test]
+// The stream-format options close the option list, worded as v1.7.0 words them;
+// `--out-matxin` is absent because the port does not offer it.
+#[test]
+fn vislcg3_help_describes_stream_formats() {
+    let out = Command::new(env!("CARGO_BIN_EXE_vislcg3"))
+        .arg("--help")
+        .output()
+        .expect("spawn vislcg3");
+    assert!(
+        out.status.success(),
+        "vislcg3 --help exited with {}",
+        out.status
+    );
+    let help = String::from_utf8(out.stdout).unwrap();
+    let formats = r#"     --in-cg                sets input format to CG (default)
+     --in-niceline          sets input format to Niceline CG
+     --in-apertium          sets input format to Apertium
+     --in-fst               sets input format to HFST/XFST
+     --in-plain             sets input format to plain text
+     --in-jsonl             sets input format to JSONL; see cg-conv --help for the format
+     --in-binary            sets input format to binary
+     --out-cg               sets output format to CG (default)
+     --out-apertium         sets output format to Apertium
+     --out-fst              sets output format to HFST/XFST
+     --out-niceline         sets output format to Niceline CG
+     --out-plain            sets output format to plain text
+     --out-jsonl            sets output format to JSONL; see cg-conv --help for the format
+     --out-binary           sets output format to binary
+"#;
+    assert!(help.ends_with(formats), "{help}");
 }
 
 // [spec:cg3:sem:main.main-fn+3/test]
@@ -564,7 +597,7 @@ fn cg_comp_end_program_usage() {
     );
 }
 
-// [spec:cg3:sem:cg-conv.main-fn+1/test]
+// [spec:cg3:sem:cg-conv.main-fn+2/test]
 // cg-conv main: option-table parsing (--in-niceline), FormatConverter setup, and
 // the stdin->stdout conversion run. Niceline input is CONVERTED to the default
 // CG output: the C++ niceline driver's virtual print dispatch lands on the
@@ -610,6 +643,77 @@ fn cg_conv(args: &[&str], input: &str) -> std::process::Output {
         .write_all(input.as_bytes())
         .unwrap();
     child.wait_with_output().expect("wait cg-conv")
+}
+
+// v1.7.0's `cg-conv --help`, byte for byte, but for the `-M, --out-matxin` line
+// the port does not offer.
+const CG_CONV_HELP: &str = r#"Usage: cg-conv [OPTIONS]
+
+Environment variable:
+ CG3_CONV_DEFAULT: Sets default cmdline options, which the actual passed options will override.
+ CG3_CONV_OVERRIDE: Sets forced cmdline options, which will override any passed option.
+
+Options:
+ -h, --help          shows this help
+ -?, --?             shows this help
+ -p, --prefix        sets the mapping prefix; defaults to @
+ -u, --in-auto       auto-detect input format (default)
+ -c, --in-cg         sets input format to CG
+ -n, --in-niceline   sets input format to Niceline CG
+ -a, --in-apertium   sets input format to Apertium
+ -f, --in-fst        sets input format to HFST/XFST
+ -x, --in-plain      sets input format to plain text
+ -j, --in-jsonl      sets input format to JSONL (specs below)
+ -z, --in-binary     sets input format to binary
+     --add-tags      adds minimal analysis to readings (implies -x)
+ -C, --out-cg        sets output format to CG (default)
+ -A, --out-apertium  sets output format to Apertium
+ -F, --out-fst       sets output format to HFST/XFST
+ -N, --out-niceline  sets output format to Niceline CG
+ -X, --out-plain     sets output format to plain text
+ -J, --out-jsonl     sets output format to JSONL (specs below)
+ -Z, --out-binary    sets output format to binary
+ -W, --wfactor       FST weight factor (defaults to 1.0)
+     --wtag          FST weight tag prefix (defaults to W)
+ -S, --sub-delim     FST sub-reading delimiters (defaults to #)
+ -r, --rtl           sets sub-reading direction to RTL (default)
+ -l, --ltr           sets sub-reading direction to LTR
+ -o, --ordered       tag order matters mode
+ -D, --parse-dep     parse dependency (defaults to treating as normal tags)
+     --dep-delimit   delimit windows based on dependency; defaults to 10
+     --unicode-tags  outputs Unicode code points for things like ->
+     --deleted       read deleted readings as such, instead of as text
+ -B, --no-break      inhibits any extra whitespace in output
+
+
+Keys for JSONL format (one JSON object per line; full spec in the manual):
+===============================================================================
+Cohort:                     Reading:                   Stream command:
+    w  wordform, no "<>"        l  baseform, no ""       cmd  <STREAMCMD:...>
+   wb  word-bound blank        ts  tags, incl. mapping
+  sts  static tags              s  sub-reading         Plain text:
+   rs  readings                tr  rule trace              t  one line of text
+  drs  deleted readings
+   ds  dependency self
+   dp  dependency parent
+   id  cohort ID
+ rels  relations
+    z  text after cohort
+===============================================================================
+"#;
+
+// [spec:cg3:sem:cg-conv.main-fn+2/test]
+#[test]
+fn cg_conv_help_and_usage_error_text() {
+    let help = cg_conv(&["--help"], "");
+    assert_eq!(help.status.code(), Some(0), "cg-conv --help");
+    assert!(help.stderr.is_empty(), "cg-conv --help wrote to stderr");
+    assert_eq!(String::from_utf8(help.stdout).unwrap(), CG_CONV_HELP);
+
+    let refused = cg_conv(&["--no-such-option"], "");
+    assert_eq!(refused.status.code(), Some(1), "cg-conv --no-such-option");
+    assert!(refused.stdout.is_empty(), "usage error wrote to stdout");
+    assert_eq!(String::from_utf8(refused.stderr).unwrap(), CG_CONV_HELP);
 }
 
 // cg-conv sets `ordered`, `sub_readings_ltr` and `mapping_prefix` on its conv
