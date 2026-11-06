@@ -338,81 +338,190 @@ fn binary_stream_roundtrip() {
 }
 
 // ===========================================================================
-// JsonlApplicator — driven end-to-end by the real cg-conv `--in-jsonl` path
-// (FormatConverter dispatches to JsonlApplicator::runGrammarOnText, whose
-// printing side is JSONL as well): the input exercises a stream command
-// ({"cmd"} → parse then printStreamCommand), a standalone leading text line
-// ({"t"} → printPlainTextLine, since no window exists yet to attach it to),
-// and a cohort with subreadings + static tags + trailing text (parseJsonCohort
-// → parseJsonReading → json_to_string on every string; printing goes
-// printSingleWindow → printCohort → buildJsonReading → buildJsonTags).
-// Assertions pin the exact JSONL lines coming back.
+// JsonlApplicator — driven end-to-end by the real cg-conv and vislcg3
+// `--in-jsonl` paths, which reach JsonlApplicator::runGrammarOnText through
+// FormatConverter. The output is CG, so these pin what the reader builds.
+
+/// Run `bin` with `args` from the repo root over `input`, returning its
+/// stdout and stderr; the tool must succeed.
+fn run_capturing(bin: &str, args: &[&str], input: &str) -> (String, String) {
+    let mut child = Command::new(bin)
+        .args(args)
+        .current_dir(repo_root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn tool");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .expect("write stdin");
+    let out = child.wait_with_output().expect("wait tool");
+    assert!(
+        out.status.success(),
+        "{bin} {args:?} exited with {}",
+        out.status
+    );
+    (
+        String::from_utf8(out.stdout).unwrap(),
+        String::from_utf8(out.stderr).unwrap(),
+    )
+}
+
+// Text before any window is written at once; text after a cohort is the
+// cohort's; a reading's several mapping tags split it into readings, while a
+// sub-reading keeps only its first, with a warning; a deleted reading is read
+// with --deleted; a repeated member is read at its first occurrence.
 // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.jsonl-applicator-fn/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.json-to-ustring-fn/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+1/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+1/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+2/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+2/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn/test]
 #[test]
-fn jsonl_conv_roundtrip() {
-    let root = repo_root();
+fn jsonl_input_converts_to_cg() {
     let input = concat!(
         "{\"t\":\"hello world\"}\n",
         "{\"cmd\":\"<STREAMCMD:FLUSH>\"}\n",
-        "{\"w\":\"word\",\"rs\":[{\"l\":\"word\",\"ts\":[\"notwanted\",\"@1\"]},",
-        "{\"l\":\"word\",\"ts\":[\"wanted\"],\"s\":{\"l\":\"sub\",\"ts\":[\"x\"]}}],",
-        "\"z\":\"tail text\"}\n",
+        "{\"w\":\"word\",\"w\":\"other\",\"sts\":[\"<st>\"],",
+        "\"rs\":[{\"l\":\"word\",\"ts\":[\"notwanted\",\"@1\",\"@2\"]},",
+        "{\"l\":\"word\",\"ts\":[\"wanted\"],\"s\":{\"l\":\"sub\",\"ts\":[\"x\",\"@3\",\"@4\"]}}],",
+        "\"z\":\"tail text\",\"drs\":[{\"l\":\"gone\",\"ts\":[\"Y\"]}]}\n",
+        "{\"t\":\"more text\"}\n",
     );
-    let out = run_with_stdin(
+    let cohort = concat!(
+        "\"<word>\" <st>\n",
+        "\t\"word\" notwanted @1 @2\n",
+        "\t\"word\" wanted\n",
+        "\t\t\"sub\" x @3\n",
+    );
+    let (out, err) = run_capturing(
         env!("CARGO_BIN_EXE_cg-conv"),
-        &["--in-jsonl", "--out-jsonl"],
-        &root,
-        input.as_bytes(),
+        &["--in-jsonl", "--out-cg", "--deleted"],
+        input,
     );
-    let text = String::from_utf8(out).unwrap();
-    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        out,
+        format!("hello world\n<STREAMCMD:FLUSH>\n{cohort};\t\"gone\" Y\ntail text\nmore text\n")
+    );
+    assert!(
+        err.contains(
+            "Warning: Mapping tag @4 on line 3 will be discarded, as this reading can only have one."
+        ),
+        "{err}"
+    );
 
-    // Leading text line, before any window exists → printPlainTextLine.
-    assert!(
-        lines.contains(&"{\"t\":\"hello world\"}"),
-        "standalone text line lost:\n{text}"
+    let (out, _) = run_capturing(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &["--in-jsonl", "--out-cg"],
+        input,
     );
-    // Stream command echoed via printStreamCommand.
-    assert!(
-        lines.contains(&"{\"cmd\":\"<STREAMCMD:FLUSH>\"}"),
-        "stream command lost:\n{text}"
+    assert_eq!(
+        out,
+        format!("hello world\n<STREAMCMD:FLUSH>\n{cohort}tail text\nmore text\n")
     );
-    // The cohort came back with wordform, both readings, the subreading, and
-    // the z-suffix text.
-    let cohort_line = lines
-        .iter()
-        .find(|l| l.contains("\"w\":\"word\""))
-        .unwrap_or_else(|| panic!("cohort line lost:\n{text}"));
-    assert!(
-        cohort_line.contains("\"l\":\"word\""),
-        "lemma lost: {cohort_line}"
+}
+
+// A line that is not a JSON object, or not one the reader can use, is skipped
+// with a warning: a parse error gives RapidJSON's message and the byte offset
+// it stops at. Values of the wrong type are ignored where they stand.
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+2/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+2/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn/test]
+#[test]
+fn jsonl_bad_lines_are_skipped_with_warnings() {
+    let input = concat!(
+        "{\"w\":\"ok\",\"rs\":[{\"l\":\"ok\",\"ts\":[\"A\"]}]}\n",
+        "\n",
+        "{\"w\":\"broken\",\n",
+        "[\"not\",\"an\",\"object\"]\n",
+        "{\"w\":\"a\" \"b\"}\n",
+        "{\"w\":\"\\q\"}\n",
+        "{\"w\":1e999}\n",
+        "{\"neither\":\"w nor t\"}\n",
+        "{\"w\":42}\n",
+        "{\"w\":\"deps\",\"ds\":\"one\",\"dp\":2,\"rs\":[{\"ts\":[1,\"B\"],\"s\":5}]}\n",
+        "{\"t\":7}\n",
+    );
+    let (out, err) = run_capturing(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &["--in-jsonl", "--out-cg"],
+        input,
+    );
+    assert_eq!(out, "\"<ok>\"\n\t\"ok\" A\n\"<deps>\"\n\t\"<deps>\" B\n");
+    for warning in [
+        "Warning: Failed to parse JSON on line 3: Missing a name for object member. (offset 14). Skipping line.",
+        "Warning: JSON on line 4 is not an object. Skipping line.",
+        "Warning: Failed to parse JSON on line 5: Missing a comma or '}' after an object member. (offset 9). Skipping line.",
+        "Warning: Failed to parse JSON on line 6: Invalid escape character in string. (offset 6). Skipping line.",
+        "Warning: Failed to parse JSON on line 7: Number too big to be stored in double. (offset 5). Skipping line.",
+        "Warning: JSON object on line 8 has none of 'w', 't' or 'cmd'. Skipping line.",
+        "Warning: 'w' on line 9 is not a string - ignored.",
+        "Warning: Cohort on line 9 has an empty or invalid 'w' (wordform). Skipping line.",
+        "Warning: Reading missing 'l' (baseform) on line 10.",
+        "Warning: Non-string found in 'ts' (tags) array on line 10 - skipping.",
+        "Warning: Value for 's' (sub-reading) is not an object on line 10 - skipping.",
+        "Warning: Reading on line 10 ended up with no baseform. Using wordform.",
+        "Warning: 'ds' (dependency self) on line 10 is not a positive integer - ignored.",
+        "Warning: 't' on line 11 is not a string - ignored.",
+    ] {
+        assert!(err.contains(warning), "{warning}\n{err}");
+    }
+    assert!(!err.contains("line 2"), "{err}");
+}
+
+// SETVAR and REMVAR set or remove each variable they name, an empty SETVAR
+// name being `*`; IGNORE passes cohort lines through as text until RESUME;
+// an unknown command is text.
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+2/test]
+#[test]
+fn jsonl_commands_set_variables_and_ignore_input() {
+    let input = concat!(
+        "{\"cmd\":\"<STREAMCMD:SETVAR:a=1,b,=v>\"}\n",
+        "{\"cmd\":\"<STREAMCMD:REMVAR:b,>\"}\n",
+        "{\"w\":\"x\",\"rs\":[{\"l\":\"x\",\"ts\":[\"N\"]},{\"l\":\"x\",\"ts\":[\"V\"]}]}\n",
+        "{\"cmd\":\"<STREAMCMD:IGNORE>\"}\n",
+        "{\"w\":\"skipped\",\"rs\":[{\"l\":\"y\",\"ts\":[\"N\"]}]}\n",
+        "{\"cmd\":\"<STREAMCMD:RESUME>\"}\n",
+        "{\"cmd\":\"<STREAMCMD:NOPE>\"}\n",
+        "{\"w\":\"z\",\"rs\":[{\"l\":\"z\",\"ts\":[\"N\"]},{\"l\":\"z\",\"ts\":[\"V\"]}]}\n",
+    );
+    let (out, err) = run_capturing(
+        env!("CARGO_BIN_EXE_vislcg3"),
+        &["-g", "test/T_Select/grammar.cg3", "--in-jsonl"],
+        input,
+    );
+    assert_eq!(
+        out,
+        concat!(
+            "<STREAMCMD:IGNORE>\n",
+            "<STREAMCMD:RESUME>\n",
+            "<STREAMCMD:SETVAR:*=v>\n",
+            "<STREAMCMD:SETVAR:a=1>\n",
+            "<STREAMCMD:REMVAR:b>\n",
+            "\"<x>\"\n\t\"x\" N\n\t\"x\" V\n",
+            "{\"w\":\"skipped\",\"rs\":[{\"l\":\"y\",\"ts\":[\"N\"]}]}\n",
+            "<STREAMCMD:NOPE>\n",
+            "\"<z>\"\n\t\"z\" N\n\t\"z\" V\n",
+        )
     );
     assert!(
-        cohort_line.contains("\"notwanted\""),
-        "tags lost: {cohort_line}"
+        err.contains(
+            "Warning: SETVAR on line 1 had an empty identifier! Defaulting to identifier *."
+        ),
+        "{err}"
     );
-    assert!(
-        cohort_line.contains("\"s\":"),
-        "subreading lost: {cohort_line}"
+
+    let (out, _) = run_capturing(
+        env!("CARGO_BIN_EXE_vislcg3"),
+        &["-g", "test/T_Select/grammar.cg3", "--in-jsonl"],
+        "{\"w\":\"x\"}\n{\"cmd\":\"<STREAMCMD:EXIT>\"}\n{\"w\":\"y\"}\n",
     );
-    assert!(
-        cohort_line.contains("\"l\":\"sub\""),
-        "subreading lemma lost: {cohort_line}"
-    );
-    assert!(
-        cohort_line.contains("\"z\":\"tail text\""),
-        "z suffix lost: {cohort_line}"
-    );
+    assert_eq!(out, "<STREAMCMD:EXIT>\n");
 }
 
 // ===========================================================================

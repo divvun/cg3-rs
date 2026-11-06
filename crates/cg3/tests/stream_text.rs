@@ -205,13 +205,14 @@ fn empty_stream_tags_are_errors_not_interned() {
     assert_eq!(e.to_string(), "<stdin>: empty tag on line 1");
 }
 
-// A variable command with an empty name sets or removes nothing, in each
-// format that carries one; an empty JSONL value beside `=` is `*`, as the CG
-// reader reads the same command.
+// A variable command with an empty name sets or removes nothing in the CG
+// and Apertium readers. In JSONL an empty REMVAR name is skipped and an empty
+// SETVAR value is `*`, as the CG reader reads one; neither interns an empty
+// tag.
 // [spec:cg3:req:robustness.empty-tag/test]
 // [spec:cg3:sem:grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn+2/test]
 // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.parse-stream-var-fn+1/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+2/test]
 #[test]
 fn empty_variable_names_are_skipped() {
     let cohort = "\"<a>\"\n\t\"a\" N\n";
@@ -239,13 +240,10 @@ fn empty_variable_names_are_skipped() {
     .unwrap();
     assert!(out.contains("\"<a>\""), "{out}");
 
-    // The key defaults to the grammar's `*`, which `cg-conv`'s grammar spells
-    // differently; what matters is that it is not empty.
     for (cmd, want) in [
-        ("<STREAMCMD:SETVAR:>", None),
         ("<STREAMCMD:REMVAR:>", None),
+        ("<STREAMCMD:REMVAR:,>", None),
         ("<STREAMCMD:SETVAR:x=>", Some("<STREAMCMD:SETVAR:x>")),
-        ("<STREAMCMD:SETVAR:=v>", Some("=v>")),
     ] {
         let input = format!("{{\"cmd\":\"{cmd}\"}}\n{{\"w\":\"a\"}}\n");
         let out = convert(StreamFormatKind::Jsonl, input.as_bytes()).unwrap();

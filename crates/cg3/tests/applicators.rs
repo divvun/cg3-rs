@@ -171,9 +171,9 @@ fn fst_applicator_in_process() {
     );
 }
 
-/// Convert one JSONL cohort carrying `deps` (its `"ds"`/`"dp"` members) with
-/// dependencies parsed, as `cg-conv --in-jsonl -D` does.
-fn convert_jsonl_deps(deps: &str) -> Result<String, cg3::error::Cg3Error> {
+/// Convert JSONL `input` to CG with dependencies parsed, as `cg-conv
+/// --in-jsonl -D` does.
+fn convert_jsonl(input: String) -> Result<String, cg3::error::Cg3Error> {
     use cg3::grammar_applicator::StreamFormatKind;
 
     let base = cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
@@ -181,20 +181,25 @@ fn convert_jsonl_deps(deps: &str) -> Result<String, cg3::error::Cg3Error> {
     fc.base_mut().cfg.fmt_input = StreamFormatKind::Jsonl;
     fc.base_mut().cfg.parse_dep = true;
     fc.base_mut().doc.deps.has_dep = true;
-    let input = format!(
-        "{{\"w\":\"a\",\"rs\":[{{\"l\":\"a\",\"ts\":[\"N\"]}}],{deps}}}\n\
-         {{\"w\":\"b\",\"rs\":[{{\"l\":\"b\",\"ts\":[\"V\"]}}],\"ds\":2,\"dp\":1}}\n"
-    );
     let mut out: Vec<u8> = Vec::new();
     fc.run_grammar_on_text(&mut std::io::Cursor::new(input.into_bytes()), &mut out)?;
     Ok(String::from_utf8(out).expect("UTF-8 output"))
+}
+
+/// Convert one JSONL cohort carrying `deps` (its `"ds"`/`"dp"` members) with
+/// dependencies parsed, as `cg-conv --in-jsonl -D` does.
+fn convert_jsonl_deps(deps: &str) -> Result<String, cg3::error::Cg3Error> {
+    convert_jsonl(format!(
+        "{{\"w\":\"a\",\"rs\":[{{\"l\":\"a\",\"ts\":[\"N\"]}}],{deps}}}\n\
+         {{\"w\":\"b\",\"rs\":[{{\"l\":\"b\",\"ts\":[\"V\"]}}],\"ds\":2,\"dp\":1}}\n"
+    ))
 }
 
 // A JSONL `"ds"` or `"dp"` equal to a dependency-map sentinel is refused as it
 // is read, naming the member; it used to reach the map and trip its sentinel
 // assert. A `"dp"` of u32::MAX is DEP_NO_PARENT and converts.
 // [spec:cg3:req:robustness.reserved-keys/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+2/test]
 #[test]
 fn jsonl_reserved_dependency_numbers_are_refused() {
     use cg3::error::{Cg3Error, NumberRole, RunError};
@@ -232,6 +237,62 @@ fn jsonl_reserved_dependency_numbers_are_refused() {
     }
     let out = convert_jsonl_deps("\"ds\":1,\"dp\":4294967295").expect("no parent converts");
     assert!(out.contains("\"a\" N #1->1"), "{out}");
+}
+
+// A JSONL `"id"` the relation map would reserve is refused as it is read,
+// naming the member, and so is a relation target, which is looked up in the
+// map as it is: `u32::MAX` has no "no parent" meaning there. A relation with
+// an empty name is refused as an empty tag on its line.
+// [spec:cg3:req:robustness.reserved-keys/test]
+// [spec:cg3:req:robustness.empty-tag/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+2/test]
+#[test]
+fn jsonl_reserved_relation_numbers_are_refused() {
+    use cg3::error::{Cg3Error, NumberRole, RunError};
+
+    let cohort = |members: &str| {
+        format!("{{\"w\":\"b\"}}\n{{\"w\":\"a\",\"rs\":[{{\"l\":\"a\"}}],{members}}}\n")
+    };
+    let cases = [
+        ("\"id\":4294967295", "id", NumberRole::RelationId, u32::MAX),
+        (
+            "\"id\":4294967294",
+            "id",
+            NumberRole::RelationId,
+            u32::MAX - 1,
+        ),
+        (
+            "\"rels\":{\"subj\":[1,4294967295]}",
+            "subj",
+            NumberRole::RelationTarget,
+            u32::MAX,
+        ),
+        (
+            "\"rels\":{\"obj\":[4294967294]}",
+            "obj",
+            NumberRole::RelationTarget,
+            u32::MAX - 1,
+        ),
+    ];
+    for (members, member, role, value) in cases {
+        match convert_jsonl(cohort(members)) {
+            Err(Cg3Error::Run(RunError::ReservedNumber { line, source, .. })) => {
+                assert_eq!(
+                    (line, &*source.text, source.role, source.value),
+                    (2, member, role, value)
+                );
+            }
+            other => panic!("{members}: expected a reserved-number refusal, got {other:?}"),
+        }
+    }
+
+    match convert_jsonl(cohort("\"rels\":{\"\":[1]}")) {
+        Err(Cg3Error::Run(RunError::EmptyTag { line, .. })) => assert_eq!(line, 2),
+        other => panic!("expected an empty-tag refusal, got {other:?}"),
+    }
+
+    let out = convert_jsonl(cohort("\"id\":7,\"rels\":{\"subj\":[7]}")).expect("converts");
+    assert!(out.contains("R:subj:"), "{out}");
 }
 
 // FormatConverter's four print dispatchers — supplement the end-to-end tool

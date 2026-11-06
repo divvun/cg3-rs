@@ -12,31 +12,32 @@
 //! format-specific behaviour is dispatched by the caller ([`FormatConverter`])
 //! rather than by a vtable.
 //!
-//! ## RapidJSON → serde_json
-//! The C++ builds/parses JSON with RapidJSON; this port uses [`serde_json`]. The
-//! emitted object SHAPE is reproduced key-for-key and in insertion order
-//! (RapidJSON emits members in insertion order; serde_json's
-//! [`Map`](serde_json::Map) with the crate's default is order-preserving because
-//! this crate does not enable the `preserve_order` feature — actually serde_json
-//! sorts by BTreeMap when `preserve_order` is off; see the DIVERGENCE note on
-//! [`JsonlApplicator::print_cohort`]).
-//!
-//! ## NUL DIVERGENCE (faithful-with-a-flag)
-//! RapidJSON `json::Value(cstr, allocator)` builds each string from a C string,
-//! so a tag/text containing an embedded NUL (`\0`) is TRUNCATED at the NUL. This
-//! port stores full Rust `String`s into `serde_json::Value::String`, which keep
-//! everything after the NUL. Every such call site is flagged `DIVERGENCE(NUL)`.
+//! ## JSON
+//! The C++ reads and writes JSON with RapidJSON. A line is read by
+//! [`json::parse`], which reads it as RapidJSON does, so that a bad line's
+//! warning gives RapidJSON's message and offset, and an object keeps a repeated
+//! member name as RapidJSON's does. The writer builds [`serde_json`] values.
+
+mod json;
 
 use std::io::{BufRead, Read, Seek, Write};
+use std::ops::ControlFlow;
 
 use serde_json::{Map, Value, json};
 
 use crate::arena::{CohortId, ReadingId, SwId, TagId};
+use crate::error::{NumberRole, ReservedNumber, RunError};
+use crate::flat_unordered_map::Uint32FlatHashMap;
+use crate::flat_unordered_set::Uint32FlatHashSet;
 use crate::grammar::Grammar;
+use crate::grammar_applicator::stream_format::StreamFormat;
 use crate::grammar_applicator::{Engine, GrammarApplicator};
 use crate::sorted_vector::Uint32SortedVector;
-use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList};
-use crate::types::TagHash;
+use crate::strings::{
+    STR_CMD_EXIT, STR_CMD_FLUSH, STR_CMD_IGNORE, STR_CMD_REMVAR, STR_CMD_RESUME, STR_CMD_SETVAR,
+};
+use crate::tag::{T_DEPENDENCY, T_MAPPING, T_RELATION, TagList, TagType};
+use crate::types::{GlobalNumber, TagHash};
 
 /// C++ `grammar->single_tags[hash]` (operator[]) — resolve a hash to its
 /// `TagId`. operator[] would default-insert a null `Tag*` on a miss (deref
@@ -52,39 +53,49 @@ fn tag_by_hash(grammar: &Grammar, hash: TagHash) -> TagId {
     }
 }
 
-// C++ stream-command string constants (`Strings.hpp`). Only SETVAR/REMVAR/FLUSH
-// are defined in `grammar_applicator::core` (privately); JsonlApplicator also
-// needs IGNORE/RESUME/EXIT, so the full set is declared here verbatim from the
-// C++ `Strings.cpp` `STR_CMD_*` table.
-const STR_CMD_FLUSH: &str = "<STREAMCMD:FLUSH>";
-const STR_CMD_EXIT: &str = "<STREAMCMD:EXIT>";
-const STR_CMD_IGNORE: &str = "<STREAMCMD:IGNORE>";
-const STR_CMD_RESUME: &str = "<STREAMCMD:RESUME>";
-const STR_CMD_SETVAR: &str = "<STREAMCMD:SETVAR:";
-const STR_CMD_REMVAR: &str = "<STREAMCMD:REMVAR:";
-
 const CT_REMOVED: crate::cohort::CohortType = crate::cohort::CT_REMOVED;
 
-// [spec:cg3:def:jsonl-applicator.cg3.json-to-ustring-fn]
-// [spec:cg3:sem:jsonl-applicator.cg3.json-to-ustring-fn]
-/// C++ free fn `json_to_ustring`. If `val` is a
-/// JSON string, decode its UTF-8 bytes to the internal (UTF-8) representation;
-/// for any non-string value (null / number / bool / array / object / missing),
-/// return an empty string.
-pub fn json_to_string(val: &Value) -> String {
-    match val {
-        Value::String(s) => s.clone(),
-        _ => String::new(),
+// [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn]
+/// C++ `bool getJsonString(const json::Value& obj, const char* key, UString&
+/// out)`: the string member `key` of `obj`, read on input line `line`. `None`
+/// when there is no such member, and with a warning when it is not a string.
+fn get_json_string<'d>(obj: json::Value<'d>, key: &str, line: u32) -> Option<&'d str> {
+    let value = obj.member(key)?;
+    let s = value.as_str();
+    if s.is_none() {
+        tracing::warn!("Warning: '{key}' on line {line} is not a string - ignored.");
     }
+    s
 }
 
 // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator]
 /// C++ `class JsonlApplicator : public virtual GrammarApplicator` — modelled as
-/// composition over [`GrammarApplicator`] (wave 4: the shared base is BORROWED,
-/// matching the C++ shared virtual-base subobject). No JSONL-specific data
-/// members (the C++ subclass adds none), so `base` is the only field.
+/// composition over [`GrammarApplicator`], whose shared base is borrowed as the
+/// C++ shares its virtual-base subobject. No JSONL-specific data members (the
+/// C++ subclass adds none), so `base` is the only field.
 pub struct JsonlApplicator<'a> {
     pub base: &'a mut GrammarApplicator,
+}
+
+/// `runGrammarOnText`'s local state, which the helpers the C++ writes as
+/// lambdas share with its loop.
+struct ReadState {
+    /// The number of the line being read, or of the last one at the end.
+    line: u32,
+    reset_after: u32,
+    ignoreinput: bool,
+    did_soft_lookback: bool,
+    /// C++ `cSWindow`: the window being filled, `None` once it is delimited.
+    c_swindow: Option<SwId>,
+    /// C++ `lSWindow` and `lCohort`: the last window and cohort, which take
+    /// the text that follows them.
+    l_swindow: Option<SwId>,
+    l_cohort: Option<CohortId>,
+    /// Variables set or removed since the last window was made.
+    variables_set: Uint32FlatHashMap,
+    variables_rem: Uint32FlatHashSet,
+    variables_output: Uint32SortedVector,
 }
 
 impl<'a> JsonlApplicator<'a> {
@@ -100,220 +111,214 @@ impl<'a> JsonlApplicator<'a> {
     }
 
     // =======================================================================
-    // parseJsonReading / parseJsonCohort — deserialisation
+    // parseJsonCohort / parseJsonReading — reading one cohort object
     // =======================================================================
 
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn]
-    /// C++ `Reading* parseJsonReading(const json::Value& reading_obj, Cohort*
-    /// parentCohort)`. Parses one reading object `{"l", "ts", "s"}`, recursing on
-    /// subreadings; returns the new `ReadingId` or `None` on a non-object input.
-    /// `wordform` is `parent_cohort`'s, which [`Self::parse_json_cohort`] gave it.
-    fn parse_json_reading(
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn]
+    /// C++ `void addSingleMapping(Reading& reading, TagList& mappings)`: give
+    /// `reading`, which cannot be split, the first of `mappings`, warning for
+    /// each of the others, and clear `mappings`.
+    fn add_single_mapping(
         &mut self,
-        reading_obj: &Value,
-        parent_cohort: CohortId,
-        wordform: TagId,
-    ) -> Result<Option<ReadingId>, crate::error::RunError> {
-        let obj = match reading_obj {
-            Value::Object(m) => m,
-            _ => {
-                tracing::error!(
-                    "Error: Expected reading object, but got different type on line {}.",
-                    self.base.doc.num_lines
-                );
-                return Ok(None);
-            }
+        reading: ReadingId,
+        mappings: &mut TagList,
+        line: u32,
+    ) -> Result<(), RunError> {
+        let Some(&first) = mappings.first() else {
+            return Ok(());
         };
-
-        let c_reading =
-            crate::reading::alloc_reading(&mut self.base.doc.store, Some(parent_cohort));
-        // addTagToReading(*cReading, parentCohort->wordform); [Tag* overload]
-        self.base.engine().add_tag_to_reading(c_reading, wordform)?;
-
-        // Baseform ("l").
-        if let Some(l_val) = obj.get("l") {
-            let base_str = json_to_string(l_val);
-            if !base_str.is_empty() {
-                let mut base_tag = String::new();
-                base_tag.push('"');
-                base_tag.push_str(&base_str);
-                base_tag.push('"');
-                let tid = self.base.add_tag(&base_tag, crate::tag::TagType::empty())?;
-                self.base.engine().add_tag_to_reading(c_reading, tid)?;
-            } else {
-                tracing::warn!(
-                    "Warning: Empty 'l' (baseform) in reading on line {}.",
-                    self.base.doc.num_lines
-                );
-            }
-        } else {
+        for &tag in &mappings[1..] {
             tracing::warn!(
-                "Warning: Reading missing 'l' (baseform) on line {}.",
-                self.base.doc.num_lines
+                "Warning: Mapping tag {} on line {line} will be discarded, as this reading can only have one.",
+                self.base.grammar.single_tags_list[tag.0].tag
             );
         }
+        self.base.engine().add_tag_to_reading(reading, first)?;
+        mappings.clear();
+        Ok(())
+    }
 
-        // Tags ("ts").
-        if let Some(Value::Array(tags_arr)) = obj.get("ts") {
-            let mut mappings: TagList = TagList::new();
-            let mapping_prefix = self.base.grammar.mapping_prefix;
-            for tag_val in tags_arr {
-                let tag_str = json_to_string(tag_val);
-                if !tag_str.is_empty() {
-                    let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty())?;
-                    let ttype = self.base.grammar.tag_type(tag);
-                    let first_char = tag_str.chars().next().unwrap_or('\0');
-                    if ttype.intersects(T_MAPPING)
-                        || (!tag_str.is_empty() && first_char == mapping_prefix)
-                    {
-                        mappings.push(tag);
-                    } else {
-                        self.base.engine().add_tag_to_reading(c_reading, tag)?;
-                    }
-                }
-            }
-            if !mappings.is_empty() {
-                self.base
-                    .engine()
-                    .split_mappings(&mut mappings, parent_cohort, c_reading, true)?;
-            }
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn+1]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn+1]
+    // [spec:cg3:req:robustness.depth-bounded]
+    /// C++ `Reading* parseJsonReading(const json::Value& reading_obj, Cohort*
+    /// cohort, TagList& mappings)`: a reading of `cohort`, whose wordform is
+    /// `wordform`, with its chain of sub-readings. Its own mapping tags are
+    /// appended to `mappings` for the caller.
+    ///
+    /// The C++ recurses on `"s"`. This reads each reading's own members going
+    /// down the chain, then finishes the readings from the deepest back up,
+    /// which is the order the recursion finishes them in, so the warnings come
+    /// out in the same order and a chain of any depth costs no stack.
+    fn parse_json_reading(
+        &mut self,
+        reading_obj: json::Value<'_>,
+        cohort: CohortId,
+        wordform: TagId,
+        mappings: &mut TagList,
+        line: u32,
+    ) -> Result<ReadingId, RunError> {
+        let top = self.parse_json_reading_tags(reading_obj, cohort, wordform, mappings, line)?;
+        let mut subs: Vec<(ReadingId, TagList)> = Vec::new();
+        let mut sub_obj = json_sub_reading(reading_obj, line);
+        while let Some(obj) = sub_obj {
+            let mut sub_mappings = TagList::new();
+            let sub =
+                self.parse_json_reading_tags(obj, cohort, wordform, &mut sub_mappings, line)?;
+            subs.push((sub, sub_mappings));
+            sub_obj = json_sub_reading(obj, line);
         }
+        let mut below: Option<(ReadingId, TagList)> = None;
+        for (reading, own_mappings) in subs.into_iter().rev() {
+            if let Some((sub, sub_mappings)) = below.take() {
+                self.attach_sub_reading(reading, sub, sub_mappings, line)?;
+            }
+            self.finish_json_reading(reading, wordform, line);
+            below = Some((reading, own_mappings));
+        }
+        if let Some((sub, sub_mappings)) = below {
+            self.attach_sub_reading(top, sub, sub_mappings, line)?;
+        }
+        self.finish_json_reading(top, wordform, line);
+        Ok(top)
+    }
 
-        // Subreading ("s").
-        if let Some(sub_reading_val) = obj.get("s") {
-            if sub_reading_val.is_object() {
-                let sub = self.parse_json_reading(sub_reading_val, parent_cohort, wordform)?;
-                if let Some(sub) = sub {
-                    self.base.doc.store.readings.get_mut(c_reading.0).next = Some(sub);
-                } else {
-                    tracing::error!(
-                        "Error: Failed to parse subreading object on line {}.",
-                        self.base.doc.num_lines
-                    );
-                }
+    /// `parseJsonReading`'s steps up to its `"s"`: the reading, its wordform,
+    /// its `"l"` and its `"ts"`.
+    fn parse_json_reading_tags(
+        &mut self,
+        reading_obj: json::Value<'_>,
+        cohort: CohortId,
+        wordform: TagId,
+        mappings: &mut TagList,
+        line: u32,
+    ) -> Result<ReadingId, RunError> {
+        let reading = crate::reading::alloc_reading(&mut self.base.doc.store, Some(cohort));
+        self.base.engine().add_tag_to_reading(reading, wordform)?;
+
+        if reading_obj.member("l").is_none() {
+            tracing::warn!("Warning: Reading missing 'l' (baseform) on line {line}.");
+        } else if let Some(l) = get_json_string(reading_obj, "l", line) {
+            if l.is_empty() {
+                tracing::warn!("Warning: Empty 'l' (baseform) in reading on line {line}.");
             } else {
-                tracing::warn!(
-                    "Warning: Value for 's' (sub_reading) is not an object on line {}. Skipping.",
-                    self.base.doc.num_lines
-                );
+                let tag = self.base.add_tag(&format!("\"{l}\""), TagType::empty())?;
+                self.base.engine().add_tag_to_reading(reading, tag)?;
             }
         }
 
-        // Ensure baseform exists.
+        if let Some(ts) = reading_obj.member("ts") {
+            let Some(tags) = ts.elements() else {
+                tracing::warn!("Warning: 'ts' (tags) on line {line} is not an array - ignored.");
+                return Ok(reading);
+            };
+            let mapping_prefix = self.base.grammar.mapping_prefix;
+            for tag_val in tags {
+                let Some(text) = tag_val.as_str() else {
+                    tracing::warn!(
+                        "Warning: Non-string found in 'ts' (tags) array on line {line} - skipping."
+                    );
+                    continue;
+                };
+                if text.is_empty() {
+                    continue;
+                }
+                let tag = self.base.add_tag(text, TagType::empty())?;
+                let first = self.base.grammar.single_tags_list[tag.0].tag.chars().next();
+                if self.base.grammar.tag_type(tag).intersects(T_MAPPING)
+                    || first == Some(mapping_prefix)
+                {
+                    self.base.grammar.tag_type_insert(tag, T_MAPPING);
+                    mappings.push(tag);
+                } else {
+                    self.base.engine().add_tag_to_reading(reading, tag)?;
+                }
+            }
+        }
+        Ok(reading)
+    }
+
+    /// `parseJsonReading`'s `cReading->next = sub` and the
+    /// `addSingleMapping(*cReading->next, sub_mappings)` after it.
+    fn attach_sub_reading(
+        &mut self,
+        reading: ReadingId,
+        sub: ReadingId,
+        mut sub_mappings: TagList,
+        line: u32,
+    ) -> Result<(), RunError> {
+        self.base.doc.store.readings.get_mut(reading.0).next = Some(sub);
+        self.add_single_mapping(sub, &mut sub_mappings, line)
+    }
+
+    /// `parseJsonReading`'s steps after its `"s"`: a reading with no baseform
+    /// takes the wordform's, and the reading is rehashed, since its hash
+    /// covers the sub-reading attached after its tags were added.
+    fn finish_json_reading(&mut self, reading: ReadingId, wordform: TagId, line: u32) {
         if self
             .base
             .doc
             .store
             .readings
-            .get(c_reading.0)
+            .get(reading.0)
             .baseform
             .is_none()
         {
-            let wf_hash = self.base.grammar.single_tags_list.get(wordform.0).hash;
-            self.base.doc.store.readings.get_mut(c_reading.0).baseform = Some(wf_hash);
+            let hash = self.base.grammar.single_tags_list[wordform.0].hash;
+            self.base.doc.store.readings.get_mut(reading.0).baseform = Some(hash);
             tracing::warn!(
-                "Warning: Reading on line {} ended up with no baseform. Using wordform.",
-                self.base.doc.num_lines
+                "Warning: Reading on line {line} ended up with no baseform. Using wordform."
             );
         }
-
-        Ok(Some(c_reading))
+        crate::reading::reading_rehash(
+            &mut self.base.doc.store.readings,
+            &self.base.grammar,
+            reading,
+        );
     }
 
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+1]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+1]
-    /// C++ `void parseJsonCohort(const json::Value& obj, SingleWindow* cSWindow,
-    /// Cohort*& cCohort)`. Parses one cohort object into a new cohort, assigning
-    /// it into the returned value.
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+2]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn+2]
+    /// C++ `Cohort* parseJsonCohort(const json::Value& obj, SingleWindow*
+    /// cSWindow)`: a cohort of `c_swindow` built from the object `obj` read on
+    /// input line `line`, whose `"w"` the caller has read as `wform`. The
+    /// caller appends it to the window.
     fn parse_json_cohort(
         &mut self,
-        obj: &Map<String, Value>,
+        obj: json::Value<'_>,
+        wform: &str,
         c_swindow: SwId,
-    ) -> Result<CohortId, crate::error::RunError> {
+        line: u32,
+    ) -> Result<CohortId, RunError> {
         let c_cohort = crate::cohort::alloc_cohort(&mut self.base.doc.store, Some(c_swindow));
-        let gn = self.base.doc.cohorts.next_cohort_number();
-        self.base
-            .doc
-            .store
-            .cohorts
-            .get_mut(c_cohort.0)
-            .global_number = gn;
+        let global_number = self.base.doc.cohorts.next_cohort_number();
+        {
+            let c = self.base.doc.store.cohorts.get_mut(c_cohort.0);
+            c.global_number = global_number;
+            c.line_number = line;
+        }
         self.base.doc.num_cohorts = self.base.doc.num_cohorts.wrapping_add(1);
 
-        // Wordform ("w").
-        let wform_str = if let Some(w) = obj.get("w") {
-            json_to_string(w)
-        } else {
-            tracing::warn!(
-                "Warning: JSON cohort on line {} missing 'w' (wordform). Using empty.",
-                self.base.doc.num_lines
-            );
-            String::new()
-        };
-        let mut wform_tag = String::new();
-        wform_tag.push_str("\"<");
-        wform_tag.push_str(&wform_str);
-        wform_tag.push_str(">\"");
-        let wf = self
+        let wordform = self
             .base
-            .add_tag(&wform_tag, crate::tag::TagType::empty())?;
-        self.base.doc.store.cohorts.get_mut(c_cohort.0).wordform = Some(wf);
+            .add_tag(&format!("\"<{wform}>\""), TagType::empty())?;
+        self.base.doc.store.cohorts.get_mut(c_cohort.0).wordform = Some(wordform);
 
-        // Text ("z").
-        self.base
-            .doc
-            .store
-            .cohorts
-            .get_mut(c_cohort.0)
-            .wblank
-            .clear();
-        if let Some(z) = obj.get("z") {
-            self.base.doc.store.cohorts.get_mut(c_cohort.0).text = json_to_string(z);
+        if let Some(wb) = get_json_string(obj, "wb", line) {
+            self.base.doc.store.cohorts.get_mut(c_cohort.0).wblank = wb.to_string();
+        }
+        // The CG reader keeps each line's newline, and the writer drops the
+        // last one, so it is put back; an empty "z" is a blank line.
+        if let Some(z) = get_json_string(obj, "z", line) {
+            self.base.doc.store.cohorts.get_mut(c_cohort.0).text = format!("{z}\n");
         }
 
-        // Static tags ("sts").
-        if let Some(Value::Array(sts)) = obj.get("sts") {
-            let wread = self.static_reading(c_cohort, wf)?;
-            for tag_val in sts {
-                let tag_str = json_to_string(tag_val);
-                if !tag_str.is_empty() {
-                    let tag = self.base.add_tag(&tag_str, crate::tag::TagType::empty())?;
-                    let hash = self.base.grammar.single_tags_list.get(tag.0).hash;
-                    // Pushed directly to the list, NOT via addTagToReading.
-                    self.base
-                        .doc
-                        .store
-                        .readings
-                        .get_mut(wread.0)
-                        .tags_list
-                        .push(hash.get());
-                }
-            }
-        }
-
-        // Readings ("rs").
-        if let Some(Value::Array(readings_arr)) = obj.get("rs") {
-            for reading_val in readings_arr {
-                if !reading_val.is_object() {
-                    tracing::warn!(
-                        "Warning: Non-object found in 'rs' (readings) array on line {}. Skipping.",
-                        self.base.doc.num_lines
-                    );
-                    continue;
-                }
-                let c_reading = self.parse_json_reading(reading_val, c_cohort, wf)?;
-                if let Some(c_reading) = c_reading {
-                    crate::cohort::append_reading(&mut self.base.doc.store, c_cohort, c_reading);
-                    self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
-                } else {
-                    tracing::error!(
-                        "Error: Failed to parse main reading on line {}.",
-                        self.base.doc.num_lines
-                    );
-                }
-            }
-        }
+        self.parse_json_static_tags(obj, c_cohort, wordform, line)?;
+        self.parse_json_readings(obj, c_cohort, wordform, line)?;
+        // Before `init_empty_cohort`, since `set_related` would make the
+        // placeholder reading printable.
+        self.parse_json_relations(obj, c_cohort, global_number, line)?;
 
         if self
             .base
@@ -337,109 +342,299 @@ impl<'a> JsonlApplicator<'a> {
             self.base.grammar.sets_any.as_ref(),
         );
 
-        self.parse_json_dependency(obj, c_cohort)?;
-
-        // Deleted readings ("drs").
-        if let Some(Value::Array(drs)) = obj.get("drs") {
-            for dr_val in drs {
-                if !dr_val.is_object() {
-                    continue;
-                }
-                let del_r = self.parse_json_reading(dr_val, c_cohort, wf)?;
-                if let Some(del_r) = del_r {
-                    self.base.doc.store.readings.get_mut(del_r.0).deleted = true;
-                    self.base
-                        .doc
-                        .store
-                        .cohorts
-                        .get_mut(c_cohort.0)
-                        .deleted
-                        .push(del_r);
-                } else {
-                    tracing::error!(
-                        "Error: Failed to parse deleted reading on line {}.",
-                        self.base.doc.num_lines
-                    );
-                }
-            }
-        }
-
+        self.parse_json_deleted_readings(obj, c_cohort, wordform, line)?;
+        self.parse_json_dependency(obj, c_cohort, line)?;
         Ok(c_cohort)
     }
 
-    /// `c_cohort`'s static reading, made on first use with the wordform `wf`
-    /// as its baseform.
-    fn static_reading(
+    /// `parseJsonCohort`'s `"sts"`: each non-empty string is a tag of the
+    /// cohort's static reading, made with the wordform on first use.
+    fn parse_json_static_tags(
         &mut self,
+        obj: json::Value<'_>,
         c_cohort: CohortId,
-        wf: TagId,
-    ) -> Result<ReadingId, crate::error::RunError> {
-        if let Some(wread) = self.base.doc.store.cohorts.get(c_cohort.0).wread {
-            return Ok(wread);
+        wordform: TagId,
+        line: u32,
+    ) -> Result<(), RunError> {
+        let Some(sts) = obj.member("sts") else {
+            return Ok(());
+        };
+        let Some(tags) = sts.elements() else {
+            tracing::warn!(
+                "Warning: 'sts' (static tags) on line {line} is not an array - ignored."
+            );
+            return Ok(());
+        };
+        for tag_val in tags {
+            let Some(text) = tag_val.as_str() else {
+                tracing::warn!(
+                    "Warning: Non-string found in 'sts' (static tags) array on line {line} - skipping."
+                );
+                continue;
+            };
+            if text.is_empty() {
+                continue;
+            }
+            let wread = match self.base.doc.store.cohorts.get(c_cohort.0).wread {
+                Some(wread) => wread,
+                None => {
+                    let wread =
+                        crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
+                    self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
+                    self.base.engine().add_tag_to_reading(wread, wordform)?;
+                    wread
+                }
+            };
+            let tag = self.base.add_tag(text, TagType::empty())?;
+            self.base.engine().add_tag_to_reading(wread, tag)?;
         }
-        let wread = crate::reading::alloc_reading(&mut self.base.doc.store, Some(c_cohort));
-        self.base.doc.store.cohorts.get_mut(c_cohort.0).wread = Some(wread);
-        self.base.engine().add_tag_to_reading(wread, wf)?;
-        let wf_hash = self.base.grammar.single_tags_list.get(wf.0).hash;
-        self.base.doc.store.readings.get_mut(wread.0).baseform = Some(wf_hash);
-        Ok(wread)
+        Ok(())
+    }
+
+    /// `parseJsonCohort`'s `"rs"`: each object is a reading, and a reading
+    /// with several mapping tags is then split into one reading per tag.
+    fn parse_json_readings(
+        &mut self,
+        obj: json::Value<'_>,
+        c_cohort: CohortId,
+        wordform: TagId,
+        line: u32,
+    ) -> Result<(), RunError> {
+        let Some(rs) = obj.member("rs") else {
+            return Ok(());
+        };
+        let Some(readings) = rs.elements() else {
+            tracing::warn!("Warning: 'rs' (readings) on line {line} is not an array - ignored.");
+            return Ok(());
+        };
+        let mut all_mappings = crate::grammar_applicator::AllMappings::new();
+        for reading_val in readings {
+            if !reading_val.is_object() {
+                tracing::warn!(
+                    "Warning: Non-object found in 'rs' (readings) array on line {line} - skipping."
+                );
+                continue;
+            }
+            let mut mappings = TagList::new();
+            let reading =
+                self.parse_json_reading(reading_val, c_cohort, wordform, &mut mappings, line)?;
+            crate::cohort::append_reading(&mut self.base.doc.store, c_cohort, reading);
+            if !mappings.is_empty() {
+                all_mappings.insert(reading, mappings);
+            }
+            self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
+        }
+        self.base
+            .engine()
+            .split_all_mappings(&mut all_mappings, c_cohort, true)
     }
 
     // [spec:cg3:req:robustness.reserved-keys]
-    /// `parseJsonCohort`'s dependency members: `"ds"` and `"dp"`, each when it
-    /// is an unsigned 32-bit integer. They key and probe the window's
+    // [spec:cg3:req:robustness.empty-tag]
+    /// `parseJsonCohort`'s `"id"` and `"rels"`. The id keys the relation map
+    /// and each relation target probes it, so a number the map reserves is
+    /// refused; a relation with an empty name is refused as an empty tag.
+    fn parse_json_relations(
+        &mut self,
+        obj: json::Value<'_>,
+        c_cohort: CohortId,
+        global_number: GlobalNumber,
+        line: u32,
+    ) -> Result<(), RunError> {
+        if let Some(id) = obj.member("id") {
+            match id.as_uint() {
+                Some(id) if id != 0 => {
+                    self.refuse_reserved("id", NumberRole::RelationId, id)?;
+                    *self.base.doc.deps.relation_map.index_or_insert(id) = global_number.get();
+                }
+                _ => tracing::warn!(
+                    "Warning: 'id' on line {line} is not a positive integer - ignored."
+                ),
+            }
+        }
+
+        let Some(rels) = obj.member("rels") else {
+            return Ok(());
+        };
+        let Some(relations) = rels.members() else {
+            tracing::warn!(
+                "Warning: 'rels' (relations) on line {line} is not an object - ignored."
+            );
+            return Ok(());
+        };
+        for (name, targets) in relations {
+            let Some(targets) = targets.elements() else {
+                tracing::warn!(
+                    "Warning: Relation targets on line {line} are not an array - ignored."
+                );
+                continue;
+            };
+            let name_tag = self.base.add_tag(name, TagType::empty())?;
+            let name_hash = self.base.grammar.single_tags_list[name_tag.0].hash.get();
+            for target in targets {
+                let Some(target) = target.as_uint() else {
+                    tracing::warn!(
+                        "Warning: Relation target on line {line} is not a non-negative integer - skipping."
+                    );
+                    continue;
+                };
+                self.refuse_reserved(name, NumberRole::RelationTarget, target)?;
+                // A target is looked up in the relation map as it is, so
+                // `u32::MAX` means no "no parent" here and is refused too.
+                if target == u32::MAX {
+                    return Err(self.reserved(ReservedNumber {
+                        text: name.into(),
+                        role: NumberRole::RelationTarget,
+                        value: target,
+                    }));
+                }
+                self.base
+                    .doc
+                    .store
+                    .cohorts
+                    .get_mut(c_cohort.0)
+                    .relations_input
+                    .entry(name_hash)
+                    .or_default()
+                    .insert(target);
+            }
+        }
+        self.base.doc.deps.has_relations = true;
+        crate::cohort::set_related(&mut self.base.doc.store, c_cohort);
+        Ok(())
+    }
+
+    /// `parseJsonCohort`'s `"drs"`, read only with `--deleted`: each object
+    /// is a deleted reading, which cannot be split, so it keeps one mapping
+    /// tag.
+    fn parse_json_deleted_readings(
+        &mut self,
+        obj: json::Value<'_>,
+        c_cohort: CohortId,
+        wordform: TagId,
+        line: u32,
+    ) -> Result<(), RunError> {
+        let Some(drs) = obj.member("drs") else {
+            return Ok(());
+        };
+        if !self.base.cfg.pipe_deleted {
+            if self.base.cfg.verbosity_level > 0 {
+                tracing::info!(
+                    "Info: Ignoring 'drs' (deleted readings) on line {line}; use --deleted to read them."
+                );
+            }
+            return Ok(());
+        }
+        let Some(readings) = drs.elements() else {
+            tracing::warn!(
+                "Warning: 'drs' (deleted readings) on line {line} is not an array - ignored."
+            );
+            return Ok(());
+        };
+        for reading_val in readings {
+            if !reading_val.is_object() {
+                tracing::warn!(
+                    "Warning: Non-object found in 'drs' (deleted readings) array on line {line} - skipping."
+                );
+                continue;
+            }
+            let mut mappings = TagList::new();
+            let deleted =
+                self.parse_json_reading(reading_val, c_cohort, wordform, &mut mappings, line)?;
+            self.add_single_mapping(deleted, &mut mappings, line)?;
+            for r in crate::reading::sub_reading_chain(&self.base.doc.store.readings, deleted) {
+                self.base.doc.store.readings.get_mut(r.0).deleted = true;
+            }
+            // Appended and numbered as `Cohort::appendReading` does.
+            let list = &mut self.base.doc.store.cohorts.get_mut(c_cohort.0).deleted;
+            list.push(deleted);
+            let size = list.len();
+            let reading = self.base.doc.store.readings.get_mut(deleted.0);
+            if reading.number == 0 {
+                reading.number = crate::inlines::ui32(size.wrapping_mul(1000).wrapping_add(1000));
+            }
+            self.base.doc.num_readings = self.base.doc.num_readings.wrapping_add(1);
+        }
+        Ok(())
+    }
+
+    // [spec:cg3:req:robustness.reserved-keys]
+    /// `parseJsonCohort`'s `"ds"` and `"dp"`. They key and probe the window's
     /// dependency map, so a number that map reserves is refused; a `"dp"` of
     /// `u32::MAX` is `DEP_NO_PARENT` and stays.
     fn parse_json_dependency(
         &mut self,
-        obj: &Map<String, Value>,
+        obj: json::Value<'_>,
         c_cohort: CohortId,
-    ) -> Result<(), crate::error::RunError> {
-        use crate::error::{NumberRole, ReservedNumber};
-        let ds = obj.get("ds").and_then(as_uint);
-        let dp = obj.get("dp").and_then(as_uint);
-        let (input, line) = (&self.base.cfg.input_name, self.base.doc.num_lines);
-        let refuse = |source| crate::error::RunError::ReservedNumber {
-            input: input.clone(),
-            line,
-            source,
+        line: u32,
+    ) -> Result<(), RunError> {
+        let dp = obj.member("dp");
+        let Some(ds) = obj.member("ds") else {
+            if dp.is_some() {
+                tracing::warn!(
+                    "Warning: 'dp' (dependency parent) on line {line} without 'ds' (dependency self) - ignored."
+                );
+            }
+            return Ok(());
         };
-        if let Some(v) = ds {
-            ReservedNumber::check("ds", NumberRole::DependencySelf, v).map_err(refuse)?;
+        let Some(dep_self) = ds.as_uint().filter(|&ds| ds != 0) else {
+            tracing::warn!(
+                "Warning: 'ds' (dependency self) on line {line} is not a positive integer - ignored."
+            );
+            return Ok(());
+        };
+        self.refuse_reserved("ds", NumberRole::DependencySelf, dep_self)?;
+        self.base.doc.store.cohorts.get_mut(c_cohort.0).dep_self = Some(GlobalNumber(dep_self));
+        if let Some(dp) = dp {
+            match dp.as_uint() {
+                None => tracing::warn!(
+                    "Warning: 'dp' (dependency parent) on line {line} is not a non-negative integer - ignored."
+                ),
+                Some(dep_parent) => {
+                    self.refuse_reserved("dp", NumberRole::DependencyParent, dep_parent)?;
+                    if dep_parent != dep_self && dep_parent != crate::cohort::DEP_NO_PARENT {
+                        self.base.doc.store.cohorts.get_mut(c_cohort.0).dep_parent =
+                            Some(GlobalNumber(dep_parent));
+                    }
+                }
+            }
         }
-        if let Some(v) = dp {
-            ReservedNumber::check("dp", NumberRole::DependencyParent, v).map_err(refuse)?;
-        }
-        let cohort = self.base.doc.store.cohorts.get_mut(c_cohort.0);
-        if let Some(v) = ds {
-            cohort.dep_self = (v != 0).then_some(crate::types::GlobalNumber(v));
-        }
-        if let Some(v) = dp {
-            cohort.dep_parent =
-                (v != crate::cohort::DEP_NO_PARENT).then_some(crate::types::GlobalNumber(v));
-        }
+        self.base.doc.deps.has_dep = true;
         Ok(())
+    }
+
+    /// `value`, read from the member `member` as `role`, refused when the
+    /// hash tables reserve it.
+    fn refuse_reserved(&self, member: &str, role: NumberRole, value: u32) -> Result<(), RunError> {
+        ReservedNumber::check(member, role, value).map_err(|source| self.reserved(source))
+    }
+
+    /// `source`, refused on the line being read.
+    fn reserved(&self, source: ReservedNumber) -> RunError {
+        RunError::ReservedNumber {
+            input: self.base.cfg.input_name.clone(),
+            line: self.base.doc.num_lines.saturating_add(1),
+            source,
+        }
     }
 
     // =======================================================================
     // runGrammarOnText — the JSONL stream driver
     // =======================================================================
 
-    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+1]
-    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+1]
-    /// C++ `void runGrammarOnText(std::istream& input, std::ostream& output)`.
-    /// Reads JSON-Lines input (one JSON object per line), builds windows, runs the
-    /// grammar, and prints JSONL output.
+    // [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+2]
+    // [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn+2]
+    /// C++ `void runGrammarOnText(std::istream& input, std::ostream& output)`:
+    /// read a JSONL stream, one object per line, build windows from it, run
+    /// the grammar on them, and write them in the format `fmt` prints.
     ///
-    /// PORT NOTES:
-    /// * `input` is `Read + Seek` (needs `Seek` for [`crate::uextras::strip_bom`]); line
-    ///   reading uses a [`BufReader`](std::io::BufReader). Output validity
-    ///   checks (`!output`) have no analog.
-    /// * The `good()`/`eof()`-guard `CG3Quit(1)` branches and the delimiter
-    ///   warnings write to stderr — deferred; the fatal quits
-    ///   are not triggered here.
-    /// * `variables.clear()` (the member map) is reproduced; the LOCAL
-    ///   `variables_set/rem/output` are NOT cleared on FLUSH (faithful).
+    /// The C++ quits on an input that is not `good()` or already at its end,
+    /// on an output that is not, and without a grammar. A Rust reader and
+    /// writer have no such state, and the applicator owns its grammar.
+    ///
+    /// `doc.num_lines` counts the lines read to the end, as every reader's
+    /// does, so a tag that fails while a line is read names that line; the
+    /// C++ counts a line as it starts reading it.
     pub fn run_grammar_on_text<F, R, W>(
         &mut self,
         fmt: &mut F,
@@ -447,7 +642,7 @@ impl<'a> JsonlApplicator<'a> {
         output: &mut W,
     ) -> Result<(), crate::error::Cg3Error>
     where
-        F: crate::grammar_applicator::stream_format::StreamFormat,
+        F: StreamFormat,
         R: Read + Seek,
         W: Write,
     {
@@ -460,494 +655,676 @@ impl<'a> JsonlApplicator<'a> {
         fmt: &mut F,
         input: &mut R,
         output: &mut W,
-    ) -> Result<(), crate::error::RunError>
+    ) -> Result<(), RunError>
     where
-        F: crate::grammar_applicator::stream_format::StreamFormat,
+        F: StreamFormat,
         R: Read + Seek,
         W: Write,
     {
-        // good()/eof()/output/grammar validity CG3Quit(1) checks: deferred I/O.
-        // No-delimiter warnings: deferred I/O.
+        let delimiters = self.base.grammar.delimiters;
+        let soft_delimiters = self.base.grammar.soft_delimiters;
+        let empty = |set: Option<crate::arena::SetId>| {
+            set.is_none_or(|set| self.base.grammar.sets_list[set.0].empty())
+        };
+        if empty(delimiters) {
+            if empty(soft_delimiters) {
+                tracing::warn!(
+                    "Warning: No soft or hard delimiters defined in grammar. Hard limit of {} cohorts may break windows.",
+                    self.base.cfg.hard_limit
+                );
+            } else {
+                tracing::warn!(
+                    "Warning: No hard delimiters defined in grammar. Soft limit of {} cohorts may break windows.",
+                    self.base.cfg.soft_limit
+                );
+            }
+        }
 
         self.base.index();
 
-        let reset_after: u32 = self.base.cfg.reset_after();
-
-        let mut ignoreinput = false;
-        let mut c_swindow: Option<SwId> = None;
-        // C++ `cCohort` exists only for the `if (!cCohort)` "Failed to create
-        // cohort" null-check, which is unreachable here (alloc always succeeds),
-        // so no binding is kept for it; the cohort id is used directly (`cc`).
-        let mut l_swindow: Option<SwId> = None;
-        let mut l_cohort: Option<CohortId> = None;
-
+        let mut st = ReadState {
+            line: 0,
+            reset_after: self.base.cfg.reset_after(),
+            ignoreinput: false,
+            did_soft_lookback: false,
+            c_swindow: None,
+            l_swindow: None,
+            l_cohort: None,
+            variables_set: Uint32FlatHashMap::default(),
+            variables_rem: Uint32FlatHashSet::default(),
+            variables_output: Uint32SortedVector::new(),
+        };
         self.base.doc.stream.window_span = self.base.cfg.num_windows;
 
-        // LOCAL variable-tracking state.
-        let mut variables_set = crate::flat_unordered_map::Uint32FlatHashMap::default();
-        let mut variables_rem = crate::flat_unordered_set::Uint32FlatHashSet::default();
-        let mut variables_output = Uint32SortedVector::new();
-
         crate::uextras::strip_bom(input);
-
-        // getline loop. `BufReader::read_line` reads up to and including '\n'.
         let mut reader = std::io::BufReader::new(input);
-        let mut exit_requested = false;
 
-        'mainloop: loop {
-            let line_no = self.base.doc.num_lines.saturating_add(1);
-            let Some(line_str) = read_jsonl_line(&mut reader, &self.base.cfg.input_name, line_no)?
+        let mut exited = false;
+        loop {
+            let line = self.base.doc.num_lines.saturating_add(1);
+            let Some(line_str) = read_jsonl_line(&mut reader, &self.base.cfg.input_name, line)?
             else {
-                break 'mainloop; // EOF: getline fails, loop ends.
+                break;
             };
-
-            self.base.doc.num_lines = self.base.doc.num_lines.wrapping_add(1);
-
-            // Skip empty / all-whitespace lines.
-            if line_str.is_empty()
-                || !line_str
-                    .chars()
-                    .any(|c| !matches!(c, ' ' | '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r'))
-            {
-                continue;
-            }
-
-            let doc: Value = match serde_json::from_str(&line_str) {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::warn!(
-                        "Warning: Failed to parse JSON on line {}: {} (offset {}). Skipping line.",
-                        self.base.doc.num_lines,
-                        e,
-                        e.column()
-                    );
-                    continue;
-                }
-            };
-
-            let obj = match &doc {
-                Value::Object(m) => m,
-                _ => {
-                    tracing::warn!(
-                        "Warning: JSON on line {} is not an object. Skipping line.",
-                        self.base.doc.num_lines
-                    );
-                    continue;
-                }
-            };
-
-            // Command handling.
-            if let Some(cmd_v) = obj.get("cmd") {
-                let cmd = json_to_string(cmd_v);
-                if !cmd.is_empty() {
-                    if cmd == STR_CMD_FLUSH {
-                        // verbose Info line: deferred.
-                        let back_swindow = self.base.doc.stream.back();
-                        if let Some(bsw) = back_swindow {
-                            self.base
-                                .doc
-                                .store
-                                .single_windows
-                                .get_mut(bsw.0)
-                                .flush_after = true;
-                        }
-
-                        // If lCohort is the last cohort of cSWindow, add endtag.
-                        if let (Some(lc), Some(sw)) = (l_cohort, c_swindow) {
-                            let is_last = {
-                                let cohorts = &self.base.doc.store.single_windows.get(sw.0).cohorts;
-                                cohorts.last() == Some(&lc)
-                            };
-                            if is_last {
-                                let rs = self.base.doc.store.cohorts.get(lc.0).readings.clone();
-                                for r in rs {
-                                    self.add_endtag(r)?;
-                                }
-                            }
-                        }
-
-                        l_cohort = None;
-                        c_swindow = None;
-                        l_swindow = None;
-
-                        // Drain buffered windows.
-                        while self.base.engine().rotate_next().is_some() {
-                            self.base.engine().run_grammar_on_window_with(fmt, output)?;
-                            if self.base.doc.num_windows.is_multiple_of(reset_after) {
-                                self.base.reset_indexes();
-                            }
-                            // verbose progress: deferred.
-                        }
-                        self.base.engine().shuffle_windows_down();
-                        while !self.base.doc.stream.previous.is_empty() {
-                            let tmp = self.base.doc.stream.previous[0];
-                            fmt.print_single_window(&mut self.base.engine(), tmp, output, false)?;
-                            crate::single_window::free_swindow(
-                                &mut self.base.doc.store,
-                                &mut self.base.doc.cohorts,
-                                &mut self.base.doc.deps,
-                                Some(tmp),
-                            );
-                            self.base.doc.stream.previous.remove(0);
-                        }
-
-                        if back_swindow.is_none() {
-                            fmt.print_stream_command(&mut self.base.engine(), &cmd, output);
-                        }
-
-                        self.base.doc.variables.clear(0);
-                        let _ = output.flush();
-                    } else if cmd == STR_CMD_IGNORE {
-                        ignoreinput = true;
-                        fmt.print_stream_command(&mut self.base.engine(), &cmd, output);
-                    } else if cmd == STR_CMD_RESUME {
-                        ignoreinput = false;
-                        fmt.print_stream_command(&mut self.base.engine(), &cmd, output);
-                    } else if cmd == STR_CMD_EXIT {
-                        fmt.print_stream_command(&mut self.base.engine(), &cmd, output);
-                        exit_requested = true;
-                        break 'mainloop; // goto CGCMD_EXIT_JSONL
-                    } else if cmd.starts_with(STR_CMD_SETVAR) {
-                        // payload = cmd.substr(SETVAR.size(), size - SETVAR.size() - 1)
-                        let payload = substr_strip_prefix_and_last(&cmd, STR_CMD_SETVAR);
-                        self.setvar_command(
-                            &payload,
-                            &mut variables_set,
-                            &mut variables_rem,
-                            &mut variables_output,
-                        )?;
-                    } else if cmd.starts_with(STR_CMD_REMVAR) {
-                        let payload = substr_strip_prefix_and_last(&cmd, STR_CMD_REMVAR);
-                        self.remvar_command(
-                            &payload,
-                            &mut variables_set,
-                            &mut variables_rem,
-                            &mut variables_output,
-                        )?;
-                    }
-                } else {
-                    tracing::warn!(
-                        "Warning: Empty 'cmd' value on line {}.",
-                        self.base.doc.num_lines
-                    );
-                }
-                continue;
-            }
-
-            // Ignore mode.
-            if ignoreinput {
-                if let Some(t_v) = obj.get("t") {
-                    let text = json_to_string(t_v);
-                    if !text.is_empty() {
-                        fmt.print_plain_text_line(&mut self.base.engine(), &text, output);
-                    }
-                }
-                continue;
-            }
-
-            // Plain text: has "t" and NOT "w".
-            if let Some(t_v) = obj.get("t")
-                && !obj.contains_key("w")
-            {
-                let text = json_to_string(t_v);
-                if !text.is_empty() {
-                    // verbose Info: deferred.
-                    if let Some(lc) = l_cohort {
-                        self.base
-                            .doc
-                            .store
-                            .cohorts
-                            .get_mut(lc.0)
-                            .text
-                            .push_str(&text);
-                    } else if let Some(lsw) = l_swindow {
-                        self.base
-                            .doc
-                            .store
-                            .single_windows
-                            .get_mut(lsw.0)
-                            .text
-                            .push_str(&text);
-                    } else {
-                        fmt.print_plain_text_line(&mut self.base.engine(), &text, output);
-                    }
-                } else {
-                    tracing::warn!(
-                        "Warning: Empty 't' value on line {}.",
-                        self.base.doc.num_lines
-                    );
-                }
-                continue;
-            } else if obj.contains_key("w") {
-                // Cohort.
-                let sw = if let Some(sw) = c_swindow {
-                    sw
-                } else {
-                    let sw = self
-                        .base
-                        .doc
-                        .stream
-                        .alloc_append_single_window(&mut self.base.doc.store);
-                    self.base.engine().init_empty_single_window(sw)?;
-
-                    // Transfer local variable state into the window, then clear
-                    // locals. C++: `cSWindow->variables_set = variables_set;
-                    // variables_set.clear();` — copy then clear. The window is
-                    // freshly allocated (its maps/vec are empty), so swapping the
-                    // local into the window and leaving the local empty is exactly
-                    // equivalent to copy-then-clear. (FlatUnorderedMap/Set are not
-                    // Clone; `swap` is the faithful, allocation-free transfer.)
-                    {
-                        let sww = self.base.doc.store.single_windows.get_mut(sw.0);
-                        sww.variables_set.swap(&mut variables_set);
-                        sww.variables_rem.swap(&mut variables_rem);
-                        sww.variables_output.swap(&mut variables_output);
-                    }
-
-                    self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
-                    c_swindow = Some(sw);
-                    l_swindow = Some(sw);
-                    sw
-                };
-                let cc = self.parse_json_cohort(obj, sw)?;
-                // cCohort is never null in this port (alloc always succeeds), so the
-                // "Failed to create cohort" branch is unreachable.
-
-                crate::single_window::append_cohort(
-                    &mut self.base.doc.store,
-                    &mut self.base.doc.cohorts,
-                    &mut self.base.doc.deps,
-                    sw,
-                    cc,
-                );
-                l_cohort = Some(cc);
-
-                let mut did_delim = false;
-                let cohorts_len = self.base.doc.store.single_windows.get(sw.0).cohorts.len();
-                let soft_delimiters = self.base.grammar.soft_delimiters;
-                let soft_hit = cohorts_len >= self.base.cfg.soft_limit as usize
-                    && self
-                        .base
-                        .engine()
-                        .matches_delimiter_set(cc, soft_delimiters)?;
-                if soft_hit {
-                    // verbose Info: deferred.
-                    let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
-                    for r in rs {
-                        self.add_endtag(r)?;
-                    }
-                    c_swindow = None;
-                    did_delim = true;
-                } else {
-                    let delimiters = self.base.grammar.delimiters;
-                    let hard_hit = cohorts_len >= self.base.cfg.hard_limit as usize
-                        || self.base.engine().matches_delimiter_set(cc, delimiters)?;
-                    if hard_hit {
-                        if cohorts_len >= self.base.cfg.hard_limit as usize {
-                            tracing::warn!(
-                                "Warning: Hard limit of {} cohorts reached at line {} - forcing break.",
-                                self.base.cfg.hard_limit,
-                                self.base.doc.num_lines
-                            );
-                        }
-                        let rs = self.base.doc.store.cohorts.get(cc.0).readings.clone();
-                        for r in rs {
-                            self.add_endtag(r)?;
-                        }
-                        c_swindow = None;
-                        did_delim = true;
-                    }
-                }
-
-                if did_delim || self.base.doc.stream.next.len() > self.base.cfg.num_windows as usize
-                {
-                    self.run_next_window(fmt, output, reset_after)?;
-                }
+            st.line = line;
+            let flow = self.read_jsonl_object(fmt, output, &mut st, &line_str, line)?;
+            self.base.doc.num_lines = line;
+            if flow.is_break() {
+                exited = true;
+                break;
             }
         }
 
-        // End of stream (skipped entirely on EXIT).
-        if !exit_requested {
-            if let Some(sw) = c_swindow {
-                let cohorts = self.base.doc.store.single_windows.get(sw.0).cohorts.clone();
-                if let Some(&last) = cohorts.last() {
-                    let rs = self.base.doc.store.cohorts.get(last.0).readings.clone();
-                    for r in rs {
-                        self.add_endtag(r)?;
-                    }
-                }
+        // An EXIT goes straight to the end, so buffered windows are neither
+        // run nor written.
+        if !exited {
+            self.base.doc.input_eof = true;
+            if let Some(sw) = st.c_swindow.take() {
+                self.add_end_tag_to_last(sw)?;
             }
-
-            while self.base.engine().rotate_next().is_some() {
-                self.base.engine().run_grammar_on_window_with(fmt, output)?;
-            }
-            if self.base.doc.stream.current.is_some() {
-                self.base.engine().run_grammar_on_window_with(fmt, output)?;
-            }
-
-            self.base.engine().shuffle_windows_down();
-            while !self.base.doc.stream.previous.is_empty() {
-                let tmp = self.base.doc.stream.previous[0];
-                fmt.print_single_window(&mut self.base.engine(), tmp, output, false)?;
-                crate::single_window::free_swindow(
-                    &mut self.base.doc.store,
-                    &mut self.base.doc.cohorts,
-                    &mut self.base.doc.deps,
-                    Some(tmp),
-                );
-                self.base.doc.stream.previous.remove(0);
-            }
-
+            self.flush_windows(fmt, output, &st)?;
             let _ = output.flush();
-
-            // Emit any still-pending GLOBAL variable commands.
-            for &var in variables_output.as_slice() {
-                let key = {
-                    let key_tag = tag_by_hash(&self.base.grammar, TagHash(var));
-                    self.base
-                        .grammar
-                        .single_tags_list
-                        .get(key_tag.0)
-                        .tag
-                        .clone()
-                };
-                let it = variables_set.find(var);
-                let mut cmd_buf = String::new();
-                if it != variables_set.end() {
-                    let val = it.get().1;
-                    if val != self.base.grammar.tag_any {
-                        let value = {
-                            let vt = tag_by_hash(&self.base.grammar, TagHash(val));
-                            self.base.grammar.single_tags_list.get(vt.0).tag.clone()
-                        };
-                        cmd_buf.push_str(STR_CMD_SETVAR);
-                        cmd_buf.push_str(&key);
-                        cmd_buf.push('=');
-                        cmd_buf.push_str(&value);
-                        cmd_buf.push('>');
-                    } else {
-                        cmd_buf.push_str(STR_CMD_SETVAR);
-                        cmd_buf.push_str(&key);
-                        cmd_buf.push('>');
-                    }
-                } else {
-                    cmd_buf.push_str(STR_CMD_REMVAR);
-                    cmd_buf.push_str(&key);
-                    cmd_buf.push('>');
-                }
-                fmt.print_stream_command(&mut self.base.engine(), &cmd_buf, output);
+            // The variables set or removed after the last window was made.
+            for cmd in
+                variable_commands(&self.base.grammar, &st.variables_output, &st.variables_set)
+            {
+                fmt.print_stream_command(&mut self.base.engine(), &cmd, output);
             }
         }
 
-        // CGCMD_EXIT_JSONL: verbose "Progress: ... - Done." line: deferred.
-        Ok(())
-    }
-
-    /// `addTagToReading(*iter, endtag)` — the C++ `uint32_t` overload: resolve the
-    /// `endtag` hash to its `TagId` (via `grammar->single_tags[hash]`), then add.
-    /// Not a manifest symbol — a helper deduplicating the repeated end-tagging.
-    fn add_endtag(&mut self, reading: ReadingId) -> Result<(), crate::error::RunError> {
-        let endtag_id = tag_by_hash(&self.base.grammar, self.base.cfg.endtag);
-        self.base.engine().add_tag_to_reading(reading, endtag_id)?;
-        Ok(())
-    }
-
-    /// The hash of `text` interned as a tag, or of `*` when `text` is empty,
-    /// with the CG reader's warning for the SETVAR `side` left empty.
-    fn setvar_side_hash(&mut self, text: &str, side: &str) -> Result<u32, crate::error::RunError> {
-        if text.is_empty() {
-            tracing::warn!(
-                "Warning: SETVAR on line {} had no {side}! Defaulting to *.",
-                self.base.doc.num_lines
+        if self.base.cfg.verbosity_level > 0 {
+            tracing::info!(
+                "Progress: L:{}, W:{}, C:{}, R:{} - Done.",
+                self.base.doc.num_lines,
+                self.base.doc.num_windows,
+                self.base.doc.num_cohorts,
+                self.base.doc.num_readings
             );
-            return Ok(self.base.grammar.tag_any);
         }
-        let tag = self.base.add_tag(text, crate::tag::TagType::empty())?;
-        Ok(self.base.grammar.single_tags_list.get(tag.0).hash.get())
-    }
-
-    // [spec:cg3:req:robustness.empty-tag]
-    /// `<STREAMCMD:SETVAR:key[=value]>` with its prefix and closing `>`
-    /// stripped: set `key` to `value`, or to `*` when there is no `=`.
-    ///
-    /// DIVERGENCE: the C++ interned an empty tag for an empty key or value.
-    /// An empty key or value beside an `=` defaults to `*`, as the CG and
-    /// Apertium readers' C++ does; a command with neither is skipped.
-    fn setvar_command(
-        &mut self,
-        payload: &str,
-        variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
-        variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
-        variables_output: &mut Uint32SortedVector,
-    ) -> Result<(), crate::error::RunError> {
-        let (key_hash, value_hash) = match payload.split_once('=') {
-            Some((key, value)) => (
-                self.setvar_side_hash(key, "identifier before the =")?,
-                self.setvar_side_hash(value, "value after the =")?,
-            ),
-            None if payload.is_empty() => return Ok(()),
-            None => (
-                self.setvar_side_hash(payload, "identifier")?,
-                self.base.grammar.tag_any,
-            ),
-        };
-        // variables_set[key_hash] = value_hash; (operator[] overwrites)
-        *variables_set.index_or_insert(key_hash) = value_hash;
-        variables_rem.erase(key_hash);
-        variables_output.insert(key_hash);
         Ok(())
     }
 
-    // [spec:cg3:req:robustness.empty-tag]
-    /// `<STREAMCMD:REMVAR:key>` with its prefix and closing `>` stripped.
-    ///
-    /// DIVERGENCE: an empty key is skipped, as the CG and Apertium readers'
-    /// C++ skips one; the JSONL C++ interned an empty tag.
-    fn remvar_command(
-        &mut self,
-        payload: &str,
-        variables_set: &mut crate::flat_unordered_map::Uint32FlatHashMap,
-        variables_rem: &mut crate::flat_unordered_set::Uint32FlatHashSet,
-        variables_output: &mut Uint32SortedVector,
-    ) -> Result<(), crate::error::RunError> {
-        if payload.is_empty() {
-            return Ok(());
-        }
-        let key_tag = self.base.add_tag(payload, crate::tag::TagType::empty())?;
-        let key_hash = self.base.grammar.single_tags_list.get(key_tag.0).hash.get();
-        variables_set.erase(key_hash);
-        variables_rem.insert(key_hash);
-        variables_output.insert(key_hash);
-        Ok(())
-    }
-
-    /// Shuffle the windows down one and run the grammar on the new current
-    /// window, resetting the indexes every `reset_after` windows.
-    ///
-    /// DIVERGENCE: with `--num-windows 0` a delimiter can shuffle the only
-    /// window out, leaving none current; the C++ ran the grammar on the null
-    /// window and crashed. There is nothing to run, so nothing runs.
-    fn run_next_window<F, W>(
+    /// One line of the stream, the `line`th: a command, a cohort or a line
+    /// of text. `Break` on an EXIT.
+    fn read_jsonl_object<F: StreamFormat, W: Write>(
         &mut self,
         fmt: &mut F,
         output: &mut W,
-        reset_after: u32,
-    ) -> Result<(), crate::error::RunError>
-    where
-        F: crate::grammar_applicator::stream_format::StreamFormat,
-        W: Write,
-    {
-        self.base.engine().shuffle_windows_down();
-        if self.base.doc.stream.current.is_none() {
-            return Ok(());
+        st: &mut ReadState,
+        line_str: &str,
+        line: u32,
+    ) -> Result<ControlFlow<()>, RunError> {
+        if line_str
+            .bytes()
+            .all(|b| matches!(b, b' ' | b'\t' | b'\n' | 0x0B | 0x0C | b'\r'))
+        {
+            return Ok(ControlFlow::Continue(()));
         }
-        self.base.engine().run_grammar_on_window_with(fmt, output)?;
-        if self.base.doc.num_windows.is_multiple_of(reset_after) {
-            self.base.reset_indexes();
+        let doc = match json::parse(line_str) {
+            Ok(doc) => doc,
+            Err(e) => {
+                tracing::warn!(
+                    "Warning: Failed to parse JSON on line {line}: {} (offset {}). Skipping line.",
+                    e.code,
+                    e.offset
+                );
+                return Ok(ControlFlow::Continue(()));
+            }
+        };
+        let obj = doc.root();
+        if !obj.is_object() {
+            tracing::warn!("Warning: JSON on line {line} is not an object. Skipping line.");
+            return Ok(ControlFlow::Continue(()));
         }
-        // verbose progress: deferred.
+
+        if obj.member("cmd").is_some() {
+            return self.read_jsonl_command(fmt, output, st, obj, line);
+        }
+        if obj.member("w").is_some() {
+            self.read_jsonl_cohort(fmt, output, st, obj, line_str, line)?;
+        } else if obj.member("t").is_some() {
+            if let Some(text) = get_json_string(obj, "t", line) {
+                self.add_text(fmt, output, st, &format!("{text}\n"))?;
+            }
+        } else {
+            tracing::warn!(
+                "Warning: JSON object on line {line} has none of 'w', 't' or 'cmd'. Skipping line."
+            );
+        }
+        Ok(ControlFlow::Continue(()))
+    }
+
+    /// A `"cmd"` object, handled whether or not input is ignored.
+    fn read_jsonl_command<F: StreamFormat, W: Write>(
+        &mut self,
+        fmt: &mut F,
+        output: &mut W,
+        st: &mut ReadState,
+        obj: json::Value<'_>,
+        line: u32,
+    ) -> Result<ControlFlow<()>, RunError> {
+        let Some(cmd) = get_json_string(obj, "cmd", line) else {
+            return Ok(ControlFlow::Continue(()));
+        };
+        if cmd.is_empty() {
+            tracing::warn!("Warning: Empty 'cmd' value on line {line}.");
+            return Ok(ControlFlow::Continue(()));
+        }
+        // The text between `prefix` and the closing `>`, when `cmd` has both.
+        let payload = |prefix: &str| {
+            (cmd.len() > prefix.len() && cmd.ends_with('>'))
+                .then(|| cmd.strip_prefix(prefix))
+                .flatten()
+                .map(|rest| &rest[..rest.len() - 1])
+        };
+        let verbose = self.base.cfg.verbosity_level > 0;
+
+        if cmd == STR_CMD_FLUSH {
+            if verbose {
+                tracing::info!("Info: FLUSH encountered on line {line}. Flushing...");
+            }
+            let back_swindow = self.base.doc.stream.back();
+            if let Some(bsw) = back_swindow {
+                self.base
+                    .doc
+                    .store
+                    .single_windows
+                    .get_mut(bsw.0)
+                    .flush_after = true;
+            }
+            if let Some(sw) = st.c_swindow {
+                self.add_end_tag_to_last(sw)?;
+            }
+            st.l_cohort = None;
+            st.c_swindow = None;
+            st.l_swindow = None;
+            self.flush_windows(fmt, output, st)?;
+            if back_swindow.is_none() {
+                fmt.print_stream_command(&mut self.base.engine(), STR_CMD_FLUSH, output);
+            }
+            self.base.doc.variables.clear(0);
+            let _ = output.flush();
+        } else if cmd == STR_CMD_IGNORE {
+            if verbose {
+                tracing::info!(
+                    "Info: IGNORE encountered on line {line}. Passing through all input..."
+                );
+            }
+            st.ignoreinput = true;
+            fmt.print_stream_command(&mut self.base.engine(), STR_CMD_IGNORE, output);
+        } else if cmd == STR_CMD_RESUME {
+            if verbose {
+                tracing::info!("Info: RESUME encountered on line {line}. Resuming CG...");
+            }
+            st.ignoreinput = false;
+            fmt.print_stream_command(&mut self.base.engine(), STR_CMD_RESUME, output);
+        } else if cmd == STR_CMD_EXIT {
+            if verbose {
+                tracing::info!("Info: EXIT encountered on line {line}. Exiting...");
+            }
+            fmt.print_stream_command(&mut self.base.engine(), STR_CMD_EXIT, output);
+            return Ok(ControlFlow::Break(()));
+        } else if let Some(items) = payload(STR_CMD_SETVAR) {
+            self.setvar_command(items, st, line)?;
+        } else if let Some(items) = payload(STR_CMD_REMVAR) {
+            self.remvar_command(items, st)?;
+        } else {
+            tracing::warn!(
+                "Warning: Unknown or malformed stream command {cmd} on line {line} - treated as text."
+            );
+            self.add_text(fmt, output, st, &format!("{cmd}\n"))?;
+        }
+        Ok(ControlFlow::Continue(()))
+    }
+
+    /// `<STREAMCMD:SETVAR:...>` with its prefix and closing `>` stripped:
+    /// `,`-separated items, each `key=value` or a bare `key` set to `*`. An
+    /// empty key or value is `*`, the grammar's `tag_any`.
+    fn setvar_command(
+        &mut self,
+        payload: &str,
+        st: &mut ReadState,
+        line: u32,
+    ) -> Result<(), RunError> {
+        let tag_any = self.base.grammar.tag_any;
+        for item in payload.split(',') {
+            let (key, value) = match item.split_once('=') {
+                Some((key, value)) => (key, Some(value)),
+                None => (item, None),
+            };
+            let key_hash = if key.is_empty() {
+                tracing::warn!(
+                    "Warning: SETVAR on line {line} had an empty identifier! Defaulting to identifier *."
+                );
+                tag_any
+            } else {
+                self.tag_hash(key)?
+            };
+            let value_hash = match value {
+                Some("") => {
+                    tracing::warn!(
+                        "Warning: SETVAR on line {line} had no value after the =! Defaulting to value *."
+                    );
+                    tag_any
+                }
+                Some(value) => self.tag_hash(value)?,
+                None => tag_any,
+            };
+            *st.variables_set.index_or_insert(key_hash) = value_hash;
+            st.variables_rem.erase(key_hash);
+            st.variables_output.insert(key_hash);
+        }
         Ok(())
     }
+
+    /// `<STREAMCMD:REMVAR:...>` with its prefix and closing `>` stripped:
+    /// `,`-separated keys, empty ones skipped.
+    fn remvar_command(&mut self, payload: &str, st: &mut ReadState) -> Result<(), RunError> {
+        for key in payload.split(',').filter(|key| !key.is_empty()) {
+            let key_hash = self.tag_hash(key)?;
+            st.variables_set.erase(key_hash);
+            st.variables_rem.insert(key_hash);
+            st.variables_output.insert(key_hash);
+        }
+        Ok(())
+    }
+
+    fn tag_hash(&mut self, text: &str) -> Result<u32, RunError> {
+        let tag = self.base.add_tag(text, TagType::empty())?;
+        Ok(self.base.grammar.single_tags_list[tag.0].hash.get())
+    }
+
+    /// A `"w"` object: a cohort, or with input ignored the line as text.
+    fn read_jsonl_cohort<F: StreamFormat, W: Write>(
+        &mut self,
+        fmt: &mut F,
+        output: &mut W,
+        st: &mut ReadState,
+        obj: json::Value<'_>,
+        line_str: &str,
+        line: u32,
+    ) -> Result<(), RunError> {
+        if st.ignoreinput {
+            return self.add_text(fmt, output, st, &format!("{line_str}\n"));
+        }
+        let wform = match get_json_string(obj, "w", line) {
+            Some(wform) if !wform.is_empty() => wform,
+            _ => {
+                tracing::warn!(
+                    "Warning: Cohort on line {line} has an empty or invalid 'w' (wordform). Skipping line."
+                );
+                return Ok(());
+            }
+        };
+
+        // Once past the soft limit, delimit at the last soft delimiter in
+        // the window, if there is one.
+        if let Some(sw) = st.c_swindow
+            && let Some(soft) = self.base.grammar.soft_delimiters
+            && self.base.doc.store.single_windows.get(sw.0).cohorts.len()
+                > self.base.cfg.soft_limit as usize
+            && !st.did_soft_lookback
+        {
+            st.did_soft_lookback = true;
+            let soft = self.base.grammar.sets_list[soft.0].number.get();
+            let cohorts = self.base.doc.store.single_windows.get(sw.0).cohorts.clone();
+            for &c in cohorts.iter().rev() {
+                if self
+                    .base
+                    .engine()
+                    .does_set_match_cohort_normal(c, soft, None)?
+                {
+                    st.did_soft_lookback = false;
+                    let last = self.base.engine().delimit_at(sw, c)?;
+                    st.c_swindow = self
+                        .base
+                        .doc
+                        .store
+                        .cohorts
+                        .get(last.0)
+                        .parent
+                        .and_then(|p| self.base.doc.store.single_windows.get(p.0).next);
+                    st.l_swindow = st.c_swindow;
+                    if self.base.cfg.verbosity_level > 0 {
+                        tracing::warn!(
+                            "Warning: Soft limit of {} cohorts reached at line {line} but found suitable soft delimiter in buffer.",
+                            self.base.cfg.soft_limit
+                        );
+                    }
+                    break;
+                }
+            }
+        }
+        let mut sw = match st.c_swindow {
+            Some(sw) => sw,
+            None => self.new_window(st)?,
+        };
+        // Rules see `num_windows` windows ahead, as with the CG reader.
+        if self.base.doc.stream.next.len() > (self.base.cfg.num_windows as usize).saturating_add(1)
+        {
+            self.run_window(fmt, output, st)?;
+        }
+
+        let c_cohort = self.parse_json_cohort(obj, wform, sw, line)?;
+
+        // A cohort that no longer belongs to the window, by --dep-delimit,
+        // starts the next one. A cohort without a "ds" never does.
+        let dep_self = self
+            .base
+            .doc
+            .store
+            .cohorts
+            .get(c_cohort.0)
+            .dep_self
+            .map_or(0, GlobalNumber::get);
+        let dep_delimit = self.base.cfg.dep_delimit;
+        let highest = self.base.doc.deps.dep_highest_seen.get();
+        if dep_delimit != 0
+            && highest != 0
+            && dep_self != 0
+            && self.base.doc.store.single_windows.get(sw.0).cohorts.len() > 1
+            && (dep_self <= highest || dep_self - highest > dep_delimit)
+        {
+            let global_number = self.base.doc.store.cohorts.get(c_cohort.0).global_number;
+            self.base
+                .engine()
+                .reflow_dependency_window(global_number.get());
+            self.add_end_tag_to_last(sw)?;
+            sw = self.new_window(st)?;
+            self.base.doc.deps.dep_highest_seen = GlobalNumber(0);
+            self.base.doc.store.cohorts.get_mut(c_cohort.0).parent = Some(sw);
+            if self.base.grammar.has_bag_of_tags {
+                let readings = self.base.doc.store.cohorts.get(c_cohort.0).readings.clone();
+                for reading in readings {
+                    self.base.engine().reflow_reading(reading)?;
+                }
+            }
+        }
+
+        crate::single_window::append_cohort(
+            &mut self.base.doc.store,
+            &mut self.base.doc.cohorts,
+            &mut self.base.doc.deps,
+            sw,
+            c_cohort,
+        );
+        if dep_self != 0 {
+            self.base.doc.deps.dep_highest_seen = GlobalNumber(dep_self);
+        }
+        st.l_cohort = Some(c_cohort);
+
+        // The CG reader tests the limits before it appends the cohort, hence
+        // `>` rather than `>=`.
+        let size = self.base.doc.store.single_windows.get(sw.0).cohorts.len();
+        let soft_delimiters = self.base.grammar.soft_delimiters;
+        let delimiters = self.base.grammar.delimiters;
+        if size > self.base.cfg.soft_limit as usize
+            && self
+                .base
+                .engine()
+                .matches_delimiter_set(c_cohort, soft_delimiters)?
+        {
+            if self.base.cfg.verbosity_level > 0 {
+                tracing::warn!(
+                    "Warning: Soft limit of {} cohorts reached at line {line} but found suitable soft delimiter.",
+                    self.base.cfg.soft_limit
+                );
+            }
+            self.add_end_tag(c_cohort)?;
+            st.c_swindow = None;
+        } else if size > self.base.cfg.hard_limit as usize
+            || (dep_delimit == 0
+                && self
+                    .base
+                    .engine()
+                    .matches_delimiter_set(c_cohort, delimiters)?)
+        {
+            if !self.base.cfg.is_conv && size > self.base.cfg.hard_limit as usize {
+                tracing::warn!(
+                    "Warning: Hard limit of {} cohorts reached at line {line} - forcing break.",
+                    self.base.cfg.hard_limit
+                );
+            }
+            self.add_end_tag(c_cohort)?;
+            st.c_swindow = None;
+        }
+        Ok(())
+    }
+
+    /// C++ `add_text`: text read on its own line goes where the CG reader
+    /// puts it. After a cohort it is that cohort's, unless it matches
+    /// `--text-delimit`, which ends the window; else it is the last window's;
+    /// with no window yet it is written at once.
+    fn add_text<F: StreamFormat, W: Write>(
+        &mut self,
+        fmt: &mut F,
+        output: &mut W,
+        st: &mut ReadState,
+        text: &str,
+    ) -> Result<(), RunError> {
+        if let (Some(lsw), Some(_)) = (st.l_swindow, st.l_cohort)
+            && crate::grammar_applicator::run_grammar::test_string_against(
+                text,
+                &self.base.cfg.text_delimiters,
+            )
+        {
+            self.base
+                .doc
+                .store
+                .single_windows
+                .get_mut(lsw.0)
+                .text_post
+                .push_str(text);
+            if st.c_swindow == Some(lsw) {
+                self.add_end_tag_to_last(lsw)?;
+                st.c_swindow = None;
+            }
+            st.l_cohort = None;
+        } else if let Some(lc) = st.l_cohort {
+            self.base
+                .doc
+                .store
+                .cohorts
+                .get_mut(lc.0)
+                .text
+                .push_str(text);
+        } else if let Some(lsw) = st.l_swindow {
+            let window = self.base.doc.store.single_windows.get_mut(lsw.0);
+            if window.text_post.is_empty() {
+                window.text.push_str(text);
+            } else {
+                window.text_post.push_str(text);
+            }
+        } else {
+            fmt.print_plain_text_line(&mut self.base.engine(), text, output);
+        }
+        Ok(())
+    }
+
+    /// C++ `new_window`: append a window to fill, and move the variables set
+    /// or removed since the last one into it.
+    fn new_window(&mut self, st: &mut ReadState) -> Result<SwId, RunError> {
+        let sw = self
+            .base
+            .doc
+            .stream
+            .alloc_append_single_window(&mut self.base.doc.store);
+        self.base.engine().init_empty_single_window(sw)?;
+        st.c_swindow = Some(sw);
+        st.l_swindow = Some(sw);
+        self.base.doc.num_windows = self.base.doc.num_windows.wrapping_add(1);
+        st.did_soft_lookback = false;
+        // The window is new and holds no variables, so swapping the locals
+        // in leaves them empty, as the C++'s insert-then-clear does.
+        let window = self.base.doc.store.single_windows.get_mut(sw.0);
+        window.variables_set.swap(&mut st.variables_set);
+        window.variables_rem.swap(&mut st.variables_rem);
+        window.variables_output.swap(&mut st.variables_output);
+        Ok(sw)
+    }
+
+    /// C++ `run_window`: run the grammar on the next window. JSONL has no
+    /// marker for a dependency that spans windows, so once one is resolved
+    /// across windows the writer is told to number dependencies as spanning;
+    /// windows are written a few runs later, in time for that.
+    fn run_window<F: StreamFormat, W: Write>(
+        &mut self,
+        fmt: &mut F,
+        output: &mut W,
+        st: &ReadState,
+    ) -> Result<(), RunError> {
+        self.base.engine().shuffle_windows_down();
+        self.base.engine().run_grammar_on_window_with(fmt, output)?;
+        if self.base.doc.deps.has_dep && !self.base.doc.dep_has_spanned {
+            let windows: Vec<SwId> = self
+                .base
+                .doc
+                .stream
+                .current
+                .into_iter()
+                .chain(self.base.doc.stream.next.iter().copied())
+                .collect();
+            for window in windows {
+                if self.dep_spans_windows(window) {
+                    self.base.doc.dep_has_spanned = true;
+                    break;
+                }
+            }
+        }
+        if self.base.doc.num_windows.is_multiple_of(st.reset_after) {
+            self.base.reset_indexes();
+        }
+        if self.base.cfg.verbosity_level > 0 {
+            tracing::info!(
+                "Progress: L:{}, W:{}, C:{}, R:{}",
+                st.line,
+                self.base.doc.num_windows,
+                self.base.doc.num_cohorts,
+                self.base.doc.num_readings
+            );
+        }
+        Ok(())
+    }
+
+    /// C++ `check_dep_span`: whether a cohort of `window` has a resolved
+    /// dependency parent in another window.
+    fn dep_spans_windows(&self, window: SwId) -> bool {
+        let store = &self.base.doc.store;
+        store.single_windows.get(window.0).cohorts.iter().any(|&c| {
+            let cohort = store.cohorts.get(c.0);
+            let Some(dep_parent) = cohort.dep_parent.filter(|p| p.get() != 0) else {
+                return false;
+            };
+            cohort.r#type.intersects(crate::cohort::CT_DEP_DONE)
+                && self
+                    .base
+                    .doc
+                    .cohorts
+                    .cohort_map
+                    .get(&dep_parent)
+                    .is_some_and(|&p| store.cohorts.get(p.0).parent != cohort.parent)
+        })
+    }
+
+    /// C++ `flush_windows`: run the grammar on every window still to run,
+    /// then write and free them all.
+    fn flush_windows<F: StreamFormat, W: Write>(
+        &mut self,
+        fmt: &mut F,
+        output: &mut W,
+        st: &ReadState,
+    ) -> Result<(), RunError> {
+        while !self.base.doc.stream.next.is_empty() {
+            self.run_window(fmt, output, st)?;
+        }
+        self.base.engine().shuffle_windows_down();
+        while let Some(&tmp) = self.base.doc.stream.previous.first() {
+            fmt.print_single_window(&mut self.base.engine(), tmp, output, false)?;
+            crate::single_window::free_swindow(
+                &mut self.base.doc.store,
+                &mut self.base.doc.cohorts,
+                &mut self.base.doc.deps,
+                Some(tmp),
+            );
+            self.base.doc.stream.previous.remove(0);
+        }
+        Ok(())
+    }
+
+    /// C++ `add_end_tag(cohort)`: the end tag, added to each reading of
+    /// `cohort` that does not have it yet.
+    fn add_end_tag(&mut self, cohort: CohortId) -> Result<(), RunError> {
+        let endtag = self.base.cfg.endtag;
+        let endtag_id = tag_by_hash(&self.base.grammar, endtag);
+        let readings = self.base.doc.store.cohorts.get(cohort.0).readings.clone();
+        for reading in readings {
+            if !self
+                .base
+                .doc
+                .store
+                .readings
+                .get(reading.0)
+                .tags
+                .contains(endtag.get())
+            {
+                self.base.engine().add_tag_to_reading(reading, endtag_id)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn add_end_tag_to_last(&mut self, sw: SwId) -> Result<(), RunError> {
+        match self.base.doc.store.single_windows.get(sw.0).cohorts.last() {
+            Some(&last) => self.add_end_tag(last),
+            None => Ok(()),
+        }
+    }
+}
+
+/// `parseJsonReading`'s `"s"`: the sub-reading object, if there is one.
+fn json_sub_reading<'d>(reading_obj: json::Value<'d>, line: u32) -> Option<json::Value<'d>> {
+    let sub = reading_obj.member("s")?;
+    if sub.is_object() {
+        return Some(sub);
+    }
+    tracing::warn!(
+        "Warning: Value for 's' (sub-reading) is not an object on line {line} - skipping."
+    );
+    None
+}
+
+/// The stream commands that write out `vars_output`, in its order: a SETVAR
+/// for each variable `vars_set` gives a value, without `=` for the value
+/// `*`, and a REMVAR for each it does not. A hash with no tag reads as empty
+/// text.
+fn variable_commands(
+    grammar: &Grammar,
+    vars_output: &Uint32SortedVector,
+    vars_set: &Uint32FlatHashMap,
+) -> Vec<String> {
+    let text = |hash: u32| {
+        let it = grammar.single_tags().find(hash);
+        if it == grammar.single_tags().end() {
+            ""
+        } else {
+            &*grammar.single_tags_list[it.get().1.0].tag
+        }
+    };
+    vars_output
+        .as_slice()
+        .iter()
+        .map(|&var| {
+            let key = text(var);
+            let found = vars_set.find(var);
+            if found == vars_set.end() {
+                format!("{STR_CMD_REMVAR}{key}>")
+            } else if found.get().1 == grammar.tag_any {
+                format!("{STR_CMD_SETVAR}{key}>")
+            } else {
+                format!("{STR_CMD_SETVAR}{key}={}>", text(found.get().1))
+            }
+        })
+        .collect()
 }
 
 // [spec:cg3:req:robustness.stream-invalid-utf8]
@@ -959,7 +1336,7 @@ fn read_jsonl_line<R: BufRead>(
     reader: &mut R,
     input: &str,
     line: u32,
-) -> Result<Option<String>, crate::error::RunError> {
+) -> Result<Option<String>, RunError> {
     let mut buf = Vec::new();
     match reader.read_until(b'\n', &mut buf) {
         Ok(0) | Err(_) => return Ok(None),
@@ -1447,10 +1824,6 @@ impl crate::grammar_applicator::stream_format::StreamFormat for JsonlFormat {
     }
 }
 
-/// C++ `obj["ds"].IsUint()` + `GetUint()`: accept only a JSON unsigned integer
-/// that fits in `u32`. serde_json numbers are queried via `as_u64`; reject
-/// negatives / non-integers / out-of-range (RapidJSON `IsUint` is a 32-bit
-/// unsigned check).
 /// An object or array a [`json_to_line`] walk is inside, and whether it has
 /// written a member yet.
 enum JsonLevel<'a> {
@@ -1519,24 +1892,6 @@ fn drop_json(v: Value) {
             _ => {}
         }
     }
-}
-
-fn as_uint(v: &Value) -> Option<u32> {
-    v.as_u64().and_then(|u| u32::try_from(u).ok())
-}
-
-/// C++ `cmd.substr(prefix.size(), cmd.size() - prefix.size() - 1)` —
-/// strip the leading `prefix` and the single final char (the assumed `>`).
-fn substr_strip_prefix_and_last(cmd: &str, prefix: &str) -> String {
-    // Work in chars to mirror the UTF-16-length arithmetic faithfully enough for
-    // the ASCII prefixes/`>` used here.
-    let chars: Vec<char> = cmd.chars().collect();
-    let plen = prefix.chars().count();
-    if chars.len() <= plen {
-        return String::new();
-    }
-    // Drop the prefix and the last char.
-    chars[plen..chars.len() - 1].iter().collect()
 }
 
 /// C++ `std::sort(list, Reading::cmp_number)` over a reading-id list, resolving
