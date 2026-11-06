@@ -3,7 +3,7 @@
 //!
 //! Each `test/T_*` directory holds `grammar.cg3` + `input.txt` + `expected.txt`
 //! (+ optional `args.txt` extra flags, `prefix.txt` mapping prefix). For every
-//! such directory this runs the four `runall.pl` sub-tests as separate nextest
+//! such directory this runs the five `runall.pl` sub-tests as separate nextest
 //! tests, all DIR-LOCAL (cwd = the test dir, because the grammar and input are
 //! passed as bare names — `-g grammar.cg3`, `-I input.txt` — and `expected.txt`
 //! is read from the dir. NOT because of `INCLUDE`: relative includes resolve
@@ -17,6 +17,8 @@
 //! 4. [`golden_binary_stream`]    — round-trip the stream through the binary
 //!    format (`--in-cg|--out-binary` → `--in-binary|--out-binary` →
 //!    `--in-binary|--out-cg`), compare untraced/sorted/stabilised output.
+//! 5. [`golden_jsonl_stream`]     — the same round trip through JSONL, except
+//!    in a dir holding `skip-jsonl.txt`.
 //!
 //! Directories needing a custom protocol (external process, relabel,
 //! sub-readings) are in [`CUSTOM`] and covered by dedicated tests
@@ -34,7 +36,7 @@ use common::{diff_b_equal, repo_root, run_capture};
 use filters::{cg_sort, read_args, stabilize_relations, untrace};
 
 /// Directories whose behaviour is exercised by a dedicated test rather than the
-/// generic four sub-tests here (they need cg-relabel/cg-proc/an external process
+/// generic five sub-tests here (they need cg-relabel/cg-proc/an external process
 /// or a dummy grammar).
 const CUSTOM: &[&str] = &[
     "T_External",
@@ -226,58 +228,79 @@ fn golden_binary_grammar() {
 }
 
 // ---------------------------------------------------------------------------
-// Sub-test 4: round-trip the stream through the binary format.
+// Sub-tests 4 and 5: round-trip the stream through the binary or JSONL format.
 // ---------------------------------------------------------------------------
+
+/// `format` names the stream format as its `--in-*`/`--out-*` flags spell it.
+/// It also names the scratch copy of the fixture, so the two legs never share
+/// one when `cargo test` runs them as threads of a single process.
+fn stream_round_trip(dir: &Path, format: &str) -> Result<(), String> {
+    let name = name_of(dir);
+    // runall.pl writes `Include Static grammar.cg3 ;` beside grammar.cg3.
+    // The wrapper goes beside a copy instead, so the corpus is never
+    // written to, and the include stays relative: an INCLUDE path ends at
+    // the first whitespace and cannot be quoted, so an absolute path breaks
+    // in any checkout whose path has a space.
+    let bsf_dir = tmp(&name, format, "d");
+    copy_fixture(dir, &bsf_dir).map_err(|e| format!("copy fixture: {e}"))?;
+    let bsf = bsf_dir.join("grammar.bsf.cg3");
+    std::fs::write(&bsf, "Include Static grammar.cg3 ;\n")
+        .map_err(|e| format!("write bsf grammar: {e}"))?;
+    let bsf_s = bsf.to_str().unwrap();
+    let in_flag = format!("--in-{format}");
+    let out_flag = format!("--out-{format}");
+
+    let base = read_args(dir);
+    let input = std::fs::read(dir.join("input.txt")).map_err(|e| format!("read input: {e}"))?;
+
+    let (s1, ok1) = run_capture(
+        vislcg3(),
+        &argv(&base, &["--in-cg", &out_flag, "-g", bsf_s]),
+        dir,
+        &input,
+    );
+    let (s2, ok2) = run_capture(
+        vislcg3(),
+        &argv(&base, &["-g", "grammar.cg3", &in_flag, &out_flag]),
+        dir,
+        &s1,
+    );
+    let (s3, ok3) = run_capture(
+        vislcg3(),
+        &argv(&base, &[&in_flag, "--out-cg", "-g", bsf_s]),
+        dir,
+        &s2,
+    );
+    let _ = std::fs::remove_dir_all(&bsf_dir);
+    if !(ok1 && ok2 && ok3) {
+        return Err(format!("a {format}-stream stage exited non-zero"));
+    }
+    let prefix = mapping_prefix(dir);
+    let got = stabilize_relations(&cg_sort(&untrace(&String::from_utf8_lossy(&s3)), &prefix));
+    let want = stabilize_relations(&cg_sort(&untrace(&expected(dir)), &prefix));
+    if diff_b_equal(&want, &got) {
+        Ok(())
+    } else {
+        Err(format!("{format}-stream round-trip differs from expected"))
+    }
+}
 
 #[test]
 fn golden_binary_stream() {
     run_all("golden_binary_stream", |dir| {
-        let name = name_of(dir);
-        // runall.pl writes `Include Static grammar.cg3 ;` beside grammar.cg3.
-        // The wrapper goes beside a copy instead, so the corpus is never
-        // written to, and the include stays relative: an INCLUDE path ends at
-        // the first whitespace and cannot be quoted, so an absolute path breaks
-        // in any checkout whose path has a space.
-        let bsf_dir = tmp(&name, "bsf", "d");
-        copy_fixture(dir, &bsf_dir).map_err(|e| format!("copy fixture: {e}"))?;
-        let bsf = bsf_dir.join("grammar.bsf.cg3");
-        std::fs::write(&bsf, "Include Static grammar.cg3 ;\n")
-            .map_err(|e| format!("write bsf grammar: {e}"))?;
-        let bsf_s = bsf.to_str().unwrap();
+        stream_round_trip(dir, "binary")
+    });
+}
 
-        let base = read_args(dir);
-        let input = std::fs::read(dir.join("input.txt")).map_err(|e| format!("read input: {e}"))?;
-
-        let (b1, ok1) = run_capture(
-            vislcg3(),
-            &argv(&base, &["--in-cg", "--out-binary", "-g", bsf_s]),
-            dir,
-            &input,
-        );
-        let (b2, ok2) = run_capture(
-            vislcg3(),
-            &argv(&base, &["-g", "grammar.cg3", "--in-binary", "--out-binary"]),
-            dir,
-            &b1,
-        );
-        let (b3, ok3) = run_capture(
-            vislcg3(),
-            &argv(&base, &["--in-binary", "--out-cg", "-g", bsf_s]),
-            dir,
-            &b2,
-        );
-        let _ = std::fs::remove_dir_all(&bsf_dir);
-        if !(ok1 && ok2 && ok3) {
-            return Err("a binary-stream stage exited non-zero".to_string());
+#[test]
+fn golden_jsonl_stream() {
+    run_all("golden_jsonl_stream", |dir| {
+        // runall.pl skips this leg, and only this leg, where the dir carries a
+        // skip-jsonl.txt; the file says why the test cannot round-trip.
+        if dir.join("skip-jsonl.txt").exists() {
+            return Ok(());
         }
-        let prefix = mapping_prefix(dir);
-        let got = stabilize_relations(&cg_sort(&untrace(&String::from_utf8_lossy(&b3)), &prefix));
-        let want = stabilize_relations(&cg_sort(&untrace(&expected(dir)), &prefix));
-        if diff_b_equal(&want, &got) {
-            Ok(())
-        } else {
-            Err("binary-stream round-trip differs from expected".to_string())
-        }
+        stream_round_trip(dir, "jsonl")
     });
 }
 

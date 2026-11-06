@@ -295,6 +295,7 @@ assertions (
     {id w4-utf8-native-strings, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:40.500409Z}
     {id wasm.publish, kind @complete, author "brendan@necessary.nu", at 2026-10-29T15:40:46.997202Z}
     {id wasm.spec, kind @complete, author "brendan@necessary.nu", at 2026-10-29T13:58:23.741133Z}
+    {id upstream-1-7-0.jsonl.round-trip-leg, kind @complete, author "brendan@necessary.nu", at 2026-11-06T08:01:12.608737Z}
 )
 
 impl_evidence (

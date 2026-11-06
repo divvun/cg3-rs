@@ -3689,6 +3689,15 @@ children (
                         title "Add runall.pl's JSONL leg to golden.rs: run every corpus test CG to JSONL, through the grammar as JSONL, and back to CG against expected.bsf.txt, skipping tests that carry a skip-jsonl.txt (T_Dependency)"
                         kind @test
                         deps (upstream-1-7-0.jsonl.reader upstream-1-7-0.jsonl.writer)
+                        sealed true
+                        log (
+                            {
+                                at 2026-11-06T08:01:12.608737Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Doing → Done (nplan complete)"
+                            }
+                        )
                     }
                 )
                 log (
