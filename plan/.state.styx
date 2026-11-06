@@ -271,6 +271,8 @@ assertions (
     {id test-paths-with-spaces, kind @complete, author "brendan@necessary.nu", at 2026-11-05T22:18:37.103092Z}
     {id textual-sniff-bounds, kind @doing, author "brendan@necessary.nu", at 2026-08-15T22:31:05.119277Z}
     {id unsafe-zero, kind @complete, author "brendan@necessary.nu", at 2026-07-19T23:41:42.679293Z}
+    {id upstream-1-7-0.jsonl.corpus, kind @complete, author "brendan@necessary.nu", at 2026-11-06T08:11:35.284682Z}
+    {id upstream-1-7-0.jsonl.round-trip-leg, kind @complete, author "brendan@necessary.nu", at 2026-11-06T08:01:12.608737Z}
     {id upstream-1-7-0.jsonl.spec, kind @complete, author "brendan@necessary.nu", at 2026-11-05T22:34:19.015302Z}
     {id upstream-1-7-0.reference, kind @complete, author "brendan@necessary.nu", at 2026-11-05T21:55:20.272951Z}
     {id upstream-1-7-0.remcohort-loop.intent, kind @complete, author "brendan@necessary.nu", at 2026-11-05T22:03:25.472304Z}
@@ -295,7 +297,6 @@ assertions (
     {id w4-utf8-native-strings, kind @complete, author "brendan@necessary.nu", at 2026-07-19T22:53:40.500409Z}
     {id wasm.publish, kind @complete, author "brendan@necessary.nu", at 2026-10-29T15:40:46.997202Z}
     {id wasm.spec, kind @complete, author "brendan@necessary.nu", at 2026-10-29T13:58:23.741133Z}
-    {id upstream-1-7-0.jsonl.round-trip-leg, kind @complete, author "brendan@necessary.nu", at 2026-11-06T08:01:12.608737Z}
 )
 
 impl_evidence (
@@ -681,6 +682,27 @@ impl_evidence (
         {id jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn, version 1}
         {id jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn, version 2}
     )}
+    {id upstream-1-7-0.jsonl.writer, covered_rules (
+        jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn
+        jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-text-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-variables-fn
+        jsonl-applicator.cg3.write-json-line-fn
+    ), covered_claims (
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-text-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-variables-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.write-json-line-fn}
+    )}
     {id upstream-1-7-0.mergecohorts-wblank, covered_rules (
         grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn
     ), covered_claims (
@@ -781,26 +803,5 @@ impl_evidence (
         {id flat-unordered-set.cg3.flat-unordered-set.hash-value-sz-fn, version 1}
         {id wasm.library-builds, version 0}
         {id wasm.width-independent, version 0}
-    )}
-    {id upstream-1-7-0.jsonl.writer, covered_rules (
-        jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn
-        jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn
-        jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn
-        jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn
-        jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn
-        jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn
-        jsonl-applicator.cg3.jsonl-applicator.print-text-fn
-        jsonl-applicator.cg3.jsonl-applicator.print-variables-fn
-        jsonl-applicator.cg3.write-json-line-fn
-    ), covered_claims (
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-text-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-variables-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.write-json-line-fn}
     )}
 )
