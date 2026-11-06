@@ -35,7 +35,7 @@ default = []
 profiler = ["cg3/profiler", "dep:rusqlite"]
 
 [dependencies]
-cg3 = { path = "../cg3", version = "0.4.0" }
+cg3 = { path = "../cg3", version = "0.5.0" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
 thiserror = "2.0.20"

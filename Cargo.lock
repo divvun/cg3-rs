@@ -101,7 +101,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "cg3"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ariadne",
  "bitflags",
@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "cg3-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cg3",
  "regex",
@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "cg3-wasm"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cg3",
  "cg3-cli",

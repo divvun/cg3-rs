@@ -3812,4 +3812,26 @@ children (
             }
         )
     }
+
+    {
+        id release-0-5-0
+        title "Release 0.5.0: bump the workspace, the cg3 path dependencies and @divvun/cg3 to 0.5.0 and tag v0.5.0, shipping the v1.7.0 work (the FLUSH crash fix, the MergeCohorts wblank, the rewritten JSONL format, the help text)"
+        kind @chore
+        sealed true
+        log (
+            {
+                at 2026-11-06T09:52:06.582534Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
+            }
+
+            {
+                at 2026-11-06T09:57:33.533223Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Doing → Done (nplan complete)"
+            }
+        )
+    }
 )
