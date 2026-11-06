@@ -324,6 +324,25 @@ fn remcohort_of_the_last_cohort_ends_the_loop() {
     assert_eq!(run_in_process(grammar, &input, true), want);
 }
 
+// [spec:cg3:sem:grammar-applicator-run-rules.cg3.grammar-applicator.run-single-rule-fn+2/test]
+#[test]
+fn splitcohort_goes_on_to_the_first_split_cohort() {
+    // The rule goes on from `a`'s split to split `b` before the REMOVE runs, so
+    // no X precedes `c` when the REMOVE tests it. The C++ stops after splitting
+    // `a` and removes "c" V.
+    let grammar = "DELIMITERS = \"<.>\" ;\nSECTION\n\
+                   SPLITCOHORT (\"<x>\" \"x\" Y \"<y>\" \"y\" Y) TARGET (X) ;\n\
+                   REMOVE (V) IF (-1 (X)) ;\n";
+    let c = "\"<c>\"\n\t\"c\" N\n\t\"c\" V\n";
+    let input = format!("{}{c}{}", cg_stream(&["a X", "b X"]), cg_stream(&[". CLB"]));
+    let split = "\"<x>\"\n\t\"x\" Y SPLITCOHORT:3\n\"<y>\"\n\t\"y\" Y SPLITCOHORT:3\n";
+    let mut want = format!("; \"<a>\"\n;\t\"a\" X SPLITCOHORT:3\n{split}");
+    want.push_str(&format!("; \"<b>\"\n;\t\"b\" X SPLITCOHORT:3\n{split}"));
+    want.push_str(c);
+    want.push_str(&cg_stream(&[". CLB"]));
+    assert_eq!(run_in_process(grammar, &input, true), want);
+}
+
 fn run_apertium(grammar: &str, input: &str) -> String {
     use cg3::apertium_applicator::ApertiumApplicator;
     use cg3::grammar_applicator::GrammarApplicator;

@@ -3597,6 +3597,29 @@ children (
                         }
                         deps (upstream-1-7-0.remcohort-loop.intent)
                     }
+
+                    {
+                        id upstream-1-7-0.remcohort-loop.splitcohort-pin
+                        title "Pin SPLITCOHORT going on to the first cohort of the split, as the run-single-rule divergence says, with a test where a later rule in the section sees the difference from v1.7.0, which ends the loop"
+                        kind @test
+                        deps (upstream-1-7-0.remcohort-loop.pin)
+                        sealed true
+                        log (
+                            {
+                                at 2026-11-06T09:41:48.28306Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Todo → Doing (nplan start)"
+                            }
+
+                            {
+                                at 2026-11-06T09:44:03.607265Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Doing → Done (nplan complete)"
+                            }
+                        )
+                    }
                 )
                 log (
                     {
