@@ -35,7 +35,7 @@ fn conv(args: &[&str], input: String) -> std::process::Output {
 // [spec:cg3:req:robustness.depth-bounded/test]
 // [spec:cg3:sem:apertium-applicator.cg3.apertium-applicator.print-reading-fn/test]
 // [spec:cg3:sem:fst-applicator.cg3.fst-applicator.print-reading-fn/test]
-// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn+1/test]
 #[test]
 fn deep_subreading_chain_prints_in_every_format() {
     let k = 10_000;
@@ -43,7 +43,10 @@ fn deep_subreading_chain_prints_in_every_format() {
     for (format, expect) in [
         ("--out-apertium", "x<n>+".repeat(k)),
         ("--out-fst", "x+n#".repeat(k)),
-        ("--out-jsonl", "{\"l\":\"x\",\"s\":".repeat(k)),
+        (
+            "--out-jsonl",
+            "{\"l\":\"x\",\"ts\":[\"n\"],\"s\":".repeat(k),
+        ),
         ("--out-binary", String::new()),
     ] {
         let out = conv(&["--in-apertium", format], input.clone());

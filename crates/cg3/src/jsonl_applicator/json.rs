@@ -1,5 +1,6 @@
-//! The JSON reader the JSONL applicator reads a line with: RapidJSON's
-//! `Document::Parse` with its default flags, as the C++ reads one.
+//! The JSON reader and writer of the JSONL applicator: RapidJSON's
+//! `Document::Parse` with its default flags, and its `Writer`, as the C++
+//! uses them.
 //!
 //! A JSONL line's warnings name RapidJSON's error message and the byte offset
 //! it gives, so the reader takes the same steps in the same order and stops
@@ -603,6 +604,142 @@ fn encode_utf8(codepoint: u32, out: &mut Vec<u8>) {
     }
 }
 
+// [spec:cg3:def:jsonl-applicator.cg3.write-json-line-fn]
+// [spec:cg3:sem:jsonl-applicator.cg3.write-json-line-fn]
+/// RapidJSON's `Writer` into a `StringBuffer`: one JSON value written as it
+/// is built, with no whitespace between tokens, so object members come out
+/// in the order they are added. Strings are escaped as the `Writer` escapes
+/// them, which serde_json's serialiser does not do: control characters as
+/// `\u00XX` with uppercase hex digits.
+pub(crate) struct Writer {
+    out: String,
+    /// For each object and array the writer is inside, whether it has a
+    /// value yet.
+    has_value: Vec<bool>,
+    /// A member name was just written, so its value takes no comma.
+    after_name: bool,
+}
+
+impl Writer {
+    pub(crate) fn new() -> Self {
+        Writer {
+            out: String::new(),
+            has_value: Vec::new(),
+            after_name: false,
+        }
+    }
+
+    fn separate(&mut self) {
+        if std::mem::take(&mut self.after_name) {
+            return;
+        }
+        if let Some(has_value) = self.has_value.last_mut() {
+            if *has_value {
+                self.out.push(',');
+            }
+            *has_value = true;
+        }
+    }
+
+    pub(crate) fn start_object(&mut self) {
+        self.separate();
+        self.out.push('{');
+        self.has_value.push(false);
+    }
+
+    pub(crate) fn end_object(&mut self) {
+        self.has_value.pop();
+        self.out.push('}');
+    }
+
+    pub(crate) fn start_array(&mut self) {
+        self.separate();
+        self.out.push('[');
+        self.has_value.push(false);
+    }
+
+    pub(crate) fn end_array(&mut self) {
+        self.has_value.pop();
+        self.out.push(']');
+    }
+
+    /// The name of the next member of the object being written.
+    pub(crate) fn name(&mut self, name: &str) {
+        self.separate();
+        self.write_string(name);
+        self.out.push(':');
+        self.after_name = true;
+    }
+
+    pub(crate) fn string(&mut self, s: &str) {
+        self.separate();
+        self.write_string(s);
+    }
+
+    pub(crate) fn uint(&mut self, n: u32) {
+        self.separate();
+        self.out.push_str(&n.to_string());
+    }
+
+    pub(crate) fn string_member(&mut self, name: &str, s: &str) {
+        self.name(name);
+        self.string(s);
+    }
+
+    /// `name` with an array of the strings `items`.
+    pub(crate) fn strings_member<'s>(
+        &mut self,
+        name: &str,
+        items: impl IntoIterator<Item = &'s str>,
+    ) {
+        self.name(name);
+        self.start_array();
+        for item in items {
+            self.string(item);
+        }
+        self.end_array();
+    }
+
+    /// C++ `write_json_line`: the value written, then a newline. A written
+    /// value holds no raw newline, so this writes exactly one line. Does not
+    /// flush.
+    pub(crate) fn write_line<W: std::io::Write>(mut self, output: &mut W) {
+        self.out.push('\n');
+        let _ = output.write_all(self.out.as_bytes());
+    }
+
+    #[cfg(test)]
+    fn finish(self) -> String {
+        self.out
+    }
+
+    /// `Writer::WriteString`: characters from U+0080 up are written as they
+    /// are, `/` and U+007F too.
+    fn write_string(&mut self, s: &str) {
+        const HEX: &[u8; 16] = b"0123456789ABCDEF";
+        self.out.push('"');
+        for c in s.chars() {
+            match c {
+                '"' => self.out.push_str("\\\""),
+                '\\' => self.out.push_str("\\\\"),
+                '\u{8}' => self.out.push_str("\\b"),
+                '\t' => self.out.push_str("\\t"),
+                '\n' => self.out.push_str("\\n"),
+                '\u{c}' => self.out.push_str("\\f"),
+                '\r' => self.out.push_str("\\r"),
+                c if u32::from(c) < 0x20 => {
+                    let b = u32::from(c) as usize;
+                    self.out.push_str("\\u00");
+                    self.out.push(char::from(HEX[b >> 4]));
+                    self.out.push(char::from(HEX[b & 0xF]));
+                }
+                c => self.out.push(c),
+            }
+        }
+        self.out.push('"');
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -724,6 +861,49 @@ mod tests {
         assert_eq!(
             doc.root().as_str(),
             Some("\"\\/\u{8}\u{c}\n\r\té\0😀\u{FFFD}\u{FFFD}\u{FFFD}x")
+        );
+    }
+
+    // Strings are escaped as RapidJSON's `Writer` escapes them: control
+    // characters other than the five with short escapes as `\u00XX` with
+    // uppercase hex, everything from U+0020 up but `"` and `\` as it is.
+    // [spec:cg3:sem:jsonl-applicator.cg3.write-json-line-fn/test]
+    #[test]
+    fn strings_are_escaped_as_rapidjson_writes_them() {
+        let mut w = Writer::new();
+        w.start_object();
+        w.string_member(
+            "z",
+            "\0\u{1}\u{8}\t\n\u{b}\u{c}\r\u{1f} \"\\/\u{7f}é\u{2028}😀",
+        );
+        w.name("n");
+        w.start_array();
+        w.uint(0);
+        w.uint(u32::MAX);
+        w.end_array();
+        w.name("o");
+        w.start_object();
+        w.end_object();
+        w.end_object();
+        assert_eq!(
+            w.finish(),
+            "{\"z\":\"\\u0000\\u0001\\b\\t\\n\\u000B\\f\\r\\u001F \\\"\\\\/\u{7f}é\u{2028}😀\",\"n\":[0,4294967295],\"o\":{}}"
+        );
+    }
+
+    // What the writer writes, the reader reads back as it was.
+    #[test]
+    fn written_strings_read_back_unchanged() {
+        let text: String = (0u32..0x250).filter_map(char::from_u32).collect();
+        let mut w = Writer::new();
+        w.start_object();
+        w.string_member("t", &text);
+        w.end_object();
+        let line = w.finish();
+        let doc = parse(&line).unwrap();
+        assert_eq!(
+            doc.root().member("t").unwrap().as_str(),
+            Some(text.as_str())
         );
     }
 

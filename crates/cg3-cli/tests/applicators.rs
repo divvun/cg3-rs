@@ -524,6 +524,134 @@ fn jsonl_commands_set_variables_and_ignore_input() {
     assert_eq!(out, "<STREAMCMD:EXIT>\n");
 }
 
+// CG written as JSONL: text as "t" lines, a command per variable, and each
+// cohort's members in RapidJSON's insertion order, with mapping tags last, the
+// text after it as "z", its sub-reading in "s" and its deleted readings in
+// "drs". Read back, the JSONL writes the same bytes.
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-text-fn/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-variables-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.write-json-line-fn/test]
+#[test]
+fn jsonl_output_writes_cohorts_text_and_commands() {
+    let input = concat!(
+        "Text before\n",
+        "<STREAMCMD:SETVAR:a=1,b>\n",
+        "\"<The>\" <st>\n\t\"the\" DET @>N #1->2\n",
+        "\"<cats>\"\n\t\"cat\" N PL @SUBJ> @OBJ> #2->0\n;\t\"cat\" V #2->0\n",
+        "two\n  lines\n",
+        "\"<.>\"\n\t\".\" CLB #3->2\n\t\t\"sub\" X\n",
+        "<STREAMCMD:REMVAR:a>\n<STREAMCMD:FLUSH>\nafter\n",
+    );
+    let expected = concat!(
+        "{\"t\":\"Text before\"}\n",
+        "{\"cmd\":\"<STREAMCMD:SETVAR:a=1>\"}\n",
+        "{\"cmd\":\"<STREAMCMD:SETVAR:b>\"}\n",
+        "{\"w\":\"The\",\"sts\":[\"<st>\"],\"ds\":1,\"dp\":2,\"rs\":[{\"l\":\"the\",\"ts\":[\"DET\",\"@>N\"]}]}\n",
+        "{\"w\":\"cats\",\"z\":\"two\\n  lines\",\"ds\":2,\"dp\":0,",
+        "\"rs\":[{\"l\":\"cat\",\"ts\":[\"N\",\"PL\",\"@SUBJ>\"]},{\"l\":\"cat\",\"ts\":[\"N\",\"PL\",\"@OBJ>\"]}],",
+        "\"drs\":[{\"l\":\"cat\",\"ts\":[\"V\"]}]}\n",
+        "{\"w\":\".\",\"ds\":3,\"dp\":2,\"rs\":[{\"l\":\".\",\"ts\":[\"CLB\"],\"s\":{\"l\":\"sub\",\"ts\":[\"X\"]}}]}\n",
+        "{\"cmd\":\"<STREAMCMD:FLUSH>\"}\n",
+        "{\"t\":\"after\"}\n",
+        "{\"cmd\":\"<STREAMCMD:REMVAR:a>\"}\n",
+    );
+    let flags = ["-D", "--deleted"];
+    let (out, _) = run_capturing(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &[&["--in-cg", "--out-jsonl"], &flags[..]].concat(),
+        input,
+    );
+    assert_eq!(out, expected);
+    let (back, _) = run_capturing(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &[&["--in-jsonl", "--out-jsonl"], &flags[..]].concat(),
+        &out,
+    );
+    assert_eq!(back, expected);
+
+    // Without -D the dependency tags stay tags, before the mapping tags.
+    let (out, _) = run_capturing(
+        env!("CARGO_BIN_EXE_cg-conv"),
+        &["--in-cg", "--out-jsonl"],
+        "\"<The>\"\n\t\"the\" DET @>N #1->2\n",
+    );
+    assert_eq!(
+        out,
+        "{\"w\":\"The\",\"rs\":[{\"l\":\"the\",\"ts\":[\"DET\",\"#1->2\",\"@>N\"]}]}\n"
+    );
+}
+
+// With relations in use every cohort is written with its "id", a related one
+// with its "rels", and with --trace each reading with the rules that hit it
+// in "tr" and the readings rules took away in "drs".
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn+1/test]
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn+1/test]
+#[test]
+fn jsonl_output_writes_ids_relations_and_traces() {
+    let grammar = tmp("jsonl-rules.cg3");
+    std::fs::write(
+        &grammar,
+        concat!(
+            "DELIMITERS = \"<.>\" ;\n",
+            "SELECT (N) IF (-1 (DET)) ;\n",
+            "REMOVE (N) IF (0 (<verbal>)) ;\n",
+            "MAP (@SUBJ>) TARGET (N) IF (1 (V)) ;\n",
+            "SETPARENT (DET) TO (1 (N)) ;\n",
+            "SETPARENT (N) TO (1 (V)) ;\n",
+            "ADDRELATION (subj) (V) TO (-1 (N)) ;\n",
+        ),
+    )
+    .unwrap();
+    let grammar_arg = grammar.to_string_lossy().into_owned();
+    let input = concat!(
+        "{\"w\":\"The\",\"rs\":[{\"l\":\"the\",\"ts\":[\"DET\"]}]}\n",
+        "{\"w\":\"cats\",\"rs\":[{\"l\":\"cat\",\"ts\":[\"N\",\"PL\"]},{\"l\":\"cat\",\"ts\":[\"V\",\"PRES\",\"SG3\"]}]}\n",
+        "{\"w\":\"sleep\",\"sts\":[\"<verbal>\"],\"rs\":[{\"l\":\"sleep\",\"ts\":[\"V\",\"PRES\"]},{\"l\":\"sleep\",\"ts\":[\"N\",\"SG\"]}]}\n",
+        "{\"w\":\".\",\"rs\":[{\"l\":\".\",\"ts\":[\"CLB\"]}]}\n",
+    );
+    let run = |trace: &[&str]| {
+        run_capturing(
+            env!("CARGO_BIN_EXE_vislcg3"),
+            &[
+                &["-g", grammar_arg.as_str(), "--in-jsonl", "--out-jsonl"],
+                trace,
+            ]
+            .concat(),
+            input,
+        )
+        .0
+    };
+    let plain = run(&[]);
+    let traced = run(&["--trace"]);
+    let _ = std::fs::remove_file(&grammar);
+    assert_eq!(
+        plain,
+        concat!(
+            "{\"w\":\"The\",\"ds\":1,\"dp\":2,\"id\":1,\"rs\":[{\"l\":\"the\",\"ts\":[\"DET\"]}]}\n",
+            "{\"w\":\"cats\",\"ds\":2,\"dp\":3,\"id\":2,\"rels\":{},\"rs\":[{\"l\":\"cat\",\"ts\":[\"N\",\"PL\",\"@SUBJ>\"]}]}\n",
+            "{\"w\":\"sleep\",\"sts\":[\"<verbal>\"],\"ds\":3,\"id\":3,\"rels\":{\"subj\":[2]},\"rs\":[{\"l\":\"sleep\",\"ts\":[\"V\",\"PRES\"]}]}\n",
+            "{\"w\":\".\",\"ds\":4,\"id\":4,\"rs\":[{\"l\":\".\",\"ts\":[\"CLB\"]}]}\n",
+        )
+    );
+    assert_eq!(
+        traced,
+        concat!(
+            "{\"w\":\"The\",\"ds\":1,\"dp\":2,\"id\":1,\"rs\":[{\"l\":\"the\",\"ts\":[\"DET\"],\"tr\":[\"SETPARENT:5\"]}]}\n",
+            "{\"w\":\"cats\",\"ds\":2,\"dp\":3,\"id\":2,\"rels\":{},\"rs\":[{\"l\":\"cat\",\"ts\":[\"N\",\"PL\",\"@SUBJ>\"],",
+            "\"tr\":[\"SELECT:2\",\"MAP:4\",\"SETPARENT:6\"]}],\"drs\":[{\"l\":\"cat\",\"ts\":[\"V\",\"PRES\",\"SG3\"],\"tr\":[\"SELECT:2\"]}]}\n",
+            "{\"w\":\"sleep\",\"sts\":[\"<verbal>\"],\"ds\":3,\"id\":3,\"rels\":{\"subj\":[2]},\"rs\":[{\"l\":\"sleep\",\"ts\":[\"V\",\"PRES\"],",
+            "\"tr\":[\"ADDRELATION(subj):7\"]}],\"drs\":[{\"l\":\"sleep\",\"ts\":[\"N\",\"SG\"],\"tr\":[\"REMOVE:3\"]}]}\n",
+            "{\"w\":\".\",\"ds\":4,\"id\":4,\"rs\":[{\"l\":\".\",\"ts\":[\"CLB\"]}]}\n",
+        )
+    );
+}
+
 // ===========================================================================
 // FormatConverter (cg-conv side) — real cg-conv runs. The constructor builds
 // the minimal conv grammar on every invocation; runGrammarOnText dispatches

@@ -295,6 +295,36 @@ fn jsonl_reserved_relation_numbers_are_refused() {
     assert!(out.contains("R:subj:"), "{out}");
 }
 
+// Under cg-conv, whose grammar has no `*` tag and a `tag_any` of 0, a SETVAR
+// with an empty name sets the variable `*` and is written back with an empty
+// name, which reads back as the same variable; the C++ crashes on it.
+// [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-variables-fn+1/test]
+#[test]
+fn jsonl_unnamed_setvar_is_written_back_unnamed() {
+    use cg3::grammar_applicator::StreamFormatKind;
+
+    let convert = |input: &str| {
+        let base =
+            cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
+        let mut fc = cg3::format_converter::FormatConverter::new(base).unwrap();
+        fc.base_mut().cfg.fmt_input = StreamFormatKind::Jsonl;
+        fc.base_mut().cfg.fmt_output = StreamFormatKind::Jsonl;
+        let mut out: Vec<u8> = Vec::new();
+        fc.run_grammar_on_text(
+            &mut std::io::Cursor::new(input.as_bytes().to_vec()),
+            &mut out,
+        )
+        .unwrap();
+        String::from_utf8(out).unwrap()
+    };
+    let out = convert("{\"cmd\":\"<STREAMCMD:SETVAR:=v,x=>\"}\n{\"w\":\"a\"}\n");
+    assert_eq!(
+        out,
+        "{\"cmd\":\"<STREAMCMD:SETVAR:=v>\"}\n{\"cmd\":\"<STREAMCMD:SETVAR:x>\"}\n{\"w\":\"a\"}\n"
+    );
+    assert_eq!(convert(&out), out);
+}
+
 // FormatConverter's four print dispatchers — supplement the end-to-end tool
 // coverage with direct calls: build the converter exactly like cg-conv does,
 // hand-build one window + cohort + reading in the shared base, and invoke each

@@ -32,8 +32,6 @@ profiler = ["dep:rusqlite"]
 # UTF-8 + regex-crate (Unicode by default) replaces ICU's uregex; parity-checked
 # per the porting notes.
 regex = "1"
-# JSONL applicator (replaces RapidJSON).
-serde_json = "1"
 # Profiler DB (replaces the C sqlite3 API) — only pulled in by the `profiler` feature.
 rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 # All diagnostics/logging (the C++ ux_stderr/std::cerr messages) are tracing

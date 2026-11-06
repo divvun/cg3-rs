@@ -66,16 +66,12 @@ the port drops the option (along with two other upstream flags that do nothing:
 stderr hash dump whose values are meaningless in a port that hashes UTF-8 rather
 than UTF-16).
 
-Known edge differences are concentrated around replacements for ICU and
-RapidJSON:
+Known edge differences are concentrated around replacements for ICU:
 
 - plaintext tokenization currently recognizes ASCII punctuation rather than
   ICU's full Unicode punctuation categories;
 - a few non-ASCII case-folding and combining-mark decisions use Rust standard
-  Unicode operations instead of ICU and can differ on unusual inputs;
-- JSONL is structurally equivalent, but object key order can differ, and Rust
-  strings preserve embedded NUL characters that RapidJSON's C-string calls
-  truncate.
+  Unicode operations instead of ICU and can differ on unusual inputs.
 
 ## Building
 

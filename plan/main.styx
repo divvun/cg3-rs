@@ -3667,6 +3667,14 @@ children (
                             )
                         }
                         deps (upstream-1-7-0.jsonl.spec)
+                        log (
+                            {
+                                at 2026-11-06T07:00:27.281962Z
+                                author "brendan@necessary.nu"
+                                kind @status
+                                text "Todo → Doing (nplan start)"
+                            }
+                        )
                     }
 
                     {

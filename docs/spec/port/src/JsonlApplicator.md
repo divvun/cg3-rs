@@ -301,7 +301,7 @@
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.print-variables-fn]
 > void JsonlApplicator::printVariables(const uint32SortedVector& vars_output, const uint32FlatHashMap& vars_set, std::ostream& output)
 
-> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-variables-fn]
+> [spec:cg3:sem:jsonl-applicator.cg3.jsonl-applicator.print-variables-fn+1]
 > Writes one stream command per variable in `vars_output`, in its order
 > (ascending by the variable name's hash). For each hash `var`, `key =
 > grammar->single_tags[var]`. If `vars_set` maps `var` to a value other than
@@ -312,6 +312,12 @@
 > key->tag + ">"`. Each command is written with `printStreamCommand`. A
 > SETVAR or REMVAR that named several variables therefore comes out as one
 > command per variable.
+>
+> PORT DIVERGENCE: a hash `single_tags` does not have is written as empty
+> text. The C++ dereferences the null tag that `operator[]` inserts for it
+> and crashes. This is the variable `*` under `cg-conv`, whose grammar has
+> no `*` tag and a `tag_any` of 0, after a SETVAR with an empty name: the
+> port writes `<STREAMCMD:SETVAR:>`, which reads back as the same variable.
 
 > [spec:cg3:def:jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn]
 > void JsonlApplicator::runGrammarOnText(std::istream& input, std::ostream& output)

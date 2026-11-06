@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-11-06T06:58:26.221479Z
+last_sync_at 2026-11-06T07:42:58.625842Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -65,7 +65,7 @@ rule_versions (
     {id jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn, version 1}
     {id jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn, version 1}
     {id jsonl-applicator.cg3.jsonl-applicator.print-text-fn, version 0}
-    {id jsonl-applicator.cg3.jsonl-applicator.print-variables-fn, version 0}
+    {id jsonl-applicator.cg3.jsonl-applicator.print-variables-fn, version 1}
     {id jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn, version 2}
     {id jsonl-applicator.cg3.write-json-line-fn, version 0}
     {id main.divvun-version-banner, version 2}
@@ -661,6 +661,25 @@ impl_evidence (
     ), rule_versions_seen (
         {id grammar-applicator-run-grammar.cg3.grammar-applicator.run-grammar-on-text-fn, version 2}
     )}
+    {id upstream-1-7-0.jsonl.reader, covered_rules (
+        jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn
+        jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn
+        jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn
+        jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn
+        jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn
+    ), covered_claims (
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn}
+    ), rule_versions_seen (
+        {id jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn, version 0}
+        {id jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn, version 0}
+        {id jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn, version 2}
+        {id jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn, version 1}
+        {id jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn, version 2}
+    )}
     {id upstream-1-7-0.mergecohorts-wblank, covered_rules (
         grammar-applicator-run-rules.cg3.grammar-applicator.run-rules-on-single-window-fn
     ), covered_claims (
@@ -762,17 +781,25 @@ impl_evidence (
         {id wasm.library-builds, version 0}
         {id wasm.width-independent, version 0}
     )}
-    {id upstream-1-7-0.jsonl.reader, covered_rules (
-        jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn
-        jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn
-        jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn
-        jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn
-        jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn
+    {id upstream-1-7-0.jsonl.writer, covered_rules (
+        jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn
+        jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-text-fn
+        jsonl-applicator.cg3.jsonl-applicator.print-variables-fn
+        jsonl-applicator.cg3.write-json-line-fn
     ), covered_claims (
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.add-single-mapping-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.get-json-string-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.parse-json-cohort-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.parse-json-reading-fn}
-        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.run-grammar-on-text-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.build-json-reading-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.build-json-tags-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-cohort-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-plain-text-line-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-single-window-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-stream-command-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-text-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.jsonl-applicator.print-variables-fn}
+        {impl_name target-impl, rule jsonl-applicator.cg3.write-json-line-fn}
     )}
 )
