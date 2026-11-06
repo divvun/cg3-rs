@@ -3740,6 +3740,22 @@ children (
                     upstream-1-7-0.jsonl.round-trip-leg
                     upstream-1-7-0.help-text
                 )
+                sealed true
+                log (
+                    {
+                        at 2026-11-06T09:32:39.054728Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-11-06T09:33:06.264161Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
         )
         log (

@@ -26,17 +26,19 @@ This repository contains:
 
 ## Relationship to the C++ codebase
 
-The upstream C++ tree—checked out alongside this repository as
-`../cg3-old-port` in this workspace—is the behavioral reference. This is a
-direct port of its grammar model, parser, rule engine, stream applicators, and
-CLI behavior. It is fully compatible with CG-3 grammar source and the `.cg3b`
+The behavioral reference is upstream CG-3
+[v1.7.0](https://github.com/GrammarSoft/cg3/tree/v1.7.0) (commit `4dd86c3c`,
+tagged 2026-11-02). The port follows that tag except where its spec records a
+divergence, and the next upstream release is reviewed from it
+(`git log 4dd86c3c..<tag>`). This is a direct port of its grammar model, parser,
+rule engine, stream applicators, and CLI behavior. It is fully compatible with CG-3 grammar source and the `.cg3b`
 binary ABI. The Rust crate API is distinct from the native `libcg3` C API.
 
 | Area | This Rust port | C++ reference |
 |------|----------------|---------------|
 | Architecture | Composition around one owned `GrammarApplicator`; a `StreamFormat` strategy models virtual print dispatch. | Deep class hierarchy with virtual multiple inheritance; `FormatConverter` inherits all format applicators over one virtual base. |
 | Runtime model | Typed arena IDs, ownership and borrowing, typed flag sets, and `Result` at recoverable API boundaries. | Owning/raw pointers, inheritance, integer bit masks, exceptions, and `CG3Quit` process exits. |
-| Text and containers | UTF-8 `String`, Rust `regex`, `serde_json`, and Rust collections or ported flat/sorted containers. | ICU UTF-16 strings and regex, RapidJSON, Boost containers, and STL containers. |
+| Text and containers | UTF-8 `String`, Rust `regex`, a small JSON reader and writer that keeps RapidJSON's error messages and escapes, and Rust collections or ported flat/sorted containers. | ICU UTF-16 strings and regex, RapidJSON, Boost containers, and STL containers. |
 | Build and dependencies | Cargo; the default engine and six CLI tools are pure Rust. SQLite is optional behind `profiler`. | CMake; links ICU/Boost and builds the native `libcg3` surface, with optional SQLite and bindings. |
 | Public integrations | Rust crate API and command-line tools, with source and `.cg3b` ABI compatibility. It does not currently ship the native `libcg3` C API, SWIG/Python package, or Emscripten/WASM build. | `libcg3` C API, SWIG Python bindings, and an Emscripten/WASM target in addition to the tools. |
 | Binary grammars | Fully byte-compatible with the current `.cg3b` ABI (revision 13898) and reads the main format from revisions 10373–13898; the separate ancient reader is intentionally absent. | Also carries the separate legacy reader for grammars as old as revision 10043. |
