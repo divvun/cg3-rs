@@ -1,0 +1,17 @@
+[build-system]
+requires = ["maturin>=1.9.4,<2"]
+build-backend = "maturin"
+
+[project]
+name = "divvun-cg3"
+dynamic = ["version"]
+description = "VISL CG-3 (Constraint Grammar) for Python: loads compiled and textual grammars and runs them as vislcg3 does."
+requires-python = ">=3.11"
+
+[tool.maturin]
+manifest-path = "../crates/cg3-python/Cargo.toml"
+module-name = "cg3._cg3"
+python-source = "."
+
+[dependency-groups]
+dev = ["maturin>=1.9.4,<2", "pytest>=8", "mypy>=1.13"]

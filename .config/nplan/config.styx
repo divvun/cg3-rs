@@ -22,6 +22,18 @@ platforms (
         }
     }
 
+    // The binding is tested through Python, against the extension maturin
+    // builds into python/.venv, as pip would install it.
+    {
+        platform python
+        files (crates/cg3-python/** python/pyproject.toml python/cg3/** python/tests/**)
+        checks {
+            test {
+                cmd "cd python && uv sync --quiet --no-install-project && uv run --no-sync maturin develop --uv --quiet && uv run --no-sync pytest -q"
+            }
+        }
+    }
+
     // The globs stop short of js/cg3/pkg and js/cg3/dist, which hold build
     // output. deno check needs no build: the root deno.json stands a
     // hand-declared module in for the generated glue.
@@ -37,6 +49,10 @@ platforms (
 )
 
 quality {
+    // A pyo3 extension module cannot link a Rust test binary: the interpreter
+    // supplies its Python symbols. python/tests tests it, under the python
+    // platform's checks, and no Rust ratio can count those tests.
+    exempt-paths ("crates/cg3-python/**")
     test-footprint {
         // Ratchet: floor set just under the measured crate-scope ratio
         // (tests 3626 / src 40404 = 0.0897 at the time of writing). Raise it

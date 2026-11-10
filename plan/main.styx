@@ -3907,6 +3907,14 @@ children (
                     )
                 }
                 deps (python.spec python.text-grammar)
+                log (
+                    {
+                        at 2026-11-10T11:18:34.83811Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

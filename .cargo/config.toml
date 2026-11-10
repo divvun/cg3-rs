@@ -1,3 +1,9 @@
 # `cargo test --target wasm32-unknown-unknown` runs the wasm tests under Node.
 [target.wasm32-unknown-unknown]
 runner = "wasm-bindgen-test-runner"
+
+# crates/cg3-python is a Python extension module, which the interpreter that
+# imports it supplies libpython to. Built as maturin builds it, it links no
+# libpython, so `cargo build --workspace` needs no Python library on the host.
+[env]
+PYO3_BUILD_EXTENSION_MODULE = "1"

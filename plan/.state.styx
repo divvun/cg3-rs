@@ -823,4 +823,17 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule embed.load-text}
     )}
+    {id python.bindings, covered_rules (
+        python.apply
+        python.errors
+        python.grammar-load
+        python.logging
+        python.threads
+    ), covered_claims (
+        {impl_name target-impl, rule python.apply}
+        {impl_name target-impl, rule python.errors}
+        {impl_name target-impl, rule python.grammar-load}
+        {impl_name target-impl, rule python.logging}
+        {impl_name target-impl, rule python.threads}
+    )}
 )
