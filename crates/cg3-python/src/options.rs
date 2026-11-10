@@ -1,25 +1,45 @@
-//! The run options Python passes to `Grammar.apply`, as keyword arguments.
+//! A run's options, as the fields of `cg3.RunOptions`, the dataclass in
+//! `python/cg3/_options.py`.
 
 use cg3::embed::{Format, RunOptions};
 use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
-use pyo3::types::{PyBool, PyDict, PyString};
+use pyo3::types::{PyBool, PyString};
 
-// [spec:cg3:req:python.apply]
-/// Reads the keyword arguments of `Grammar.apply`, each named after its
-/// vislcg3 long option in snake_case. `None` is an option left off, as is one
-/// not passed. A name it does not know raises the `TypeError` Python raises for
-/// an unexpected keyword argument, and a value of the wrong type the
-/// `TypeError` its parameter would.
-pub fn run_options(options: Option<&Bound<'_, PyDict>>) -> PyResult<RunOptions> {
-    let mut o = RunOptions::default();
+// [spec:cg3:req:python.apply+1]
+/// The options `Grammar.apply` was given: those of a `cg3.RunOptions`, or none.
+pub fn of_apply(options: Option<&Bound<'_, PyAny>>) -> PyResult<RunOptions> {
     let Some(options) = options else {
-        return Ok(o);
+        return Ok(RunOptions::default());
     };
-    for (key, value) in options.iter() {
-        let key: PyBackedStr = key.extract()?;
-        let name: &str = &key;
+    let class = options.py().import("cg3._options")?.getattr("RunOptions")?;
+    if !options.is_instance(&class)? {
+        let given = options.get_type().name()?;
+        return Err(PyTypeError::new_err(format!(
+            "apply() argument 'options' must be RunOptions, not {given}"
+        )));
+    }
+    run_options(options)
+}
+
+// [spec:cg3:req:python.apply+1]
+/// Reads each field of a `cg3.RunOptions`, named after its vislcg3 long option
+/// in snake_case, into the option it stands for. A value of the wrong type
+/// raises the `TypeError` a typed parameter would, a number out of range
+/// `OverflowError`, and a format the package does not offer `ValueError`.
+/// `RunOptions.__post_init__` reads its fields here, so options that were made
+/// are options a run can read.
+pub fn run_options(options: &Bound<'_, PyAny>) -> PyResult<RunOptions> {
+    let fields = options
+        .py()
+        .import("dataclasses")?
+        .call_method1("fields", (options,))?;
+    let mut o = RunOptions::default();
+    for field in fields.try_iter()? {
+        let field_name: PyBackedStr = field?.getattr("name")?.extract()?;
+        let name: &str = &field_name;
+        let value = options.getattr(name)?;
         let v = Value {
             name,
             value: &value,
@@ -67,12 +87,20 @@ pub fn run_options(options: Option<&Bound<'_, PyDict>>) -> PyResult<RunOptions> 
             "no_break" => o.no_break = v.flag()?,
             _ => {
                 return Err(PyTypeError::new_err(format!(
-                    "apply() got an unexpected keyword argument '{name}'"
+                    "RunOptions has a field '{name}' no run reads"
                 )));
             }
         }
     }
     Ok(o)
+}
+
+/// Checks a `cg3.RunOptions` as it is made, raising what a run reading its
+/// fields would raise.
+#[pyfunction]
+#[pyo3(name = "_check_run_options")]
+pub fn check_run_options(options: &Bound<'_, PyAny>) -> PyResult<()> {
+    run_options(options).map(drop)
 }
 
 /// The streams `input_format` and `output_format` name, as vislcg3's `--in-*`
@@ -92,8 +120,8 @@ pub fn format_names() -> impl ExactSizeIterator<Item = &'static str> {
     FORMATS.iter().map(|(name, _)| *name)
 }
 
-/// One keyword argument's value, named for the errors it raises. Each reader
-/// takes `None` for the option left off.
+/// One field's value, named for the errors it raises. Each reader takes `None`
+/// for the option left off.
 struct Value<'a, 'py> {
     name: &'a str,
     value: &'a Bound<'py, PyAny>,
@@ -107,7 +135,7 @@ impl Value<'_, '_> {
             .name()
             .map_or_else(|_| "object".to_owned(), |n| n.to_string());
         PyTypeError::new_err(format!(
-            "apply() argument '{}' must be {expected}, not {given}",
+            "RunOptions() argument '{}' must be {expected}, not {given}",
             self.name
         ))
     }
@@ -160,7 +188,7 @@ impl Value<'_, '_> {
                 self.wrong_type("int")
             } else {
                 PyOverflowError::new_err(format!(
-                    "apply() argument '{}' must be from 0 to 4294967295, not {}",
+                    "RunOptions() argument '{}' must be from 0 to 4294967295, not {}",
                     self.name, self.value
                 ))
             }
@@ -178,7 +206,7 @@ impl Value<'_, '_> {
             .ok_or_else(|| {
                 let names: Vec<String> = FORMATS.iter().map(|(n, _)| format!("'{n}'")).collect();
                 PyValueError::new_err(format!(
-                    "apply() argument '{}' must be one of {}, not '{text}'",
+                    "RunOptions() argument '{}' must be one of {}, not '{text}'",
                     self.name,
                     names.join(", ")
                 ))

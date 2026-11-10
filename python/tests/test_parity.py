@@ -2,7 +2,7 @@
 
 Every test/T_* grammar runs through the built package twice, loaded from its
 textual source and from the `.cg3b` cg-comp writes for it, with the options its
-args.txt gives vislcg3 read as keyword arguments. Each output must be the bytes
+args.txt gives vislcg3 read as a RunOptions. Each output must be the bytes
 vislcg3 writes for the same grammar, or both must fail. A test whose options the
 package cannot take is skipped with the reason, and the exempt set is checked.
 
@@ -12,19 +12,19 @@ names as `./cg3-external-example`, so that rule runs as it does under vislcg3.
 
 from __future__ import annotations
 
-import ast
+import dataclasses
 import os
 import re
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 import cg3
 from conftest import CORPUS, Tools
-
-STUB = Path(cg3.__file__).parent / "_cg3.pyi"
 
 EXEMPT = {
     "T_CG2Compat": "an option the package does not offer (--vislcg-compat)",
@@ -41,23 +41,16 @@ def corpus_tests() -> list[Path]:
 
 
 def option_kinds() -> dict[str, str]:
-    """Each keyword argument of `Grammar.apply`, with its annotation in the stub."""
-    for node in ast.walk(ast.parse(STUB.read_text(encoding="utf-8"))):
-        if isinstance(node, ast.FunctionDef) and node.name == "apply":
-            return {
-                a.arg: ast.unparse(a.annotation)
-                for a in node.args.kwonlyargs
-                if a.annotation is not None
-            }
-    raise AssertionError("the stub declares no apply")
+    """Each field of `RunOptions`, with its annotation."""
+    return {f.name: str(f.type) for f in dataclasses.fields(cg3.RunOptions)}
 
 
 @dataclass
 class Options:
-    """What a test's args.txt is to the package: keyword arguments, or why
-    there are none."""
+    """What a test's args.txt is to the package: the fields of a RunOptions,
+    or why there are none."""
 
-    kwargs: dict[str, str | int | bool]
+    kwargs: dict[str, Any]
     exempt: str | None = None
 
 
@@ -71,7 +64,7 @@ def short_options(tools: Tools) -> dict[str, str]:
 
 def apply_options(args: list[str], short: dict[str, str]) -> Options:
     kinds = option_kinds()
-    kwargs: dict[str, str | int | bool] = {}
+    kwargs: dict[str, Any] = {}
     words = iter(args)
     for word in words:
         if word.startswith("--"):
@@ -94,7 +87,7 @@ def apply_options(args: list[str], short: dict[str, str]) -> Options:
             return Options({}, f"an option the package does not offer (--{name})")
         if kind == "bool":
             kwargs[key] = True
-        elif kind == "bool | str | None":
+        elif kind == "bool | str":
             kwargs[key] = attached or True
         else:
             value = attached or next(words)
@@ -136,13 +129,10 @@ def vislcg3(tools: Tools, args: list[str], grammar: Path, test: Path, cwd: Path)
     return Run(out.read_bytes(), "")
 
 
-def package(load: object, kwargs: dict[str, str | int | bool], test: Path) -> Run:
+def package(load: Callable[[], cg3.Grammar], options: cg3.RunOptions, test: Path) -> Run:
     text = (test / "input.txt").read_bytes().decode("utf-8")
     try:
-        assert callable(load)
-        grammar = load()
-        assert isinstance(grammar, cg3.Grammar)
-        return Run(grammar.apply(text, **kwargs).output.encode("utf-8"), "")  # type: ignore[arg-type]
+        return Run(load().apply(text, options).output.encode("utf-8"), "")
     except cg3.Cg3Error as error:
         return Run(None, str(error))
 
@@ -185,6 +175,7 @@ def test_the_package_gives_vislcg3s_bytes(
     options = apply_options(args, short)
     if options.exempt is not None:
         pytest.skip(f"exempt: {options.exempt}")
+    run_options = cg3.RunOptions(**options.kwargs)
     textual = test / "grammar.cg3"
     compiled = scratch / f"{test.name}.cg3b"
     tools.compile(textual, compiled)
@@ -192,11 +183,11 @@ def test_the_package_gives_vislcg3s_bytes(
     runs = {
         "textual": (
             vislcg3(tools, args, textual, test, scratch),
-            package(lambda: cg3.load_grammar(textual), options.kwargs, test),
+            package(lambda: cg3.load_grammar(textual), run_options, test),
         ),
         ".cg3b": (
             vislcg3(tools, args, compiled, test, scratch),
-            package(lambda: cg3.read_grammar(compiled.read_bytes()), options.kwargs, test),
+            package(lambda: cg3.read_grammar(compiled.read_bytes()), run_options, test),
         ),
     }
     if test.name == "T_External":

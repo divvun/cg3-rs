@@ -20,6 +20,7 @@ from cg3._cg3 import (
     parse_grammar,
     read_grammar,
 )
+from cg3._options import RunOptions
 
 __all__ = [
     "ApplyResult",
@@ -29,6 +30,7 @@ __all__ = [
     "GrammarError",
     "GrammarInfo",
     "RunError",
+    "RunOptions",
     "__version__",
     "load_grammar",
     "parse_grammar",

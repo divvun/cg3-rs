@@ -45,22 +45,32 @@ it: nothing one run learns reaches the next.
 
 ## Options
 
-`apply` takes each run option as a keyword argument named after its `vislcg3`
-long option in snake_case: `--num-windows 4` is `num_windows=4`. An option
-whose value `vislcg3` makes optional is `True` without one, as `--trace` is
-`trace=True`. `None` leaves an option off, as not passing it does.
+A run's options are one `cg3.RunOptions`, made once and passed to as many
+runs as need it:
 
 ```python
-grammar.apply(text, trace=True, num_windows=4)
-grammar.apply(text, input_format="apertium", output_format="apertium")
+options = cg3.RunOptions(trace=True, num_windows=4)
+grammar.apply(text, options)
+
+apertium = cg3.RunOptions(input_format="apertium", output_format="apertium")
+grammar.apply(text, apertium)
 ```
 
-`input_format` and `output_format` stand for the `--in-*` and `--out-*`
-options: `"cg"` (the default), `"niceline"`, `"apertium"`, `"fst"`, `"plain"`
-and `"jsonl"`; `cg3.Format` is their type. An option `apply` does not know
-raises `TypeError`, as it would for any Python function. The options a
-grammar sets with `CMDARGS` apply as they do in `vislcg3`, and an `EXTERNAL`
-rule starts its process as `vislcg3` starts it.
+Each field is named after its `vislcg3` long option in snake_case:
+`--num-windows 4` is `num_windows=4`. An option whose value `vislcg3` makes
+optional is `True` without one, as `--trace` is `trace=True`. `input_format`
+and `output_format` stand for the `--in-*` and `--out-*` options: `"cg"` (the
+default), `"niceline"`, `"apertium"`, `"fst"`, `"plain"` and `"jsonl"`;
+`cg3.Format` is their type.
+
+`RunOptions` is a frozen dataclass, checked when it is made: a value of the
+wrong type raises `TypeError`, a number outside 0 to 4294967295
+`OverflowError`, and a format the package does not offer `ValueError`. An
+option it does not know raises `TypeError`, as any Python class does.
+`dataclasses.replace(options, trace=False)` makes a variant, and its `repr`
+names only the options given. The options a grammar sets with `CMDARGS` apply
+as they do in `vislcg3`, and an `EXTERNAL` rule starts its process as
+`vislcg3` starts it.
 
 ## Grammar information
 

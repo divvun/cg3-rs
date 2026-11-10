@@ -1,6 +1,6 @@
 ---
 id [dec:cg3:python-package]
-epitome "divvun-cg3 is a pyo3 extension module over the load-and-run API, imported as cg3: compiled and textual grammars, keyword-only run options, every apply an independent run with the GIL released."
+epitome "divvun-cg3 is a pyo3 extension module over the load-and-run API, imported as cg3: compiled and textual grammars, a run's options as one RunOptions dataclass, every apply an independent run with the GIL released."
 state @decided
 category @existence
 scope {
@@ -36,8 +36,12 @@ alternatives (
         rejected_because "The name is taken on PyPI by a project that is not this one."
     }
     {
+        option "Take the run options as keyword arguments to `apply`."
+        rejected_because "A run reads forty options, so `apply` would carry forty parameters, and every call would check again options that seldom change between calls. One `RunOptions` is made and checked once, reused for every apply, and varied with `dataclasses.replace`."
+    }
+    {
         option "Take the run options as a dictionary, as the JavaScript package takes an object."
-        rejected_because "Keyword-only parameters give the check of an unknown option to Python itself, with the `TypeError` every Python function raises, and they make the signature something `help()` and type checkers can read."
+        rejected_because "A dictionary's keys and values are not types a checker can read, and a misspelt key is found only when a run reads it. A dataclass's fields are typed, and Python itself refuses an unknown one with the `TypeError` every class raises."
     }
     {
         option "Raise one exception class carrying a code, as `Cg3Error` does in JavaScript."
@@ -88,5 +92,5 @@ threads can apply one grammar at once, and the cost of each is an overlay over
 the core.
 
 The surface keeps the JavaScript package's shape and takes Python's
-conventions where they differ: snake_case names, keyword-only options that
-Python itself checks, exception classes, and the standard `logging` module.
+conventions where they differ: snake_case names, the run's options as one
+frozen dataclass, exception classes, and the standard `logging` module.

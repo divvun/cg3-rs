@@ -21,6 +21,7 @@ from conftest import ROOT, corpus
 
 PACKAGE = Path(cg3.__file__).parent
 STUB = ast.parse((PACKAGE / "_cg3.pyi").read_text(encoding="utf-8"))
+OPTIONS = ast.parse((PACKAGE / "_options.py").read_text(encoding="utf-8"))
 
 
 def toml(path: Path) -> dict[str, typing.Any]:
@@ -109,14 +110,16 @@ def test_one_wheel_serves_cpython_311_on(wheel: Path) -> None:
 # [spec:cg3:req:python.typed/test]
 def test_the_stub_declares_the_whole_api() -> None:
     assert (PACKAGE / "py.typed").is_file()
-    assert set(cg3.__all__) <= set(stub_names())
-    public = {n for n in dir(cg3._cg3) if not n.startswith("_")} | {"__version__"}
-    assert public == set(stub_names())
+    assert set(cg3.__all__) <= set(stub_names()) | {"RunOptions"}
+    declared = {n for n in stub_names() if not n.startswith("_")} | {"__version__"}
+    native = {n for n in dir(cg3._cg3) if not n.startswith("_")} | {"__version__"}
+    assert declared == native
+    assert all(hasattr(cg3._cg3, n) for n in stub_names())
 
 
 # [spec:cg3:req:python.typed/test]
 def test_no_public_signature_uses_any() -> None:
-    for node in ast.walk(STUB):
+    for node in [*ast.walk(STUB), *ast.walk(OPTIONS)]:
         assert not (isinstance(node, ast.Name) and node.id == "Any")
         assert not (isinstance(node, ast.Attribute) and node.attr == "Any")
 
@@ -124,14 +127,12 @@ def test_no_public_signature_uses_any() -> None:
 # [spec:cg3:req:python.typed/test]
 def test_the_stubs_apply_is_the_runtimes() -> None:
     declared = stub_method("Grammar", "apply")
-    stub = [(a.arg, ast.literal_eval(d)) for a, d in zip(declared.args.kwonlyargs, declared.args.kw_defaults) if d]
-    runtime = [
-        (p.name, p.default)
-        for p in inspect.signature(cg3.Grammar.apply).parameters.values()
-        if p.kind is p.KEYWORD_ONLY
-    ]
-    assert stub == runtime
     assert [a.arg for a in declared.args.posonlyargs] == ["self", "input"]
+    assert [a.arg for a in declared.args.args] == ["options"]
+    assert [ast.unparse(a.annotation) for a in declared.args.args if a.annotation] == [
+        "RunOptions | None"
+    ]
+    assert str(inspect.signature(cg3.Grammar.apply)) == "(self, input, /, options=None)"
 
 
 # [spec:cg3:req:python.typed/test]
@@ -161,9 +162,12 @@ def test_results_carry_their_declared_types() -> None:
 def test_names_follow_python_conventions() -> None:
     snake = re.compile(r"^_?_?[a-z][a-z0-9_]*$")
     pascal = re.compile(r"^[A-Z][A-Za-z0-9]*$")
-    for node in ast.walk(STUB):
+    for node in [*ast.walk(STUB), *ast.walk(OPTIONS)]:
         if isinstance(node, ast.ClassDef):
             assert pascal.match(node.name), node.name
+            for field in node.body:
+                if isinstance(field, ast.AnnAssign) and isinstance(field.target, ast.Name):
+                    assert snake.match(field.target.id), field.target.id
         elif isinstance(node, ast.FunctionDef):
             assert snake.match(node.name), node.name
             for arg in [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]:

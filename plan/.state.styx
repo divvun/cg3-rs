@@ -848,4 +848,10 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule python.parity}
     )}
+    {id python.run-options, covered_rules (
+        python.apply
+    ), covered_claims (
+        {impl_name py-impl, rule python.apply}
+        {impl_name target-impl, rule python.apply}
+    )}
 )

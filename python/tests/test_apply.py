@@ -1,7 +1,8 @@
-"""Applying a grammar, and the keyword arguments that are its run options."""
+"""Applying a grammar, and the RunOptions a run reads."""
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 from typing import Any
 
@@ -21,10 +22,10 @@ VALUES: dict[str, Any] = {
     "rules": "1",
     "rule": "1",
     "debug_rules": "1",
-    "verbose": True,
-    "trace": True,
-    "text_delimit": True,
-    "dep_delimit": True,
+    "verbose": "1",
+    "trace": "1",
+    "text_delimit": "/x/",
+    "dep_delimit": "10",
     "max_runs": 3,
     "num_windows": 2,
     "soft_limit": 300,
@@ -32,88 +33,103 @@ VALUES: dict[str, Any] = {
 }
 
 
-def options() -> list[inspect.Parameter]:
-    signature = inspect.signature(cg3.Grammar.apply)
-    return [p for p in signature.parameters.values() if p.kind is p.KEYWORD_ONLY]
-
-
-# [spec:cg3:req:python.apply/test]
+# [spec:cg3:req:python.apply+1/test]
 def test_apply_returns_output_and_warnings() -> None:
     grammar = cg3.parse_grammar(SELECT_N)
     result = grammar.apply(COHORT)
     assert isinstance(result, cg3.ApplyResult)
     assert result.output == '"<word>"\n\t"word" n\n'
     assert result.warnings == []
-    assert result == grammar.apply(COHORT)
+    assert result == grammar.apply(COHORT, cg3.RunOptions())
     assert repr(result) == "ApplyResult(output='\"<word>\"\\n\\t\"word\" n\\n', warnings=[])"
 
-    warned = grammar.apply(
-        "word$ ^word/word<n>$\n", input_format="apertium", output_format="apertium"
-    )
+    apertium = cg3.RunOptions(input_format="apertium", output_format="apertium")
+    warned = grammar.apply("word$ ^word/word<n>$\n", apertium)
     assert len(warned.warnings) == 1
     assert "$ found without prior ^" in warned.warnings[0]
 
 
-# [spec:cg3:req:python.apply/test]
+# [spec:cg3:req:python.apply+1/test]
 def test_options_act_as_their_long_options() -> None:
     sections = cg3.load_grammar(corpus("T_Sections") / "grammar.cg3")
-    output = sections.apply(read(corpus("T_Sections") / "input.txt"), sections="4").output
+    text = read(corpus("T_Sections") / "input.txt")
+    output = sections.apply(text, cg3.RunOptions(sections="4")).output
     assert same_lines(read(corpus("T_Sections") / "expected.txt"), output)
 
     grammar = cg3.parse_grammar(SELECT_N)
-    traced = grammar.apply(COHORT, trace=True).output
+    traced = grammar.apply(COHORT, cg3.RunOptions(trace=True)).output
     assert "SELECT" in traced and ";" in traced
-    assert grammar.apply(COHORT, trace=False).output == grammar.apply(COHORT).output
-    assert grammar.apply(COHORT, output_format="plain").output.strip() == "word"
+    assert grammar.apply(COHORT, cg3.RunOptions(trace=False)) == grammar.apply(COHORT)
+    plain = grammar.apply(COHORT, cg3.RunOptions(output_format="plain"))
+    assert plain.output.strip() == "word"
 
 
-# [spec:cg3:req:python.apply/test]
-def test_the_signature_names_every_option() -> None:
+# [spec:cg3:req:python.apply+1/test]
+def test_run_options_has_a_field_per_option() -> None:
     grammar = cg3.parse_grammar(SELECT_N)
-    names = [p.name for p in options()]
-    assert len(names) == 40
-    assert len(set(names)) == len(names)
-    for parameter in options():
-        assert parameter.default in (None, False), parameter.name
-        left_off: dict[str, Any] = {parameter.name: None}
-        grammar.apply(COHORT, **left_off)
-        given: dict[str, Any] = {parameter.name: VALUES.get(parameter.name, True)}
-        grammar.apply(COHORT, **given)
-    assert set(VALUES) <= set(names)
+    fields = dataclasses.fields(cg3.RunOptions)
+    assert len(fields) == 40
+    assert all(f.kw_only for f in fields)
+    assert set(VALUES) <= {f.name for f in fields}
+    for field in fields:
+        assert field.default in (None, False), field.name
+        given: dict[str, Any] = {field.name: VALUES.get(field.name, True)}
+        options = cg3.RunOptions(**given)
+        assert getattr(options, field.name) == given[field.name]
+        grammar.apply(COHORT, options)
+    assert str(inspect.signature(cg3.Grammar.apply)) == "(self, input, /, options=None)"
 
 
-# [spec:cg3:req:python.apply/test]
-def test_an_unknown_option_is_a_type_error() -> None:
-    grammar = cg3.parse_grammar(SELECT_N)
-    with pytest.raises(TypeError, match="unexpected keyword argument 'nmu_windows'"):
-        grammar.apply(COHORT, nmu_windows=4)  # type: ignore[call-arg]
+# [spec:cg3:req:python.apply+1/test]
+def test_run_options_are_one_immutable_value() -> None:
+    options = cg3.RunOptions(trace=True, num_windows=4)
+    assert repr(options) == "RunOptions(trace=True, num_windows=4)"
+    assert repr(cg3.RunOptions()) == "RunOptions()"
+    assert options == cg3.RunOptions(num_windows=4, trace=True)
+    assert hash(options) == hash(cg3.RunOptions(num_windows=4, trace=True))
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        options.trace = False  # type: ignore[misc]
+    assert dataclasses.replace(options, trace=False) == cg3.RunOptions(num_windows=4)
     with pytest.raises(TypeError):
-        grammar.apply(input=COHORT)  # type: ignore[call-arg]
+        dataclasses.replace(options, max_runs="many")  # type: ignore[arg-type]
 
 
-# [spec:cg3:req:python.apply/test]
+# [spec:cg3:req:python.apply+1/test]
+def test_an_unknown_option_is_a_type_error() -> None:
+    with pytest.raises(TypeError, match="unexpected keyword argument 'nmu_windows'"):
+        cg3.RunOptions(nmu_windows=4)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        cg3.RunOptions(True)  # type: ignore[call-arg, arg-type]
+    grammar = cg3.parse_grammar(SELECT_N)
+    with pytest.raises(TypeError, match="'options' must be RunOptions, not dict"):
+        grammar.apply(COHORT, {"trace": True})  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        grammar.apply(COHORT, trace=True)  # type: ignore[call-arg]
+
+
+# [spec:cg3:req:python.apply+1/test]
 def test_formats_leave_out_the_binary_one() -> None:
     grammar = cg3.parse_grammar(SELECT_N)
-    for name in ("cg", "niceline", "apertium", "fst", "plain", "jsonl"):
-        grammar.apply("", input_format=name, output_format=name)
+    formats: tuple[cg3.Format, ...] = ("cg", "niceline", "apertium", "fst", "plain", "jsonl")
+    for name in formats:
+        grammar.apply("", cg3.RunOptions(input_format=name, output_format=name))
     with pytest.raises(ValueError, match="'binary'"):
-        grammar.apply(COHORT, output_format="binary")  # type: ignore[arg-type]
+        cg3.RunOptions(output_format="binary")  # type: ignore[arg-type]
 
 
 # [spec:cg3:req:python.errors/test]
 def test_a_wrong_value_raises_pythons_error() -> None:
-    grammar = cg3.parse_grammar(SELECT_N)
     with pytest.raises(TypeError, match="'ordered' must be bool, not int"):
-        grammar.apply(COHORT, ordered=1)  # type: ignore[arg-type]
+        cg3.RunOptions(ordered=1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="'num_windows' must be int, not bool"):
-        grammar.apply(COHORT, num_windows=True)
+        cg3.RunOptions(num_windows=True)
     with pytest.raises(TypeError, match="'num_windows' must be int, not str"):
-        grammar.apply(COHORT, num_windows="4")  # type: ignore[arg-type]
+        cg3.RunOptions(num_windows="4")  # type: ignore[arg-type]
     with pytest.raises(OverflowError, match="'max_runs' must be from 0 to 4294967295"):
-        grammar.apply(COHORT, max_runs=-1)
+        cg3.RunOptions(max_runs=-1)
     with pytest.raises(OverflowError):
-        grammar.apply(COHORT, soft_limit=2**32)
+        cg3.RunOptions(soft_limit=2**32)
     with pytest.raises(TypeError, match="'trace' must be bool or str, not int"):
-        grammar.apply(COHORT, trace=1)  # type: ignore[arg-type]
+        cg3.RunOptions(trace=1)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
-        grammar.apply(b"bytes")  # type: ignore[arg-type]
+        cg3.parse_grammar(SELECT_N).apply(b"bytes")  # type: ignore[arg-type]

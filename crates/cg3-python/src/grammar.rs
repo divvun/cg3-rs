@@ -9,11 +9,11 @@ use cg3::textual_parser::MEMORY_SOURCE_NAME;
 use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedBytes;
-use pyo3::types::{PyDict, PyList, PyString};
+use pyo3::types::{PyList, PyString};
 
 use crate::error::{GrammarError, RunError, message};
 use crate::log;
-use crate::options::run_options;
+use crate::options;
 
 // [spec:cg3:req:python.threads]
 /// A loaded grammar, applied any number of times. It is immutable, so threads
@@ -59,7 +59,7 @@ impl GrammarInfo {
     }
 }
 
-// [spec:cg3:req:python.apply]
+// [spec:cg3:req:python.apply+1]
 /// A run's output, and every warning and non-fatal error it logged, in order.
 #[pyclass(frozen, get_all, eq, module = "cg3")]
 #[derive(PartialEq, Eq)]
@@ -97,7 +97,7 @@ impl Grammar {
         }
     }
 
-    // [spec:cg3:req:python.apply]
+    // [spec:cg3:req:python.apply+1]
     // [spec:cg3:req:python.threads]
     // [spec:cg3:req:python.errors]
     // [spec:cg3:req:python.parity]
@@ -106,33 +106,17 @@ impl Grammar {
     // wrote it, so a run gives what vislcg3 gives; python/tests/test_parity.py
     // checks that over the corpus.
     /// Runs the grammar on `input`, as vislcg3 runs it on one standard input,
-    /// and returns the output with every warning and non-fatal error the run
-    /// logged. Each keyword argument is a vislcg3 long option in snake_case;
-    /// `input_format` and `output_format` stand for its `--in-*` and `--out-*`
-    /// options. A run that fails raises RunError, and the grammar stays usable.
-    // The signature `help()` and `inspect.signature` show. `_cg3.pyi` declares
-    // the same parameters with their types, and python/tests checks that both
-    // agree with what `run_options` reads.
-    #[pyo3(
-        signature = (input, /, **options),
-        text_signature = "(self, input, /, *, input_format=None, output_format=None, \
-ordered=False, unsafe=False, sections=None, rules=None, rule=None, debug_rules=None, \
-verbose=None, no_mappings=False, no_corrections=False, no_before_sections=False, \
-no_sections=False, no_after_sections=False, trace=None, trace_name_only=False, \
-trace_no_removed=False, trace_encl=False, deleted=False, single_run=False, max_runs=None, \
-unicode_tags=False, unique_tags=False, print_ids=False, print_dep=False, num_windows=None, \
-always_span=False, soft_limit=None, hard_limit=None, text_delimit=None, dep_delimit=None, \
-dep_absolute=False, dep_original=False, dep_allow_loops=False, dep_no_crossing=False, \
-no_magic_readings=False, no_pass_origin=False, split_mappings=False, show_end_tags=False, \
-no_break=False)"
-    )]
+    /// with the options a RunOptions gives, and returns the output with every
+    /// warning and non-fatal error the run logged. A run that fails raises
+    /// RunError, and the grammar stays usable.
+    #[pyo3(signature = (input, /, options = None))]
     fn apply(
         &self,
         py: Python<'_>,
         input: &str,
-        options: Option<&Bound<'_, PyDict>>,
+        options: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<ApplyResult> {
-        let options = run_options(options)?;
+        let options = options::of_apply(options)?;
         let grammar = &self.inner;
         let threshold = log::threshold(py)?;
         let (ran, kept) =

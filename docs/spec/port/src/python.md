@@ -8,8 +8,8 @@ it runs `EXTERNAL` rules.
 
 The surface follows `@divvun/cg3` where Python allows: the same three
 operations, the same run options and the same results. It differs where Python
-has a convention of its own, for names, keyword arguments, exceptions and
-logging.
+has a convention of its own, for names, the object that carries a run's
+options, exceptions and logging.
 
 ## The module
 
@@ -39,15 +39,17 @@ logging.
 > returns a `Grammar`, and `grammar.info()` MUST return what
 > `CompiledGrammar::info` reports, as a `GrammarInfo`.
 
-> [spec:cg3:req:python.apply]
-> `grammar.apply(input, **options)` MUST run the grammar on a string through
-> `CompiledGrammar::run` and return an `ApplyResult`, whose `output` is the
-> output as a string and whose `warnings` are every warning and non-fatal error
-> the run logged, in order, as strings. The options MUST be keyword-only, each
-> named after its vislcg3 long option in snake_case, with `input_format` and
-> `output_format` standing for the `--in-*` and `--out-*` options. They MUST
-> offer every stream format except the binary one. An option the method does
-> not know MUST raise `TypeError`, as it does for any Python function.
+> [spec:cg3:req:python.apply+1]
+> `grammar.apply(input, options)` MUST run the grammar on a string through
+> `CompiledGrammar::run`, with the options a `cg3.RunOptions` gives or with
+> none, and return an `ApplyResult`, whose `output` is the output as a string
+> and whose `warnings` are every warning and non-fatal error the run logged, in
+> order, as strings. `cg3.RunOptions` MUST be a frozen dataclass with a
+> keyword-only field for each option a run reads, named after its vislcg3 long
+> option in snake_case, with `input_format` and `output_format` standing for
+> the `--in-*` and `--out-*` options. It MUST check its fields when it is made,
+> and MUST offer every stream format except the binary one. An option it does
+> not know MUST raise `TypeError`, as it does for any Python class.
 
 > [spec:cg3:req:python.errors]
 > Every failure the library reports MUST be raised as a `cg3.Cg3Error`, a

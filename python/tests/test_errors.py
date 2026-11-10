@@ -66,5 +66,5 @@ def test_a_failed_run_leaves_the_grammar_usable() -> None:
     input_text = read(corpus("T_Barrier") / "input.txt")
     first = barrier.apply(input_text).output
     with pytest.raises(TypeError):
-        barrier.apply(input_text, ordered="yes")  # type: ignore[arg-type]
+        barrier.apply(input_text, {"ordered": True})  # type: ignore[arg-type]
     assert barrier.apply(input_text).output == first
