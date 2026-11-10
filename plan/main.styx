@@ -3856,4 +3856,75 @@ children (
             }
         )
     }
+
+    {
+        id python
+        title "Ship divvun-cg3: a Python package, imported as cg3, that loads compiled and textual grammars and runs them natively, a pyo3 binding over the load-and-run API"
+        kind @feat
+        children (
+            {
+                id python.spec
+                title "State the Python package in the spec and the AKM: rules for the module, its typed surface, loading, applying, errors, threads, logging and parity, a rule for loading a textual grammar through the embed API, the python-package decision and its element"
+                kind @docs
+                sealed true
+                log (
+                    {
+                        at 2026-11-10T11:12:42.994816Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Done (nplan complete)"
+                    }
+                )
+            }
+
+            {
+                id python.text-grammar
+                title "Load a textual grammar through the embed API: CompiledGrammar::from_text parses bytes under their source's name, resolves INCLUDEs as vislcg3 does and finishes as cg-comp does, so its runs match the .cg3b's"
+                implements {
+                    target-impl ([spec:cg3:req:embed.load-text])
+                }
+                deps (python.spec)
+            }
+
+            {
+                id python.bindings
+                title "Add crates/cg3-python, pyo3 glue over the load-and-run API: read_grammar, parse_grammar and load_grammar, info, apply with keyword-only snake_case run options and the run's warnings, GrammarError and RunError, the GIL released for loads and runs, tracing events handed to logging"
+                implements {
+                    target-impl (
+                        [spec:cg3:req:python.grammar-load]
+                        [spec:cg3:req:python.apply]
+                        [spec:cg3:req:python.errors]
+                        [spec:cg3:req:python.threads]
+                        [spec:cg3:req:python.logging]
+                    )
+                }
+                deps (python.spec python.text-grammar)
+            }
+
+            {
+                id python.package
+                title "Package the binding as divvun-cg3: python/pyproject.toml built by maturin as an abi3 wheel for CPython 3.11+, the cg3 package re-exporting cg3._cg3 with __version__, type stubs and py.typed checked by mypy --strict, the licence text and a README"
+                implements {
+                    py-impl ([spec:cg3:req:python.module] [spec:cg3:req:python.typed])
+                }
+                deps (python.bindings)
+            }
+
+            {
+                id python.parity
+                title "Show the package runs a grammar exactly as vislcg3 does: a pytest check that loads every test/T_* grammar both as text and as the .cg3b cg-comp writes, applies it through the built package with its args.txt options and compares with vislcg3's bytes, naming each exemption"
+                implements {
+                    py-impl ([spec:cg3:req:python.parity])
+                }
+                deps (python.package)
+            }
+
+            {
+                id python.publish
+                title "Publish divvun-cg3 from CI: the Buildkite pipeline builds an abi3 wheel per platform, runs the parity check against each, and uploads them to PyPI on a release tag"
+                kind @ci
+                deps (python.parity)
+            }
+        )
+    }
 )

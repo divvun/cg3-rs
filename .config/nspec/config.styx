@@ -10,5 +10,6 @@ specs ({
         {name source-impl, languages (@cpp), include (src/**/*.cpp src/**/*.hpp), exclude (src/libcg3.cpp src/BinaryGrammar_read_10043.cpp src/all_cg_comp.cpp src/all_cg_conv.cpp src/all_cg_proc.cpp src/all_vislcg3.cpp), mode @impl-only}
         {name target-impl, languages (@rust), include (src/**/*.rs crates/**/*.rs), exclude (target/**), mode @both}
         {name js-impl, languages (@typescript), include (js/**/*.ts), exclude (js/**/node_modules/** js/**/pkg/** js/**/dist/**), mode @both}
+        {name py-impl, languages (@python), include (python/**/*.py), exclude (python/.venv/** python/build/**), mode @both}
     )
 })

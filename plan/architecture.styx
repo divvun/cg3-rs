@@ -191,6 +191,7 @@ elements (
         lifecycle @provisional
         owns (
             [spec:cg3:req:embed.load]
+            [spec:cg3:req:embed.load-text]
             [spec:cg3:req:embed.info]
             [spec:cg3:req:embed.run-options]
             [spec:cg3:req:embed.grammar-options]
@@ -203,9 +204,10 @@ elements (
             "crates/cg3/src/embed/**"
         )
         depends_on ([arch:cg3:error-model] [arch:cg3:grammar-model] [arch:cg3:binary-format])
-        decisions ([dec:cg3:wasm-package])
+        decisions ([dec:cg3:wasm-package] [dec:cg3:python-package])
         log (
             {at "2026-10-29T00:00:00Z", kind @established, by "[dec:cg3:wasm-package]"}
+            {at "2026-11-10T00:00:00Z", kind @modified, by "[dec:cg3:python-package]"}
         )
     }
 
@@ -229,6 +231,32 @@ elements (
         decisions ([dec:cg3:wasm-package])
         log (
             {at "2026-10-29T00:00:00Z", kind @established, by "[dec:cg3:wasm-package]"}
+        )
+    }
+
+    {
+        id [arch:cg3:python-package]
+        name "Python package"
+        kind @boundary
+        lifecycle @provisional
+        owns (
+            [spec:cg3:req:python.module]
+            [spec:cg3:req:python.typed]
+            [spec:cg3:req:python.grammar-load]
+            [spec:cg3:req:python.apply]
+            [spec:cg3:req:python.errors]
+            [spec:cg3:req:python.threads]
+            [spec:cg3:req:python.logging]
+            [spec:cg3:req:python.parity]
+        )
+        exposes (
+            "crates/cg3-python/**"
+            "python/**"
+        )
+        depends_on ([arch:cg3:embedding])
+        decisions ([dec:cg3:python-package])
+        log (
+            {at "2026-11-10T00:00:00Z", kind @established, by "[dec:cg3:python-package]"}
         )
     }
 )

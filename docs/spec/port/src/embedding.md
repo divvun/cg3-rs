@@ -2,9 +2,10 @@
 
 The C++ offers embedders `libcg3`, a C API over the same classes the tools use.
 The port offers one API in the library instead: load a compiled grammar from
-bytes, then run it on bytes. It is
-what the wasm package binds, and vislcg3 runs every grammar through it, so the
-golden corpus tests it.
+bytes, then run it on bytes. A textual grammar loads from bytes too, for a
+host with files to resolve its includes. It is what the wasm and Python
+packages bind, and vislcg3 runs every grammar through it, so the golden corpus
+tests it.
 
 A run is vislcg3 without a process. Its options are typed fields where vislcg3
 has a command line, the grammar's own options are merged with them as vislcg3
@@ -16,6 +17,14 @@ merges them, and its output is what vislcg3 writes.
 > that every run of it shares without copying. Bytes vislcg3 refuses MUST fail
 > with the error vislcg3 reports for them. A grammar a tool loads or compiles
 > some other way and finishes MAY become a `CompiledGrammar` too.
+
+> [spec:cg3:req:embed.load-text]
+> `CompiledGrammar::from_text` MUST parse a textual grammar from bytes, under
+> the name of the source they came from, and finish it as cg-comp finishes the
+> grammar it compiles, so that a run of it gives what a run of the `.cg3b`
+> cg-comp writes for it gives. A relative `INCLUDE` MUST resolve as it does for
+> vislcg3 reading the file that name names. A grammar that does not parse MUST
+> fail with every error the parse found and the sources they point into.
 
 > [spec:cg3:req:embed.info]
 > `CompiledGrammar::info` MUST report what vislcg3's verbose summary of a loaded
