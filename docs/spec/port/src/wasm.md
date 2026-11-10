@@ -27,12 +27,13 @@ The package is a TypeScript wrapper over the wasm-bindgen glue, as
 `@divvun/hfst` and `@divvun/fst` are, so the three start, fail, free and log
 alike.
 
-> [spec:cg3:req:wasm.module+1]
-> The package MUST be published to npm as `@divvun/cg3`, at the version of the
-> library it was built from. It is one ES module entry point with TypeScript
-> declarations and one `.wasm` file beside it, and it MUST load unchanged in
-> browsers, Web Workers, Deno, Node 20 or later, and Bun. It MUST declare
-> GPL-3.0-or-later and carry the licence's text.
+> [spec:cg3:req:wasm.module+2]
+> The package MUST be published to npm as `@divvun/cg3`, at a version of its
+> own that `crates/cg3-wasm` carries, from a `wasm/v<version>` tag naming that
+> version, and `version()` MUST return it. It is one ES module entry point
+> with TypeScript declarations and one `.wasm` file beside it, and it MUST
+> load unchanged in browsers, Web Workers, Deno, Node 20 or later, and Bun. It
+> MUST declare GPL-3.0-or-later and carry the licence's text.
 
 > [spec:cg3:req:wasm.init]
 > Importing the package MUST NOT fetch or compile its `.wasm` file. The caller

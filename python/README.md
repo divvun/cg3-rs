@@ -157,6 +157,9 @@ The tests build `cg-comp`, `vislcg3` and the program the corpus's `EXTERNAL`
 rule runs with cargo, or take them from the directory `CG3_BIN` names. They
 check the wheel `CG3_WHEEL` names, or build one.
 
+The package's version is the one `crates/cg3-python/Cargo.toml` carries. A
+`python/v<version>` tag naming it releases the wheels and the sdist to PyPI.
+
 ## Licence
 
 GPL-3.0-or-later. The package carries the licence's text.

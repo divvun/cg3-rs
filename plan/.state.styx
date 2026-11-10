@@ -303,6 +303,7 @@ assertions (
     {id js-test-full-gc, kind @complete, author "brendan@necessary.nu", at 2026-11-06T15:53:52.665378Z}
     {id python.spec, kind @complete, author "brendan@necessary.nu", at 2026-11-10T11:12:42.994816Z}
     {id python.publish, kind @doing, author "brendan@necessary.nu", at 2026-11-10T13:55:00.16566Z}
+    {id package-versions, kind @doing, author "brendan@necessary.nu", at 2026-11-10T14:10:10.340637Z}
 )
 
 impl_evidence (

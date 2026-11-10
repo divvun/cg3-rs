@@ -1,6 +1,8 @@
 [package]
 name = "cg3-python"
-version.workspace = true
+# The version of divvun-cg3, which is versioned on its own and released from a
+# `python/v<version>` tag; the library it binds keeps the workspace version.
+version = "0.1.0"
 edition.workspace = true
 description = "pyo3 glue behind divvun-cg3, VISL CG-3 for Python"
 license.workspace = true

@@ -63,9 +63,10 @@ def properties(cls: str) -> dict[str, str]:
     return found
 
 
-# [spec:cg3:req:python.module/test]
-def test_the_version_is_the_librarys() -> None:
-    version = toml(ROOT / "Cargo.toml")["workspace"]["package"]["version"]
+# [spec:cg3:req:python.module+1/test]
+def test_the_version_is_the_binding_crates() -> None:
+    version = toml(ROOT / "crates/cg3-python/Cargo.toml")["package"]["version"]
+    assert isinstance(version, str)
     assert cg3.__version__ == version
     assert metadata.version("divvun-cg3") == version
 
@@ -76,7 +77,9 @@ def wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     publishes, or else one maturin builds from python/ as a release would."""
     given = os.environ.get("CG3_WHEEL")
     if given:
-        return Path(given)
+        named = Path(given)
+        assert named.is_file(), f"CG3_WHEEL names {given}, not a file from {Path.cwd()}"
+        return named
     out = tmp_path_factory.mktemp("wheel")
     subprocess.run(
         [sys.executable, "-m", "maturin", "build", "--quiet", "--out", out],
@@ -87,7 +90,7 @@ def wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return built
 
 
-# [spec:cg3:req:python.module/test]
+# [spec:cg3:req:python.module+1/test]
 def test_the_wheel_is_cg3_under_the_gpl(wheel: Path) -> None:
     meta = metadata.metadata("divvun-cg3")
     assert meta["Name"] == "divvun-cg3"
@@ -102,7 +105,7 @@ def test_the_wheel_is_cg3_under_the_gpl(wheel: Path) -> None:
     assert licence.decode().strip() == (ROOT / "COPYING").read_text().strip()
 
 
-# [spec:cg3:req:python.module/test]
+# [spec:cg3:req:python.module+1/test]
 def test_a_named_wheel_is_the_one_imported() -> None:
     if not os.environ.get("CG3_WHEEL"):
         pytest.skip("no CG3_WHEEL: the tests run against the checkout's build")
@@ -110,7 +113,7 @@ def test_a_named_wheel_is_the_one_imported() -> None:
     assert Path(cg3._cg3.__file__ or "").parent == PACKAGE
 
 
-# [spec:cg3:req:python.module/test]
+# [spec:cg3:req:python.module+1/test]
 def test_one_wheel_serves_cpython_311_on(wheel: Path) -> None:
     pyo3 = toml(ROOT / "crates/cg3-python/Cargo.toml")["dependencies"]["pyo3"]
     assert pyo3["features"] == ["abi3-py311"]

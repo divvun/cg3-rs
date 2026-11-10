@@ -22,9 +22,8 @@ pub use sink::install;
 #[cfg(feature = "test-hooks")]
 pub use test_hooks::{TestObject, test_log, test_panic};
 
-// [spec:cg3:req:wasm.module+1]
-/// The version of the library this module was built from, which the npm
-/// package is published at.
+// [spec:cg3:req:wasm.module+2]
+/// The version of the npm package, which this crate carries as its own.
 #[wasm_bindgen]
 pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
@@ -32,9 +31,9 @@ pub fn version() -> String {
 
 #[cfg(test)]
 mod tests {
-    // [spec:cg3:req:wasm.module+1/test]
+    // [spec:cg3:req:wasm.module+2/test]
     #[test]
-    fn package_is_the_library_version_under_the_gpl() {
+    fn package_is_the_crates_version_under_the_gpl() {
         assert_eq!(super::version(), env!("CARGO_PKG_VERSION"));
         let manifest = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),

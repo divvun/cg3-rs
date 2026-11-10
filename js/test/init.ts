@@ -79,7 +79,7 @@ if (args.variant === "retry") {
 }
 
 // [spec:cg3:req:wasm.init/test]
-// [spec:cg3:req:wasm.module+1/test]
+// [spec:cg3:req:wasm.module+2/test]
 test(`init from ${args.variant} starts the package at the version it declares`, async () => {
   started = pkg.init(await source(args.variant));
   assertEqual(thrownCode(pkg.Cg3Error, () => pkg.version()), "not-initialised", "a call while init runs");

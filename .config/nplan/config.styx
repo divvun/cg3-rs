@@ -32,7 +32,7 @@ platforms (
                 cmd "cd python && uv sync --quiet --no-install-project && uv run --no-sync maturin develop --uv --quiet && uv run --no-sync pytest -q"
             }
             typecheck {
-                cmd "cd python && uv sync --quiet --no-install-project && uv run --no-sync mypy"
+                cmd "cd python && uvx --quiet --with 'pytest>=8' --from 'mypy>=1.13' mypy"
             }
         }
     }

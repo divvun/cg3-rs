@@ -25,7 +25,7 @@ export function init(source?: InitSource): Promise<void> {
   return core.init(source);
 }
 
-/** The version of the cg3 library the package was built from, which is the package's own version. */
+/** The package's version. The package is versioned on its own, apart from the cg3 library it carries. */
 export function version(): string {
   return core.call((glue) => glue.version());
 }

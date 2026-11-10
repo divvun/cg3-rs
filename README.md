@@ -96,6 +96,11 @@ version `cg3-wasm` pins, `wasm-opt` and `npx`. `python/` builds the Python
 package, `divvun-cg3`, with maturin and uv; `python/README.md` gives the
 commands.
 
+The library and the tools share one version and are released from a
+`v<version>` tag. The two packages are versioned on their own, each in its
+binding crate, and released from `wasm/v<version>` and `python/v<version>`
+tags.
+
 The `profiler` feature is off by default; it pulls in `rusqlite` (bundled
 SQLite, which needs a C toolchain to build) for `vislcg3 --profile` and the two
 report tools. The base build is pure Rust.

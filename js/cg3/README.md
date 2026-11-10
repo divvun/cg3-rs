@@ -91,8 +91,8 @@ grammar.info();
 runtime, Node included. Call it once and wait for it before anything else;
 calling it again returns the same promise. It also takes a URL, a `Response`,
 the module's bytes or a compiled `WebAssembly.Module`, for bundlers and for
-workers that are handed one. `version()` gives the version of the cg3 library
-the package was built from.
+workers that are handed one. `version()` gives the package's version. The
+package is versioned on its own, apart from the cg3 library inside it.
 
 ## Memory
 
@@ -147,6 +147,10 @@ node js/test/run.mjs --require-all
 
 The build needs the `wasm32-unknown-unknown` target, the `wasm-bindgen` CLI
 at the version `crates/cg3-wasm` pins, `wasm-opt` and `npx`.
+
+The package's version is the one `crates/cg3-wasm/Cargo.toml` and
+`js/cg3/package.json` both carry. A `wasm/v<version>` tag naming it releases
+the package to npm.
 
 ## Licence
 

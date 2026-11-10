@@ -13,10 +13,11 @@ options, exceptions and logging.
 
 ## The module
 
-> [spec:cg3:req:python.module]
-> The package MUST be published to PyPI as `divvun-cg3`, at the version of the
-> library it was built from, and MUST be imported as `cg3`. `cg3.__version__`
-> MUST be that version. One wheel per platform MUST serve CPython 3.11 and
+> [spec:cg3:req:python.module+1]
+> The package MUST be published to PyPI as `divvun-cg3`, at a version of its
+> own that `crates/cg3-python` carries, from a `python/v<version>` tag naming
+> that version, and MUST be imported as `cg3`. `cg3.__version__` MUST be that
+> version. One wheel per platform MUST serve CPython 3.11 and
 > every later release, through the stable ABI. The package MUST declare
 > GPL-3.0-or-later and carry the licence's text.
 

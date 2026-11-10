@@ -3954,7 +3954,7 @@ children (
                 id python.publish
                 title "Publish divvun-cg3 from CI: the Buildkite pipeline builds an abi3 wheel per platform, runs the parity check against each, and uploads them to PyPI on a release tag"
                 kind @ci
-                deps (python.parity python.run-options)
+                deps (python.parity python.run-options package-versions)
                 log (
                     {
                         at 2026-11-10T11:48:41.066927Z
@@ -4010,6 +4010,21 @@ children (
                         text "vislcg3 sets these on the parser before it reads the grammar, for textual and binary grammars alike (crates/cg3-cli/src/vislcg3.rs: parser.nrules, parser.nrules_inv, parser.set_compatible). RunOptions holds only what GrammarApplicator::set_options reads, so a loaded grammar has no place for them. The spec needs a rule beside embed.load and embed.load-text, and python.parity and wasm.parity name the two exemptions they would drop. T_CG2Compat also passes --ordered, which RunOptions already has."
                     }
                 )
+            }
+        )
+    }
+
+    {
+        id package-versions
+        title "Version @divvun/cg3 and divvun-cg3 on their own, each in its binding crate, and release each from its own tag: v<version> the library and tools, wasm/v<version> the npm package, python/v<version> the wheels"
+        kind @ci
+        deps (python.run-options)
+        log (
+            {
+                at 2026-11-10T14:10:10.340637Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Todo → Doing (nplan start)"
             }
         )
     }

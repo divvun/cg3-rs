@@ -41,7 +41,7 @@ export async function entryOf(dir: URL): Promise<Record<string, unknown>> {
 
 /** Registers the checks for the package in `dir`, which must be called `name`. */
 export function packageTests(dir: URL, name: string): void {
-  // [spec:cg3:req:wasm.module+1/test]
+  // [spec:cg3:req:wasm.module+2/test]
   test("package.json names the package, VISL CG-3 and the licence", async () => {
     const manifest = await readManifest(dir);
     assertEqual(manifest.name, name, "name");
@@ -53,7 +53,7 @@ export function packageTests(dir: URL, name: string): void {
     assertEqual(manifest.files.join(" "), "dist", "files");
   });
 
-  // [spec:cg3:req:wasm.module+1/test]
+  // [spec:cg3:req:wasm.module+2/test]
   test("the package carries the text of the GPL", async () => {
     const copying = await readText(new URL("dist/COPYING", dir));
     assert(copying.includes("GNU GENERAL PUBLIC LICENSE"), "dist/COPYING is the GPL");
@@ -65,7 +65,7 @@ export function packageTests(dir: URL, name: string): void {
     assert(readme.startsWith(`# ${name}`), "README.md is the package's");
   });
 
-  // [spec:cg3:req:wasm.module+1/test]
+  // [spec:cg3:req:wasm.module+2/test]
   // [spec:cg3:req:wasm.typed-surface/test]
   test("the entry module and its declarations are where the exports map says", async () => {
     const manifest = await readManifest(dir);
@@ -76,7 +76,7 @@ export function packageTests(dir: URL, name: string): void {
     }
   });
 
-  // [spec:cg3:req:wasm.module+1/test]
+  // [spec:cg3:req:wasm.module+2/test]
   test("one .wasm file ships, beside the entry module", async () => {
     const manifest = await readManifest(dir);
     const wasm = (await listFiles(new URL("dist/", dir))).filter((file) => file.endsWith(".wasm"));

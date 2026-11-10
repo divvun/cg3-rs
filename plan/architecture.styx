@@ -228,9 +228,10 @@ elements (
             "crates/cg3-wasm/**"
         )
         depends_on ([arch:cg3:embedding])
-        decisions ([dec:cg3:wasm-package])
+        decisions ([dec:cg3:wasm-package] [dec:cg3:package-versions])
         log (
             {at "2026-10-29T00:00:00Z", kind @established, by "[dec:cg3:wasm-package]"}
+            {at "2026-11-10T00:00:00Z", kind @modified, by "[dec:cg3:package-versions]"}
         )
     }
 
@@ -254,9 +255,10 @@ elements (
             "python/**"
         )
         depends_on ([arch:cg3:embedding])
-        decisions ([dec:cg3:python-package])
+        decisions ([dec:cg3:python-package] [dec:cg3:package-versions])
         log (
             {at "2026-11-10T00:00:00Z", kind @established, by "[dec:cg3:python-package]"}
+            {at "2026-11-10T00:00:00Z", kind @modified, by "[dec:cg3:package-versions]"}
         )
     }
 )
