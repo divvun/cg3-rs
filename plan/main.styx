@@ -3955,6 +3955,7 @@ children (
                 title "Publish divvun-cg3 from CI: the Buildkite pipeline builds an abi3 wheel per platform, runs the parity check against each, and uploads them to PyPI on a release tag"
                 kind @ci
                 deps (python.parity python.run-options package-versions)
+                sealed true
                 log (
                     {
                         at 2026-11-10T11:48:41.066927Z
@@ -3968,6 +3969,21 @@ children (
                         author "brendan@necessary.nu"
                         kind @status
                         text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-11-10T21:01:28.905708Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+
+                    {
+                        at 2026-11-10T21:01:33.274938Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "divvun-cg3 0.1.0 is on PyPI from the python/v0.1.0 tag build of 2f3790f: the sdist and seven abi3 wheels (manylinux2014 and musllinux_1_2 for x86_64 and aarch64, win_amd64, win_arm64, macosx_11_0_arm64). divvun-actions util/binding_packages.ts now holds the package steps cg3-rs, hfst-rs and divvunspell share."
+                        after_done true
                     }
                 )
             }
@@ -4019,12 +4035,20 @@ children (
         title "Version @divvun/cg3 and divvun-cg3 on their own, each in its binding crate, and release each from its own tag: v<version> the library and tools, wasm/v<version> the npm package, python/v<version> the wheels"
         kind @ci
         deps (python.run-options)
+        sealed true
         log (
             {
                 at 2026-11-10T14:10:10.340637Z
                 author "brendan@necessary.nu"
                 kind @status
                 text "Todo → Doing (nplan start)"
+            }
+
+            {
+                at 2026-11-10T21:01:16.475006Z
+                author "brendan@necessary.nu"
+                kind @status
+                text "Doing → Done (nplan complete)"
             }
         )
     }

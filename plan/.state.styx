@@ -302,8 +302,8 @@ assertions (
     {id release-0-5-0, kind @complete, author "brendan@necessary.nu", at 2026-11-06T09:57:33.533223Z}
     {id js-test-full-gc, kind @complete, author "brendan@necessary.nu", at 2026-11-06T15:53:52.665378Z}
     {id python.spec, kind @complete, author "brendan@necessary.nu", at 2026-11-10T11:12:42.994816Z}
-    {id python.publish, kind @doing, author "brendan@necessary.nu", at 2026-11-10T13:55:00.16566Z}
-    {id package-versions, kind @doing, author "brendan@necessary.nu", at 2026-11-10T14:10:10.340637Z}
+    {id python.publish, kind @complete, author "brendan@necessary.nu", at 2026-11-10T21:01:28.905708Z}
+    {id package-versions, kind @complete, author "brendan@necessary.nu", at 2026-11-10T21:01:16.475006Z}
 )
 
 impl_evidence (
