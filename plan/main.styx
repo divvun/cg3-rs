@@ -3962,6 +3962,13 @@ children (
                         kind @note
                         text "Two things for Windows wheels. python/COPYING is a git symlink to the repository's COPYING (PEP 639 refuses a licence path outside the project), so a Windows checkout needs core.symlinks, or the step copies COPYING into python/ before maturin build. tests/test_parity.py links the EXTERNAL example into a scratch directory with os.symlink, which Windows allows only with developer mode or privileges, and the Rust EXTERNAL protocol test is cfg(not(windows)). The tests take prebuilt cg-comp, vislcg3 and cg3-external-example from the directory CG3_BIN names. Only the cg3-cli and cg3-wasm steps build in the pipeline today; the crates/cg3-python member builds with no libpython because .cargo/config.toml sets PYO3_BUILD_EXTENSION_MODULE."
                     }
+
+                    {
+                        at 2026-11-10T13:55:00.16566Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
 

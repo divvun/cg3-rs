@@ -13,8 +13,8 @@ names as `./cg3-external-example`, so that rule runs as it does under vislcg3.
 from __future__ import annotations
 
 import dataclasses
-import os
 import re
+import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -104,7 +104,7 @@ def short(tools: Tools) -> dict[str, str]:
 def scratch(tools: Tools, tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A directory to run in, where `./cg3-external-example` is the program."""
     directory = tmp_path_factory.mktemp("parity")
-    os.symlink(tools.external_example, directory / tools.external_example.name)
+    shutil.copy2(tools.external_example, directory / tools.external_example.name)
     return directory
 
 

@@ -153,8 +153,9 @@ uv run --no-sync mypy                   # the stubs and the tests
 uv run --no-sync maturin build --release
 ```
 
-The tests build `cg-comp` and `vislcg3` with cargo, or take them from the
-directory `CG3_BIN` names.
+The tests build `cg-comp`, `vislcg3` and the program the corpus's `EXTERNAL`
+rule runs with cargo, or take them from the directory `CG3_BIN` names. They
+check the wheel `CG3_WHEEL` names, or build one.
 
 ## Licence
 

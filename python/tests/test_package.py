@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import os
 import re
 import subprocess
 import sys
@@ -71,7 +72,11 @@ def test_the_version_is_the_librarys() -> None:
 
 @pytest.fixture(scope="module")
 def wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The wheel maturin builds from python/, as a release would."""
+    """The wheel `CG3_WHEEL` names, which CI sets to the one it tests and
+    publishes, or else one maturin builds from python/ as a release would."""
+    given = os.environ.get("CG3_WHEEL")
+    if given:
+        return Path(given)
     out = tmp_path_factory.mktemp("wheel")
     subprocess.run(
         [sys.executable, "-m", "maturin", "build", "--quiet", "--out", out],
@@ -95,6 +100,14 @@ def test_the_wheel_is_cg3_under_the_gpl(wheel: Path) -> None:
     assert {"cg3/__init__.py", "cg3/_cg3.pyi", "cg3/py.typed"} <= files
     assert {f.split("/")[0] for f in files} == {"cg3", f"divvun_cg3-{version}.dist-info"}
     assert licence.decode().strip() == (ROOT / "COPYING").read_text().strip()
+
+
+# [spec:cg3:req:python.module/test]
+def test_a_named_wheel_is_the_one_imported() -> None:
+    if not os.environ.get("CG3_WHEEL"):
+        pytest.skip("no CG3_WHEEL: the tests run against the checkout's build")
+    assert PACKAGE.resolve() != (ROOT / "python" / "cg3").resolve()
+    assert Path(cg3._cg3.__file__ or "").parent == PACKAGE
 
 
 # [spec:cg3:req:python.module/test]
