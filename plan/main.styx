@@ -3984,4 +3984,26 @@ children (
             }
         )
     }
+
+    {
+        id idioms
+        title "Idioms: give the surfaces the port exposes to embedders the shape their languages expect, where they still carry the shape of the C++ tools"
+        kind @refactor
+        children (
+            {
+                id idioms.load-options
+                title "Give the embed API the load-time options vislcg3 sets on its parser (--nrules, --nrules-v, --vislcg-compat), so CompiledGrammar::from_text and from_cg3b and the JS and Python loaders can load every corpus grammar, and both parity checks drop the T_NRules and T_CG2Compat exemptions"
+                kind @feat
+                deps (python.run-options)
+                log (
+                    {
+                        at 2026-11-10T12:14:02.066799Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "vislcg3 sets these on the parser before it reads the grammar, for textual and binary grammars alike (crates/cg3-cli/src/vislcg3.rs: parser.nrules, parser.nrules_inv, parser.set_compatible). RunOptions holds only what GrammarApplicator::set_options reads, so a loaded grammar has no place for them. The spec needs a rule beside embed.load and embed.load-text, and python.parity and wasm.parity name the two exemptions they would drop. T_CG2Compat also passes --ordered, which RunOptions already has."
+                    }
+                )
+            }
+        )
+    }
 )
