@@ -3938,9 +3938,17 @@ children (
                 id python.parity
                 title "Show the package runs a grammar exactly as vislcg3 does: a pytest check that loads every test/T_* grammar both as text and as the .cg3b cg-comp writes, applies it through the built package with its args.txt options and compares with vislcg3's bytes, naming each exemption"
                 implements {
-                    py-impl ([spec:cg3:req:python.parity])
+                    target-impl ([spec:cg3:req:python.parity])
                 }
                 deps (python.package)
+                log (
+                    {
+                        at 2026-11-10T11:44:09.588208Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

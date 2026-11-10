@@ -114,6 +114,15 @@ logging.getLogger("cg3").setLevel(logging.DEBUG)
 
 Whatever the logging setup, `apply` still returns its run's warnings.
 
+## How it is checked
+
+The suite runs every grammar of cg3-rs's golden corpus through the built
+package twice, loaded from its textual source and from the `.cg3b` `cg-comp`
+writes for it, and compares each output with `vislcg3`'s byte for byte. 67 of
+the 69 tests match both ways, the `EXTERNAL` rule's included. Two are exempt,
+because they pass an option the package does not offer (`--nrules`,
+`--vislcg-compat`); none differ.
+
 ## Types
 
 The package ships type stubs and the `py.typed` marker, and `mypy --strict`

@@ -1,6 +1,7 @@
-"""What every test reads: the golden corpus, and cg-comp and vislcg3.
+"""What every test reads: the golden corpus, cg-comp and vislcg3, and the
+program the corpus's EXTERNAL rule runs.
 
-The tools come from the directory `CG3_BIN` names, or else are built with
+The programs come from the directory `CG3_BIN` names, or else are built with
 cargo from the checkout the tests are in.
 """
 
@@ -39,6 +40,7 @@ def same_lines(expected: str, got: str) -> bool:
 class Tools:
     cg_comp: Path
     vislcg3: Path
+    external_example: Path
 
     def compile(self, grammar: Path, out: Path) -> bytes:
         """The `.cg3b` cg-comp writes for `grammar`."""
@@ -51,6 +53,11 @@ class Tools:
 def _built_tools() -> Path:
     subprocess.run(
         ["cargo", "build", "--quiet", "-p", "cg3-cli", "--bin", "cg-comp", "--bin", "vislcg3"],
+        cwd=ROOT,
+        check=True,
+    )
+    subprocess.run(
+        ["cargo", "build", "--quiet", "-p", "cg3", "--example", "cg3-external-example"],
         cwd=ROOT,
         check=True,
     )
@@ -69,7 +76,9 @@ def tools() -> Tools:
     given = os.environ.get("CG3_BIN")
     directory = Path(given) if given else _built_tools()
     suffix = ".exe" if os.name == "nt" else ""
+    examples = directory if given else directory / "examples"
     return Tools(
         cg_comp=directory / f"cg-comp{suffix}",
         vislcg3=directory / f"vislcg3{suffix}",
+        external_example=examples / f"cg3-external-example{suffix}",
     )

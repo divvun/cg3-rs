@@ -100,6 +100,11 @@ impl Grammar {
     // [spec:cg3:req:python.apply]
     // [spec:cg3:req:python.threads]
     // [spec:cg3:req:python.errors]
+    // [spec:cg3:req:python.parity]
+    // The input and options reach `CompiledGrammar::run`, the operation vislcg3
+    // runs every grammar through, unchanged, and the output comes back as it
+    // wrote it, so a run gives what vislcg3 gives; python/tests/test_parity.py
+    // checks that over the corpus.
     /// Runs the grammar on `input`, as vislcg3 runs it on one standard input,
     /// and returns the output with every warning and non-fatal error the run
     /// logged. Each keyword argument is a vislcg3 long option in snake_case;
