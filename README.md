@@ -40,7 +40,7 @@ binary ABI. The Rust crate API is distinct from the native `libcg3` C API.
 | Runtime model | Typed arena IDs, ownership and borrowing, typed flag sets, and `Result` at recoverable API boundaries. | Owning/raw pointers, inheritance, integer bit masks, exceptions, and `CG3Quit` process exits. |
 | Text and containers | UTF-8 `String`, Rust `regex`, a small JSON reader and writer that keeps RapidJSON's error messages and escapes, and Rust collections or ported flat/sorted containers. | ICU UTF-16 strings and regex, RapidJSON, Boost containers, and STL containers. |
 | Build and dependencies | Cargo; the default engine and six CLI tools are pure Rust. SQLite is optional behind `profiler`. | CMake; links ICU/Boost and builds the native `libcg3` surface, with optional SQLite and bindings. |
-| Public integrations | Rust crate API and command-line tools, with source and `.cg3b` ABI compatibility. It does not currently ship the native `libcg3` C API, SWIG/Python package, or Emscripten/WASM build. | `libcg3` C API, SWIG Python bindings, and an Emscripten/WASM target in addition to the tools. |
+| Public integrations | Rust crate API and command-line tools, with source and `.cg3b` ABI compatibility, and its load-and-run API bound for JavaScript (`@divvun/cg3`, WebAssembly) and Python (`divvun-cg3`, pyo3). It does not ship the native `libcg3` C API or its SWIG bindings. | `libcg3` C API, SWIG Python bindings, and an Emscripten/WASM target in addition to the tools. |
 | Binary grammars | Fully byte-compatible with the current `.cg3b` ABI (revision 13898) and reads the main format from revisions 10373–13898; the separate ancient reader is intentionally absent. | Also carries the separate legacy reader for grammars as old as revision 10043. |
 
 The goal is behavioral compatibility, not a redesign of CG-3 semantics. Some
@@ -54,9 +54,9 @@ Core engine + command-line tools only, **fully compatible with CG-3 grammar
 source and byte-compatible with the current `.cg3b` binary ABI (rev 13898)**.
 The crate contains no `unsafe` code (`unsafe_code = "forbid"`, enforced across
 the library, binaries, and tests).
-Out of scope by design: the native `libcg3` C API and its language bindings
-(SWIG / Python / WASM), and the C++ legacy `.cg3b` reader used for revisions
-10043–10297.
+Out of scope by design: the native `libcg3` C API and its SWIG bindings, and
+the C++ legacy `.cg3b` reader used for revisions 10043–10297. In their place
+the library's load-and-run API is bound for JavaScript and for Python.
 
 `FormatConverter`, used by both `cg-conv` and `vislcg3`, supports every input
 and output arm present in the C++ converter: CG, Apertium, Niceline, plaintext,
@@ -92,7 +92,9 @@ cargo nextest run --workspace     # the full test suite (unit + integration + th
 
 `node js/build.mjs` builds the npm package, `@divvun/cg3`, into `js/cg3`; it
 needs the `wasm32-unknown-unknown` target, the `wasm-bindgen` CLI at the
-version `cg3-wasm` pins, `wasm-opt` and `npx`.
+version `cg3-wasm` pins, `wasm-opt` and `npx`. `python/` builds the Python
+package, `divvun-cg3`, with maturin and uv; `python/README.md` gives the
+commands.
 
 The `profiler` feature is off by default; it pulls in `rusqlite` (bundled
 SQLite, which needs a C toolchain to build) for `vislcg3 --profile` and the two

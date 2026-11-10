@@ -13,6 +13,7 @@ mod options;
 #[pyo3::pymodule(name = "_cg3")]
 mod module {
     use pyo3::prelude::*;
+    use pyo3::types::PyTuple;
 
     #[pymodule_export]
     use crate::error::{Cg3Error, GrammarError, RunError};
@@ -23,6 +24,11 @@ mod module {
 
     #[pymodule_init]
     fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        m.add("__version__", env!("CARGO_PKG_VERSION"))
+        m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+        // `Format` is the `typing.Literal` of the stream formats `apply` reads,
+        // made from the same table, so the two cannot disagree.
+        let names = PyTuple::new(m.py(), crate::options::format_names())?;
+        let literal = m.py().import("typing")?.getattr("Literal")?;
+        m.add("Format", literal.get_item(names)?)
     }
 }

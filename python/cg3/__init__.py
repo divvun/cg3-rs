@@ -4,9 +4,13 @@ Loads Constraint Grammars, compiled (``.cg3b``) or textual, and runs them on
 text, giving the output vislcg3 gives for the same grammar, input and options.
 """
 
+# [spec:cg3:req:python.module]
+# The package is imported as cg3, and its version is the library's, which the
+# extension module was built from.
 from cg3._cg3 import (
     ApplyResult,
     Cg3Error,
+    Format,
     Grammar,
     GrammarError,
     GrammarInfo,
@@ -20,6 +24,7 @@ from cg3._cg3 import (
 __all__ = [
     "ApplyResult",
     "Cg3Error",
+    "Format",
     "Grammar",
     "GrammarError",
     "GrammarInfo",

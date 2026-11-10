@@ -3924,6 +3924,14 @@ children (
                     py-impl ([spec:cg3:req:python.module] [spec:cg3:req:python.typed])
                 }
                 deps (python.bindings)
+                log (
+                    {
+                        at 2026-11-10T11:35:03.908147Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

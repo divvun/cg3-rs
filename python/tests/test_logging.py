@@ -10,14 +10,13 @@ import cg3
 
 GRAMMAR = 'DELIMITERS = "<.>" ; SELECT (n) ;'
 STRAY_DOLLAR = "word$ ^word/word<n>$\n"
-APERTIUM = {"input_format": "apertium", "output_format": "apertium"}
 
 
 # [spec:cg3:req:python.logging/test]
 def test_a_runs_events_reach_their_targets_logger(caplog: pytest.LogCaptureFixture) -> None:
     grammar = cg3.parse_grammar(GRAMMAR)
     with caplog.at_level(logging.WARNING, logger="cg3"):
-        grammar.apply(STRAY_DOLLAR, **APERTIUM)
+        grammar.apply(STRAY_DOLLAR, input_format="apertium", output_format="apertium")
     [record] = caplog.records
     assert record.name == "cg3.apertium_applicator"
     assert record.levelno == logging.ERROR
@@ -52,12 +51,12 @@ def test_events_below_the_cg3_level_are_dropped(caplog: pytest.LogCaptureFixture
 def test_warnings_come_back_whatever_the_level(caplog: pytest.LogCaptureFixture) -> None:
     grammar = cg3.parse_grammar(GRAMMAR)
     with caplog.at_level(logging.CRITICAL, logger="cg3"):
-        result = grammar.apply(STRAY_DOLLAR, **APERTIUM)
+        result = grammar.apply(STRAY_DOLLAR, input_format="apertium", output_format="apertium")
     assert caplog.records == []
     assert len(result.warnings) == 1
 
     logging.disable(logging.CRITICAL)
     try:
-        assert len(grammar.apply(STRAY_DOLLAR, **APERTIUM).warnings) == 1
+        assert len(grammar.apply(STRAY_DOLLAR, input_format="apertium", output_format="apertium").warnings) == 1
     finally:
         logging.disable(logging.NOTSET)

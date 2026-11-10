@@ -87,6 +87,11 @@ const FORMATS: [(&str, Format); 6] = [
     ("jsonl", Format::Jsonl),
 ];
 
+/// The names `input_format` and `output_format` take.
+pub fn format_names() -> impl ExactSizeIterator<Item = &'static str> {
+    FORMATS.iter().map(|(name, _)| *name)
+}
+
 /// One keyword argument's value, named for the errors it raises. Each reader
 /// takes `None` for the option left off.
 struct Value<'a, 'py> {

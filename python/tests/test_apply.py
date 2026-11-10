@@ -75,9 +75,10 @@ def test_the_signature_names_every_option() -> None:
     assert len(set(names)) == len(names)
     for parameter in options():
         assert parameter.default in (None, False), parameter.name
-        grammar.apply(COHORT, **{parameter.name: None})
-        value = VALUES.get(parameter.name, True)
-        grammar.apply(COHORT, **{parameter.name: value})
+        left_off: dict[str, Any] = {parameter.name: None}
+        grammar.apply(COHORT, **left_off)
+        given: dict[str, Any] = {parameter.name: VALUES.get(parameter.name, True)}
+        grammar.apply(COHORT, **given)
     assert set(VALUES) <= set(names)
 
 
@@ -85,7 +86,7 @@ def test_the_signature_names_every_option() -> None:
 def test_an_unknown_option_is_a_type_error() -> None:
     grammar = cg3.parse_grammar(SELECT_N)
     with pytest.raises(TypeError, match="unexpected keyword argument 'nmu_windows'"):
-        grammar.apply(COHORT, nmu_windows=4)
+        grammar.apply(COHORT, nmu_windows=4)  # type: ignore[call-arg]
     with pytest.raises(TypeError):
         grammar.apply(input=COHORT)  # type: ignore[call-arg]
 

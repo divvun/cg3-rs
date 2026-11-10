@@ -105,8 +105,9 @@ impl Grammar {
     /// logged. Each keyword argument is a vislcg3 long option in snake_case;
     /// `input_format` and `output_format` stand for its `--in-*` and `--out-*`
     /// options. A run that fails raises RunError, and the grammar stays usable.
-    // The signature `help()` and `inspect.signature` show, which
-    // python/tests/test_apply.py checks against what `run_options` reads.
+    // The signature `help()` and `inspect.signature` show. `_cg3.pyi` declares
+    // the same parameters with their types, and python/tests checks that both
+    // agree with what `run_options` reads.
     #[pyo3(
         signature = (input, /, **options),
         text_signature = "(self, input, /, *, input_format=None, output_format=None, \

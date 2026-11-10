@@ -72,4 +72,4 @@ def test_info_reports_the_grammars_summary() -> None:
 # [spec:cg3:req:python.grammar-load/test]
 def test_a_grammar_comes_only_from_a_loader() -> None:
     with pytest.raises(TypeError):
-        cg3.Grammar()  # type: ignore[call-arg]
+        cg3.Grammar()
