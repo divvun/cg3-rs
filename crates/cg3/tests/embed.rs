@@ -1,6 +1,8 @@
 //! A program loads a `.cg3b` from bytes and runs it as vislcg3 does: the
 //! corpus grammars, compiled in memory, give each test's expected output
 //! through `CompiledGrammar::run`, with the typed options its `args.txt` names.
+//! A textual grammar loaded through `CompiledGrammar::from_text` runs as the
+//! `.cg3b` compiled from it does.
 
 use std::path::{Path, PathBuf};
 
@@ -260,4 +262,93 @@ fn formats_name_their_stream_options() {
         0,
         "asking for CG output sets nothing"
     );
+}
+
+/// Every corpus grammar's path and source, but those whose `EXTERNAL` rules
+/// would start a process.
+fn textual_corpus() -> Vec<(String, PathBuf, Vec<u8>)> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test");
+    let mut grammars: Vec<_> = std::fs::read_dir(&root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|dir| {
+            dir.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("T_"))
+                && dir.join("grammar.cg3").is_file()
+                && dir.join("input.txt").is_file()
+        })
+        .map(|dir| {
+            let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+            let path = dir.join("grammar.cg3");
+            let source = std::fs::read(&path).unwrap();
+            (name, path, source)
+        })
+        .filter(|(_, _, source)| {
+            !String::from_utf8_lossy(source)
+                .lines()
+                .any(|l| l.trim_start().starts_with("EXTERNAL"))
+        })
+        .collect();
+    grammars.sort();
+    grammars
+}
+
+// [spec:cg3:req:embed.load-text/test]
+#[test]
+fn a_textual_grammar_runs_as_its_cg3b_does() {
+    let corpus = textual_corpus();
+    assert!(corpus.len() > 50, "only {} corpus grammars", corpus.len());
+    let options = RunOptions::default();
+    for (name, path, source) in &corpus {
+        let text = CompiledGrammar::from_text(source, path.to_str().unwrap())
+            .unwrap_or_else(|e| panic!("{name}: the textual grammar loads: {e}"));
+        let binary = CompiledGrammar::from_cg3b(&cg3b(name)).expect("the .cg3b loads");
+        let input = input(name);
+        match (text.run(&input, &options), binary.run(&input, &options)) {
+            (Ok(a), Ok(b)) => assert!(a == b, "{name}: the outputs differ"),
+            (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string(), "{name}"),
+            (a, b) => panic!("{name}: text gives {:?}, .cg3b {:?}", a.err(), b.err()),
+        }
+    }
+}
+
+// [spec:cg3:req:embed.load-text/test]
+#[test]
+fn a_relative_include_resolves_against_the_named_file() {
+    let path = corpus("T_Include").join("grammar.cg3");
+    let source = std::fs::read(&path).unwrap();
+    let grammar = CompiledGrammar::from_text(&source, path.to_str().unwrap())
+        .expect("T_Include's includes are found beside it");
+    let got = grammar
+        .run(&input("T_Include"), &RunOptions::default())
+        .unwrap();
+    let expected = std::fs::read_to_string(corpus("T_Include").join("expected.txt")).unwrap();
+    assert!(same_output(&expected, &String::from_utf8(got).unwrap()));
+
+    let elsewhere = corpus("T_Active").join("grammar.cg3");
+    let refused = CompiledGrammar::from_text(&source, elsewhere.to_str().unwrap())
+        .err()
+        .expect("T_Active's directory has no sets.cg3");
+    let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { errors, .. }) = refused
+    else {
+        panic!("a parse failure, not {refused}");
+    };
+    assert!(errors[0].to_string().contains("sets.cg3"), "{errors:?}");
+}
+
+// [spec:cg3:req:embed.load-text/test]
+#[test]
+fn a_failed_parse_carries_its_errors_and_source() {
+    use cg3::error::{Cg3Error, GrammarError};
+    let source = b"DELIMITERS = \"<.>\" ;\nSELECT NoSuchSet ;\nREMOVE AlsoMissing ;\n";
+    let error = CompiledGrammar::from_text(source, "broken.cg3")
+        .err()
+        .expect("undefined sets are refused");
+    let Cg3Error::Grammar(GrammarError::Parse { errors, sources }) = error else {
+        panic!("a parse failure, not {error}");
+    };
+    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].name, "broken.cg3");
+    assert_eq!(sources[0].text.as_bytes(), source);
 }

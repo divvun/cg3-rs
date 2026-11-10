@@ -3884,6 +3884,14 @@ children (
                     target-impl ([spec:cg3:req:embed.load-text])
                 }
                 deps (python.spec)
+                log (
+                    {
+                        at 2026-11-10T11:13:24.871808Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

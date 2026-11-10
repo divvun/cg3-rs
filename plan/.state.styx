@@ -818,4 +818,9 @@ impl_evidence (
         {impl_name target-impl, rule options-conv.options-conv.options}
         {impl_name target-impl, rule options.options.options}
     )}
+    {id python.text-grammar, covered_rules (
+        embed.load-text
+    ), covered_claims (
+        {impl_name target-impl, rule embed.load-text}
+    )}
 )

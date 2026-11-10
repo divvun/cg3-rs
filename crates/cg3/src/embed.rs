@@ -2,7 +2,8 @@
 //! command line.
 //!
 //! [`CompiledGrammar::from_cg3b`] loads a `.cg3b` from bytes into a core that
-//! every run of it shares; [`CompiledGrammar::run`] runs it on one input, from
+//! every run of it shares, and [`CompiledGrammar::from_text`] parses a textual
+//! grammar into one; [`CompiledGrammar::run`] runs it on one input, from
 //! bytes to bytes, as vislcg3 runs it on one standard input. The typed
 //! [`RunOptions`] are turned into vislcg3's option table and merged with the
 //! options the grammar carries in `CMDARGS` and `CMDARGS-OVERRIDE`, so a run
@@ -30,10 +31,11 @@ use std::sync::Arc;
 use crate::binary_grammar::BinaryGrammar;
 use crate::error::Cg3Error;
 use crate::format_converter::FormatConverter;
-use crate::grammar::{Grammar, GrammarCore, GrammarNumbered};
+use crate::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered};
 use crate::grammar_applicator::{GrammarApplicator, STDIN_SOURCE_NAME, StreamFormatKind};
 use crate::options::{Opt, OptionsTable};
 use crate::profiler::Profiler;
+use crate::textual_parser::TextualParser;
 
 // [spec:cg3:req:embed.load]
 /// A finished grammar, shared by every run of it.
@@ -241,6 +243,18 @@ impl CompiledGrammar {
     pub fn from_cg3b(bytes: &[u8]) -> Result<CompiledGrammar, Cg3Error> {
         let mut parser = BinaryGrammar::new(GrammarNumbered::default());
         parser.parse_grammar_buffer(bytes)?;
+        Ok(CompiledGrammar::from(parser.grammar.finish()?))
+    }
+
+    // [spec:cg3:req:embed.load-text]
+    /// Parses a textual grammar and finishes it, as cg-comp does before it
+    /// writes the `.cg3b`. `name` is what diagnostics call the source, and a
+    /// relative `INCLUDE` resolves against the directory of the file it names.
+    /// A failed parse is a [`GrammarError::Parse`](crate::error::GrammarError::Parse)
+    /// carrying every error and the sources they point into.
+    pub fn from_text(source: &[u8], name: &str) -> Result<CompiledGrammar, Cg3Error> {
+        let mut parser = TextualParser::new(GrammarDraft::default(), false);
+        parser.parse_grammar_named(source, name)?;
         Ok(CompiledGrammar::from(parser.grammar.finish()?))
     }
 
