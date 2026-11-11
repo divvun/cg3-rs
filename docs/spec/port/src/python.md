@@ -6,10 +6,11 @@ the host and not WebAssembly. A Python process has files and can start
 processes, so the package loads textual grammars as well as compiled ones, and
 it runs `EXTERNAL` rules.
 
-The surface follows `@divvun/cg3` where Python allows: the same three
-operations, the same run options and the same results. It differs where Python
-has a convention of its own, for names, the object that carries a run's
-options, exceptions and logging.
+The surface follows `@divvun/cg3` where Python allows: the same operations,
+the same options and the same results. It differs where Python has a
+convention of its own, for names, the objects that carry options, exceptions
+and logging, and it needs no second entry point for compiling, since a native
+module pays nothing for code it does not run.
 
 ## The module
 
@@ -77,6 +78,45 @@ options, exceptions and logging.
 > logger when the call starts MUST NOT be kept. Whatever the logging setup,
 > `apply` still returns its run's warnings.
 
+## Compiling and the other tools
+
+The package does what each command-line tool does, through the library
+function the tool calls.
+
+> [spec:cg3:req:python.load-options]
+> `read_grammar`, `parse_grammar` and `load_grammar` MUST take a keyword-only
+> `options`, a `cg3.LoadOptions` or `None`, and load through the library's
+> `LoadOptions`. `cg3.LoadOptions` MUST be a frozen dataclass with a
+> keyword-only field for each load option, named after its vislcg3 long option
+> in snake_case, and MUST check its fields when it is made.
+
+> [spec:cg3:req:python.includes]
+> `parse_grammar` MUST take a keyword-only `files`, a mapping from names to
+> `str` or `bytes`. When it is given, every `INCLUDE` MUST resolve through the
+> library's in-memory resolver over those files and no others; when it is
+> not, through the default resolver, as vislcg3 resolves it.
+
+> [spec:cg3:req:python.write]
+> `Grammar.to_cg3b()` MUST return what `CompiledGrammar::to_cg3b` returns, as
+> `bytes`, and `Grammar.to_text()` what `CompiledGrammar::to_text` returns, as
+> `str`. `Grammar.write_cg3b(path)` MUST write that `.cg3b` to `path` and, when
+> the grammar has one, its companion file beside it, as cg-comp does. Writing
+> MUST release the GIL while the library works, and MUST NOT change the
+> grammar.
+
+> [spec:cg3:req:python.tools]
+> `cg3.convert(input, options)`, `cg3.mwesplit(input)`,
+> `Grammar.relabel(relabels)` and `Grammar.proc(input, options)` MUST return
+> what `cg3::convert`, `cg3::mwesplit`, `CompiledGrammar::relabel` and
+> `CompiledGrammar::proc` return for the same arguments: a `str` from the
+> three that write a stream, and a new `Grammar` from `relabel`. Their options
+> MUST be `cg3.ConvertOptions` and `cg3.ProcOptions`, frozen dataclasses with
+> a keyword-only field for each option, named after the tool's long option in
+> snake_case, which check their fields when they are made; `ConvertOptions`
+> MUST offer every stream format except the binary one. A failed conversion,
+> split or `proc` MUST raise `cg3.RunError` and a failed relabel
+> `cg3.GrammarError`. Each MUST release the GIL while the library works.
+
 ## Parity
 
 > [spec:cg3:req:python.parity]
@@ -88,3 +128,16 @@ options, exceptions and logging.
 > offer, such as vislcg3's load-time `--nrules` filters or `--vislcg-compat`;
 > the check MUST name each exemption and its reason. `EXTERNAL` rules are not
 > exempt. The check MUST run through the built package.
+
+> [spec:cg3:req:python.write-parity]
+> For every grammar in the golden corpus, the `.cg3b` the package writes for
+> the grammar's textual source MUST equal, byte for byte, the `.cg3b` cg-comp
+> writes for it, its companion file MUST equal cg-comp's, and its `to_text`
+> MUST equal what vislcg3 `--grammar-only --grammar-out` writes. The check
+> MUST run through the built package.
+
+> [spec:cg3:req:python.tools-parity]
+> For every input the repository's tests give cg-conv, cg-mwesplit,
+> cg-relabel and cg-proc, the package MUST give, byte for byte, the output the
+> tool gives for the same input, grammar and options, or fail where it fails. The check MUST run
+> through the built package.

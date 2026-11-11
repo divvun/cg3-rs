@@ -198,16 +198,26 @@ elements (
             [spec:cg3:req:embed.run]
             [spec:cg3:req:embed.runs-independent]
             [spec:cg3:req:embed.cli-runs-through]
+            [spec:cg3:req:embed.load-options]
+            [spec:cg3:req:embed.include-resolver]
+            [spec:cg3:req:embed.write-binary]
+            [spec:cg3:req:embed.write-text]
+            [spec:cg3:req:embed.cli-compiles-through]
+            [spec:cg3:req:embed.convert]
+            [spec:cg3:req:embed.mwesplit]
+            [spec:cg3:req:embed.relabel]
+            [spec:cg3:req:embed.proc]
         )
         exposes (
             "crates/cg3/src/embed.rs"
             "crates/cg3/src/embed/**"
         )
         depends_on ([arch:cg3:error-model] [arch:cg3:grammar-model] [arch:cg3:binary-format])
-        decisions ([dec:cg3:wasm-package] [dec:cg3:python-package])
+        decisions ([dec:cg3:wasm-package] [dec:cg3:python-package] [dec:cg3:tool-surface])
         log (
             {at "2026-10-29T00:00:00Z", kind @established, by "[dec:cg3:wasm-package]"}
             {at "2026-11-10T00:00:00Z", kind @modified, by "[dec:cg3:python-package]"}
+            {at "2026-11-11T00:00:00Z", kind @modified, by "[dec:cg3:tool-surface]"}
         )
     }
 
@@ -223,15 +233,24 @@ elements (
             [spec:cg3:req:wasm.errors]
             [spec:cg3:req:wasm.no-process]
             [spec:cg3:req:wasm.parity]
+            [spec:cg3:req:wasm.read-only-core]
+            [spec:cg3:req:wasm.load-options]
+            [spec:cg3:req:wasm.tools]
+            [spec:cg3:req:wasm.compile]
+            [spec:cg3:req:wasm.compile-includes]
+            [spec:cg3:req:wasm.compile-errors]
+            [spec:cg3:req:wasm.compile-parity]
         )
         exposes (
             "crates/cg3-wasm/**"
+            "crates/cg3-wasm-compile/**"
         )
         depends_on ([arch:cg3:embedding])
-        decisions ([dec:cg3:wasm-package] [dec:cg3:package-versions])
+        decisions ([dec:cg3:wasm-package] [dec:cg3:package-versions] [dec:cg3:tool-surface])
         log (
             {at "2026-10-29T00:00:00Z", kind @established, by "[dec:cg3:wasm-package]"}
             {at "2026-11-10T00:00:00Z", kind @modified, by "[dec:cg3:package-versions]"}
+            {at "2026-11-11T00:00:00Z", kind @modified, by "[dec:cg3:tool-surface]"}
         )
     }
 
@@ -249,16 +268,23 @@ elements (
             [spec:cg3:req:python.threads]
             [spec:cg3:req:python.logging]
             [spec:cg3:req:python.parity]
+            [spec:cg3:req:python.load-options]
+            [spec:cg3:req:python.includes]
+            [spec:cg3:req:python.write]
+            [spec:cg3:req:python.tools]
+            [spec:cg3:req:python.write-parity]
+            [spec:cg3:req:python.tools-parity]
         )
         exposes (
             "crates/cg3-python/**"
             "python/**"
         )
         depends_on ([arch:cg3:embedding])
-        decisions ([dec:cg3:python-package] [dec:cg3:package-versions])
+        decisions ([dec:cg3:python-package] [dec:cg3:package-versions] [dec:cg3:tool-surface])
         log (
             {at "2026-11-10T00:00:00Z", kind @established, by "[dec:cg3:python-package]"}
             {at "2026-11-10T00:00:00Z", kind @modified, by "[dec:cg3:package-versions]"}
+            {at "2026-11-11T00:00:00Z", kind @modified, by "[dec:cg3:tool-surface]"}
         )
     }
 )

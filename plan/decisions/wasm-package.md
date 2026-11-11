@@ -1,6 +1,6 @@
 ---
 id [dec:cg3:wasm-package]
-epitome "@divvun/cg3 is the library compiled to wasm32-unknown-unknown behind a wasm-bindgen binding of the load-and-run API: one ES module, compiled grammars only, and every apply an independent run."
+epitome "@divvun/cg3 is the library compiled to wasm32-unknown-unknown behind a wasm-bindgen binding of the load-and-run API: a main entry point that runs compiled grammars only, and every apply an independent run."
 state @decided
 category @existence
 scope {
@@ -42,8 +42,8 @@ alternatives (
         rejected_because "Emscripten exists to carry C code and a libc, which the library does not need without the profiler. WASI supplies files and an environment that a browser does not have, and the binding needs neither."
     }
     {
-        option "Compile textual grammars in the package as well."
-        rejected_because "`INCLUDE` resolves files a browser does not have, the parser and its source-quoting diagnostics add to the module, and deployments ship `.cg3b`. A textual grammar is compiled with cg-comp first."
+        option "Compile textual grammars in the main entry point as well."
+        rejected_because "The parser, its source-quoting diagnostics and the writers would be in the module every deployment loads, and deployments ship `.cg3b`. Compiling is a second entry point with a module of its own, which `[dec:cg3:tool-surface]` sets out."
     }
     {
         option "A runner that keeps its state from one apply to the next."
@@ -93,6 +93,6 @@ core because that is what vislcg3 is: one input, one run, nothing carried over.
 
 One ES module from wasm-bindgen's `web` target covers browsers, Deno and Node,
 provided the caller can hand the initialiser the `.wasm` bytes where fetching
-the file beside the module does not work. The package reads compiled grammars
-only, because that is what is deployed and because a textual grammar's
-`INCLUDE`s name files that a browser cannot open.
+the file beside the module does not work. The main entry point reads compiled
+grammars only, because that is what is deployed, so a page that only runs
+grammars loads no parser.

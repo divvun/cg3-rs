@@ -1,10 +1,13 @@
 # The wasm package
 
 `@divvun/cg3` puts the library in a JavaScript runtime: a browser, a Web
-Worker, Deno, Node or Bun. It is the library compiled to `wasm32-unknown-unknown` with a thin binding
-over the load-and-run API, and it reads compiled grammars only. A `.cg3b` is
-what deployments ship, and a textual grammar's `INCLUDE`s name files a browser
-does not have.
+Worker, Deno, Node or Bun. It is the library compiled to
+`wasm32-unknown-unknown` with a thin binding over the library's API, and it
+has two entry points. `@divvun/cg3` loads compiled grammars and runs them,
+which is all a deployment needs, so its module carries no parser and no
+writer. `@divvun/cg3/compile` compiles textual grammars and writes them, from a
+`.wasm` of its own that only a caller who compiles loads. A browser has no
+files, so the files a grammar's `INCLUDE`s name come from the caller.
 
 wasm32 has a 32-bit `usize`. Where the port computes in `usize` what the C++
 computes in `size_t`, a 32-bit build has to produce what a 64-bit one does.
@@ -27,13 +30,20 @@ The package is a TypeScript wrapper over the wasm-bindgen glue, as
 `@divvun/hfst` and `@divvun/fst` are, so the three start, fail, free and log
 alike.
 
-> [spec:cg3:req:wasm.module+2]
+> [spec:cg3:req:wasm.module+3]
 > The package MUST be published to npm as `@divvun/cg3`, at a version of its
 > own that `crates/cg3-wasm` carries, from a `wasm/v<version>` tag naming that
-> version, and `version()` MUST return it. It is one ES module entry point
-> with TypeScript declarations and one `.wasm` file beside it, and it MUST
-> load unchanged in browsers, Web Workers, Deno, Node 20 or later, and Bun. It
-> MUST declare GPL-3.0-or-later and carry the licence's text.
+> version, and `version()` MUST return it from either entry point. It has two
+> entry points, `@divvun/cg3` and `@divvun/cg3/compile`. Each is one ES module
+> with TypeScript declarations and a `.wasm` file of its own beside it, and
+> importing or starting one MUST NOT fetch or compile the other's `.wasm`. Both
+> MUST load unchanged in browsers, Web Workers, Deno, Node 20 or later, and
+> Bun. The package MUST declare GPL-3.0-or-later and carry the licence's text.
+
+> [spec:cg3:req:wasm.read-only-core]
+> The module behind `@divvun/cg3` MUST NOT link the textual grammar parser or
+> the grammar writers. A build check MUST fail when code from either is
+> reachable from that module's exports.
 
 > [spec:cg3:req:wasm.init]
 > Importing the package MUST NOT fetch or compile its `.wasm` file. The caller
@@ -103,3 +113,60 @@ alike.
 > `--vislcg-compat`; the check MUST name each exemption and its reason. The
 > check MUST run under Node, Bun and Deno, and in a headless Chromium on a page
 > and in a Web Worker, and CI MUST run it.
+
+## Load options and the other tools
+
+> [spec:cg3:req:wasm.load-options]
+> `readGrammar(bytes, options)` MUST load through the library's
+> `LoadOptions`, with `options` naming each load option after its vislcg3 long
+> option in camelCase, and MUST refuse an option it does not know.
+
+> [spec:cg3:req:wasm.tools]
+> The `@divvun/cg3` entry MUST offer `convert(input, options)` and
+> `mwesplit(input)`, which return as strings what `cg3::convert` and
+> `cg3::mwesplit` return, and `grammar.proc(input, options)`, which returns
+> what `CompiledGrammar::proc` returns. Their options MUST name each option of
+> cg-conv and of cg-proc after its long option in camelCase and MUST refuse an
+> option they do not know, and `convert` MUST offer every stream format except
+> the binary one. A failure MUST throw a `Cg3Error` with code `run-failed`.
+
+## The compile entry point
+
+> [spec:cg3:req:wasm.compile]
+> `@divvun/cg3/compile` MUST start as `wasm.init` says of the package, with an
+> `init` of its own that by default loads its own `.wasm`.
+> `compileGrammar(source, options)` MUST compile a textual grammar from a
+> string through `CompiledGrammar::from_text` and return the `.cg3b` bytes
+> `to_cg3b` returns, as a `Uint8Array` that `readGrammar` loads, with the
+> companion file's bytes or `null`, and the warnings the parse logged, in
+> order, as strings. `options` names the source, the files its includes may
+> read and the load options. `toText(bytes)` MUST return what `to_text` returns
+> for the grammar a `.cg3b` holds, and `relabel(bytes, relabels)` the `.cg3b`
+> bytes of the grammar `CompiledGrammar::relabel` makes from two. Grammars pass
+> between the two entry points as `.cg3b` bytes.
+
+> [spec:cg3:req:wasm.compile-includes]
+> An `INCLUDE` in a grammar `compileGrammar` compiles MUST resolve only from
+> the files its options give, through the library's in-memory resolver. Those
+> files MUST be accepted as a record or `Map` from names to strings or
+> `Uint8Array`s, or as a function that takes a resolved name and returns the
+> file's text or bytes, or `undefined` for a file it does not have. A name
+> they do not supply MUST fail the compile and name the file.
+
+> [spec:cg3:req:wasm.compile-errors]
+> A compile that fails MUST throw a `Cg3Error` with code `compile-failed`,
+> whose `diagnostics` hold every error the parse found, each with its message,
+> the name of its source, its line and its text as vislcg3 prints it, without
+> colour. A failure that is not a compile follows `wasm.errors`. A trap in one
+> entry point's module MUST poison that module only, and each entry point's
+> objects MUST follow `wasm.handle-lifetime`.
+
+> [spec:cg3:req:wasm.compile-parity]
+> For every grammar in the golden corpus, `compileGrammar`, given the files
+> the grammar includes, MUST return, byte for byte, the `.cg3b` and the
+> companion file cg-comp writes, and `toText` of that `.cg3b` MUST equal what
+> vislcg3 `--grammar-only --grammar-out` writes for it. For every input the
+> repository's tests give cg-conv, cg-mwesplit, cg-relabel and cg-proc in a
+> stream that is not binary, the package MUST give, byte for byte, the tool's
+> output. The check MUST run
+> under Node, Bun and Deno, and in a headless Chromium, and CI MUST run it.

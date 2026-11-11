@@ -3386,7 +3386,6 @@ children (
                 title "The TypeScript package in js/cg3, laid out as hfst's js/hfst: index.ts (init, version, readGrammar, Grammar with apply/info/free/dispose, Cg3Error, setLogger, setLogLevel), core/handle/errors/logging modules, js/build.mjs building pkg and dist with the licence, a root deno.json workspace; it replaces crates/cg3-wasm/package.sh, npm/ and smoke/"
                 implements {
                     js-impl (
-                        [spec:cg3:req:wasm.module]
                         [spec:cg3:req:wasm.init]
                         [spec:cg3:req:wasm.grammar-load]
                         [spec:cg3:req:wasm.errors]
@@ -3394,7 +3393,7 @@ children (
                         [spec:cg3:req:wasm.typed-surface]
                         [spec:cg3:req:wasm.logging]
                     )
-                    target-impl ([spec:cg3:req:wasm.module] [spec:cg3:req:wasm.grammar-load] [spec:cg3:req:wasm.errors])
+                    target-impl ([spec:cg3:req:wasm.grammar-load] [spec:cg3:req:wasm.errors])
                 }
                 deps (js-surface.spec)
             }
@@ -4015,9 +4014,13 @@ children (
         children (
             {
                 id idioms.load-options
-                title "Give the embed API the load-time options vislcg3 sets on its parser (--nrules, --nrules-v, --vislcg-compat), so CompiledGrammar::from_text and from_cg3b and the JS and Python loaders can load every corpus grammar, and both parity checks drop the T_NRules and T_CG2Compat exemptions"
+                title "Give the library the options vislcg3 applies while it loads a grammar (--nrules, --nrules-v, --vislcg-compat, --prefix, and a --prefix in CMDARGS) as LoadOptions taken by from_cg3b and from_text, bind them in Python and readGrammar, and drop the T_NRules and T_CG2Compat exemptions from both parity checks"
                 kind @feat
-                deps (python.run-options)
+                implements {
+                    js-impl ([spec:cg3:req:wasm.load-options])
+                    target-impl ([spec:cg3:req:embed.load-options] [spec:cg3:req:python.load-options] [spec:cg3:req:wasm.load-options])
+                }
+                deps (python.run-options tool-surface.spec)
                 log (
                     {
                         at 2026-11-10T12:14:02.066799Z
@@ -4049,6 +4052,179 @@ children (
                 author "brendan@necessary.nu"
                 kind @status
                 text "Doing → Done (nplan complete)"
+            }
+        )
+    }
+
+    {
+        id tool-surface
+        title "Give the packages what the command-line tools do: the library compiles, writes, converts, splits, relabels and runs as cg-proc through functions the tools call, divvun-cg3 binds all of it, and @divvun/cg3 adds compiling and writing as an optional second entry point, @divvun/cg3/compile, with a .wasm of its own"
+        kind @feat
+        children (
+            {
+                id tool-surface.spec
+                title "State the whole tool surface in the spec and the AKM: library rules for load options, an INCLUDE resolver, writers that leave the grammar unchanged, and cg-conv, cg-mwesplit, cg-relabel and cg-proc as library functions the tools call; Python rules for binding them; wasm rules for the read-only main entry and the @divvun/cg3/compile entry; the tool-surface decision"
+                kind @docs
+                sealed true
+                log (
+                    {
+                        at 2026-11-11T11:23:52.171695Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-11-11T11:30:58.008027Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+
+                    {
+                        at 2026-11-11T11:31:00.02448Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Written: embedding.md gains embed.load-options, embed.include-resolver, embed.write-binary, embed.write-text, embed.cli-compiles-through, embed.convert, embed.mwesplit, embed.relabel and embed.proc; python.md gains python.load-options, python.includes, python.write, python.tools, python.write-parity and python.tools-parity; wasm.md bumps wasm.module to +3 (two entry points, each with its own .wasm) and gains wasm.read-only-core, wasm.load-options, wasm.tools, wasm.compile, wasm.compile-includes, wasm.compile-errors and wasm.compile-parity. [dec:cg3:tool-surface] records the scope and what it leaves out (profiling, the binary stream, the unported --show-* and --dump-ast reports); [dec:cg3:wasm-package]'s compiled-only scope is narrowed to the main entry point. wasm.module moves from js-surface.wrapper to tool-surface.wasm-compile, the node that meets +3, as js-surface.spec moved the earlier bumps. The existing python.parity and wasm.parity rules are left at their versions: their exemption condition (an option the package does not offer) stays true and drops T_NRules and T_CG2Compat by itself once idioms.load-options lands. Survey facts the nodes rely on: the library and its textual parser already build for wasm32-unknown-unknown, and today's main module leaves the parser out only because nothing reaches it; both writers mutate the grammar (set naming in GrammarWriter, rule.reverse_contextual_tests in write_binary_grammar) and GrammarCore is not Clone; parse_include reads std::fs directly (driver.rs:369), with the cwd retry and ~ expansion; grammar_sources::resolve re-reads source_names from disk on a runtime error; cg-comp's whole flow, cg-conv's option mapping, cg-relabel's loader and cg-proc's setup live in cg3-cli; a --prefix in CMDARGS has no effect through embed today."
+                        after_done true
+                    }
+                )
+            }
+
+            {
+                id tool-surface.includes
+                title "Read INCLUDEs through a resolver the caller supplies: a default that finds files as vislcg3 does (the including source's directory, then the working directory, a leading ~), one over named files in memory, and grammars loaded from text keeping their sources so an error that quotes the grammar reads no file at run time"
+                implements {
+                    target-impl ([spec:cg3:req:embed.include-resolver])
+                }
+                deps (tool-surface.spec)
+            }
+
+            {
+                id tool-surface.writers
+                title "Write a grammar without changing it: CompiledGrammar::to_cg3b, companion and to_text, with the textual writer's set naming and the binary writer's test reversal kept to the writer, and cg-comp and vislcg3's --grammar-out and --grammar-bin writing through them"
+                implements {
+                    target-impl ([spec:cg3:req:embed.write-binary] [spec:cg3:req:embed.write-text] [spec:cg3:req:embed.cli-compiles-through])
+                }
+                deps (tool-surface.spec)
+            }
+
+            {
+                id tool-surface.convert
+                title "Move cg-conv into the library: ConvertOptions with a typed field for each option that changes its output, and cg3::convert over bytes doing what cg_conv.rs does today (format detection, the conv grammar edits, the FST and dependency settings); cg-conv parses its command line and calls it"
+                implements {
+                    target-impl ([spec:cg3:req:embed.convert])
+                }
+                deps (tool-surface.spec)
+            }
+
+            {
+                id tool-surface.mwesplit
+                title "Give cg-mwesplit a library function, cg3::mwesplit over bytes, and have the tool call it"
+                implements {
+                    target-impl ([spec:cg3:req:embed.mwesplit])
+                }
+                deps (tool-surface.spec)
+            }
+
+            {
+                id tool-surface.relabel
+                title "Relabel without consuming: CompiledGrammar::relabel(relabels) returning a new grammar whose .cg3b is cg-relabel's output, leaving both grammars as they were; cg-relabel loads, calls it and writes through to_cg3b"
+                implements {
+                    target-impl ([spec:cg3:req:embed.relabel])
+                }
+                deps (tool-surface.writers)
+            }
+
+            {
+                id tool-surface.proc
+                title "Move cg-proc's run into the library: ProcOptions with a typed field for each option that changes its output (stream format, sections, single rule, trace, wordform case, no word forms, generation, first) and CompiledGrammar::proc over bytes choosing the Apertium, Matxin or FST applicator as cg-proc does; cg-proc parses its command line, streams and calls it"
+                implements {
+                    target-impl ([spec:cg3:req:embed.proc])
+                }
+                deps (tool-surface.spec)
+            }
+
+            {
+                id tool-surface.python
+                title "Bind the whole surface in divvun-cg3: parse_grammar's files mapping, Grammar.to_cg3b, to_text and write_cg3b, cg3.convert and cg3.mwesplit, Grammar.relabel and Grammar.proc, with ConvertOptions and ProcOptions as frozen dataclasses, stubs for all of it, and the GIL released while the library works"
+                implements {
+                    target-impl ([spec:cg3:req:python.includes] [spec:cg3:req:python.write] [spec:cg3:req:python.tools])
+                }
+                deps (
+                    tool-surface.includes
+                    tool-surface.writers
+                    tool-surface.convert
+                    tool-surface.mwesplit
+                    tool-surface.relabel
+                    tool-surface.proc
+                    idioms.load-options
+                )
+            }
+
+            {
+                id tool-surface.python-parity
+                title "Show divvun-cg3 writes and converts as the tools do: through the built package, every corpus grammar's .cg3b and companion equal cg-comp's and its to_text equals vislcg3 --grammar-out's, and every input the repository's tests give cg-conv, cg-mwesplit, cg-relabel and cg-proc gives the tool's bytes"
+                kind @test
+                implements {
+                    target-impl ([spec:cg3:req:python.write-parity] [spec:cg3:req:python.tools-parity])
+                }
+                deps (tool-surface.python)
+            }
+
+            {
+                id tool-surface.wasm-tools
+                title "Add convert, mwesplit and grammar.proc to @divvun/cg3's main entry point, with camelCase options that refuse unknown keys and every stream format but the binary one, failing with run-failed"
+                implements {
+                    js-impl ([spec:cg3:req:wasm.tools])
+                    target-impl ([spec:cg3:req:wasm.tools])
+                }
+                deps (tool-surface.convert tool-surface.mwesplit tool-surface.proc)
+            }
+
+            {
+                id tool-surface.wasm-compile
+                title "Add @divvun/cg3/compile: a crates/cg3-wasm-compile module built beside the main one by js/build.mjs and exported as ./compile, with its own init, compileGrammar over files given as a record, Map or function, toText and relabel over .cg3b bytes, compile-failed errors carrying diagnostics, and a build check that keeps the parser and writers out of the main entry's module"
+                implements {
+                    js-impl (
+                        [spec:cg3:req:wasm.module]
+                        [spec:cg3:req:wasm.read-only-core]
+                        [spec:cg3:req:wasm.compile]
+                        [spec:cg3:req:wasm.compile-includes]
+                        [spec:cg3:req:wasm.compile-errors]
+                    )
+                    target-impl (
+                        [spec:cg3:req:wasm.module]
+                        [spec:cg3:req:wasm.read-only-core]
+                        [spec:cg3:req:wasm.compile]
+                        [spec:cg3:req:wasm.compile-includes]
+                        [spec:cg3:req:wasm.compile-errors]
+                    )
+                }
+                deps (
+                    tool-surface.includes
+                    tool-surface.writers
+                    tool-surface.relabel
+                    idioms.load-options
+                )
+            }
+
+            {
+                id tool-surface.wasm-parity
+                title "Show @divvun/cg3 compiles and converts as the tools do, under Node, Bun, Deno and headless Chromium in CI: every corpus grammar compiled from its sources and included files gives cg-comp's .cg3b and companion, toText gives vislcg3 --grammar-out's, and the tools' test inputs give the tools' bytes"
+                kind @test
+                implements {
+                    js-impl ([spec:cg3:req:wasm.compile-parity])
+                    target-impl ([spec:cg3:req:wasm.compile-parity])
+                }
+                deps (tool-surface.wasm-compile tool-surface.wasm-tools)
+            }
+
+            {
+                id tool-surface.release
+                title "Release the surface: divvun-cg3 0.2.0 and @divvun/cg3 0.6.0 with READMEs covering compiling and the tools, the npm tarball carrying the compile entry, and the python/v0.2.0 and wasm/v0.6.0 tags"
+                kind @chore
+                deps (tool-surface.python-parity tool-surface.wasm-parity)
             }
         )
     }
