@@ -14,17 +14,28 @@ test("a Cg3Error is an Error with a name, a code, a message and a cause", () => 
 });
 
 // [spec:cg3:req:wasm.errors+1/test]
-test("the codes are exactly the seven the package promises", () => {
+// [spec:cg3:req:wasm.compile-errors/test]
+test("the codes are exactly the eight the package promises", () => {
   assertEqual(
     CG3_ERROR_CODES.join(" "),
-    "not-initialised init-failed poisoned freed invalid-argument invalid-grammar run-failed",
+    "not-initialised init-failed poisoned freed invalid-argument invalid-grammar run-failed compile-failed",
     "codes",
   );
 });
 
+// [spec:cg3:req:wasm.compile-errors/test]
+test("a compile-failed glue error keeps its diagnostics, and any other code has none", () => {
+  const diagnostic = { message: "syntax error", source: "g.cg3", line: 2, text: "Error: syntax error", span: { start: 3, end: 5 } };
+  const failed = fromGlue({ code: "compile-failed", message: "it failed", diagnostics: [diagnostic] });
+  assertEqual(failed?.code, "compile-failed", "code");
+  assertEqual(JSON.stringify(failed?.diagnostics), JSON.stringify([diagnostic]), "diagnostics");
+  assertEqual(fromGlue({ code: "run-failed", message: "no" })?.diagnostics.length, 0, "a run's failure");
+  assertEqual(new Cg3Error("freed", "gone").diagnostics.length, 0, "the wrapper's own");
+});
+
 // [spec:cg3:req:wasm.errors+1/test]
 test("a glue error object becomes a Cg3Error with its code and the library's message", () => {
-  for (const code of ["invalid-argument", "invalid-grammar", "run-failed"] as const) {
+  for (const code of ["invalid-argument", "invalid-grammar", "run-failed", "compile-failed"] as const) {
     const error = fromGlue({ code, message: "the library says no" });
     assert(error instanceof Cg3Error, "a Cg3Error");
     assertEqual(error.code, code, "code");

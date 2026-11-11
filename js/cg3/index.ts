@@ -3,7 +3,8 @@
  * Grammars (`.cg3b`) and runs them, in browsers, Web Workers, Deno, Node and
  * Bun, giving the output vislcg3 gives for the same grammar, input and
  * options, and converts and splits streams as cg-conv and cg-mwesplit do. It
- * does not read textual grammars: compile them with `cg-comp`.
+ * does not read textual grammars: compile them with `cg-comp`, or with
+ * `@divvun/cg3/compile`, whose module only a caller who compiles loads.
  *
  * @module
  */

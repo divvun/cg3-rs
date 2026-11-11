@@ -6,28 +6,24 @@
 
 use wasm_bindgen::prelude::wasm_bindgen;
 
-mod error;
+// [spec:cg3:req:wasm.read-only-core]
+// These modules are the exports: they load a `.cg3b`, run a grammar, and
+// convert and split streams. None of them compiles or writes a grammar, so the
+// linker leaves the textual parser and the writers out of this module, and
+// js/build.mjs fails a build whose module has them. They are
+// crates/cg3-wasm-compile's.
 mod grammar;
-mod log;
 mod options;
-mod sink;
-#[cfg(feature = "test-hooks")]
-mod test_hooks;
 mod tools;
 
-pub use error::{ErrorCode, GlueError};
+pub use cg3_wasm_shared::{ErrorCode, GlueError, parse_load_options};
 pub use grammar::{Applied, Grammar, apply, read_grammar};
-pub use log::set_level;
 pub use options::{
-    ApplyOptions, FlagOrValue, JsFormat, parse_convert_options, parse_load_options, parse_options,
-    parse_proc_options,
+    ApplyOptions, FlagOrValue, JsFormat, parse_convert_options, parse_options, parse_proc_options,
 };
-pub use sink::install;
-#[cfg(feature = "test-hooks")]
-pub use test_hooks::{TestObject, test_log, test_panic};
 pub use tools::{convert, mwesplit};
 
-// [spec:cg3:req:wasm.module+2]
+// [spec:cg3:req:wasm.module+3]
 /// The version of the npm package, which this crate carries as its own.
 #[wasm_bindgen]
 pub fn version() -> String {
@@ -36,7 +32,7 @@ pub fn version() -> String {
 
 #[cfg(test)]
 mod tests {
-    // [spec:cg3:req:wasm.module+2/test]
+    // [spec:cg3:req:wasm.module+3/test]
     #[test]
     fn package_is_the_crates_version_under_the_gpl() {
         assert_eq!(super::version(), env!("CARGO_PKG_VERSION"));

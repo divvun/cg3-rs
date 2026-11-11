@@ -1,5 +1,7 @@
+import { checkedInput, optionsJson } from "./arguments.ts";
 import type { Core } from "./core.ts";
-import { checkedInput, type Format, optionsJson } from "./grammar.ts";
+import type { Glue } from "./glue.ts";
+import type { Format } from "./grammar.ts";
 
 // [spec:cg3:req:wasm.tools]
 /**

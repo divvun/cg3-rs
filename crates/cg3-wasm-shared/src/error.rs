@@ -3,8 +3,9 @@
 use wasm_bindgen::JsValue;
 
 // [spec:cg3:req:wasm.errors+1]
-/// The codes of the errors the module raises itself. The wrapper raises the
-/// rest of `Cg3ErrorCode` in `js/cg3/errors.ts`, which documents them all.
+// [spec:cg3:req:wasm.compile-errors]
+/// The codes of the errors the modules raise themselves. The wrapper raises
+/// the rest of `Cg3ErrorCode` in `js/cg3/errors.ts`, which documents them all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ErrorCode {
     /// A run option the package cannot use.
@@ -12,13 +13,17 @@ pub enum ErrorCode {
     /// Bytes that are not a `.cg3b` the library reads.
     InvalidGrammar,
     RunFailed,
+    /// A textual grammar the library would not compile. Only the compile
+    /// module raises it, with the parse's diagnostics beside the message.
+    CompileFailed,
 }
 
 impl ErrorCode {
-    pub const ALL: [ErrorCode; 3] = [
+    pub const ALL: [ErrorCode; 4] = [
         ErrorCode::InvalidArgument,
         ErrorCode::InvalidGrammar,
         ErrorCode::RunFailed,
+        ErrorCode::CompileFailed,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -26,6 +31,7 @@ impl ErrorCode {
             ErrorCode::InvalidArgument => "invalid-argument",
             ErrorCode::InvalidGrammar => "invalid-grammar",
             ErrorCode::RunFailed => "run-failed",
+            ErrorCode::CompileFailed => "compile-failed",
         }
     }
 }
@@ -33,7 +39,9 @@ impl ErrorCode {
 // [spec:cg3:req:wasm.errors+1]
 /// An error for the wrapper: a stable code and the message. Every export that
 /// can fail returns it, and it reaches JavaScript as a plain object with
-/// `code` and `message`, which the wrapper rethrows as a `Cg3Error`.
+/// `code` and `message`, which the wrapper rethrows as a `Cg3Error`. A failed
+/// compile reaches it as such an object with `diagnostics` too, which the
+/// compile module builds itself.
 #[derive(Debug, PartialEq, Eq)]
 pub struct GlueError {
     code: ErrorCode,
@@ -66,7 +74,7 @@ impl From<GlueError> for JsValue {
     }
 }
 
-/// Sets `key` on a plain object the module has just made.
+/// Sets `key` on a plain object a module has just made.
 pub fn set(object: &js_sys::Object, key: &str, value: &JsValue) {
     js_sys::Reflect::set(object, &JsValue::from_str(key), value)
         .expect("a fresh plain object takes any property");

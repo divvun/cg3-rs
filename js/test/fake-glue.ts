@@ -3,7 +3,16 @@
 // events by the level set, reports a panic to the sink before it traps, and
 // throws plain error objects.
 
-import type { Glue, GlueInitInput, GlueObject, GlueSink, GrammarGlue } from "../cg3/glue.ts";
+import type { CompileResult } from "../cg3/compiler.ts";
+import type {
+  CompileGlue,
+  FilesGlue,
+  Glue,
+  GlueInitInput,
+  GlueObject,
+  GlueSink,
+  GrammarGlue,
+} from "../cg3/glue.ts";
 import type { ApplyResult, GrammarInfo } from "../cg3/grammar.ts";
 
 export class FakeGlue implements Glue {
@@ -161,5 +170,57 @@ export class FakeGrammar extends FakeObject implements GrammarGlue {
     this.runs.push([input, options]);
     if (this.failure !== null) this.glue.fail("run-failed", this.failure);
     return input;
+  }
+}
+
+/**
+ * A stand-in for the compile module's glue. It records what it is given, asks
+ * a files function for `included.cg3` as the module would, and fails a source
+ * of "broken" as a failed parse does.
+ */
+export class FakeCompileGlue implements CompileGlue {
+  /** Every compileGrammar call's arguments, in order. */
+  readonly compiles: { source: string; name: string | undefined; files: FilesGlue; options: string }[] = [];
+  /** What a files function gave for `included.cg3`. */
+  asked: (string | Uint8Array | undefined)[] = [];
+  readonly relabels: [Uint8Array, Uint8Array][] = [];
+  entered = 0;
+
+  default(): Promise<unknown> {
+    return Promise.resolve({});
+  }
+
+  install(): void {}
+
+  setLogLevel(): void {
+    this.entered += 1;
+  }
+
+  version(): string {
+    this.entered += 1;
+    return "0.0.0-fake";
+  }
+
+  compileGrammar(source: string, name: string | undefined, files: FilesGlue, options: string): CompileResult {
+    this.entered += 1;
+    this.compiles.push({ source, name, files, options });
+    if (typeof files === "function") this.asked.push(files("included.cg3"));
+    if (source === "broken") {
+      const diagnostics = [{ message: "syntax error", source: "x.cg3", line: 1, text: "Error: syntax error", span: null }];
+      throw { code: "compile-failed", message: "grammar could not be parsed: 1 error(s)", diagnostics };
+    }
+    return { cg3b: new Uint8Array([67, 71, 51, 66]), companion: null, warnings: [] };
+  }
+
+  toText(bytes: Uint8Array): string {
+    this.entered += 1;
+    if (bytes[0] === 0) throw { code: "invalid-grammar", message: "not a binary grammar" };
+    return "DELIMITERS = \"<.>\" ;\n";
+  }
+
+  relabel(bytes: Uint8Array, relabels: Uint8Array): Uint8Array {
+    this.entered += 1;
+    this.relabels.push([bytes, relabels]);
+    return bytes;
   }
 }

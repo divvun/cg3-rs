@@ -12,7 +12,7 @@ interface Manifest {
   author: string;
   type: string;
   files: string[];
-  exports: { ".": { types: string; default: string } };
+  exports: Record<"." | "./compile", { types: string; default: string }>;
 }
 
 interface NodeFs {
@@ -33,15 +33,15 @@ async function listFiles(dir: URL): Promise<string[]> {
   return await fs.readdir(dir, { recursive: true });
 }
 
-/** The entry module of the built package in `dir`. */
-export async function entryOf(dir: URL): Promise<Record<string, unknown>> {
+/** The entry module `entry` of the built package in `dir`. */
+export async function entryOf(dir: URL, entry: "." | "./compile" = "."): Promise<Record<string, unknown>> {
   const manifest = await readManifest(dir);
-  return await import(new URL(manifest.exports["."].default, dir).href);
+  return await import(new URL(manifest.exports[entry].default, dir).href);
 }
 
 /** Registers the checks for the package in `dir`, which must be called `name`. */
 export function packageTests(dir: URL, name: string): void {
-  // [spec:cg3:req:wasm.module+2/test]
+  // [spec:cg3:req:wasm.module+3/test]
   test("package.json names the package, VISL CG-3 and the licence", async () => {
     const manifest = await readManifest(dir);
     assertEqual(manifest.name, name, "name");
@@ -53,7 +53,7 @@ export function packageTests(dir: URL, name: string): void {
     assertEqual(manifest.files.join(" "), "dist", "files");
   });
 
-  // [spec:cg3:req:wasm.module+2/test]
+  // [spec:cg3:req:wasm.module+3/test]
   test("the package carries the text of the GPL", async () => {
     const copying = await readText(new URL("dist/COPYING", dir));
     assert(copying.includes("GNU GENERAL PUBLIC LICENSE"), "dist/COPYING is the GPL");
@@ -65,24 +65,33 @@ export function packageTests(dir: URL, name: string): void {
     assert(readme.startsWith(`# ${name}`), "README.md is the package's");
   });
 
-  // [spec:cg3:req:wasm.module+2/test]
+  // [spec:cg3:req:wasm.module+3/test]
   // [spec:cg3:req:wasm.typed-surface/test]
-  test("the entry module and its declarations are where the exports map says", async () => {
+  test("the two entry modules and their declarations are where the exports map says", async () => {
     const manifest = await readManifest(dir);
     const files = await listFiles(dir);
-    const entry = manifest.exports["."];
-    for (const path of [entry.default, entry.types]) {
-      assert(files.includes(path.replace(/^\.\//, "")), `${path} exists`);
+    assertEqual(Object.keys(manifest.exports).join(" "), ". ./compile", "entry points");
+    for (const entry of Object.values(manifest.exports)) {
+      for (const path of [entry.default, entry.types]) {
+        assert(files.includes(path.replace(/^\.\//, "")), `${path} exists`);
+      }
     }
   });
 
-  // [spec:cg3:req:wasm.module+2/test]
-  test("one .wasm file ships, beside the entry module", async () => {
+  // [spec:cg3:req:wasm.module+3/test]
+  test("each entry point has a .wasm file of its own, beside its module, which only it names", async () => {
     const manifest = await readManifest(dir);
-    const wasm = (await listFiles(new URL("dist/", dir))).filter((file) => file.endsWith(".wasm"));
-    assertEqual(wasm.length, 1, ".wasm files");
-    const entryDir = manifest.exports["."].default.replace(/^\.\/dist\//, "").replace(/[^/]*$/, "");
-    assert(wasm[0]?.startsWith(entryDir) === true, `${String(wasm[0])} sits under ${entryDir}`);
+    const dist = new URL("dist/", dir);
+    const wasm = (await listFiles(dist)).filter((file) => file.endsWith(".wasm")).sort();
+    assertEqual(wasm.join(" "), "pkg-compile/cg3_wasm_compile_bg.wasm pkg/cg3_wasm_bg.wasm", ".wasm files");
+    const bindings = { ".": "binding.js", "./compile": "compile-binding.js" } as const;
+    for (const [entry, binding] of Object.entries(bindings) as [keyof typeof bindings, string][]) {
+      const entryDir = manifest.exports[entry].default.replace(/^\.\/dist\//, "").replace(/[^/]*$/, "");
+      const text = await readText(new URL(binding, dist));
+      const named = wasm.filter((file) => text.includes(file));
+      assertEqual(named.length, 1, `.wasm files ${binding} names`);
+      assert(named[0]?.startsWith(entryDir) === true, `${String(named[0])} sits under ${entryDir}`);
+    }
   });
 
   // [spec:cg3:req:wasm.typed-surface/test]

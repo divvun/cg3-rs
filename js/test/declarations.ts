@@ -10,11 +10,14 @@ export function usesAny(text: string): boolean {
   return /\bany\b/.test(code);
 }
 
+/** The directories the generated glue of each module is written to. */
+const GLUE_DIRS = ["pkg", "pkg-compile"];
+
 /**
  * Whether the file at `path`, relative to the package's `dist`, is one of the
- * wrapper's declarations. The generated glue under `pkg` is internal and is
- * not checked.
+ * wrapper's declarations. The generated glue under `pkg` and `pkg-compile` is
+ * internal and is not checked.
  */
 export function isPublicDeclaration(path: string): boolean {
-  return path.endsWith(".d.ts") && !path.split(/[\\/]/).includes("pkg");
+  return path.endsWith(".d.ts") && !path.split(/[\\/]/).some((part) => GLUE_DIRS.includes(part));
 }

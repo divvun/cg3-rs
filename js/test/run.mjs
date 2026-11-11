@@ -29,19 +29,20 @@ const js = dirname(dirname(fileURLToPath(import.meta.url)));
 const testBuild = join(dirname(js), "target", "js-test");
 const fixtures = join(testBuild, "fixtures");
 
-const wasmFile = "cg3_wasm_bg.wasm";
+// Each entry point's .wasm file, under the package's dist/.
+const WASM = { main: "pkg/cg3_wasm_bg.wasm", compile: "pkg-compile/cg3_wasm_compile_bg.wasm" };
 
 const RUNTIMES = ["node", "bun", "deno", "chromium"];
 
+const INIT_VARIANTS = ["bytes", "file-url", "http-url", "response", "module", "default", "retry"];
+
 const scenarios = [
-  {
-    file: "init.ts",
-    build: "release",
-    variants: ["bytes", "file-url", "http-url", "response", "module", "default", "retry"],
-    network: true,
-  },
+  { file: "init.ts", build: "release", variants: INIT_VARIANTS, network: true },
+  { file: "init.ts", build: "release", entry: "compile", variants: INIT_VARIANTS, network: true },
   { file: "contract.ts", build: "test", variants: ["main"] },
+  { file: "contract-compile.ts", build: "test", entry: "compile", variants: ["main"] },
   { file: "poison.ts", build: "test", variants: ["function", "method"] },
+  { file: "poison-isolation.ts", build: "test", variants: ["main", "compile"] },
   { file: "parity-runtime.ts", build: "release", variants: ["main"] },
 ];
 
@@ -53,7 +54,7 @@ function unitTests(dir = js) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!["dist", "pkg", "node_modules"].includes(entry.name)) found.push(...unitTests(path));
+      if (!["dist", "pkg", "pkg-compile", "node_modules"].includes(entry.name)) found.push(...unitTests(path));
     } else if (/\.test\.m?[jt]s$/.test(entry.name)) {
       found.push(path);
     }
@@ -78,22 +79,29 @@ function locate() {
   const release = join(js, "cg3", "dist");
   const test = join(testBuild, "dist");
   const manifest = JSON.parse(readFileSync(join(js, "cg3", "package.json"), "utf8"));
+  const build = (dir, main, compile) => ({
+    dir,
+    main: { module: join(dir, main), wasm: join(dir, WASM.main) },
+    compile: { module: join(dir, compile), wasm: join(dir, WASM.compile) },
+  });
   return {
     name: manifest.name,
     version: manifest.version,
-    release: { dir: release, module: join(release, "index.js"), wasm: join(release, "pkg", wasmFile) },
-    test: { dir: test, module: join(test, "testing.js"), wasm: join(test, "pkg", wasmFile) },
+    release: build(release, "index.js", "compile.js"),
+    test: build(test, "testing.js", "compile-testing.js"),
   };
 }
 
+/** Serves the release build's .wasm files, each at /<entry>.wasm. */
 function serve(pkg) {
   const server = createServer((request, response) => {
-    if (request.url !== `/${wasmFile}`) {
+    const entry = Object.keys(WASM).find((name) => request.url === `/${name}.wasm`);
+    if (entry === undefined) {
       response.writeHead(404).end();
       return;
     }
     response.writeHead(200, { "content-type": "application/wasm" });
-    response.end(readFileSync(pkg.release.wasm));
+    response.end(readFileSync(pkg.release[entry].wasm));
   });
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => resolve(server));
@@ -169,13 +177,18 @@ for (const runtime of runtimes.filter((name) => name !== "chromium")) {
       if (!(await runFile(runtime, path, []))) failures += 1;
     }
   }
-  for (const { file, build, variants, network = false } of scenarios) {
+  for (const { file, build, entry = "main", variants, network = false } of scenarios) {
     for (const variant of variants) {
-      const label = `${pkg.name} ${file} ${variant}`;
+      const label = `${pkg.name}${entry === "main" ? "" : "/compile"} ${file} ${variant}`;
+      const entryArgs = (name) => ({
+        module: pathToFileURL(pkg[build][name].module).href,
+        wasm: pathToFileURL(pkg[build][name].wasm).href,
+        http: `${base}/${name}.wasm`,
+      });
       const args = {
-        module: pathToFileURL(pkg[build].module).href,
-        wasm: pathToFileURL(pkg[build].wasm).href,
-        http: `${base}/${wasmFile}`,
+        ...entryArgs(entry),
+        entry,
+        entries: { main: entryArgs("main"), compile: entryArgs("compile") },
         package: pkg.name,
         version: pkg.version,
         fixtures: `${pathToFileURL(fixtures).href}/`,

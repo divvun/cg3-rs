@@ -8,14 +8,22 @@ import type * as Entry from "../cg3/index.ts";
 /** What the package exports. */
 export type Package = typeof Entry;
 
-/** What `run.mjs` hands each scenario process, as JSON in its first argument. */
-export interface ScenarioArgs {
-  /** URL of the package entry module under test. */
+/** An entry point of a build, as URLs. */
+export interface EntryArgs {
+  /** URL of the entry module. */
   module: string;
-  /** `file:` URL of the package's `.wasm` file. */
+  /** `file:` URL of the entry point's `.wasm` file. */
   wasm: string;
   /** `http:` URL the runner serves the same `.wasm` file at. */
   http: string;
+}
+
+/** What `run.mjs` hands each scenario process, as JSON in its first argument. */
+export interface ScenarioArgs extends EntryArgs {
+  /** Which entry point the scenario is about: `module`, `wasm` and `http` are its. */
+  entry: "main" | "compile";
+  /** Both entry points of the same build. */
+  entries: { main: EntryArgs; compile: EntryArgs };
   package: string;
   /** The version the package declares. */
   version: string;

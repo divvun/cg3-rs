@@ -22,10 +22,11 @@ crate-type = ["cdylib", "rlib"]
 # Exports a small owned object, a panic and log events for the JavaScript test
 # suite. Only `js/build.mjs --test` turns it on, and that build writes outside
 # the package directory.
-test-hooks = []
+test-hooks = ["cg3-wasm-shared/test-hooks"]
 
 [dependencies]
 cg3 = { path = "../cg3", version = "0.5.0" }
+cg3-wasm-shared = { path = "../cg3-wasm-shared" }
 # Pinned: the wasm-bindgen CLI that generates the JavaScript glue must be this
 # exact version, or the module it writes does not match the one built here.
 wasm-bindgen = "=0.2.118"

@@ -1,6 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["crates/cg3", "crates/cg3-cli", "crates/cg3-wasm", "crates/cg3-python"]
+members = [
+    "crates/cg3",
+    "crates/cg3-cli",
+    "crates/cg3-wasm",
+    "crates/cg3-wasm-compile",
+    "crates/cg3-wasm-shared",
+    "crates/cg3-python",
+]
 
 # One version for the library and the tools: every banner reports it.
 [workspace.package]
@@ -11,10 +18,11 @@ repository = "https://github.com/divvun/cg3-rs"
 homepage = "https://github.com/divvun/cg3-rs"
 
 # The npm package's build (js/build.mjs): small over fast, since
-# every user downloads it.
+# every user downloads it. The modules keep their function names for the
+# build's check of what the main one links; wasm-opt drops them after it.
 [profile.wasm-release]
 inherits = "release"
 opt-level = "z"
 lto = true
 codegen-units = 1
-strip = true
+strip = "debuginfo"

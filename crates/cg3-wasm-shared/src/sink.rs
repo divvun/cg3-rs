@@ -16,7 +16,8 @@ extern "C" {
 // [spec:cg3:req:wasm.errors+1]
 /// Starts the module instance: hands it the wrapper's sink, sends every panic
 /// message there before the panic aborts into a trap, and sends tracing events
-/// at `level` and above there. The wrapper calls it once, from `init()`.
+/// at `level` and above there. The wrapper calls it once per module, from that
+/// module's `init()`.
 #[wasm_bindgen]
 pub fn install(sink: JsValue, level: u8) {
     install_sink(sink);

@@ -2,9 +2,9 @@
 //! runs a grammar. None of them compiles or writes a grammar, so they keep the
 //! module free of the parser and the writers.
 
+use cg3_wasm_shared::{ErrorCode, GlueError};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::error::{ErrorCode, GlueError};
 use crate::options::parse_convert_options;
 
 // [spec:cg3:req:wasm.tools]

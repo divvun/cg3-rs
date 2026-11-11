@@ -230,7 +230,7 @@ mod tests {
     // one that sets them.
     #[test]
     fn forwarding_follows_the_level_and_runs_keep_warnings() {
-        let target = "cg3_wasm::log::tests";
+        let target = "cg3_wasm_shared::log::tests";
         install(0, capture);
         let ((), warnings) = collecting(|| {
             tracing::warn!("careful");

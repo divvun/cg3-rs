@@ -244,6 +244,7 @@ elements (
         exposes (
             "crates/cg3-wasm/**"
             "crates/cg3-wasm-compile/**"
+            "crates/cg3-wasm-shared/**"
         )
         depends_on ([arch:cg3:embedding])
         decisions ([dec:cg3:wasm-package] [dec:cg3:package-versions] [dec:cg3:tool-surface])
@@ -251,6 +252,7 @@ elements (
             {at "2026-10-29T00:00:00Z", kind @established, by "[dec:cg3:wasm-package]"}
             {at "2026-11-10T00:00:00Z", kind @modified, by "[dec:cg3:package-versions]"}
             {at "2026-11-11T00:00:00Z", kind @modified, by "[dec:cg3:tool-surface]"}
+            {at "2026-11-11T00:00:00Z", kind @modified, by "tool-surface.wasm-compile"}
         )
     }
 

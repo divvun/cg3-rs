@@ -985,4 +985,22 @@ impl_evidence (
         {impl_name js-impl, rule wasm.tools}
         {impl_name target-impl, rule wasm.tools}
     )}
+    {id tool-surface.wasm-compile, covered_rules (
+        wasm.compile
+        wasm.compile-errors
+        wasm.compile-includes
+        wasm.module
+        wasm.read-only-core
+    ), covered_claims (
+        {impl_name js-impl, rule wasm.compile}
+        {impl_name js-impl, rule wasm.compile-errors}
+        {impl_name js-impl, rule wasm.compile-includes}
+        {impl_name js-impl, rule wasm.module}
+        {impl_name js-impl, rule wasm.read-only-core}
+        {impl_name target-impl, rule wasm.compile}
+        {impl_name target-impl, rule wasm.compile-errors}
+        {impl_name target-impl, rule wasm.compile-includes}
+        {impl_name target-impl, rule wasm.module}
+        {impl_name target-impl, rule wasm.read-only-core}
+    )}
 )

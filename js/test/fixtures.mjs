@@ -30,7 +30,13 @@ export function buildFixtures(bin, corpus, out) {
   mkdirSync(contract, { recursive: true });
   compile(bin, join(corpus, "T_Select"), join(contract, "select.cg3b"));
   copyFileSync(join(corpus, "T_Select", "input.txt"), join(contract, "select.input"));
+  copyFileSync(join(corpus, "T_Select", "grammar.cg3"), join(contract, "select.cg3"));
   compile(bin, join(corpus, "T_External"), join(contract, "external.cg3b"));
+  // contract-compile.ts compiles T_Include from these, given as files.
+  compile(bin, join(corpus, "T_Include"), join(contract, "include.cg3b"));
+  for (const name of ["grammar.cg3", "sets.cg3", "rules.cg3"]) {
+    copyFileSync(join(corpus, "T_Include", name), join(contract, `include-${name}`));
+  }
   const count = buildParityFixtures(bin, corpus, join(out, "parity"));
   console.log(`fixtures: the contract grammars, and ${count} corpus tests for the parity check`);
 }

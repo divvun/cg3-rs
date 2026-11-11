@@ -3,6 +3,7 @@
   "exclude": ["target/"],
   "lock": false,
   "imports": {
-    "./js/cg3/pkg/cg3_wasm.js": "./js/cg3/glue-stub.d.ts"
+    "./js/cg3/pkg/cg3_wasm.js": "./js/cg3/glue-stub.d.ts",
+    "./js/cg3/pkg-compile/cg3_wasm_compile.js": "./js/cg3/compile-glue-stub.d.ts"
   }
 }

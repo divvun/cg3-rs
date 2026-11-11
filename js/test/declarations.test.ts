@@ -14,10 +14,12 @@ test("a declaration that uses any fails, but a word that merely contains it does
   assert(!usesAny("export declare const company: string;\n"), "company");
 });
 
-test("the generated glue under pkg is not one of the wrapper's declarations", () => {
+test("the generated glue under pkg and pkg-compile is not one of the wrapper's declarations", () => {
   assert(isPublicDeclaration("index.d.ts"), "index.d.ts");
   assert(isPublicDeclaration("nested/api.d.ts"), "nested/api.d.ts");
   assert(!isPublicDeclaration("pkg/cg3_wasm.d.ts"), "pkg/cg3_wasm.d.ts");
+  assert(!isPublicDeclaration("pkg-compile/cg3_wasm_compile.d.ts"), "pkg-compile/cg3_wasm_compile.d.ts");
+  assert(isPublicDeclaration("compile.d.ts"), "compile.d.ts");
   assert(!isPublicDeclaration("index.js"), "index.js");
 });
 

@@ -6,7 +6,8 @@ output `vislcg3` gives for the same grammar, input and options, byte for
 byte. It converts and splits streams as `cg-conv` and `cg-mwesplit` do, and
 runs grammars as `cg-proc` does. It is the [cg3-rs](https://github.com/divvun/cg3-rs) library, written
 in Rust and built as WebAssembly. It runs in browsers, Web Workers, Deno,
-Node 20 and later, and Bun, as one ES module and one `.wasm` file.
+Node 20 and later, and Bun. Each of its two entry points, `@divvun/cg3` and
+`@divvun/cg3/compile`, is one ES module with one `.wasm` file of its own.
 
 ```sh
 npm install @divvun/cg3
@@ -28,8 +29,9 @@ grammar.free();
 ```
 
 `readGrammar` takes a compiled grammar, as `cg-comp` writes it. It does not
-read textual grammars: their `INCLUDE`s name files a browser does not have,
-so compile them first. `apply(input, options?)` runs the grammar on one input
+read textual grammars: compile them with `cg-comp`, or with
+`@divvun/cg3/compile` (below), whose module only a caller who compiles
+loads. `apply(input, options?)` runs the grammar on one input
 and returns `{ output, warnings }`: the output as a string, and every warning
 and non-fatal error the run logged, in order. Each call is a run of its own,
 and a run that fails throws without harming the grammar.
@@ -75,6 +77,58 @@ know throws `Cg3Error` with code `invalid-argument`, and the message lists the
 ones it does. The options a grammar sets with `CMDARGS` apply as they do in
 `vislcg3`. An `EXTERNAL` rule fails its run, since there is no process to
 start.
+
+## Compiling grammars
+
+`@divvun/cg3/compile` compiles textual grammars to `.cg3b`, as `cg-comp`
+does. It is a WebAssembly module of its own, with its own `.wasm` file and
+its own `init()`, so a page that only runs grammars never loads the parser:
+
+```js
+import { init, compileGrammar } from "@divvun/cg3/compile";
+
+await init();
+
+const { cg3b, companion, warnings } = compileGrammar(source, {
+  name: "grammar.cg3",
+  files: { "sets.cg3": setsText, "rules.cg3": rulesText },
+});
+```
+
+`cg3b` is the `.cg3b` `cg-comp` writes, which `readGrammar` from
+`@divvun/cg3` loads; the two entry points are separate WebAssembly
+instances, so a grammar crosses between them as these bytes. `companion` is
+the file `cg-comp` writes beside it, holding the grammar's sources, and
+`warnings` what the parse logged. `name` is what the companion file and the
+diagnostics call the source, and what its relative `INCLUDE`s resolve
+against. The options also take `readGrammar`'s load options.
+
+A grammar's `INCLUDE`s read only the `files` given: a record or a `Map` from
+names to text or `Uint8Array`s, or a function that takes a name and returns
+the file's text or bytes, or `undefined`. A name is resolved as `vislcg3`
+resolves it on disk, so `INCLUDE sets.cg3 ;` in `grammar.cg3` asks for
+`sets.cg3`, and `INCLUDE ../x.cg3 ;` in `lists/a.cg3` for `x.cg3`. An
+`INCLUDE` of a file not given fails the compile, naming the file.
+
+A grammar that does not compile throws `Cg3Error` with code
+`compile-failed`, whose `diagnostics` hold every error the parse found:
+
+```js
+try {
+  compileGrammar("SELECT (a ;", { name: "broken.cg3" });
+} catch (error) {
+  for (const { source, line, message, text, span } of error.diagnostics) {
+    // text is the error as vislcg3 prints it, quoting the grammar; span is
+    // { start, end } in the source's text, as a string is indexed, or null.
+  }
+}
+```
+
+`toText(cg3b)` writes a `.cg3b` as text, as `vislcg3 --grammar-out` does,
+and `relabel(cg3b, relabels)` returns the `.cg3b` `cg-relabel` writes for a
+grammar and relabel rules, given as text or as a `.cg3b`. The compile entry
+point has its own `version()`, `setLogger` and `setLogLevel`, and a trap in
+its module poisons that module alone.
 
 ## The other tools
 
@@ -142,7 +196,8 @@ A call on a freed grammar throws `Cg3Error` with code `freed`.
 
 Every error is a `Cg3Error` with a `code` that code can test:
 `not-initialised`, `init-failed`, `poisoned`, `freed`, `invalid-argument`,
-`invalid-grammar` (bytes that are not a `.cg3b`) and `run-failed`. A panic
+`invalid-grammar` (bytes that are not a `.cg3b`), `run-failed` and
+`compile-failed`. A panic
 inside the module traps it. The instance is poisoned from then on and every
 call throws `poisoned`, because its memory can no longer be trusted. Load the
 page or process again to recover.

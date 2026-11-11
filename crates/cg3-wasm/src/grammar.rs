@@ -3,10 +3,10 @@
 //! suite covers them.
 
 use cg3::embed::{CompiledGrammar, GrammarInfo, RunOptions};
+use cg3_wasm_shared::{ErrorCode, GlueError, parse_load_options, set};
 use wasm_bindgen::prelude::*;
 
-use crate::error::{ErrorCode, GlueError, set};
-use crate::options::{ApplyOptions, parse_load_options, parse_options, parse_proc_options};
+use crate::options::{ApplyOptions, parse_options, parse_proc_options};
 use crate::tools::run_failed;
 
 /// A compiled grammar, loaded once and applied any number of times.
@@ -119,8 +119,9 @@ pub fn apply(
     input: &str,
     options: &ApplyOptions,
 ) -> Result<Applied, GlueError> {
-    let (ran, warnings) =
-        crate::log::collecting(|| grammar.run(input.as_bytes(), &RunOptions::from(options)));
+    let (ran, warnings) = cg3_wasm_shared::log::collecting(|| {
+        grammar.run(input.as_bytes(), &RunOptions::from(options))
+    });
     let failed = |message: String| GlueError::new(ErrorCode::RunFailed, message);
     let output = ran.map_err(|e| failed(e.to_string()))?;
     let output = String::from_utf8(output).map_err(|e| failed(e.to_string()))?;

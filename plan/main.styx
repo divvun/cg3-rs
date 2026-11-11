@@ -4278,6 +4278,14 @@ children (
                     tool-surface.relabel
                     idioms.load-options
                 )
+                log (
+                    {
+                        at 2026-11-11T13:37:02.669449Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {
