@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use cg3::embed::{CompiledGrammar, GrammarInfo};
+use cg3::embed::{CompiledGrammar, FileResolver, GrammarInfo};
 
 #[expect(
     dead_code,
@@ -188,6 +188,7 @@ fn cg_comp_writes_what_to_cg3b_returns() {
         let loaded = CompiledGrammar::from_text(
             &std::fs::read(&grammar).unwrap(),
             grammar.to_str().unwrap(),
+            FileResolver,
         )
         .unwrap();
         let expected = (loaded.to_cg3b().unwrap(), loaded.companion().unwrap());
@@ -207,6 +208,7 @@ fn vislcg3_writes_what_the_library_writers_return() {
         let text = CompiledGrammar::from_text(
             &std::fs::read(&grammar).unwrap(),
             grammar.to_str().unwrap(),
+            FileResolver,
         )
         .unwrap();
         let cg3b = scratch(&grammar, "in.cg3b");
@@ -366,4 +368,31 @@ fn cg_conv_writes_what_convert_returns() {
             );
         }
     }
+}
+
+/// T_Include compiled from its files held in memory gives the `.cg3b` and
+/// companion file cg-comp writes for it run beside them, where the companion
+/// names each source as the grammar's includes do.
+// [spec:cg3:req:embed.include-resolver/test]
+#[test]
+fn memory_includes_compile_as_cg_comp_does() {
+    let dir = common::repo_root().join("test/T_Include");
+    let files: cg3::embed::MemoryResolver = ["sets.cg3", "rules.cg3"]
+        .into_iter()
+        .map(|name| (name, std::fs::read(dir.join(name)).unwrap()))
+        .collect();
+    let source = std::fs::read(dir.join("grammar.cg3")).unwrap();
+    let grammar = CompiledGrammar::from_text(&source, "grammar.cg3", files).unwrap();
+
+    let out = scratch(&dir.join("grammar.cg3"), "memory.cg3b");
+    let status = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
+        .current_dir(&dir)
+        .arg("grammar.cg3")
+        .arg(&out)
+        .stderr(Stdio::null())
+        .status()
+        .expect("spawn cg-comp");
+    assert!(status.success());
+    let expected = (grammar.to_cg3b().unwrap(), grammar.companion().unwrap());
+    assert!(take_written(&out) == expected);
 }

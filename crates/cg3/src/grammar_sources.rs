@@ -308,10 +308,13 @@ pub fn read_sidecar(binary: &Path) -> Option<GrammarSources> {
 /// takes to get at the text it wants to quote, whichever way the grammar was
 /// loaded.
 ///
-/// Call this on the failure path and nowhere else. Both branches do real I/O:
-/// a textual load re-reads the files it was parsed from, and a binary load reads
-/// the companion file plus the `.cg3b` its stamp covers. That cost is the reason
-/// nothing retains the text — see `[dec:cg3:grammar-source-sidecar]`.
+/// Call this on the failure path and nowhere else. A grammar that kept its
+/// sources ([`GrammarCore::sources`]) hands them over; otherwise both branches
+/// do real I/O: a textual load re-reads the files it was parsed from, and a
+/// binary load reads the companion file plus the `.cg3b` its stamp covers.
+/// That cost is the reason vislcg3's own loads retain only names — see
+/// `[dec:cg3:grammar-source-sidecar]`. `CompiledGrammar::from_text` keeps the
+/// text, because a grammar it loaded may have no files behind it to re-read.
 ///
 /// `None` whenever the sources cannot be had: a grammar parsed from bytes with
 /// no file behind them, a `.cg3b` with no companion file or a stale one, a
@@ -322,6 +325,13 @@ pub fn read_sidecar(binary: &Path) -> Option<GrammarSources> {
 /// ([`GrammarSources::locate`]), so a file truncated since the parse yields no
 /// place rather than the wrong one.
 pub fn resolve(grammar: &GrammarCore) -> Option<GrammarSources> {
+    // [spec:cg3:req:embed.include-resolver]
+    if !grammar.sources.is_empty() {
+        return Some(GrammarSources {
+            sources: grammar.sources.clone(),
+            rules: provenance_of(grammar),
+        });
+    }
     if let Some(binary) = grammar.binary_path.as_deref() {
         return read_sidecar(Path::new(binary));
     }

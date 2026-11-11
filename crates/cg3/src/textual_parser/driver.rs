@@ -346,44 +346,21 @@ impl TextualParser {
             return Err(self.error_near(*pos));
         }
 
-        let mut expanded = incname.clone();
-        if expanded.contains('~') || expanded.contains('$') || expanded.contains('*') {
-            expanded = shell_expand(&expanded);
-        }
-        let dir = dir_prefix(fname);
-        let mut abspath = if expanded.starts_with('/') {
-            expanded.clone()
-        } else {
-            format!("{dir}{expanded}")
+        // [spec:cg3:req:embed.include-resolver]
+        let included = match self.include_resolver.read(&incname, fname) {
+            Ok(included) => included,
+            Err(unreadable) => {
+                return Err(self.parse_error_at(
+                    String::new(),
+                    crate::error::ParseErrorKind::IncludeUnreadable {
+                        path: unreadable.path,
+                        source: unreadable.source,
+                    },
+                ));
+            }
         };
-
-        // PORT WIDENING, not C++ parity: the C++ stats the including file's
-        // directory once and bails. The second chance against the process CWD is
-        // kept because it is the only thing that reaches a relative include
-        // nested under an absolute- or `~`-rooted parent. It retries the
-        // SHELL-EXPANDED name, never the raw token — retrying the token would
-        // re-try a literal `~/…` that cannot exist. `dir == "./"` means the two
-        // spellings name one file, so there is nothing to retry.
-        let cwd_retry = (dir != "./" && !expanded.starts_with('/')).then(|| expanded.clone());
-
-        let mut bytes = match std::fs::read(&abspath) {
-            Ok(b) => b,
-            Err(primary) => match cwd_retry.and_then(|p| std::fs::read(&p).ok().map(|b| (p, b))) {
-                Some((p, b)) => {
-                    abspath = p;
-                    b
-                }
-                None => {
-                    return Err(self.parse_error_at(
-                        String::new(),
-                        crate::error::ParseErrorKind::IncludeUnreadable {
-                            path: abspath,
-                            source: primary,
-                        },
-                    ));
-                }
-            },
-        };
+        let abspath = included.name;
+        let mut bytes = included.bytes;
         let entry = self.include_entry(&abspath, name_at)?;
         if bytes.len() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF {
             bytes.drain(0..3);
@@ -433,7 +410,10 @@ impl TextualParser {
         path: &str,
         name_at: usize,
     ) -> ParseResult<(std::path::PathBuf, String)> {
-        let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
+        let canon = self
+            .include_resolver
+            .identity(path)
+            .unwrap_or_else(|| path.into());
         let Some(from) = self.include_chain.iter().position(|(c, _)| *c == canon) else {
             return Ok((canon, path.to_string()));
         };
@@ -843,7 +823,7 @@ impl TextualParser {
         self.grammar.grammar_size = buffer.len();
         // The top-level file is the first link of the include chain, when it is
         // a file at all.
-        let top = std::fs::canonicalize(filename).ok();
+        let top = self.include_resolver.identity(filename);
         self.include_chain
             .extend(top.map(|c| (c, filename.to_string())));
         let text = String::from_utf8_lossy(buffer);
@@ -897,19 +877,6 @@ fn varstring_groups(tbuf: &[char]) -> Option<Vec<(usize, usize)>> {
         groups.push((p, n));
         p = n + 1;
     }
-}
-
-/// Best-effort `wordexp` stand-in for the INCLUDE path (`~`/`$`/`*`). Only `~`
-/// (home) is expanded; env-var / glob expansion is a deliberate simplification
-/// (documented). The C++ uses `wordexp(WRDE_NOCMD|WRDE_UNDEF)`.
-fn shell_expand(s: &str) -> String {
-    let mut out = s.to_string();
-    if (out == "~" || out.starts_with("~/"))
-        && let Ok(home) = std::env::var("HOME")
-    {
-        out = out.replacen('~', &home, 1);
-    }
-    out
 }
 
 impl IGrammarParser for TextualParser {

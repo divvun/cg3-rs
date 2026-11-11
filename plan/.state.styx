@@ -950,4 +950,9 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule embed.convert}
     )}
+    {id tool-surface.includes, covered_rules (
+        embed.include-resolver
+    ), covered_claims (
+        {impl_name target-impl, rule embed.include-resolver}
+    )}
 )

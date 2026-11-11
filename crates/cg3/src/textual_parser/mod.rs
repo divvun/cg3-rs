@@ -76,11 +76,10 @@ use crate::tag_trie::{trie_get_tags, trie_insert};
 use crate::types::SetNumber;
 mod checks;
 mod driver;
+pub mod includes;
 mod nesting;
 mod rules;
-use crate::uextras::{
-    S_IGNORE, basename, copy_with_visible_newlines, dir_prefix, is_blank, set_op_code,
-};
+use crate::uextras::{S_IGNORE, basename, copy_with_visible_newlines, is_blank, set_op_code};
 
 // ---------------------------------------------------------------------------
 // Local constants (canonical home `Strings.hpp`; reproduced verbatim, same
@@ -613,8 +612,11 @@ pub struct TextualParser {
     /// Where each `TEMPLATE`'s test was defined, by the test.
     template_defs: HashMap<CtxId, crate::error::ParseSpan>,
     /// The files whose `INCLUDE`s are being parsed, outermost first, by
-    /// canonical path — what an `INCLUDE` must not name again.
+    /// their resolver's identity — what an `INCLUDE` must not name again.
     include_chain: Vec<(std::path::PathBuf, String)>,
+    /// What reads the files `INCLUDE`s name; the filesystem, as vislcg3 reads
+    /// it, unless the caller gives another.
+    pub include_resolver: Box<dyn includes::IncludeResolver>,
     grammarbufs: Vec<SourceBuf>,
     /// Every recoverable parse error found, in source order —
     /// `[spec:cg3:req:errors.parse-reports-all]`. Replaces the C++
@@ -727,6 +729,7 @@ impl TextualParser {
             ctx_spans: HashMap::new(),
             template_defs: HashMap::new(),
             include_chain: Vec::new(),
+            include_resolver: Box::new(includes::FileResolver),
             grammarbufs: Vec::new(),
             errors: Vec::new(),
             parse_end_break: false,

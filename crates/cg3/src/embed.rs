@@ -15,7 +15,8 @@
 //!
 //! ```
 //! use cg3::embed::{CompiledGrammar, RunOptions};
-//! # let cg3b = CompiledGrammar::from_text(b"DELIMITERS = \"<.>\" ; SELECT (n) ;", "n.cg3")?.to_cg3b()?;
+//! # use cg3::embed::FileResolver;
+//! # let cg3b = CompiledGrammar::from_text(b"DELIMITERS = \"<.>\" ; SELECT (n) ;", "n.cg3", FileResolver)?.to_cg3b()?;
 //! let grammar = CompiledGrammar::from_cg3b(&cg3b)?;
 //! let input = b"\"<word>\"\n\t\"word\" n\n\t\"word\" v\n";
 //! let output = grammar.run(input, &RunOptions::default())?;
@@ -35,6 +36,9 @@ use crate::grammar_writer::GrammarWriter;
 use crate::options::{Opt, OptionsTable};
 use crate::profiler::Profiler;
 use crate::textual_parser::TextualParser;
+pub use crate::textual_parser::includes::{
+    FileResolver, IncludeResolver, Included, MemoryResolver, UnreadableInclude,
+};
 
 // [spec:cg3:req:embed.load]
 /// A finished grammar, shared by every run of it.
@@ -377,13 +381,23 @@ impl CompiledGrammar {
     }
 
     // [spec:cg3:req:embed.load-text]
+    // [spec:cg3:req:embed.include-resolver]
     /// Parses a textual grammar and finishes it, as cg-comp does before it
-    /// writes the `.cg3b`. `name` is what diagnostics call the source, and a
-    /// relative `INCLUDE` resolves against the directory of the file it names.
-    /// A failed parse is a [`GrammarError::Parse`](crate::error::GrammarError::Parse)
-    /// carrying every error and the sources they point into.
-    pub fn from_text(source: &[u8], name: &str) -> Result<CompiledGrammar, Cg3Error> {
+    /// writes the `.cg3b`. `name` is what diagnostics call the source, and
+    /// every `INCLUDE` reads its file through `includes`: [`FileResolver`]
+    /// finds it as vislcg3 does, beside the file `name` names. A failed parse
+    /// is a [`GrammarError::Parse`](crate::error::GrammarError::Parse) carrying
+    /// every error and the sources they point into.
+    ///
+    /// The grammar keeps the text of every source it parsed, so an error that
+    /// quotes it at run time reads no file.
+    pub fn from_text(
+        source: &[u8],
+        name: &str,
+        includes: impl IncludeResolver + 'static,
+    ) -> Result<CompiledGrammar, Cg3Error> {
         let mut parser = TextualParser::new(GrammarDraft::default(), false);
+        parser.include_resolver = Box::new(includes);
         parser.parse_grammar_named(source, name)?;
         parser.grammar.sources = parser.sources();
         Ok(CompiledGrammar::from(parser.grammar.finish()?))

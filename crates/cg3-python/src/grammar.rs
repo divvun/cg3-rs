@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use cg3::embed::CompiledGrammar;
+use cg3::embed::{CompiledGrammar, FileResolver};
 use cg3::error::Cg3Error as LibraryError;
 use cg3::inlines::is_cg3b;
 use cg3::textual_parser::MEMORY_SOURCE_NAME;
@@ -172,7 +172,9 @@ pub fn read_grammar(py: Python<'_>, data: PyBackedBytes) -> PyResult<Grammar> {
 #[pyo3(signature = (source, name = None))]
 pub fn parse_grammar(py: Python<'_>, source: &str, name: Option<&str>) -> PyResult<Grammar> {
     let name = name.unwrap_or(MEMORY_SOURCE_NAME);
-    load(py, || CompiledGrammar::from_text(source.as_bytes(), name))
+    load(py, || {
+        CompiledGrammar::from_text(source.as_bytes(), name, FileResolver)
+    })
 }
 
 // [spec:cg3:req:python.grammar-load]
@@ -191,7 +193,9 @@ pub fn load_grammar(py: Python<'_>, path: PathBuf) -> PyResult<Grammar> {
     if is_cg3b(&bytes) {
         load(py, || CompiledGrammar::from_cg3b(&bytes))
     } else {
-        load(py, || CompiledGrammar::from_text(&bytes, name))
+        load(py, || {
+            CompiledGrammar::from_text(&bytes, name, FileResolver)
+        })
     }
 }
 

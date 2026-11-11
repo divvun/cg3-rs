@@ -8,7 +8,7 @@
 use std::fs::File;
 use std::io::{Read, Write};
 
-use cg3::embed::CompiledGrammar;
+use cg3::embed::{CompiledGrammar, FileResolver};
 use cg3::inlines::is_cg3b;
 
 use super::{EXIT_FAILURE, basename, divvun_version_line, emit, fail};
@@ -80,7 +80,7 @@ pub fn main_comp(args: &[String]) -> i32 {
     // [spec:cg3:req:embed.cli-compiles-through]
     // [spec:cg3:req:diagnostics.source-named]
     // parser->parse_grammar(argv[1]); grammar.reindex();
-    let grammar = match CompiledGrammar::from_text(&buffer, &args[1]) {
+    let grammar = match CompiledGrammar::from_text(&buffer, &args[1], FileResolver) {
         Ok(g) => g,
         Err(e) => return fail(&e),
     };

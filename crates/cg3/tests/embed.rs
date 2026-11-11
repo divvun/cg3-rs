@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cg3::embed::{CompiledGrammar, Format, RunContext, RunOptions};
+use cg3::embed::{CompiledGrammar, FileResolver, Format, RunContext, RunOptions};
 
 fn corpus(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -18,7 +18,7 @@ fn corpus(name: &str) -> PathBuf {
 fn cg3b(name: &str) -> Vec<u8> {
     let path = corpus(name).join("grammar.cg3");
     let text = std::fs::read(&path).unwrap();
-    CompiledGrammar::from_text(&text, path.to_str().unwrap())
+    CompiledGrammar::from_text(&text, path.to_str().unwrap(), FileResolver)
         .expect("corpus grammar loads")
         .to_cg3b()
         .expect("corpus grammar writes")
@@ -292,7 +292,7 @@ fn a_textual_grammar_runs_as_its_cg3b_does() {
     assert!(corpus.len() > 50, "only {} corpus grammars", corpus.len());
     let options = RunOptions::default();
     for (name, path, source) in &corpus {
-        let text = CompiledGrammar::from_text(source, path.to_str().unwrap())
+        let text = CompiledGrammar::from_text(source, path.to_str().unwrap(), FileResolver)
             .unwrap_or_else(|e| panic!("{name}: the textual grammar loads: {e}"));
         let binary = CompiledGrammar::from_cg3b(&cg3b(name)).expect("the .cg3b loads");
         let input = input(name);
@@ -305,11 +305,12 @@ fn a_textual_grammar_runs_as_its_cg3b_does() {
 }
 
 // [spec:cg3:req:embed.load-text/test]
+// [spec:cg3:req:embed.include-resolver/test]
 #[test]
 fn a_relative_include_resolves_against_the_named_file() {
     let path = corpus("T_Include").join("grammar.cg3");
     let source = std::fs::read(&path).unwrap();
-    let grammar = CompiledGrammar::from_text(&source, path.to_str().unwrap())
+    let grammar = CompiledGrammar::from_text(&source, path.to_str().unwrap(), FileResolver)
         .expect("T_Include's includes are found beside it");
     let got = grammar
         .run(&input("T_Include"), &RunOptions::default())
@@ -318,7 +319,7 @@ fn a_relative_include_resolves_against_the_named_file() {
     assert!(same_output(&expected, &String::from_utf8(got).unwrap()));
 
     let elsewhere = corpus("T_Active").join("grammar.cg3");
-    let refused = CompiledGrammar::from_text(&source, elsewhere.to_str().unwrap())
+    let refused = CompiledGrammar::from_text(&source, elsewhere.to_str().unwrap(), FileResolver)
         .err()
         .expect("T_Active's directory has no sets.cg3");
     let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { errors, .. }) = refused
@@ -333,7 +334,7 @@ fn a_relative_include_resolves_against_the_named_file() {
 fn a_failed_parse_carries_its_errors_and_source() {
     use cg3::error::{Cg3Error, GrammarError};
     let source = b"DELIMITERS = \"<.>\" ;\nSELECT NoSuchSet ;\nREMOVE AlsoMissing ;\n";
-    let error = CompiledGrammar::from_text(source, "broken.cg3")
+    let error = CompiledGrammar::from_text(source, "broken.cg3", FileResolver)
         .err()
         .expect("undefined sets are refused");
     let Cg3Error::Grammar(GrammarError::Parse { errors, sources }) = error else {
@@ -354,7 +355,8 @@ fn a_failed_parse_carries_its_errors_and_source() {
 fn writing_a_grammar_leaves_it_unchanged() {
     let options = RunOptions::default();
     for (name, path, source) in &textual_corpus() {
-        let text = CompiledGrammar::from_text(source, path.to_str().unwrap()).unwrap();
+        let text =
+            CompiledGrammar::from_text(source, path.to_str().unwrap(), FileResolver).unwrap();
         let cg3b = text.to_cg3b().unwrap();
         let binary = CompiledGrammar::from_cg3b(&cg3b).unwrap();
         assert_eq!(
@@ -423,4 +425,88 @@ fn convert_gives_cg_convs_expected_streams() {
     let words = String::from_utf8(convert(b"Two words\n", &tagged).unwrap()).unwrap();
     assert!(words.contains("\"<Two>\""), "{words}");
     assert!(words.contains("\t\"two\""), "{words}");
+}
+
+/// T_Include's files, held in memory under the names its grammar gives them.
+fn include_files() -> cg3::embed::MemoryResolver {
+    ["grammar.cg3", "sets.cg3", "rules.cg3"]
+        .into_iter()
+        .map(|name| (name, std::fs::read(corpus("T_Include").join(name)).unwrap()))
+        .collect()
+}
+
+/// A grammar whose includes are held in memory compiles and runs as it does
+/// from its files, with each include named as vislcg3 names it beside the
+/// grammar; an include the files do not hold fails the parse naming it.
+// [spec:cg3:req:embed.include-resolver/test]
+#[test]
+fn includes_resolve_from_files_held_in_memory() {
+    let path = corpus("T_Include").join("grammar.cg3");
+    let source = std::fs::read(&path).unwrap();
+    let from_memory = CompiledGrammar::from_text(&source, "grammar.cg3", include_files()).unwrap();
+    let from_disk =
+        CompiledGrammar::from_text(&source, path.to_str().unwrap(), FileResolver).unwrap();
+    assert!(from_memory.to_cg3b().unwrap() == from_disk.to_cg3b().unwrap());
+    let options = RunOptions::default();
+    let input = input("T_Include");
+    assert_eq!(
+        from_memory.run(&input, &options).unwrap(),
+        from_disk.run(&input, &options).unwrap()
+    );
+    let names: Vec<String> = from_memory
+        .core()
+        .sources
+        .iter()
+        .map(|s| s.name.clone())
+        .collect();
+    assert_eq!(names, ["grammar.cg3", "./sets.cg3", "./rules.cg3"]);
+
+    let only_sets: cg3::embed::MemoryResolver = [(
+        "sets.cg3",
+        std::fs::read(corpus("T_Include").join("sets.cg3")).unwrap(),
+    )]
+    .into_iter()
+    .collect();
+    let refused = CompiledGrammar::from_text(&source, "grammar.cg3", only_sets)
+        .err()
+        .expect("rules.cg3 is not among the files");
+    let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { errors, .. }) = refused
+    else {
+        panic!("a parse failure, not {refused}");
+    };
+    assert!(
+        matches!(&errors[0].kind, cg3::error::ParseErrorKind::IncludeUnreadable { path, .. } if path == "./rules.cg3"),
+        "{errors:?}"
+    );
+}
+
+/// A grammar loaded from text quotes its rule when a run fails in it, out of
+/// the text it parsed: here there is no file to read, since its include came
+/// from memory.
+// [spec:cg3:req:embed.include-resolver/test]
+#[test]
+fn a_runtime_failure_quotes_the_kept_sources() {
+    let lists = "LIST N = (n) ;\n\nSECTION\nADD (@ok) N ;\nADD (VSTR:$1) (\"<\\(.*\\)>\"r) ;\n";
+    let files: cg3::embed::MemoryResolver = [("lists.cg3", lists)].into_iter().collect();
+    let grammar = CompiledGrammar::from_text(
+        b"DELIMITERS = \"<$.>\" ;\nINCLUDE lists.cg3 ;\n",
+        "nowhere/nb.cg3",
+        files,
+    )
+    .unwrap();
+    let error = grammar
+        .run(b"\"<(x>\"\n\t\"x\" n\n", &RunOptions::default())
+        .expect_err("the tag cannot be built");
+    let cg3::error::Cg3Error::Run(cg3::error::RunError::TagConstruction {
+        source, sources, ..
+    }) = error
+    else {
+        panic!("a tag construction failure, not {error}");
+    };
+    assert_eq!(source.file, "lists.cg3", "{source:?}");
+    assert!(
+        sources
+            .iter()
+            .any(|s| s.name == "lists.cg3" && s.text == lists)
+    );
 }
