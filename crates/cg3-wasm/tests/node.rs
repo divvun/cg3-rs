@@ -3,7 +3,7 @@
 //! wasm32-unknown-unknown`.
 #![cfg(target_arch = "wasm32")]
 
-use cg3::binary_grammar::BinaryGrammar;
+use cg3::binary_grammar::write_binary_grammar;
 use cg3::grammar::GrammarDraft;
 use cg3::textual_parser::TextualParser;
 use cg3_wasm::{ErrorCode, GlueError, read_grammar};
@@ -14,9 +14,7 @@ fn cg3b(src: &str) -> Vec<u8> {
     let mut parser = TextualParser::new(GrammarDraft::default(), false);
     parser.parse_grammar_utf8(src.as_bytes()).expect("parses");
     let mut blob = Vec::new();
-    BinaryGrammar::new(parser.grammar.finish().expect("finishes"))
-        .write_binary_grammar(&mut blob)
-        .expect("writes");
+    write_binary_grammar(&parser.grammar.finish().expect("finishes"), &mut blob).expect("writes");
     blob
 }
 

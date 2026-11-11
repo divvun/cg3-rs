@@ -1,17 +1,15 @@
 //! Port of `src/cg-comp.cpp` — compile a text grammar into a binary `.cg3b`.
 //!
-//! Reads `grammar_file` (text form), reindexes, and writes `output_file` in
-//! binary form via [`cg3::binary_grammar::BinaryGrammar::write_binary_grammar`].
-//! Rejects an already-binary input. This whole flow is LIVE (no gated engine
-//! paths): text parse → reindex → binary write.
+//! Reads `grammar_file` (text form) and writes `output_file` in binary form,
+//! with its companion source file beside it, through
+//! [`cg3::embed::CompiledGrammar::from_text`], `to_cg3b` and `companion`.
+//! Rejects an already-binary input.
 
 use std::fs::File;
 use std::io::{Read, Write};
 
-use cg3::binary_grammar::BinaryGrammar;
-use cg3::grammar::GrammarDraft;
+use cg3::embed::CompiledGrammar;
 use cg3::inlines::is_cg3b;
-use cg3::textual_parser::TextualParser;
 
 use super::{EXIT_FAILURE, basename, divvun_version_line, emit, fail};
 
@@ -47,9 +45,6 @@ pub fn main_comp(args: &[String]) -> i32 {
         return end_program(args.first().map(|s| s.as_str()));
     }
 
-    // Grammar grammar; — owned by the parser in this port (moved out after parse).
-    let grammar = GrammarDraft::default();
-
     // FILE* input = fopen(argv[1], "rb"); read first 4 bytes; fclose(input);
     let mut input = match File::open(&args[1]) {
         Ok(f) => f,
@@ -70,14 +65,10 @@ pub fn main_comp(args: &[String]) -> i32 {
         return EXIT_FAILURE;
     }
 
-    // parser.reset(new TextualParser(grammar, std::cerr));
-    let mut parser = TextualParser::new(grammar, false);
-
-    // if (parser->parse_grammar(argv[1])) { ... CG3Quit(1); }
-    //
-    // The C++ filename overload stat+reads the file; this reads it here (the
-    // `.cg3b` magic was already sniffed off the front above) and hands the parse
-    // the bytes AND the path, so a diagnostic can name the file it came from.
+    // The C++ filename overload of `parse_grammar` stat+reads the file; this
+    // reads it here (the `.cg3b` magic was already sniffed off the front above)
+    // and hands the parse the bytes AND the path, so a diagnostic can name the
+    // file it came from.
     let buffer = match std::fs::read(&args[1]) {
         Ok(b) => b,
         Err(_) => {
@@ -85,54 +76,39 @@ pub fn main_comp(args: &[String]) -> i32 {
             return EXIT_FAILURE;
         }
     };
-    // A deep parse/grammar fatal already printed its diagnostic; the variants
-    // that carry theirs are surfaced by `fail`. Either way the process ends with
-    // the exact code (byte-identical to the C++ CG3Quit termination).
+
+    // [spec:cg3:req:embed.cli-compiles-through]
     // [spec:cg3:req:diagnostics.source-named]
-    if let Err(e) = parser.parse_grammar_named(&buffer, &args[1]) {
-        return fail(&e);
-    }
-
-    // The parse's own buffers, taken before the parser goes out of scope —
-    // this is the only moment the grammar text exists in memory, and the
-    // companion file below is what gets it past the compile step.
-    let sources = parser.sources();
-
-    // Move the built grammar out of the parser (the C++ grammar outlives the
-    // parser, which is `reset()` after parsing).
-    // grammar.reindex();
-    let grammar = match parser.grammar.finish() {
+    // parser->parse_grammar(argv[1]); grammar.reindex();
+    let grammar = match CompiledGrammar::from_text(&buffer, &args[1]) {
         Ok(g) => g,
         Err(e) => return fail(&e),
     };
 
-    // Info banner to stderr (container sizes; see lib.rs on Arena counts).
+    let info = grammar.info();
     tracing::info!(
         "Sections: {}, Rules: {}, Sets: {}, Tags: {}",
-        grammar.sections.len(),
-        grammar.rule_by_number.capacity(),
-        grammar.sets_list.capacity(),
-        grammar.single_tags().size()
+        info.sections,
+        info.rules,
+        info.sets,
+        info.tags
     );
-
-    if let Some(rules_any) = grammar.rules_any.as_ref() {
-        tracing::info!("{} rules cannot be skipped by index.", rules_any.size());
+    if grammar.core().rules_any.is_some() {
+        tracing::info!("{} rules cannot be skipped by index.", info.rules_any);
     }
-
-    if grammar.has_dep {
+    if info.has_dependency_rules {
         tracing::info!("Grammar has dependency rules.");
     }
 
     // std::ofstream gout(argv[2], ...); if (gout) { BinaryGrammar writer; writer.writeBinaryGrammar(gout); }
-    //
-    // Serialised into memory first, so the companion file below can stamp the
-    // exact bytes that reached the disk without reading them back.
-    let mut blob: Vec<u8> = Vec::new();
-    let mut writer = BinaryGrammar::new(grammar);
-    if let Err(e) = writer.write_binary_grammar(&mut blob) {
-        return fail(&e);
-    }
-    let grammar = writer.grammar;
+    let blob = match grammar.to_cg3b() {
+        Ok(b) => b,
+        Err(e) => return fail(&e),
+    };
+    let companion = match grammar.companion() {
+        Ok(c) => c,
+        Err(e) => return fail(&e),
+    };
     match File::create(&args[2]) {
         Ok(mut gout) => {
             if gout.write_all(&blob).is_err() {
@@ -141,12 +117,9 @@ pub fn main_comp(args: &[String]) -> i32 {
             }
             let _ = gout.flush();
             // [spec:cg3:req:diagnostics.sidecar+1]
-            cg3::grammar_sources::write_beside(
-                std::path::Path::new(&args[2]),
-                &blob,
-                &grammar,
-                &sources,
-            );
+            if let Some(companion) = companion {
+                cg3::grammar_sources::write_beside(std::path::Path::new(&args[2]), &companion);
+            }
         }
         Err(_) => {
             tracing::error!("Could not write grammar to {}", args[2]);

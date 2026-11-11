@@ -409,9 +409,8 @@ pub enum GrammarError {
     #[error("binary grammar is malformed at byte {offset}: {fault}")]
     BinaryMalformed { offset: usize, fault: BinaryFault },
 
-    /// A grammar was due to be written while a running pipeline still shared
-    /// it. Both writers EDIT what they serialise, so they need the grammar to
-    /// themselves, and there is nothing to do but refuse.
+    /// vislcg3 was due to fold a run's stream relations into the grammar it
+    /// writes while something else still shared that grammar.
     #[error("the grammar core is shared with a running pipeline and cannot be written")]
     CoreShared,
 

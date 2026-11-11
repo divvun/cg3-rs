@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use cg3::binary_grammar::BinaryGrammar;
+use cg3::binary_grammar::{BinaryGrammar, write_binary_grammar};
 use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered};
 use cg3::grammar_applicator::GrammarApplicator;
 use cg3::relabeller::Relabeller;
@@ -53,9 +53,7 @@ fn load_text(path: &Path) -> GrammarCore {
 
 fn write(grammar: GrammarCore) -> Vec<u8> {
     let mut out = Vec::new();
-    BinaryGrammar::new(grammar)
-        .write_binary_grammar(&mut out)
-        .unwrap();
+    write_binary_grammar(&grammar, &mut out).unwrap();
     out
 }
 

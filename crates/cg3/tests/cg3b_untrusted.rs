@@ -8,7 +8,7 @@
 
 use std::io::Cursor;
 
-use cg3::binary_grammar::BinaryGrammar;
+use cg3::binary_grammar::{BinaryGrammar, write_binary_grammar};
 use cg3::error::{BinaryFault, Cg3Error, GrammarError};
 use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered};
 use cg3::grammar_applicator::GrammarApplicator;
@@ -71,9 +71,7 @@ fn compile(src: &str) -> Vec<u8> {
         .expect("fixture grammar compiles");
     let grammar = parser.grammar.finish().expect("fixture reindexes");
     let mut blob = Vec::new();
-    BinaryGrammar::new(grammar)
-        .write_binary_grammar(&mut blob)
-        .expect("fixture writes");
+    write_binary_grammar(&grammar, &mut blob).expect("fixture writes");
     blob
 }
 
@@ -100,13 +98,11 @@ fn loaded(blob: &[u8]) -> GrammarCore {
 /// Load, reindex, write both ways, and run: everything a loaded grammar
 /// must survive.
 fn exercise(blob: &[u8]) {
-    let mut g = loaded(blob);
+    let g = loaded(blob);
     let mut text = Vec::new();
-    assert_eq!(GrammarWriter::new(&g).write_grammar(&mut g, &mut text), 0);
+    assert_eq!(GrammarWriter::new(&g).write_grammar(&g, &mut text), 0);
     let mut bin = Vec::new();
-    BinaryGrammar::new(loaded(blob))
-        .write_binary_grammar(&mut bin)
-        .expect("a loaded grammar writes");
+    write_binary_grammar(&loaded(blob), &mut bin).expect("a loaded grammar writes");
     let mut app = GrammarApplicator::new(loaded(blob).into());
     app.set_grammar().expect("applicator setup");
     let mut out = Vec::new();

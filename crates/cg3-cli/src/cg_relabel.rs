@@ -216,8 +216,7 @@ pub fn main_relabel(args: &[String]) -> i32 {
     // std::ofstream gout(argv[3], ...); if (gout) { BinaryGrammar writer; writer.writeBinaryGrammar(gout); }
     match File::create(&args[3]) {
         Ok(mut gout) => {
-            let mut writer = BinaryGrammar::new(grammar);
-            if let Err(e) = writer.write_binary_grammar(&mut gout) {
+            if let Err(e) = cg3::binary_grammar::write_binary_grammar(&grammar, &mut gout) {
                 return fail(&e);
             }
             let _ = gout.flush();

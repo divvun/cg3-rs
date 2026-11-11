@@ -15,20 +15,20 @@
 //!   Write errors are swallowed (the C++ ignores the stream failbit).
 //!
 //! * **Arena-model signature reconciliation.** The C++ class stores a
-//!   `const Grammar* grammar` member and mutates the pointed-to `Set` objects
+//!   `const Grammar* grammar` member and renames the pointed-to `Set` objects
 //!   through the non-const `Set*` held in `sets_list` (the classic const-pointer /
-//!   mutable-pointee trick). In the arena port a `Set` lives *inside*
-//!   `grammar.sets_list` (an `Arena<Set>` by value), so mutating a set's name in
-//!   `write_grammar`'s naming pass genuinely needs `&mut Grammar`, which cannot
-//!   coexist with an immutable `grammar` field. Following the established
-//!   convention used throughout this crate (`Set::rehash(grammar, id)`,
-//!   `ContextualTest::rehash(contexts, id)`, the `trie_*(…, grammar)` helpers),
-//!   `grammar` is therefore THREADED as a parameter rather than stored: the print
-//!   methods take `grammar: &Grammar`, `write_grammar` takes `grammar: &mut
-//!   Grammar` (naming pass, then reborrowed immutably for the print phase). The
-//!   struct retains only the writer's own state (`used_sets`, `seen_rules`,
-//!   `anchors`). The ctor still consumes `res` (to build `anchors`)
-//!   but does not retain it.
+//!   mutable-pointee trick). Following the convention used throughout this
+//!   crate (`Set::rehash(grammar, id)`, `ContextualTest::rehash(contexts, id)`,
+//!   the `trie_*(…, grammar)` helpers), `grammar` is THREADED as a `&GrammarCore`
+//!   parameter rather than stored. The struct retains only the writer's own
+//!   state (`used_sets`, `seen_rules`, `anchors`, `set_names`). The ctor still
+//!   reads `res` (to build `anchors`) but does not retain it.
+//!
+//! * **Set naming stays in the writer.** DIVERGENCE: the C++ naming pass writes
+//!   the names it gives unnamed and internal sets onto the grammar, which keeps
+//!   them after the write. A grammar here is shared by every run of it, so the
+//!   names go into the writer's `set_names` instead, and every name the text
+//!   prints is read through it. The text is the same; the grammar is unchanged.
 //!
 //! * **Name tables local stand-ins.** `keywords[]`, `g_flags[]`, `stringbits[]`,
 //!   the `FL_*` flag indices and the `STR_*` set-name constants live in
@@ -42,7 +42,7 @@
 //!   `BTreeMap<u32, Vec<u32>>` (values pushed in inversion order, so
 //!   `equal_range` iteration order is preserved).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 
 use crate::arena::{CtxId, RuleId, SetId};
@@ -206,13 +206,6 @@ fn byte_at(s: &str, i: usize) -> u8 {
     s.as_bytes().get(i).copied().unwrap_or(0)
 }
 
-/// The C++ `sets_list` VECTOR (the numbered used-set list) in dense number order
-/// (`Grammar::sets_list_order`; see the reconciliation note in `crate::grammar`).
-/// Mirrors `Grammar::used_set_ids` (which is private there).
-fn used_set_ids(grammar: &GrammarCore) -> Vec<SetId> {
-    grammar.sets_list_order.clone()
-}
-
 /// Recovers the C++ `rule_by_number` VECTOR order from the arena (rules are never
 /// freed, so every slot is live; `RuleId.0 == number == slot`).
 fn rule_ids(grammar: &GrammarCore) -> Vec<RuleId> {
@@ -241,6 +234,9 @@ pub struct GrammarWriter {
     /// C++ `std::multimap<uint32_t, uint32_t> anchors`: rule-number → anchor-tag
     /// hashes (in inversion order, preserving `equal_range` iteration order).
     anchors: BTreeMap<u32, Vec<u32>>,
+    /// The names the naming pass gives sets, which the C++ writes onto the
+    /// grammar. A set not here prints under its own name.
+    set_names: HashMap<SetId, String>,
 }
 
 impl GrammarWriter {
@@ -269,6 +265,14 @@ impl GrammarWriter {
             used_sets: Uint32FlatHashSet::new(),
             seen_rules: Uint32FlatHashSet::new(),
             anchors,
+            set_names: HashMap::new(),
+        }
+    }
+
+    fn set_name<'a>(&'a self, grammar: &'a GrammarCore, id: SetId) -> &'a str {
+        match self.set_names.get(&id) {
+            Some(name) => name,
+            None => &grammar.sets_list[id.0].name,
         }
     }
 
@@ -329,7 +333,7 @@ impl GrammarWriter {
         if grammar.sets_list[id.0].r#type.intersects(ST_ORDERED) {
             w!(output, "O");
         }
-        w!(output, "LIST {} = ", grammar.sets_list[id.0].name);
+        w!(output, "LIST {} = ", self.set_name(grammar, id));
         let tagsets = [
             trie_get_tags_ordered(&grammar.sets_list[id.0].trie, grammar),
             trie_get_tags_ordered(&grammar.sets_list[id.0].trie_special, grammar),
@@ -358,7 +362,7 @@ impl GrammarWriter {
     /// itself.
     fn print_set_of_sets<W: Write>(&mut self, grammar: &GrammarCore, output: &mut W, id: SetId) {
         let sets = &grammar.sets_list[id.0].sets;
-        let name = &grammar.sets_list[id.0].name;
+        let name = self.set_name(grammar, id);
         // n = curset.name.data(); n[0]/n[1] read without a guard.
         let n0 = byte_at(name, 0);
         let n1 = byte_at(name, 1);
@@ -372,7 +376,7 @@ impl GrammarWriter {
         w!(
             output,
             "{} ",
-            grammar.set_by_number(SetNumber(sets[0])).name
+            self.set_name(grammar, grammar.set_id_by_number(SetNumber(sets[0])))
         );
         let set_ops = &grammar.sets_list[id.0].set_ops;
         for i in 0..sets.len() - 1 {
@@ -380,7 +384,7 @@ impl GrammarWriter {
                 output,
                 "{} {} ",
                 STRINGBITS[set_ops[i] as usize],
-                grammar.set_by_number(SetNumber(sets[i + 1])).name
+                self.set_name(grammar, grammar.set_id_by_number(SetNumber(sets[i + 1])))
             );
         }
         w!(output, " ;\n\n");
@@ -390,15 +394,12 @@ impl GrammarWriter {
     // [spec:cg3:sem:grammar-writer.cg3.grammar-writer.write-grammar-fn]
     /// Writes the whole grammar to `output` in CG-3 source text; returns 0. The
     /// C++ null-checks (`!output` / `!grammar` → diagnostic + `CG3Quit(1)`) are
-    /// structurally unreachable here — `output: &mut W` and `grammar: &mut Grammar`
-    /// are non-null references — so they are elided (deferred-I/O precedent).
-    /// Preamble → set-naming pass (the one grammar mutation) → set / template /
-    /// rule-section emission.
-    ///
-    /// DIVERGENCE: the C++ returns 0 unconditionally. A grammar whose core
-    /// another pipeline is still holding cannot be renamed under it, so that one
-    /// case returns non-zero having written nothing.
-    pub fn write_grammar<W: Write>(&mut self, grammar: &mut GrammarCore, output: &mut W) -> i32 {
+    /// structurally unreachable here — `output: &mut W` and `grammar:
+    /// &GrammarCore` are non-null references — so they are elided (deferred-I/O
+    /// precedent). Preamble → set-naming pass (into `set_names`, see the module
+    /// note) → set / template / rule-section emission.
+    // [spec:cg3:req:embed.write-text]
+    pub fn write_grammar<W: Write>(&mut self, grammar: &GrammarCore, output: &mut W) -> i32 {
         // (!output) / (!grammar): non-null references in the port; checks elided.
 
         w!(
@@ -466,31 +467,32 @@ impl GrammarWriter {
 
         w!(output, "\n");
 
-        // Set-naming pass — the ONE grammar mutation (needs &mut Grammar).
         self.used_sets.clear(0);
-        for id in used_set_ids(grammar) {
-            if grammar.sets_list[id.0].name.is_empty() {
-                if grammar.delimiters == Some(id) {
-                    grammar.sets_list[id.0].name = STR_DELIMITSET.to_string();
+        self.set_names.clear();
+        for &id in &grammar.sets_list_order {
+            let mut name = self.set_name(grammar, id).to_string();
+            if name.is_empty() {
+                name = if grammar.delimiters == Some(id) {
+                    STR_DELIMITSET.to_string()
                 } else if grammar.soft_delimiters == Some(id) {
-                    grammar.sets_list[id.0].name = STR_SOFTDELIMITSET.to_string();
+                    STR_SOFTDELIMITSET.to_string()
                 } else if grammar.text_delimiters == Some(id) {
-                    grammar.sets_list[id.0].name = STR_TEXTDELIMITSET.to_string();
+                    STR_TEXTDELIMITSET.to_string()
                 } else {
                     // s->name = "S<number>", formatted into a 12-unit buffer.
-                    let number = grammar.sets_list[id.0].number;
-                    grammar.sets_list[id.0].name = format!("S{number}");
-                }
+                    format!("S{}", grammar.sets_list[id.0].number)
+                };
             }
-            if is_internal(&grammar.sets_list[id.0].name) {
+            if is_internal(&name) {
                 // insert '3', 'G', 'C' at the front (yielding a "CG3" prefix).
-                let old = grammar.sets_list[id.0].name.clone();
-                grammar.sets_list[id.0].name = format!("CG3{old}");
+                name.insert_str(0, "CG3");
+            }
+            if name != grammar.sets_list[id.0].name {
+                self.set_names.insert(id, name);
             }
         }
 
-        // Print phase: reborrow the grammar immutably.
-        for id in used_set_ids(grammar) {
+        for &id in &grammar.sets_list_order {
             self.print_set(grammar, output, id);
         }
         w!(output, "\n");
@@ -640,7 +642,7 @@ impl GrammarWriter {
             w!(
                 to,
                 "WITHCHILD {} ",
-                grammar.set_by_number(rule.childset1).name
+                self.set_name(grammar, grammar.set_id_by_number(rule.childset1))
             );
         }
 
@@ -650,11 +652,11 @@ impl GrammarWriter {
                 reason = "a SUBSTITUTE or EXECUTE rule has its tag list: parse_rule reads it for both, and the .cg3b reader refuses a rule without one (check_rule's MissingSublist)"
             )]
             let sublist = rule.sublist.unwrap();
-            w!(to, "{} ", grammar.sets_list[sublist.0].name);
+            w!(to, "{} ", self.set_name(grammar, sublist));
         }
 
         if let Some(ml) = rule.maplist {
-            w!(to, "{} ", grammar.sets_list[ml.0].name);
+            w!(to, "{} ", self.set_name(grammar, ml));
         }
 
         if let Some(sublist) = rule.sublist
@@ -668,7 +670,7 @@ impl GrammarWriter {
             if rule.r#type == Keywords::KCopy || rule.r#type == Keywords::KCopycohort {
                 w!(to, "EXCEPT ");
             }
-            w!(to, "{} ", grammar.sets_list[sublist.0].name);
+            w!(to, "{} ", self.set_name(grammar, sublist));
         }
 
         if rule.r#type == Keywords::KAdd
@@ -687,7 +689,8 @@ impl GrammarWriter {
                 if rule.r#type == Keywords::KCopycohort {
                     w!(to, "WITHCHILD ");
                 }
-                w!(to, "{} ", grammar.set_by_number(rule.childset1).name);
+                let childset = grammar.set_id_by_number(rule.childset1);
+                w!(to, "{} ", self.set_name(grammar, childset));
             }
         }
 
@@ -698,7 +701,8 @@ impl GrammarWriter {
         }
 
         if rule.target.get() != 0 {
-            w!(to, "{} ", grammar.set_by_number(rule.target).name);
+            let target = grammar.set_id_by_number(rule.target);
+            w!(to, "{} ", self.set_name(grammar, target));
         }
 
         for it in &rule.tests {
@@ -731,7 +735,7 @@ impl GrammarWriter {
                 w!(
                     to,
                     "WITHCHILD {} ",
-                    grammar.set_by_number(rule.childset2).name
+                    self.set_name(grammar, grammar.set_id_by_number(rule.childset2))
                 );
             }
             w!(to, "(");
@@ -991,18 +995,15 @@ impl GrammarWriter {
         to: &mut W,
         test: &ContextualTest,
     ) {
+        let name = |n| self.set_name(grammar, grammar.set_id_by_number(n));
         if test.target.get() != 0 {
-            w!(to, "{} ", grammar.set_by_number(test.target).name);
+            w!(to, "{} ", name(test.target));
         }
         if test.cbarrier.get() != 0 {
-            w!(
-                to,
-                "CBARRIER {} ",
-                grammar.set_by_number(test.cbarrier).name
-            );
+            w!(to, "CBARRIER {} ", name(test.cbarrier));
         }
         if test.barrier.get() != 0 {
-            w!(to, "BARRIER {} ", grammar.set_by_number(test.barrier).name);
+            w!(to, "BARRIER {} ", name(test.barrier));
         }
     }
 

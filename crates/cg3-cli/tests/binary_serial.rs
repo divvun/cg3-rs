@@ -73,7 +73,7 @@ fn run_and_check(dir: &Path, grammar: &Path, label: &str) {
 // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.write-binary-grammar-fn/test]
 // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.write-contextual-test-fn/test]
 // cg-comp compiles T_Templates (TEMPLATE defs + [..] alternation → tmpl/ors
-// context records) via BinaryGrammar::write_binary_grammar/write_contextual_test;
+// context records) via binary_grammar::write_binary_grammar/write_contextual_test;
 // vislcg3 then loads the .cg3b by filename (the BinaryGrammar.cpp parse_grammar
 // file entry point) and the run must still match expected.txt.
 #[test]

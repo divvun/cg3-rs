@@ -6,10 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cg3::binary_grammar::BinaryGrammar;
 use cg3::embed::{CompiledGrammar, Format, RunContext, RunOptions};
-use cg3::grammar::GrammarDraft;
-use cg3::textual_parser::TextualParser;
 
 fn corpus(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -21,15 +18,10 @@ fn corpus(name: &str) -> PathBuf {
 fn cg3b(name: &str) -> Vec<u8> {
     let path = corpus(name).join("grammar.cg3");
     let text = std::fs::read(&path).unwrap();
-    let mut parser = TextualParser::new(GrammarDraft::default(), false);
-    parser
-        .parse_grammar_named(&text, path.to_str().unwrap())
-        .expect("corpus grammar parses");
-    let mut blob = Vec::new();
-    BinaryGrammar::new(parser.grammar.finish().expect("corpus grammar finishes"))
-        .write_binary_grammar(&mut blob)
-        .expect("corpus grammar writes");
-    blob
+    CompiledGrammar::from_text(&text, path.to_str().unwrap())
+        .expect("corpus grammar loads")
+        .to_cg3b()
+        .expect("corpus grammar writes")
 }
 
 fn input(name: &str) -> Vec<u8> {
@@ -351,4 +343,45 @@ fn a_failed_parse_carries_its_errors_and_source() {
     assert_eq!(sources.len(), 1);
     assert_eq!(sources[0].name, "broken.cg3");
     assert_eq!(sources[0].text.as_bytes(), source);
+}
+
+/// The writers read a grammar and leave it as it was: every corpus grammar,
+/// loaded from text or from its `.cg3b`, writes the same bytes twice, and runs
+/// after the writes as it ran before them.
+// [spec:cg3:req:embed.write-binary/test]
+// [spec:cg3:req:embed.write-text/test]
+#[test]
+fn writing_a_grammar_leaves_it_unchanged() {
+    let options = RunOptions::default();
+    for (name, path, source) in &textual_corpus() {
+        let text = CompiledGrammar::from_text(source, path.to_str().unwrap()).unwrap();
+        let cg3b = text.to_cg3b().unwrap();
+        let binary = CompiledGrammar::from_cg3b(&cg3b).unwrap();
+        assert_eq!(
+            binary.companion().unwrap(),
+            None,
+            "{name}: a .cg3b has no sources"
+        );
+        let input = input(name);
+        for grammar in [&text, &binary] {
+            let before = grammar.run(&input, &options).map_err(|e| e.to_string());
+            let written = (
+                grammar.to_cg3b().unwrap(),
+                grammar.companion().unwrap(),
+                grammar.to_text(),
+            );
+            let again = (
+                grammar.to_cg3b().unwrap(),
+                grammar.companion().unwrap(),
+                grammar.to_text(),
+            );
+            assert!(written == again, "{name}: a second write differs");
+            let after = grammar.run(&input, &options).map_err(|e| e.to_string());
+            assert_eq!(before, after, "{name}: a run after the writes differs");
+        }
+        assert!(
+            text.companion().unwrap().is_some(),
+            "{name}: the sources were kept"
+        );
+    }
 }

@@ -3,7 +3,7 @@
 //! grammar's source. The library's own `cg3b_untrusted` tests damage the
 //! records one at a time.
 
-use cg3::binary_grammar::BinaryGrammar;
+use cg3::binary_grammar::write_binary_grammar;
 use cg3::grammar::GrammarDraft;
 use cg3::textual_parser::TextualParser;
 
@@ -56,9 +56,7 @@ fn compile(src: &str) -> Vec<u8> {
         .expect("fixture grammar compiles");
     let grammar = parser.grammar.finish().expect("fixture reindexes");
     let mut blob = Vec::new();
-    BinaryGrammar::new(grammar)
-        .write_binary_grammar(&mut blob)
-        .expect("fixture writes");
+    write_binary_grammar(&grammar, &mut blob).expect("fixture writes");
     blob
 }
 

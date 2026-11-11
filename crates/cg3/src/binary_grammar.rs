@@ -81,7 +81,7 @@ use crate::arena::{CtxId, RuleId, SetId, TagId};
 use crate::contextual_test::{ContextualTest, POS_64BIT};
 use crate::error::GrammarError;
 use crate::flat_unordered_set::Uint32FlatHashSet;
-use crate::grammar::{GrammarCore, GrammarNumbered, Indexed, Numbered, Phase, trie_unserialize};
+use crate::grammar::{GrammarCore, GrammarNumbered, Numbered, Phase, trie_unserialize};
 use crate::igrammar_parser::IGrammarParser;
 use crate::inlines::{is_cg3b, ui16, ui32, write_be, write_be_f64};
 use crate::rule::Rule;
@@ -152,9 +152,9 @@ pub type DeferredOrs = HashMap<CtxId, Vec<u32>>;
 ///
 /// `P` is the phase of the grammar it holds. The reader is a
 /// `BinaryGrammar<Numbered>`: a `.cg3b` stores set numbers, and what it reads
-/// is finished by the caller. The writer is a `BinaryGrammar` over an indexed
-/// grammar.
-pub struct BinaryGrammar<P: Phase = Indexed> {
+/// is finished by the caller. Writing is [`write_binary_grammar`], which reads
+/// an indexed grammar it is lent.
+pub struct BinaryGrammar<P: Phase = Numbered> {
     /// C++ `Grammar* grammar` (aliases `result`); OWNED here.
     pub grammar: GrammarCore<P>,
     /// C++ base `nrules` — the `--nrules` name filter, compiled through the
@@ -169,7 +169,6 @@ pub struct BinaryGrammar<P: Phase = Indexed> {
     verbosity: u32,
     deferred_tmpls: DeferredTests,
     deferred_ors: DeferredOrs,
-    seen_uint32: Uint32FlatHashSet,
 }
 
 impl<P: Phase> BinaryGrammar<P> {
@@ -188,7 +187,6 @@ impl<P: Phase> BinaryGrammar<P> {
             verbosity: 0,
             deferred_tmpls: DeferredTests::new(),
             deferred_ors: DeferredOrs::new(),
-            seen_uint32: Uint32FlatHashSet::new(),
         }
     }
 }
@@ -398,100 +396,53 @@ impl BinaryGrammar<Numbered> {
     }
 }
 
-impl BinaryGrammar {
-    /// The C++ dense `sets_list` VECTOR (`Grammar::sets_list_order`): position 0
-    /// is the dummy (number 0), positions 1..k the sets numbered by
-    /// `addSetToList`. Written in this exact order, with each set's dense
-    /// `number`, matching `BinaryGrammar_write.cpp`.
-    fn used_set_ids(&self) -> Vec<SetId> {
-        self.grammar.sets_list_order.clone()
+// [spec:cg3:def:binary-grammar.cg3.binary-grammar.write-binary-grammar-fn]
+// [spec:cg3:sem:binary-grammar.cg3.binary-grammar.write-binary-grammar-fn]
+// [spec:cg3:def:binary-grammar-write.cg3.binary-grammar.write-binary-grammar-fn]
+// [spec:cg3:sem:binary-grammar-write.cg3.binary-grammar.write-binary-grammar-fn]
+// [spec:cg3:req:grammar-phases.indexed-only]
+// [spec:cg3:req:embed.write-binary]
+/// C++ `int writeBinaryGrammar(std::ostream& output)`. Serializes `grammar` as
+/// a byte-compatible `.cg3b` blob. See the module docs for the full wire layout
+/// and its byte-parity risks.
+///
+/// DIVERGENCE: the C++ calls `reverseContextualTests()` on each rule and writes
+/// the reversed lists, leaving the grammar's tests reversed behind it. This
+/// writes the same reversed lists and leaves the grammar as it found it, so a
+/// grammar shared by runs can be written, and writing it twice gives the same
+/// bytes.
+///
+/// Takes an indexed grammar only: the sections, the rule flags and the
+/// static-set names it writes are built by finishing.
+pub fn write_binary_grammar<W: Write>(
+    grammar: &GrammarCore,
+    output: &mut W,
+) -> Result<(), crate::error::Cg3Error> {
+    BinaryWriter {
+        grammar,
+        seen_uint32: Uint32FlatHashSet::new(),
     }
+    .write(output)
+}
 
-    // [spec:cg3:def:binary-grammar.cg3.binary-grammar.write-binary-grammar-fn]
-    // [spec:cg3:sem:binary-grammar.cg3.binary-grammar.write-binary-grammar-fn]
-    // [spec:cg3:def:binary-grammar-write.cg3.binary-grammar.write-binary-grammar-fn]
-    // [spec:cg3:sem:binary-grammar-write.cg3.binary-grammar.write-binary-grammar-fn]
-    /// C++ `int writeBinaryGrammar(std::ostream& output)`. Serializes `grammar` as
-    /// a byte-compatible `.cg3b` blob, returning 0. SIDE EFFECT: calls
-    /// `reverseContextualTests()` on each rule (reverses `tests`/`dep_tests` in
-    /// place). See the module docs for the full wire layout + byte-parity risks
-    /// (esp. the set sparse-numbering divergence).
-    ///
-    /// Exists on a `BinaryGrammar` over an indexed grammar only: the sections,
-    /// the rule flags and the static-set names it writes are built by
-    /// finishing.
-    // [spec:cg3:req:grammar-phases.indexed-only]
-    pub fn write_binary_grammar<W: Write>(
-        &mut self,
-        output: &mut W,
-    ) -> Result<(), crate::error::Cg3Error> {
-        // C++ guards: null output / null grammar. Both are owned here (moot); kept
-        // as documentation.
+/// One write of a grammar: the grammar it reads, and the hashes of the
+/// contexts written so far (the C++ `BinaryGrammar::seen_uint32`).
+struct BinaryWriter<'g> {
+    grammar: &'g GrammarCore,
+    seen_uint32: Uint32FlatHashSet,
+}
 
-        // The dense used-set list (C++ `grammar->sets_list`); computed up front so
-        // the BINF_SETS bit + the set section agree.
-        let used_sets = self.used_set_ids();
+impl BinaryWriter<'_> {
+    fn write<W: Write>(&mut self, output: &mut W) -> Result<(), crate::error::Cg3Error> {
+        // The dense used-set list (C++ `grammar->sets_list`): position 0 is the
+        // dummy (number 0), positions 1..k the sets numbered by `addSetToList`,
+        // written in that order with each set's dense `number`.
+        let used_sets = &self.grammar.sets_list_order;
 
         let _ = output.write_all(b"CG3B");
         write_be(output, CG3_FEATURE_REV);
 
-        let mut fields = 0u32;
-        if self.grammar.has_dep {
-            fields |= BINF_DEP;
-        }
-        if self.grammar.mapping_prefix != '\0' {
-            fields |= BINF_PREFIX;
-        }
-        if self.grammar.sub_readings_ltr {
-            fields |= BINF_SUB_LTR;
-        }
-        if self.grammar.num_tags != 0 {
-            fields |= BINF_TAGS;
-        }
-        if !self.grammar.reopen_mappings.empty() {
-            fields |= BINF_REOPEN_MAP;
-        }
-        if !self.grammar.preferred_targets.is_empty() {
-            fields |= BINF_PREF_TARGETS;
-        }
-        if !self.grammar.parentheses.is_empty() {
-            fields |= BINF_ENCLS;
-        }
-        if !self.grammar.anchors.empty() {
-            fields |= BINF_ANCHORS;
-        }
-        if !used_sets.is_empty() {
-            fields |= BINF_SETS;
-        }
-        if self.grammar.delimiters.is_some() {
-            fields |= BINF_DELIMS;
-        }
-        if self.grammar.soft_delimiters.is_some() {
-            fields |= BINF_SOFT_DELIMS;
-        }
-        if !self.grammar.contexts.is_empty() {
-            fields |= BINF_CONTEXTS;
-        }
-        if self.grammar.rule_by_number.capacity() != 0 {
-            fields |= BINF_RULES;
-        }
-        if self.grammar.has_relations {
-            fields |= BINF_RELATIONS;
-        }
-        if self.grammar.has_bag_of_tags {
-            fields |= BINF_BAG;
-        }
-        if self.grammar.ordered {
-            fields |= BINF_ORDERED;
-        }
-        if self.grammar.text_delimiters.is_some() {
-            fields |= BINF_TEXT_DELIMS;
-        }
-        if self.grammar.addcohort_attach {
-            fields |= BINF_ADDCOHORT_ATTACH;
-        }
-
-        write_be(output, fields);
+        write_be(output, self.fields());
 
         if self.grammar.mapping_prefix != '\0' {
             let mut b = [0u8; 4];
@@ -521,118 +472,7 @@ impl BinaryGrammar {
             write_be(output, self.grammar.num_tags as u32);
         }
         for i in 0..(self.grammar.num_tags as u32) {
-            // Snapshot the tag fields (release the arena borrow before reaching
-            // into sets_list for vs_sets numbers).
-            let (
-                number,
-                hash,
-                plain_hash,
-                seed,
-                ttype,
-                comparison_hash,
-                comparison_op,
-                comparison_val,
-                tag_text,
-                regex_pat,
-                vs_sets,
-                vs_names,
-                dep_parent,
-            ) = {
-                let t = &self.grammar.single_tags_list[i];
-                (
-                    t.number,
-                    t.hash,
-                    t.plain_hash,
-                    t.seed,
-                    t.r#type,
-                    t.comparison_hash,
-                    t.comparison_op,
-                    t.comparison_val,
-                    t.tag.clone(),
-                    t.regexp.as_ref().map(|r| r.as_str().to_string()),
-                    t.vs_sets.clone(),
-                    t.vs_names.clone(),
-                    t.extra.raw(),
-                )
-            };
-
-            let mut buffer: Vec<u8> = Vec::new();
-            let mut tfields = 0u32;
-
-            if number != 0 {
-                tfields |= 1 << 0;
-                write_be(&mut buffer, number);
-            }
-            if hash.get() != 0 {
-                tfields |= 1 << 1;
-                write_be(&mut buffer, hash.get());
-            }
-            if plain_hash.get() != 0 {
-                tfields |= 1 << 2;
-                write_be(&mut buffer, plain_hash.get());
-            }
-            if seed != 0 {
-                tfields |= 1 << 3;
-                write_be(&mut buffer, seed);
-            }
-            if !ttype.is_empty() {
-                tfields |= 1 << 4;
-                write_be(&mut buffer, ttype.bits());
-            }
-            if comparison_hash != 0 {
-                tfields |= 1 << 5;
-                write_be(&mut buffer, comparison_hash);
-            }
-            if comparison_op != COps::OpNop {
-                tfields |= 1 << 6;
-                write_be(&mut buffer, comparison_op as u32);
-            }
-            // Field 1<<7 is NOT reused (reserved until a hard format break).
-            if comparison_val != 0.0 {
-                tfields |= 1 << 12;
-                write_be_f64(&mut buffer, comparison_val);
-            }
-            if !tag_text.is_empty() {
-                tfields |= 1 << 8;
-                let b = tag_text.as_bytes();
-                write_be(&mut buffer, b.len() as i32);
-                buffer.extend_from_slice(b);
-            }
-            if let Some(pat) = &regex_pat {
-                tfields |= 1 << 9;
-                let b = pat.as_bytes();
-                write_be(&mut buffer, b.len() as i32);
-                buffer.extend_from_slice(b);
-            }
-            if let Some(vs) = &vs_sets {
-                tfields |= 1 << 10;
-                write_be(&mut buffer, vs.len() as u32);
-                for sid in vs.iter() {
-                    let n = self.grammar.sets_list[sid.0].number.get();
-                    write_be(&mut buffer, n);
-                }
-            }
-            if let Some(vn) = &vs_names {
-                tfields |= 1 << 11;
-                write_be(&mut buffer, vn.len() as u32);
-                for name in vn.iter() {
-                    let b = name.as_bytes();
-                    write_be(&mut buffer, b.len() as i32);
-                    buffer.extend_from_slice(b);
-                }
-            }
-            // 1<<12 used above.
-            if ttype.intersects(T_VARIABLE | T_LOCAL_VARIABLE) && dep_parent != 0 {
-                tfields |= 1 << 13;
-                write_be(&mut buffer, dep_parent);
-            }
-            if ttype.intersects(T_CONTEXT) {
-                tfields |= 1 << 14;
-                write_be(&mut buffer, dep_parent);
-            }
-
-            write_be(output, tfields);
-            let _ = output.write_all(&buffer);
+            self.write_tag(i, output);
         }
 
         // --- reopen_mappings ---
@@ -677,66 +517,8 @@ impl BinaryGrammar {
         if !used_sets.is_empty() {
             write_be(output, used_sets.len() as u32);
         }
-        for &sid in &used_sets {
-            let (number, stype, trie, trie_special, set_ops, sets, name) = {
-                let s = &self.grammar.sets_list[sid.0];
-                (
-                    s.number,
-                    s.r#type,
-                    s.trie.clone(),
-                    s.trie_special.clone(),
-                    s.set_ops.clone(),
-                    s.sets.clone(),
-                    s.name.clone(),
-                )
-            };
-
-            let mut buffer: Vec<u8> = Vec::new();
-            let mut sfields = 0u32;
-
-            if number.get() != 0 {
-                sfields |= 1 << 0;
-                write_be(&mut buffer, number.get());
-            }
-            // ST_ORDERED == 1<<8: 16-bit type when >= it, else 8-bit (exactly one).
-            if stype.bits() >= crate::set::ST_ORDERED.bits() {
-                sfields |= 1 << 1;
-                write_be(&mut buffer, stype.bits() as u32);
-            } else {
-                sfields |= 1 << 2;
-                write_be(&mut buffer, stype.bits() as u8);
-            }
-            // getNonEmpty() non-empty == at least one trie non-empty.
-            if !trie.is_empty() || !trie_special.is_empty() {
-                sfields |= 1 << 3;
-                write_be(&mut buffer, trie.len() as u32);
-                trie_serialize(&trie, &mut buffer, &self.grammar);
-                write_be(&mut buffer, trie_special.len() as u32);
-                trie_serialize(&trie_special, &mut buffer, &self.grammar);
-            }
-            if !set_ops.is_empty() {
-                sfields |= 1 << 4;
-                write_be(&mut buffer, set_ops.len() as u32);
-                for &v in &set_ops {
-                    write_be(&mut buffer, v);
-                }
-            }
-            if !sets.is_empty() {
-                sfields |= 1 << 5;
-                write_be(&mut buffer, sets.len() as u32);
-                for &v in &sets {
-                    write_be(&mut buffer, v);
-                }
-            }
-            if stype.intersects(crate::set::ST_STATIC) {
-                sfields |= 1 << 6;
-                let b = name.as_bytes();
-                write_be(&mut buffer, b.len() as i32);
-                buffer.extend_from_slice(b);
-            }
-
-            write_be(output, sfields);
-            let _ = output.write_all(&buffer);
+        for &sid in used_sets {
+            self.write_set(sid, output);
         }
 
         // --- delimiters / soft_delimiters / text_delimiters (set NUMBERS) ---
@@ -769,169 +551,401 @@ impl BinaryGrammar {
             write_be(output, num_rules);
         }
         for i in 0..num_rules {
-            let (
-                section,
-                rtype,
-                line,
-                flags,
-                name,
-                target,
-                wordform,
-                varname,
-                varvalue,
-                sub_reading,
-                childset1,
-                childset2,
-                maplist,
-                sublist,
-                number,
-                sub_rules,
-                dep_target,
-            ) = {
-                let r = &self.grammar.rule_by_number[i];
-                (
-                    r.section,
-                    r.r#type,
-                    r.line,
-                    r.flags,
-                    r.name.clone(),
-                    r.target,
-                    r.wordform,
-                    r.varname,
-                    r.varvalue,
-                    r.sub_reading,
-                    r.childset1,
-                    r.childset2,
-                    r.maplist,
-                    r.sublist,
-                    r.number,
-                    r.sub_rules.clone(),
-                    r.dep_target,
-                )
-            };
+            self.write_rule(i, output);
+        }
 
-            let mut buffer: Vec<u8> = Vec::new();
-            let mut rfields = 0u32;
+        Ok(())
+    }
 
-            if section != 0 {
-                rfields |= 1 << 0;
-                write_be(&mut buffer, section);
+    /// The top-level `BINF_*` feature bitset.
+    fn fields(&self) -> u32 {
+        let mut fields = 0u32;
+        if self.grammar.has_dep {
+            fields |= BINF_DEP;
+        }
+        if self.grammar.mapping_prefix != '\0' {
+            fields |= BINF_PREFIX;
+        }
+        if self.grammar.sub_readings_ltr {
+            fields |= BINF_SUB_LTR;
+        }
+        if self.grammar.num_tags != 0 {
+            fields |= BINF_TAGS;
+        }
+        if !self.grammar.reopen_mappings.empty() {
+            fields |= BINF_REOPEN_MAP;
+        }
+        if !self.grammar.preferred_targets.is_empty() {
+            fields |= BINF_PREF_TARGETS;
+        }
+        if !self.grammar.parentheses.is_empty() {
+            fields |= BINF_ENCLS;
+        }
+        if !self.grammar.anchors.empty() {
+            fields |= BINF_ANCHORS;
+        }
+        if !self.grammar.sets_list_order.is_empty() {
+            fields |= BINF_SETS;
+        }
+        if self.grammar.delimiters.is_some() {
+            fields |= BINF_DELIMS;
+        }
+        if self.grammar.soft_delimiters.is_some() {
+            fields |= BINF_SOFT_DELIMS;
+        }
+        if !self.grammar.contexts.is_empty() {
+            fields |= BINF_CONTEXTS;
+        }
+        if self.grammar.rule_by_number.capacity() != 0 {
+            fields |= BINF_RULES;
+        }
+        if self.grammar.has_relations {
+            fields |= BINF_RELATIONS;
+        }
+        if self.grammar.has_bag_of_tags {
+            fields |= BINF_BAG;
+        }
+        if self.grammar.ordered {
+            fields |= BINF_ORDERED;
+        }
+        if self.grammar.text_delimiters.is_some() {
+            fields |= BINF_TEXT_DELIMS;
+        }
+        if self.grammar.addcohort_attach {
+            fields |= BINF_ADDCOHORT_ATTACH;
+        }
+
+        fields
+    }
+
+    /// The record of tag `i`: a `u32` field mask, then the fields it marks.
+    fn write_tag<W: Write>(&self, i: u32, output: &mut W) {
+        // Snapshot the tag fields (release the arena borrow before reaching
+        // into sets_list for vs_sets numbers).
+        let (
+            number,
+            hash,
+            plain_hash,
+            seed,
+            ttype,
+            comparison_hash,
+            comparison_op,
+            comparison_val,
+            tag_text,
+            regex_pat,
+            vs_sets,
+            vs_names,
+            dep_parent,
+        ) = {
+            let t = &self.grammar.single_tags_list[i];
+            (
+                t.number,
+                t.hash,
+                t.plain_hash,
+                t.seed,
+                t.r#type,
+                t.comparison_hash,
+                t.comparison_op,
+                t.comparison_val,
+                t.tag.clone(),
+                t.regexp.as_ref().map(|r| r.as_str().to_string()),
+                t.vs_sets.clone(),
+                t.vs_names.clone(),
+                t.extra.raw(),
+            )
+        };
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut tfields = 0u32;
+
+        if number != 0 {
+            tfields |= 1 << 0;
+            write_be(&mut buffer, number);
+        }
+        if hash.get() != 0 {
+            tfields |= 1 << 1;
+            write_be(&mut buffer, hash.get());
+        }
+        if plain_hash.get() != 0 {
+            tfields |= 1 << 2;
+            write_be(&mut buffer, plain_hash.get());
+        }
+        if seed != 0 {
+            tfields |= 1 << 3;
+            write_be(&mut buffer, seed);
+        }
+        if !ttype.is_empty() {
+            tfields |= 1 << 4;
+            write_be(&mut buffer, ttype.bits());
+        }
+        if comparison_hash != 0 {
+            tfields |= 1 << 5;
+            write_be(&mut buffer, comparison_hash);
+        }
+        if comparison_op != COps::OpNop {
+            tfields |= 1 << 6;
+            write_be(&mut buffer, comparison_op as u32);
+        }
+        // Field 1<<7 is NOT reused (reserved until a hard format break).
+        if comparison_val != 0.0 {
+            tfields |= 1 << 12;
+            write_be_f64(&mut buffer, comparison_val);
+        }
+        if !tag_text.is_empty() {
+            tfields |= 1 << 8;
+            let b = tag_text.as_bytes();
+            write_be(&mut buffer, b.len() as i32);
+            buffer.extend_from_slice(b);
+        }
+        if let Some(pat) = &regex_pat {
+            tfields |= 1 << 9;
+            let b = pat.as_bytes();
+            write_be(&mut buffer, b.len() as i32);
+            buffer.extend_from_slice(b);
+        }
+        if let Some(vs) = &vs_sets {
+            tfields |= 1 << 10;
+            write_be(&mut buffer, vs.len() as u32);
+            for sid in vs.iter() {
+                let n = self.grammar.sets_list[sid.0].number.get();
+                write_be(&mut buffer, n);
             }
-            if rtype != Keywords::KIgnore {
-                rfields |= 1 << 1;
-                write_be(&mut buffer, rtype as u32);
-            }
-            if line != 0 {
-                rfields |= 1 << 2;
-                write_be(&mut buffer, line);
-            }
-            if !flags.is_empty() {
-                rfields |= 1 << 3;
-                if flags.bits() > u32::MAX as u64 {
-                    rfields |= 1 << 16;
-                    write_be(&mut buffer, flags.bits());
-                } else {
-                    write_be(&mut buffer, flags.bits() as u32);
-                }
-            }
-            if !name.is_empty() {
-                rfields |= 1 << 4;
+        }
+        if let Some(vn) = &vs_names {
+            tfields |= 1 << 11;
+            write_be(&mut buffer, vn.len() as u32);
+            for name in vn.iter() {
                 let b = name.as_bytes();
                 write_be(&mut buffer, b.len() as i32);
                 buffer.extend_from_slice(b);
             }
-            if target.get() != 0 {
-                rfields |= 1 << 5;
-                write_be(&mut buffer, target.get());
-            }
-            if let Some(wf) = wordform {
-                rfields |= 1 << 6;
-                write_be(&mut buffer, self.grammar.single_tags_list[wf.0].number);
-            }
-            if varname != 0 {
-                rfields |= 1 << 7;
-                write_be(&mut buffer, varname);
-            }
-            if varvalue != 0 {
-                rfields |= 1 << 8;
-                write_be(&mut buffer, varvalue);
-            }
-            if sub_reading != 0 {
-                rfields |= 1 << 9;
-                let mut v = sub_reading.unsigned_abs();
-                if sub_reading < 0 {
-                    v |= 1 << 31;
-                }
-                write_be(&mut buffer, v);
-            }
-            if childset1.get() != 0 {
-                rfields |= 1 << 10;
-                write_be(&mut buffer, childset1.get());
-            }
-            if childset2.get() != 0 {
-                rfields |= 1 << 11;
-                write_be(&mut buffer, childset2.get());
-            }
-            if let Some(m) = maplist {
-                rfields |= 1 << 12;
-                write_be(&mut buffer, self.grammar.sets_list[m.0].number.get());
-            }
-            if let Some(sl) = sublist {
-                rfields |= 1 << 13;
-                write_be(&mut buffer, self.grammar.sets_list[sl.0].number.get());
-            }
-            if number != 0 {
-                rfields |= 1 << 14;
-                write_be(&mut buffer, number);
-            }
-            if !sub_rules.is_empty() {
-                rfields |= 1 << 15;
-            }
-
-            write_be(output, rfields);
-            let _ = output.write_all(&buffer);
-
-            // dep_target hash (0 if none).
-            let dep_hash = dep_target
-                .map(|dt| self.grammar.contexts_arena[dt.0].hash)
-                .unwrap_or(0);
-            write_be(output, dep_hash);
-
-            // SIDE EFFECT: reverse the rule's tests/dep_tests in place.
-            self.grammar
-                .rule_by_number
-                .get_mut(i)
-                .reverse_contextual_tests();
-
-            let dep_tests: Vec<CtxId> = self.grammar.rule_by_number[i]
-                .dep_tests
-                .iter()
-                .copied()
-                .collect();
-            write_be(output, dep_tests.len() as u32);
-            for cid in &dep_tests {
-                write_be(output, self.grammar.contexts_arena[cid.0].hash);
-            }
-
-            let tests: Vec<CtxId> = self.grammar.rule_by_number[i]
-                .tests
-                .iter()
-                .copied()
-                .collect();
-            write_be(output, tests.len() as u32);
-            for cid in &tests {
-                write_be(output, self.grammar.contexts_arena[cid.0].hash);
-            }
-
-            if !sub_rules.is_empty() {
-                write_be(output, sub_rules.len() as u32);
-                for rid in &sub_rules {
-                    write_be(output, self.grammar.rule_by_number[rid.0].number);
-                }
-            }
+        }
+        // 1<<12 used above.
+        if ttype.intersects(T_VARIABLE | T_LOCAL_VARIABLE) && dep_parent != 0 {
+            tfields |= 1 << 13;
+            write_be(&mut buffer, dep_parent);
+        }
+        if ttype.intersects(T_CONTEXT) {
+            tfields |= 1 << 14;
+            write_be(&mut buffer, dep_parent);
         }
 
-        Ok(())
+        write_be(output, tfields);
+        let _ = output.write_all(&buffer);
+    }
+
+    /// The record of set `sid`: a `u32` field mask, then the fields it marks.
+    fn write_set<W: Write>(&self, sid: SetId, output: &mut W) {
+        let (number, stype, trie, trie_special, set_ops, sets, name) = {
+            let s = &self.grammar.sets_list[sid.0];
+            (
+                s.number,
+                s.r#type,
+                s.trie.clone(),
+                s.trie_special.clone(),
+                s.set_ops.clone(),
+                s.sets.clone(),
+                s.name.clone(),
+            )
+        };
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut sfields = 0u32;
+
+        if number.get() != 0 {
+            sfields |= 1 << 0;
+            write_be(&mut buffer, number.get());
+        }
+        // ST_ORDERED == 1<<8: 16-bit type when >= it, else 8-bit (exactly one).
+        if stype.bits() >= crate::set::ST_ORDERED.bits() {
+            sfields |= 1 << 1;
+            write_be(&mut buffer, stype.bits() as u32);
+        } else {
+            sfields |= 1 << 2;
+            write_be(&mut buffer, stype.bits() as u8);
+        }
+        // getNonEmpty() non-empty == at least one trie non-empty.
+        if !trie.is_empty() || !trie_special.is_empty() {
+            sfields |= 1 << 3;
+            write_be(&mut buffer, trie.len() as u32);
+            trie_serialize(&trie, &mut buffer, self.grammar);
+            write_be(&mut buffer, trie_special.len() as u32);
+            trie_serialize(&trie_special, &mut buffer, self.grammar);
+        }
+        if !set_ops.is_empty() {
+            sfields |= 1 << 4;
+            write_be(&mut buffer, set_ops.len() as u32);
+            for &v in &set_ops {
+                write_be(&mut buffer, v);
+            }
+        }
+        if !sets.is_empty() {
+            sfields |= 1 << 5;
+            write_be(&mut buffer, sets.len() as u32);
+            for &v in &sets {
+                write_be(&mut buffer, v);
+            }
+        }
+        if stype.intersects(crate::set::ST_STATIC) {
+            sfields |= 1 << 6;
+            let b = name.as_bytes();
+            write_be(&mut buffer, b.len() as i32);
+            buffer.extend_from_slice(b);
+        }
+
+        write_be(output, sfields);
+        let _ = output.write_all(&buffer);
+    }
+
+    /// The record of rule `i`: a `u32` field mask and the fields it marks, the
+    /// hash of its dependency target, its tests' hashes and its sub-rules.
+    fn write_rule<W: Write>(&self, i: u32, output: &mut W) {
+        let (
+            section,
+            rtype,
+            line,
+            flags,
+            name,
+            target,
+            wordform,
+            varname,
+            varvalue,
+            sub_reading,
+            childset1,
+            childset2,
+            maplist,
+            sublist,
+            number,
+            sub_rules,
+            dep_target,
+        ) = {
+            let r = &self.grammar.rule_by_number[i];
+            (
+                r.section,
+                r.r#type,
+                r.line,
+                r.flags,
+                r.name.clone(),
+                r.target,
+                r.wordform,
+                r.varname,
+                r.varvalue,
+                r.sub_reading,
+                r.childset1,
+                r.childset2,
+                r.maplist,
+                r.sublist,
+                r.number,
+                r.sub_rules.clone(),
+                r.dep_target,
+            )
+        };
+
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut rfields = 0u32;
+
+        if section != 0 {
+            rfields |= 1 << 0;
+            write_be(&mut buffer, section);
+        }
+        if rtype != Keywords::KIgnore {
+            rfields |= 1 << 1;
+            write_be(&mut buffer, rtype as u32);
+        }
+        if line != 0 {
+            rfields |= 1 << 2;
+            write_be(&mut buffer, line);
+        }
+        if !flags.is_empty() {
+            rfields |= 1 << 3;
+            if flags.bits() > u32::MAX as u64 {
+                rfields |= 1 << 16;
+                write_be(&mut buffer, flags.bits());
+            } else {
+                write_be(&mut buffer, flags.bits() as u32);
+            }
+        }
+        if !name.is_empty() {
+            rfields |= 1 << 4;
+            let b = name.as_bytes();
+            write_be(&mut buffer, b.len() as i32);
+            buffer.extend_from_slice(b);
+        }
+        if target.get() != 0 {
+            rfields |= 1 << 5;
+            write_be(&mut buffer, target.get());
+        }
+        if let Some(wf) = wordform {
+            rfields |= 1 << 6;
+            write_be(&mut buffer, self.grammar.single_tags_list[wf.0].number);
+        }
+        if varname != 0 {
+            rfields |= 1 << 7;
+            write_be(&mut buffer, varname);
+        }
+        if varvalue != 0 {
+            rfields |= 1 << 8;
+            write_be(&mut buffer, varvalue);
+        }
+        if sub_reading != 0 {
+            rfields |= 1 << 9;
+            let mut v = sub_reading.unsigned_abs();
+            if sub_reading < 0 {
+                v |= 1 << 31;
+            }
+            write_be(&mut buffer, v);
+        }
+        if childset1.get() != 0 {
+            rfields |= 1 << 10;
+            write_be(&mut buffer, childset1.get());
+        }
+        if childset2.get() != 0 {
+            rfields |= 1 << 11;
+            write_be(&mut buffer, childset2.get());
+        }
+        if let Some(m) = maplist {
+            rfields |= 1 << 12;
+            write_be(&mut buffer, self.grammar.sets_list[m.0].number.get());
+        }
+        if let Some(sl) = sublist {
+            rfields |= 1 << 13;
+            write_be(&mut buffer, self.grammar.sets_list[sl.0].number.get());
+        }
+        if number != 0 {
+            rfields |= 1 << 14;
+            write_be(&mut buffer, number);
+        }
+        if !sub_rules.is_empty() {
+            rfields |= 1 << 15;
+        }
+
+        write_be(output, rfields);
+        let _ = output.write_all(&buffer);
+
+        // dep_target hash (0 if none).
+        let dep_hash = dep_target
+            .map(|dt| self.grammar.contexts_arena[dt.0].hash)
+            .unwrap_or(0);
+        write_be(output, dep_hash);
+
+        // Last first: the C++ reverses the rule's tests and dep_tests in
+        // place here, then writes them.
+        let rule = &self.grammar.rule_by_number[i];
+        write_be(output, rule.dep_tests.len() as u32);
+        for cid in rule.dep_tests.iter().rev() {
+            write_be(output, self.grammar.contexts_arena[cid.0].hash);
+        }
+        write_be(output, rule.tests.len() as u32);
+        for cid in rule.tests.iter().rev() {
+            write_be(output, self.grammar.contexts_arena[cid.0].hash);
+        }
+
+        if !sub_rules.is_empty() {
+            write_be(output, sub_rules.len() as u32);
+            for rid in &sub_rules {
+                write_be(output, self.grammar.rule_by_number[rid.0].number);
+            }
+        }
     }
 
     // [spec:cg3:def:binary-grammar.cg3.binary-grammar.write-contextual-test-fn]

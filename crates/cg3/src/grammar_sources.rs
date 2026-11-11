@@ -129,20 +129,16 @@ pub fn provenance_of(grammar: &GrammarCore) -> Vec<(u32, RuleProvenance)> {
 }
 
 // [spec:cg3:req:diagnostics.sidecar+1]
-/// Write the companion file for the `.cg3b` at `binary`, whose bytes are
+// [spec:cg3:req:embed.write-binary]
+/// The bytes of the companion file for the `.cg3b` whose bytes are
 /// `binary_bytes`.
-///
-/// Unconditional at every call site: there is no option gating it, because the
-/// port tracks the C++ `Options` table and a companion file is invisible to the
-/// C++ tools while a new flag would not be.
-pub fn write_sidecar(
-    binary: &Path,
+pub fn companion_bytes(
     binary_bytes: &[u8],
     sources: &[ParseSource],
     rules: &[(u32, RuleProvenance)],
-) -> std::io::Result<()> {
-    let mut out = std::io::BufWriter::new(std::fs::File::create(sidecar_path(binary))?);
-    out.write_all(&SIDECAR_MAGIC)?;
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&SIDECAR_MAGIC);
     write_be(&mut out, FORMAT_VERSION);
     let stamp = BinaryStamp::of(binary_bytes);
     write_be(&mut out, stamp.len);
@@ -161,25 +157,38 @@ pub fn write_sidecar(
         write_be(&mut out, p.begin);
         write_be(&mut out, p.end);
     }
-    out.flush()
+    out
 }
 
 // [spec:cg3:req:diagnostics.sidecar+1]
-/// Write the companion file for a `.cg3b` a tool has just written, taking the
-/// per-rule provenance off the grammar itself.
+/// Write the companion file for the `.cg3b` at `binary`, whose bytes are
+/// `binary_bytes`.
+///
+/// Unconditional at every call site: there is no option gating it, because the
+/// port tracks the C++ `Options` table and a companion file is invisible to the
+/// C++ tools while a new flag would not be.
+pub fn write_sidecar(
+    binary: &Path,
+    binary_bytes: &[u8],
+    sources: &[ParseSource],
+    rules: &[(u32, RuleProvenance)],
+) -> std::io::Result<()> {
+    std::fs::write(
+        sidecar_path(binary),
+        companion_bytes(binary_bytes, sources, rules),
+    )
+}
+
+// [spec:cg3:req:diagnostics.sidecar+1]
+/// Write `companion`, the companion file for a `.cg3b` a tool has just
+/// written at `binary`.
 ///
 /// A failure here is a `warn!`, not an exit code: the grammar compiled, and the
 /// companion file only decides whether a later runtime failure can quote it.
 /// Refusing to produce a working `.cg3b` because a diagnostic aid could not be
 /// written would be the wrong trade.
-pub fn write_beside(
-    binary: &Path,
-    binary_bytes: &[u8],
-    grammar: &GrammarCore,
-    sources: &[ParseSource],
-) {
-    let rules = provenance_of(grammar);
-    if let Err(e) = write_sidecar(binary, binary_bytes, sources, &rules) {
+pub fn write_beside(binary: &Path, companion: &[u8]) {
+    if let Err(e) = std::fs::write(sidecar_path(binary), companion) {
         tracing::warn!(
             "Warning: could not write grammar sources to {} ({e}); runtime errors in this grammar will not be quoted",
             sidecar_path(binary).display()

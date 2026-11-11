@@ -1,5 +1,6 @@
 //! vislcg3 and a program loading the same `.cg3b` through `cg3::embed` see the
-//! same grammar, and vislcg3 runs it through the steps the library offers.
+//! same grammar, vislcg3 runs it through the steps the library offers, and
+//! cg-comp and vislcg3 write the bytes the library's writers return.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -109,4 +110,114 @@ fn bad_option_fails_before_input_is_read() {
         std::thread::sleep(Duration::from_millis(20));
     };
     assert!(!status.success());
+}
+
+/// Every corpus grammar's source, by its path.
+fn corpus_grammars() -> Vec<PathBuf> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test");
+    let mut grammars: Vec<PathBuf> = std::fs::read_dir(&root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path().join("grammar.cg3"))
+        .filter(|path| path.is_file() && path.to_string_lossy().contains("/T_"))
+        .collect();
+    grammars.sort();
+    assert!(
+        grammars.len() > 50,
+        "only {} corpus grammars",
+        grammars.len()
+    );
+    grammars
+}
+
+fn scratch(grammar: &Path, what: &str) -> PathBuf {
+    let dir = grammar
+        .parent()
+        .unwrap()
+        .file_name()
+        .unwrap()
+        .to_string_lossy();
+    std::env::temp_dir().join(format!("cg3-writers-{dir}-{what}-{}", std::process::id()))
+}
+
+/// The file at `path` and its companion, removed once read.
+fn take_written(path: &Path) -> (Vec<u8>, Option<Vec<u8>>) {
+    let companion = cg3::grammar_sources::sidecar_path(path);
+    let written = (std::fs::read(path).unwrap(), std::fs::read(&companion).ok());
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(companion);
+    written
+}
+
+fn vislcg3_writes(grammar: &Path, flag: &str, out: &Path) {
+    let status = Command::new(env!("CARGO_BIN_EXE_vislcg3"))
+        .args(["--grammar-only", "-g"])
+        .arg(grammar)
+        .arg(flag)
+        .arg(out)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("spawn vislcg3");
+    assert!(status.success(), "vislcg3 {flag} {}", grammar.display());
+}
+
+/// cg-comp writes, for every corpus grammar, the `.cg3b` and companion file
+/// the library's writers return for the grammar `from_text` loads.
+// [spec:cg3:req:embed.write-binary/test]
+// [spec:cg3:req:embed.cli-compiles-through/test]
+#[test]
+fn cg_comp_writes_what_to_cg3b_returns() {
+    for grammar in corpus_grammars() {
+        let out = scratch(&grammar, "comp.cg3b");
+        let status = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
+            .arg(&grammar)
+            .arg(&out)
+            .stderr(Stdio::null())
+            .status()
+            .expect("spawn cg-comp");
+        assert!(status.success(), "cg-comp {}", grammar.display());
+        let loaded = CompiledGrammar::from_text(
+            &std::fs::read(&grammar).unwrap(),
+            grammar.to_str().unwrap(),
+        )
+        .unwrap();
+        let expected = (loaded.to_cg3b().unwrap(), loaded.companion().unwrap());
+        assert!(take_written(&out) == expected, "{}", grammar.display());
+    }
+}
+
+/// vislcg3 writes `--grammar-out` and `--grammar-bin` as `to_text`, `to_cg3b`
+/// and `companion` return them, for a grammar it loads from text and for one
+/// it loads from a `.cg3b`, which has no companion.
+// [spec:cg3:req:embed.write-binary/test]
+// [spec:cg3:req:embed.write-text/test]
+// [spec:cg3:req:embed.cli-compiles-through/test]
+#[test]
+fn vislcg3_writes_what_the_library_writers_return() {
+    for grammar in corpus_grammars() {
+        let text = CompiledGrammar::from_text(
+            &std::fs::read(&grammar).unwrap(),
+            grammar.to_str().unwrap(),
+        )
+        .unwrap();
+        let cg3b = scratch(&grammar, "in.cg3b");
+        std::fs::write(&cg3b, text.to_cg3b().unwrap()).unwrap();
+        let binary = CompiledGrammar::from_cg3b(&text.to_cg3b().unwrap()).unwrap();
+        for (path, loaded) in [(grammar.as_path(), &text), (cg3b.as_path(), &binary)] {
+            let out = scratch(&grammar, "out.cg3");
+            vislcg3_writes(path, "--grammar-out", &out);
+            let written = take_written(&out);
+            assert!(
+                written == (loaded.to_text().into_bytes(), None),
+                "{}",
+                path.display()
+            );
+
+            let out = scratch(&grammar, "out.cg3b");
+            vislcg3_writes(path, "--grammar-bin", &out);
+            let expected = (loaded.to_cg3b().unwrap(), loaded.companion().unwrap());
+            assert!(take_written(&out) == expected, "{}", path.display());
+        }
+        let _ = std::fs::remove_file(cg3b);
+    }
 }

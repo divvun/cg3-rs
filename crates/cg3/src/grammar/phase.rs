@@ -28,7 +28,7 @@ mod sealed {
 /// A grammar is loaded, finished once, and only then written or run:
 ///
 /// ```
-/// use cg3::binary_grammar::BinaryGrammar;
+/// use cg3::binary_grammar::{BinaryGrammar, write_binary_grammar};
 /// use cg3::grammar::{Grammar, GrammarDraft, GrammarNumbered};
 /// use cg3::textual_parser::TextualParser;
 ///
@@ -37,7 +37,7 @@ mod sealed {
 /// let indexed = parser.grammar.finish()?;
 ///
 /// let mut cg3b = Vec::new();
-/// BinaryGrammar::new(indexed).write_binary_grammar(&mut cg3b)?;
+/// write_binary_grammar(&indexed, &mut cg3b)?;
 ///
 /// let mut reader = BinaryGrammar::new(GrammarNumbered::default());
 /// reader.parse_grammar_buffer(&cg3b)?;
@@ -63,12 +63,12 @@ mod sealed {
 ///
 /// Neither writer takes one:
 ///
-/// ```compile_fail,E0599
-/// use cg3::binary_grammar::BinaryGrammar;
+/// ```compile_fail,E0308
+/// use cg3::binary_grammar::write_binary_grammar;
 /// use cg3::grammar::GrammarNumbered;
 ///
 /// let mut cg3b = Vec::new();
-/// BinaryGrammar::new(GrammarNumbered::default()).write_binary_grammar(&mut cg3b);
+/// write_binary_grammar(&GrammarNumbered::default(), &mut cg3b);
 /// ```
 ///
 /// ```compile_fail,E0308
@@ -171,6 +171,7 @@ impl<P: Phase> GrammarCore<P> {
             cmdargs_override,
             source_names,
             binary_path,
+            sources,
             single_tags_list,
             tags_by_hash,
             sets_list,
@@ -231,6 +232,7 @@ impl<P: Phase> GrammarCore<P> {
             cmdargs_override,
             source_names,
             binary_path,
+            sources,
             single_tags_list,
             tags_by_hash,
             sets_list,

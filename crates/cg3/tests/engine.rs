@@ -432,17 +432,18 @@ fn two_pipelines_share_one_grammar_core() {
     );
 }
 
-/// A grammar someone is applying cannot be written out from under them.
+/// A grammar someone is applying can be written out while they hold it.
 ///
-/// Both writers EDIT what they serialise — the binary one reverses each rule's
-/// test lists, the textual one renames every unnamed set — so both take an
-/// owned `GrammarCore`, and the only way back to one from a shared grammar is
-/// `Arc::try_unwrap`: refused while a pipeline holds the core, granted once it
-/// is gone. That is the hand-back `vislcg3` does before `--grammar-bin`.
+/// Neither writer changes what it serialises, so both read a shared
+/// `GrammarCore`: a pipeline keeps its handle across the writes, and writing
+/// again gives the same bytes.
+// [spec:cg3:req:embed.write-binary/test]
+// [spec:cg3:req:embed.write-text/test]
 #[test]
-fn a_shared_core_cannot_reach_the_writers() {
-    use cg3::binary_grammar::BinaryGrammar;
+fn shared_core_writes_while_a_pipeline_holds_it() {
+    use cg3::binary_grammar::write_binary_grammar;
     use cg3::grammar_applicator::GrammarApplicator;
+    use cg3::grammar_writer::GrammarWriter;
     use cg3::textual_parser::TextualParser;
     use std::sync::Arc;
 
@@ -451,23 +452,21 @@ fn a_shared_core_cannot_reach_the_writers() {
     parser
         .parse_grammar_named(src, "writers.cg3")
         .expect("grammar parses");
-    let grammar = parser.grammar.finish().expect("reindex");
-
-    let core = Arc::new(grammar);
+    let core = Arc::new(parser.grammar.finish().expect("reindex"));
     let pipeline = GrammarApplicator::from_core(Arc::clone(&core)).expect("pipeline");
-    let Err(core) = Arc::try_unwrap(core) else {
-        panic!("a core a pipeline holds must stay shared");
-    };
 
+    let write = || {
+        let mut blob = Vec::new();
+        write_binary_grammar(&core, &mut blob).expect("a shared grammar writes");
+        let mut text = Vec::new();
+        GrammarWriter::new(&core).write_grammar(&core, &mut text);
+        (blob, text)
+    };
+    let first = write();
+    assert!(!first.0.is_empty() && !first.1.is_empty());
+    assert_eq!(write(), first, "a second write gives the same bytes");
+    assert_eq!(Arc::strong_count(&core), 2, "the pipeline still holds it");
     drop(pipeline);
-    let grammar = Arc::try_unwrap(core)
-        .ok()
-        .expect("the last handle takes the grammar back");
-    let mut blob: Vec<u8> = Vec::new();
-    BinaryGrammar::new(grammar)
-        .write_binary_grammar(&mut blob)
-        .expect("an owned grammar writes");
-    assert!(!blob.is_empty());
 }
 
 // [spec:cg3:sem:grammar-applicator.cg3.grammar-applicator.add-tag-to-reading-fn/test]
@@ -903,9 +902,7 @@ fn numeric_math_variable_tag_survives_cg3b() {
         .expect("grammar parses");
     let core = parser.grammar.finish().expect("reindex");
     let mut blob: Vec<u8> = Vec::new();
-    BinaryGrammar::new(core)
-        .write_binary_grammar(&mut blob)
-        .expect("the grammar writes");
+    cg3::binary_grammar::write_binary_grammar(&core, &mut blob).expect("the grammar writes");
     let mut reader = BinaryGrammar::new(GrammarCore::default());
     reader.parse_grammar_buffer(&blob).expect("the .cg3b reads");
     let core = reader.grammar.finish().expect("reindex");

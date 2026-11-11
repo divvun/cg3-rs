@@ -4,9 +4,9 @@
 //! reindexes, optionally runs it over stdin→stdout via a
 //! [`cg3::format_converter::FormatConverter`] (configured through its public
 //! shared-base accessors — the composition analogue of the C++ public
-//! inheritance), and optionally writes the grammar back out in textual
-//! ([`cg3::grammar_writer::GrammarWriter`]) and/or binary
-//! ([`cg3::binary_grammar::BinaryGrammar`]) form.
+//! inheritance), and optionally writes the grammar back out in textual and/or
+//! binary form through [`cg3::embed::CompiledGrammar::to_text`] and
+//! [`cg3::embed::CompiledGrammar::to_cg3b`].
 //!
 //! Remaining NOTEd elision: `--stderr` creates the redirect file (same
 //! truncation side effect as the C++) but diagnostics still go to process
@@ -19,7 +19,6 @@ use cg3::binary_grammar::BinaryGrammar;
 use std::sync::Arc;
 
 use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered, Phase};
-use cg3::grammar_writer::GrammarWriter;
 use cg3::igrammar_parser::IGrammarParser;
 use cg3::inlines::is_cg3b;
 use cg3::options::{Opt, OptionsTable, options, options_default, options_override};
@@ -292,13 +291,6 @@ pub fn main_run(args: &[String]) -> i32 {
         }
     };
 
-    // [spec:cg3:req:diagnostics.sidecar+1]
-    // The parse's own buffers, kept only when `--grammar-bin` will need them for
-    // the companion file it writes. Retaining a multi-megabyte grammar text for
-    // the whole run of every other invocation is exactly what
-    // `[spec:cg3:req:diagnostics.source-lazy]` forbids.
-    let mut grammar_sources: Vec<cg3::error::ParseSource> = Vec::new();
-
     // Loaded in the phase its loader builds, and finished where the C++
     // reindexes: after the grammar's own options are merged and `--prefix` is
     // applied.
@@ -364,8 +356,13 @@ pub fn main_run(args: &[String]) -> i32 {
             p.grammar_ast = sz;
         }
 
+        // [spec:cg3:req:diagnostics.sidecar+1]
+        // The parse's own buffers, kept only when `--grammar-bin` will need them
+        // for the companion file it writes. Retaining a multi-megabyte grammar
+        // text for the whole run of every other invocation is exactly what
+        // `[spec:cg3:req:diagnostics.source-lazy]` forbids.
         if occ(&options, Opt::GrammarBin) {
-            grammar_sources = parser.sources();
+            parser.grammar.sources = parser.sources();
         }
 
         let mut g = parser.grammar;
@@ -423,8 +420,6 @@ pub fn main_run(args: &[String]) -> i32 {
     // keeps that on the run (`EngineConfig::stream_relations`), so carry it out
     // of the applicator for `--grammar-bin` to fold back in.
     let mut stream_relations = false;
-    // Loaded: from here on the grammar is shared and nothing edits it, until
-    // the writers take it back below.
     let grammar = Arc::new(grammar);
     if !occ(&options, Opt::GrammarOnly) {
         // C++: `applicator.profiler = profiler.get();` — move the profiler into
@@ -466,7 +461,7 @@ pub fn main_run(args: &[String]) -> i32 {
         // Carry out what the run learned that main's copy cannot see, and take
         // back the profiler (for the final `Profiler::write`). The grammar does
         // not travel: main never gave it away. The run has released its handle
-        // on the core, which is what lets the writers below take it back.
+        // on the core, so main holds it alone again.
         stream_relations = report.stream_relations;
         #[cfg(feature = "profiler")]
         if profiler.is_none() {
@@ -474,7 +469,7 @@ pub fn main_run(args: &[String]) -> i32 {
         }
     }
 
-    if let Err(e) = write_grammars(&options, grammar, &grammar_sources, stream_relations) {
+    if let Err(e) = write_grammars(&options, grammar, stream_relations) {
         return fail(&e);
     }
 
@@ -534,29 +529,32 @@ fn apply_grammar_options<P: Phase>(
     Ok(())
 }
 
-/// `--grammar-out` / `--grammar-bin`, after the run.
+// [spec:cg3:req:embed.cli-compiles-through]
+/// `--grammar-out` / `--grammar-bin`, after the run, through the writers the
+/// library offers.
 ///
-/// Both writers EDIT what they serialise, so they need the grammar back from
-/// the run; the applicator, main's only other holder, is gone by now.
+/// A binary stream that carried relations makes the C++ run stamp
+/// `has_relations` onto the live grammar, which `--grammar-bin` then writes;
+/// the port's run keeps that to itself (`stream_relations`), so it is folded
+/// in here, on the grammar that only main holds once the run is over.
 fn write_grammars(
     options: &cg3::options::OptionsTable,
-    grammar: Arc<GrammarCore>,
-    sources: &[cg3::error::ParseSource],
+    mut grammar: Arc<GrammarCore>,
     stream_relations: bool,
 ) -> Result<(), cg3::error::Cg3Error> {
     let occurs = |o: Opt| options[o as usize].does_occur;
-    if !occurs(Opt::GrammarOut) && !occurs(Opt::GrammarBin) {
-        return Ok(());
+    if stream_relations && occurs(Opt::GrammarBin) {
+        Arc::get_mut(&mut grammar)
+            .ok_or(cg3::error::GrammarError::CoreShared)?
+            .has_relations = true;
     }
-    let mut grammar = Arc::try_unwrap(grammar).map_err(|_| cg3::error::GrammarError::CoreShared)?;
+    let grammar = cg3::embed::CompiledGrammar::from(grammar);
 
-    // --grammar-out: write the grammar in textual form. LIVE.
     if occurs(Opt::GrammarOut) {
         let path = &options[Opt::GrammarOut as usize].value;
         match std::fs::File::create(path) {
             Ok(mut gout) => {
-                let mut writer = GrammarWriter::new(&grammar);
-                writer.write_grammar(&mut grammar, &mut gout);
+                let _ = gout.write_all(grammar.to_text().as_bytes());
                 let _ = gout.flush();
             }
             Err(_) => {
@@ -565,38 +563,27 @@ fn write_grammars(
         }
     }
 
-    // --grammar-bin: write the grammar in binary form. LIVE.
     if occurs(Opt::GrammarBin) {
         let path = &options[Opt::GrammarBin as usize].value;
-        write_grammar_bin(path, grammar, sources, stream_relations)?;
+        write_grammar_bin(path, &grammar)?;
     }
     Ok(())
 }
 
 // [spec:cg3:req:diagnostics.sidecar+1]
-/// `--grammar-bin`: write the grammar in binary form, and its sources beside it.
+/// `--grammar-bin`: write the grammar in binary form, and its sources beside it
+/// when it has them: a grammar that came from text does, and a
+/// binary-to-binary pass has none to describe.
 ///
-/// Takes the grammar by value, because the binary writer owns what it
-/// serialises.
-///
-/// Serialised into memory first so the companion file stamps exactly the bytes
-/// that reached the disk. A failure to create the output is logged and survived,
-/// as it always was; a failure part-way through writing it is not, because what
-/// is on disk then is a truncated grammar.
+/// A failure to create the output is logged and survived, as it always was; a
+/// failure part-way through writing it is not, because what is on disk then is
+/// a truncated grammar.
 fn write_grammar_bin(
     path: &str,
-    mut grammar: GrammarCore,
-    sources: &[cg3::error::ParseSource],
-    stream_relations: bool,
+    grammar: &cg3::embed::CompiledGrammar,
 ) -> Result<(), cg3::error::Cg3Error> {
-    // The run's binary-stream `has_relations` (C++ stamps it straight onto the
-    // grammar mid-run, and this writer sees it) — folded in here so the emitted
-    // BINF_RELATIONS bit is what it always was.
-    grammar.has_relations |= stream_relations;
-    let mut blob: Vec<u8> = Vec::new();
-    let mut writer = BinaryGrammar::new(grammar);
-    writer.write_binary_grammar(&mut blob)?;
-    let grammar = writer.grammar;
+    let blob = grammar.to_cg3b()?;
+    let companion = grammar.companion()?;
 
     let Ok(mut gout) = std::fs::File::create(path) else {
         tracing::error!("Could not write grammar to {}", path);
@@ -606,11 +593,8 @@ fn write_grammar_bin(
         .and_then(|()| gout.flush())
         .map_err(cg3::error::RunError::Io)?;
 
-    // Only for a grammar that came from text: a binary-to-binary pass has no
-    // sources to describe, and an empty companion file says nothing more than
-    // an absent one.
-    if !sources.is_empty() {
-        cg3::grammar_sources::write_beside(std::path::Path::new(path), &blob, &grammar, sources);
+    if let Some(companion) = companion {
+        cg3::grammar_sources::write_beside(std::path::Path::new(path), &companion);
     }
     Ok(())
 }

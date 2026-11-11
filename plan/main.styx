@@ -4107,6 +4107,14 @@ children (
                     target-impl ([spec:cg3:req:embed.write-binary] [spec:cg3:req:embed.write-text] [spec:cg3:req:embed.cli-compiles-through])
                 }
                 deps (tool-surface.spec)
+                log (
+                    {
+                        at 2026-11-11T11:54:06.641878Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

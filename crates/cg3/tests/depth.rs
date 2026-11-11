@@ -11,7 +11,7 @@
 
 use std::io::Cursor;
 
-use cg3::binary_grammar::BinaryGrammar;
+use cg3::binary_grammar::{BinaryGrammar, write_binary_grammar};
 use cg3::error::{Cg3Error, GrammarError, Nesting, ParseError, ParseErrorKind, RunError};
 use cg3::format_converter::FormatConverter;
 use cg3::grammar::GrammarCore;
@@ -383,18 +383,16 @@ fn set_chains(k: usize) -> String {
 /// `grammar` written out and read back as a `.cg3b`.
 fn through_cg3b(grammar: GrammarCore) -> GrammarCore {
     let mut blob = Vec::new();
-    BinaryGrammar::new(grammar)
-        .write_binary_grammar(&mut blob)
-        .expect("writes");
+    write_binary_grammar(&grammar, &mut blob).expect("writes");
     let mut reader = BinaryGrammar::new(GrammarCore::default());
     reader.parse_grammar_buffer(&blob).expect("reads back");
     reader.grammar.finish().expect("reindexes")
 }
 
 /// `grammar` written out as text.
-fn as_text(mut grammar: GrammarCore) -> String {
+fn as_text(grammar: GrammarCore) -> String {
     let mut text = Vec::new();
-    GrammarWriter::new(&grammar).write_grammar(&mut grammar, &mut text);
+    GrammarWriter::new(&grammar).write_grammar(&grammar, &mut text);
     String::from_utf8(text).expect("utf-8")
 }
 

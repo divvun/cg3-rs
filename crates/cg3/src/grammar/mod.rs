@@ -239,6 +239,14 @@ pub struct GrammarCore<P: Phase = Indexed> {
     /// handed bytes with no file behind them.
     pub binary_path: Option<String>,
 
+    // [spec:cg3:req:embed.write-binary]
+    /// ADDED — no C++ analog. The name and text of every source a textual
+    /// parse read, indexed like [`source_names`](Self::source_names), when the
+    /// loader kept them: `CompiledGrammar::from_text` does, and vislcg3 does
+    /// for `--grammar-bin`. They are what the companion file of the `.cg3b`
+    /// written for this grammar holds. Empty when nothing kept them.
+    pub sources: Vec<crate::error::ParseSource>,
+
     // --- tags ---
     /// Owned tag arena (was `std::vector<Tag*> single_tags_list`); `TagId` indexes it.
     ///
@@ -396,6 +404,7 @@ impl<P: Phase> Default for GrammarCore<P> {
             cmdargs_override: String::new(),
             source_names: Vec::new(),
             binary_path: None,
+            sources: Vec::new(),
             single_tags_list: Arena::new(),
             tags_by_hash: FlatUnorderedMap::default(),
             sets_list: Arena::new(),

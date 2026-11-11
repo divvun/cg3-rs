@@ -11,7 +11,7 @@
 
 // [spec:cg3:req:errors.tag-regex-diagnostic/test]
 // [spec:cg3:req:tag-regex.single-seam+1/test]
-use cg3::binary_grammar::BinaryGrammar;
+use cg3::binary_grammar::{BinaryGrammar, write_binary_grammar};
 use cg3::error::Cg3Error;
 use cg3::grammar::GrammarCore;
 use cg3::textual_parser::TextualParser;
@@ -29,9 +29,8 @@ fn cg3b_with_pattern(marker: &str, pattern: &str) -> Vec<u8> {
         .parse_grammar_utf8(src.as_bytes())
         .expect("fixture grammar must compile");
     let grammar = parser.grammar.finish().unwrap();
-    let mut writer = BinaryGrammar::new(grammar);
     let mut blob: Vec<u8> = Vec::new();
-    writer.write_binary_grammar(&mut blob).unwrap();
+    write_binary_grammar(&grammar, &mut blob).unwrap();
 
     // The stored pattern is the anchored form the compiler produced.
     let stored = format!("^\"{marker}\"$");
@@ -76,9 +75,8 @@ fn written_patterns_keep_icu_spelling() {
             .parse_grammar_utf8(src.as_bytes())
             .unwrap_or_else(|e| panic!("{tag} must compile: {e}"));
         let grammar = parser.grammar.finish().unwrap();
-        let mut writer = BinaryGrammar::new(grammar);
         let mut blob: Vec<u8> = Vec::new();
-        writer.write_binary_grammar(&mut blob).unwrap();
+        write_binary_grammar(&grammar, &mut blob).unwrap();
 
         // The parser anchors a bare tag as `^<tag>$`; that exact ICU-spelled
         // string is what must appear in the file.
@@ -149,9 +147,8 @@ fn all_bad_tags_are_reported_together() {
     let mut parser = TextualParser::new(GrammarCore::default(), false);
     parser.parse_grammar_utf8(src.as_bytes()).unwrap();
     let grammar = parser.grammar.finish().unwrap();
-    let mut writer = BinaryGrammar::new(grammar);
     let mut blob: Vec<u8> = Vec::new();
-    writer.write_binary_grammar(&mut blob).unwrap();
+    write_binary_grammar(&grammar, &mut blob).unwrap();
 
     for (marker, pattern) in [("one", r"[:script=Greek:]"), ("two", r"\0101")] {
         let stored = format!("^\"{marker}\"$");

@@ -9,15 +9,13 @@
 //! options the grammar carries in `CMDARGS` and `CMDARGS-OVERRIDE`, so a run
 //! sees the options vislcg3 would. [`CompiledGrammar::prepare`] and
 //! [`PreparedRun::run`] are what `run` is made of, and what vislcg3 calls with
-//! the table it merged itself.
+//! the table it merged itself. [`CompiledGrammar::to_cg3b`],
+//! [`CompiledGrammar::companion`] and [`CompiledGrammar::to_text`] write the
+//! grammar out as cg-comp and vislcg3 do, and leave it as it was.
 //!
 //! ```
 //! use cg3::embed::{CompiledGrammar, RunOptions};
-//! # use cg3::{binary_grammar::BinaryGrammar, grammar::GrammarDraft, textual_parser::TextualParser};
-//! # let mut parser = TextualParser::new(GrammarDraft::default(), false);
-//! # parser.parse_grammar_utf8(b"DELIMITERS = \"<.>\" ; SELECT (n) ;")?;
-//! # let mut cg3b = Vec::new();
-//! # BinaryGrammar::new(parser.grammar.finish()?).write_binary_grammar(&mut cg3b)?;
+//! # let cg3b = CompiledGrammar::from_text(b"DELIMITERS = \"<.>\" ; SELECT (n) ;", "n.cg3")?.to_cg3b()?;
 //! let grammar = CompiledGrammar::from_cg3b(&cg3b)?;
 //! let input = b"\"<word>\"\n\t\"word\" n\n\t\"word\" v\n";
 //! let output = grammar.run(input, &RunOptions::default())?;
@@ -33,6 +31,7 @@ use crate::error::Cg3Error;
 use crate::format_converter::FormatConverter;
 use crate::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered};
 use crate::grammar_applicator::{GrammarApplicator, STDIN_SOURCE_NAME, StreamFormatKind};
+use crate::grammar_writer::GrammarWriter;
 use crate::options::{Opt, OptionsTable};
 use crate::profiler::Profiler;
 use crate::textual_parser::TextualParser;
@@ -255,7 +254,45 @@ impl CompiledGrammar {
     pub fn from_text(source: &[u8], name: &str) -> Result<CompiledGrammar, Cg3Error> {
         let mut parser = TextualParser::new(GrammarDraft::default(), false);
         parser.parse_grammar_named(source, name)?;
+        parser.grammar.sources = parser.sources();
         Ok(CompiledGrammar::from(parser.grammar.finish()?))
+    }
+
+    // [spec:cg3:req:embed.write-binary]
+    /// The `.cg3b` holding this grammar, as cg-comp writes it for a grammar
+    /// loaded from text and vislcg3 `--grammar-bin` for one loaded from a
+    /// `.cg3b`. The grammar is left as it was.
+    pub fn to_cg3b(&self) -> Result<Vec<u8>, Cg3Error> {
+        let mut cg3b = Vec::new();
+        crate::binary_grammar::write_binary_grammar(&self.core, &mut cg3b)?;
+        Ok(cg3b)
+    }
+
+    // [spec:cg3:req:embed.write-binary]
+    /// The companion file cg-comp writes beside the `.cg3b` [`to_cg3b`]
+    /// returns: the grammar's sources and where each rule was written in them.
+    /// `None` for a grammar with no sources kept, such as one loaded from a
+    /// `.cg3b`.
+    ///
+    /// [`to_cg3b`]: CompiledGrammar::to_cg3b
+    pub fn companion(&self) -> Result<Option<Vec<u8>>, Cg3Error> {
+        if self.core.sources.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(crate::grammar_sources::companion_bytes(
+            &self.to_cg3b()?,
+            &self.core.sources,
+            &crate::grammar_sources::provenance_of(&self.core),
+        )))
+    }
+
+    // [spec:cg3:req:embed.write-text]
+    /// The grammar as text, as vislcg3 `--grammar-out` writes it. The grammar
+    /// is left as it was.
+    pub fn to_text(&self) -> String {
+        let mut text = Vec::new();
+        GrammarWriter::new(&self.core).write_grammar(&self.core, &mut text);
+        String::from_utf8_lossy(&text).into_owned()
     }
 
     /// The finished grammar every run shares.

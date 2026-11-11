@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cg3::binary_grammar::BinaryGrammar;
+use cg3::binary_grammar::{BinaryGrammar, write_binary_grammar};
 use cg3::grammar::{GrammarCore, GrammarNumbered};
 use cg3::igrammar_parser::IGrammarParser;
 use cg3::textual_parser::TextualParser;
@@ -35,9 +35,8 @@ fn test_dir(name: &str) -> PathBuf {
 // [spec:cg3:sem:binary-grammar-write.cg3.binary-grammar.write-binary-grammar-fn/test]
 // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.parse-grammar-fn+3/test]
 // [spec:cg3:sem:binary-grammar-read.cg3.binary-grammar.read-contextual-test-fn+1/test]
-// In-process round-trip: TextualParser parses T_Templates, the BinaryGrammar
-// ctor wraps it (set_compatible is the documented no-op), write_binary_grammar
-// serializes to a byte buffer, and a FRESH BinaryGrammar's istream-style
+// In-process round-trip: TextualParser parses T_Templates, write_binary_grammar
+// serializes it to a byte buffer, and a BinaryGrammar's istream-style
 // parse_grammar/read_contextual_test rebuild it; tag/set/rule/context counts
 // must survive the trip and the reread grammar is flagged binary.
 #[test]
@@ -59,9 +58,8 @@ fn inprocess_binary_roundtrip() {
         "T_Templates must produce contextual tests"
     );
 
-    let mut writer = BinaryGrammar::new(grammar);
     let mut blob: Vec<u8> = Vec::new();
-    writer.write_binary_grammar(&mut blob).unwrap();
+    write_binary_grammar(&grammar, &mut blob).unwrap();
     assert_eq!(&blob[..4], b"CG3B", "magic bytes");
 
     let mut reader = BinaryGrammar::new(GrammarNumbered::default());
@@ -150,10 +148,7 @@ fn provenance_never_reaches_the_wire() {
             );
         }
         let mut out = Vec::new();
-        let mut writer = BinaryGrammar::new(grammar);
-        writer
-            .write_binary_grammar(&mut out)
-            .expect("write the binary grammar");
+        write_binary_grammar(&grammar, &mut out).expect("write the binary grammar");
         out
     };
 
