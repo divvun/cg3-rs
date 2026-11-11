@@ -4223,6 +4223,14 @@ children (
                     tool-surface.proc
                     idioms.load-options
                 )
+                log (
+                    {
+                        at 2026-11-11T16:11:08.140841Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

@@ -38,6 +38,7 @@ def test_parse_grammar_names_the_source() -> None:
 
 
 # [spec:cg3:req:python.grammar-load/test]
+# [spec:cg3:req:python.includes/test]
 def test_parse_grammar_includes_beside_its_name() -> None:
     path = corpus("T_Include") / "grammar.cg3"
     assert runs_as_expected(cg3.parse_grammar(read(path), str(path)), "T_Include")
@@ -107,3 +108,45 @@ def test_load_options_are_checked_when_made(tools: Tools, tmp_path: Path) -> Non
     data = tools.compile(corpus("T_Barrier") / "grammar.cg3", tmp_path / "g.cg3b")
     with pytest.raises(cg3.GrammarError, match="Mapping prefix must match"):
         cg3.read_grammar(data, options=cg3.LoadOptions(prefix="%"))
+
+
+def include_files() -> dict[str, str | bytes]:
+    """T_Include's included files, one as text and one as bytes."""
+    test = corpus("T_Include")
+    return {"sets.cg3": read(test / "sets.cg3"), "rules.cg3": (test / "rules.cg3").read_bytes()}
+
+
+# [spec:cg3:req:python.includes/test]
+def test_files_serve_the_includes_from_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = read(corpus("T_Include") / "grammar.cg3")
+    monkeypatch.chdir(tmp_path)
+    assert runs_as_expected(cg3.parse_grammar(source, files=include_files()), "T_Include")
+    named = cg3.parse_grammar(source, "lists/grammar.cg3", files=include_files())
+    assert runs_as_expected(named, "T_Include")
+    beside = {f"lists/{name}": text for name, text in include_files().items()}
+    assert runs_as_expected(cg3.parse_grammar(source, "lists/grammar.cg3", files=beside), "T_Include")
+
+
+# [spec:cg3:req:python.includes/test]
+def test_includes_read_only_the_given_files() -> None:
+    path = corpus("T_Include") / "grammar.cg3"
+    with pytest.raises(cg3.GrammarError, match="sets.cg3"):
+        cg3.parse_grammar(read(path), str(path), files={})
+    only_sets = {"sets.cg3": read(corpus("T_Include") / "sets.cg3")}
+    with pytest.raises(cg3.GrammarError, match="rules.cg3"):
+        cg3.parse_grammar(read(path), str(path), files=only_sets)
+
+
+# [spec:cg3:req:python.includes/test]
+def test_files_map_names_to_text_or_bytes() -> None:
+    source = read(corpus("T_Include") / "grammar.cg3")
+    with pytest.raises(TypeError, match="'files' must be a mapping, not list"):
+        cg3.parse_grammar(source, files=[("sets.cg3", "")])  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="'files' must be a mapping to str or bytes, not int"):
+        cg3.parse_grammar(source, files={"sets.cg3": 1})  # type: ignore[dict-item]
+    with pytest.raises(TypeError, match="'files' must be a mapping whose names are str, not bytes"):
+        cg3.parse_grammar(source, files={b"sets.cg3": ""})  # type: ignore[dict-item]
+    with pytest.raises(TypeError):
+        cg3.parse_grammar(source, None, None, include_files())  # type: ignore[call-arg]

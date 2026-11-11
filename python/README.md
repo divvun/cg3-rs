@@ -3,9 +3,11 @@
 [VISL CG-3](https://visl.sdu.dk/cg3.html) for Python. It loads Constraint
 Grammars, compiled (`.cg3b`) or textual, and runs them on text, and a run gives
 the output `vislcg3` gives for the same grammar, input and options, byte for
-byte. It is the [cg3-rs](https://github.com/divvun/cg3-rs) library, written in
-Rust, as a native extension module: one wheel per platform for CPython 3.11
-and later.
+byte. It does what the other tools do too: it writes a grammar out as
+`cg-comp` does, relabels one as `cg-relabel` does, runs one as `cg-proc` does,
+and converts and splits streams as `cg-conv` and `cg-mwesplit` do. It is the
+[cg3-rs](https://github.com/divvun/cg3-rs) library, written in Rust, as a
+native extension module: one wheel per platform for CPython 3.11 and later.
 
 ```sh
 pip install divvun-cg3
@@ -33,6 +35,19 @@ There are three ways to load a grammar:
 - `cg3.parse_grammar(source, name=None)` parses a textual grammar from a
   string. Its diagnostics call it `name`, and its relative `INCLUDE`s resolve
   against the directory of the file `name` names.
+
+`parse_grammar` can also take the files a grammar's `INCLUDE`s read from
+memory, as a mapping from names to text or bytes. Then every `INCLUDE` reads
+from those files and no others: a relative name is found beside the source
+that includes it, else at the top of the names, as it would be on disk.
+
+```python
+grammar = cg3.parse_grammar(
+    "INCLUDE sets.cg3 ;\nSELECT Nouns ;",
+    "grammar.cg3",
+    files={"sets.cg3": 'DELIMITERS = "<.>" ;\nLIST Nouns = n ;'},
+)
+```
 
 ```python
 grammar = cg3.parse_grammar('DELIMITERS = "<.>" ; SELECT (n) ;')
@@ -72,6 +87,61 @@ names only the options given. The options a grammar sets with `CMDARGS` apply
 as they do in `vislcg3`, and an `EXTERNAL` rule starts its process as
 `vislcg3` starts it.
 
+## Writing a grammar
+
+A grammar writes itself out without changing:
+
+```python
+grammar = cg3.load_grammar("disambiguator.cg3")
+
+grammar.to_cg3b()                         # the .cg3b cg-comp writes, as bytes
+grammar.to_text()                         # what vislcg3 --grammar-out writes
+grammar.write_cg3b("disambiguator.cg3b")  # the .cg3b and its companion file
+```
+
+`write_cg3b` writes the `.cg3b` and, as `cg-comp` does, the companion file
+beside it, `disambiguator.cg3b.cg3src`, which holds the grammar's sources so
+that a runtime error in a rule can quote it. A grammar loaded from a `.cg3b`
+has no sources, so nothing is written beside it.
+
+## The other tools
+
+`cg3.convert` converts a stream from one format to another, as `cg-conv` does,
+and `cg3.mwesplit` splits multi-word cohorts, as `cg-mwesplit` does:
+
+```python
+cg3.convert('"<word>"\n\t"word" n\n', cg3.ConvertOptions(output_format="apertium"))
+# '^word/word<n>$'
+
+cg3.mwesplit(text)
+```
+
+`grammar.proc(input, options)` runs a grammar as `cg-proc` does, on the
+Apertium stream unless the options name another, and `grammar.relabel(rules)`
+gives the grammar `cg-relabel` makes of it and the relabel rules, as a new
+grammar:
+
+```python
+grammar.proc("^word/word<n>/word<vblex>$\n", cg3.ProcOptions(trace=True))
+
+rules = cg3.load_grammar("relabel.cg3r")
+grammar.relabel(rules).write_cg3b("relabelled.cg3b")
+```
+
+`load_grammar` reads the rules as `cg-relabel` reads its rule file, compiled
+or textual. `ConvertOptions` and `ProcOptions` are frozen dataclasses like
+`RunOptions`, checked when they are made, with a field for each option named
+after the tool's long option in snake_case: `cg-conv --sub-delim "#"` is
+`sub_delim="#"`, and `cg-proc --wordform-case` is `wordform_case=True`.
+`ConvertOptions.input_format` and `output_format` stand for `--in-*` and
+`--out-*`, and the input's format is detected from the input, as `cg-conv`
+detects it, when `input_format` is left out. `ProcOptions.stream_format` is
+`"apertium"` (the default), `"cg"` or `"matxin"`, the formats
+`--stream-format` numbers 1, 0 and 2; `cg3.ProcFormat` is their type. The
+binary stream format is offered by neither. The options that do nothing in
+the tools, `rtl` and cg-proc's `disambiguation` and `null_flush`, do nothing
+here.
+
 ## Grammar information
 
 `grammar.info()` gives what `vislcg3 -v` reports about a grammar:
@@ -84,8 +154,9 @@ grammar.info()
 
 ## Threads
 
-Loading and applying release the GIL while the library works, so threads can
-apply one grammar at the same time and run in parallel:
+Loading, applying, writing and the other tools release the GIL while the
+library works, so threads can apply one grammar at the same time and run in
+parallel:
 
 ```python
 from concurrent.futures import ThreadPoolExecutor
@@ -98,19 +169,20 @@ with ThreadPoolExecutor() as pool:
 
 A failure the library reports raises a `cg3.Cg3Error`:
 
-- `cg3.GrammarError` for a grammar that does not load or parse. A parse
-  failure's message quotes every error in the grammar's source, as `vislcg3`
-  prints it.
-- `cg3.RunError` for a run that fails. The grammar stays usable.
+- `cg3.GrammarError` for a grammar that does not load, parse or relabel. A
+  parse failure's message quotes every error in the grammar's source, as
+  `vislcg3` prints it.
+- `cg3.RunError` for a run, a conversion or a split that fails. The grammar
+  stays usable.
 
 An argument of the wrong type or value raises the `TypeError`, `ValueError`,
 `OverflowError` or `OSError` Python raises for it, and a file that cannot be
-read raises what `open()` would.
+read or written raises what `open()` would.
 
 ## Logging
 
-The library's log events, from loading a grammar and from running one, go to
-the standard `logging` module once the call returns, on loggers under `cg3`
+The library's log events, from loading a grammar, running one and the other
+tools, go to the standard `logging` module once the call returns, on loggers under `cg3`
 named after the Rust module they came from, such as
 `cg3.apertium_applicator`. Python's own levels apply, with the library's
 trace level at 5. Events below the level of the `cg3` logger at the start of a
@@ -153,8 +225,8 @@ uv run --no-sync mypy                   # the stubs and the tests
 uv run --no-sync maturin build --release
 ```
 
-The tests build `cg-comp`, `vislcg3` and the program the corpus's `EXTERNAL`
-rule runs with cargo, or take them from the directory `CG3_BIN` names. They
+The tests build the cg3 tools and the program the corpus's `EXTERNAL` rule
+runs with cargo, or take them from the directory `CG3_BIN` names. They
 check the wheel `CG3_WHEEL` names, or build one.
 
 The package's version is the one `crates/cg3-python/Cargo.toml` carries. A

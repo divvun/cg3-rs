@@ -1009,4 +1009,13 @@ impl_evidence (
         {impl_name js-impl, rule wasm.compile-parity}
         {impl_name target-impl, rule wasm.compile-parity}
     )}
+    {id tool-surface.python, covered_rules (
+        python.includes
+        python.tools
+        python.write
+    ), covered_claims (
+        {impl_name target-impl, rule python.includes}
+        {impl_name target-impl, rule python.tools}
+        {impl_name target-impl, rule python.write}
+    )}
 )

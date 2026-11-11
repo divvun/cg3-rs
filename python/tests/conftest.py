@@ -1,5 +1,5 @@
-"""What every test reads: the golden corpus, cg-comp and vislcg3, and the
-program the corpus's EXTERNAL rule runs.
+"""What every test reads: the golden corpus, the cg3 tools, and the program
+the corpus's EXTERNAL rule runs.
 
 The programs come from the directory `CG3_BIN` names, or else are built with
 cargo from the checkout the tests are in.
@@ -36,10 +36,19 @@ def same_lines(expected: str, got: str) -> bool:
     return lines(expected) == lines(got)
 
 
+# The tools the tests hold the package to.
+PROGRAMS = ("cg-comp", "vislcg3", "cg-conv", "cg-mwesplit", "cg-proc", "cg-relabel")
+
+
 @dataclass(frozen=True)
 class Tools:
+    directory: Path
     cg_comp: Path
     vislcg3: Path
+    cg_conv: Path
+    cg_mwesplit: Path
+    cg_proc: Path
+    cg_relabel: Path
     external_example: Path
 
     def compile(self, grammar: Path, out: Path) -> bytes:
@@ -49,10 +58,18 @@ class Tools:
         )
         return out.read_bytes()
 
+    def output(self, program: Path, args: list[str | Path], input: str) -> str:
+        """What `program` writes for `input` on its standard input."""
+        ran = subprocess.run(
+            [program, *args], input=input.encode("utf-8"), capture_output=True, check=True
+        )
+        return ran.stdout.decode("utf-8")
+
 
 def _built_tools() -> Path:
+    bins = [arg for program in PROGRAMS for arg in ("--bin", program)]
     subprocess.run(
-        ["cargo", "build", "--quiet", "-p", "cg3-cli", "--bin", "cg-comp", "--bin", "vislcg3"],
+        ["cargo", "build", "--quiet", "-p", "cg3-cli", *bins],
         cwd=ROOT,
         check=True,
     )
@@ -78,7 +95,12 @@ def tools() -> Tools:
     suffix = ".exe" if os.name == "nt" else ""
     examples = directory if given else directory / "examples"
     return Tools(
+        directory=directory,
         cg_comp=directory / f"cg-comp{suffix}",
         vislcg3=directory / f"vislcg3{suffix}",
+        cg_conv=directory / f"cg-conv{suffix}",
+        cg_mwesplit=directory / f"cg-mwesplit{suffix}",
+        cg_proc=directory / f"cg-proc{suffix}",
+        cg_relabel=directory / f"cg-relabel{suffix}",
         external_example=examples / f"cg3-external-example{suffix}",
     )

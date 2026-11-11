@@ -126,7 +126,8 @@ def test_one_wheel_serves_cpython_311_on(wheel: Path) -> None:
 # [spec:cg3:req:python.typed/test]
 def test_the_stub_declares_the_whole_api() -> None:
     assert (PACKAGE / "py.typed").is_file()
-    assert set(cg3.__all__) <= set(stub_names()) | {"LoadOptions", "RunOptions"}
+    options = {"LoadOptions", "RunOptions", "ConvertOptions", "ProcOptions"}
+    assert set(cg3.__all__) <= set(stub_names()) | options
     declared = {n for n in stub_names() if not n.startswith("_")} | {"__version__"}
     native = {n for n in dir(cg3._cg3) if not n.startswith("_")} | {"__version__"}
     assert declared == native
@@ -153,10 +154,45 @@ def test_the_stubs_apply_is_the_runtimes() -> None:
 
 # [spec:cg3:req:python.typed/test]
 def test_format_is_the_runtime_literal() -> None:
-    node = stub_names()["Format"]
-    assert isinstance(node, ast.AnnAssign) and node.value is not None
-    declared = ast.unparse(node.value)
-    assert declared == f"Literal[{', '.join(repr(f) for f in typing.get_args(cg3.Format))}]"
+    for name, literal in (("Format", cg3.Format), ("ProcFormat", cg3.ProcFormat)):
+        node = stub_names()[name]
+        assert isinstance(node, ast.AnnAssign) and node.value is not None
+        declared = ast.unparse(node.value)
+        assert declared == f"Literal[{', '.join(repr(f) for f in typing.get_args(literal))}]"
+
+
+def stub_signature(node: ast.FunctionDef) -> list[tuple[str, str]]:
+    """Each parameter of a stub function but `self`, with its kind as
+    `inspect` names it."""
+    args = node.args
+    return [
+        (name, kind)
+        for name, kind in [
+            *((a.arg, "POSITIONAL_ONLY") for a in args.posonlyargs),
+            *((a.arg, "POSITIONAL_OR_KEYWORD") for a in args.args),
+            *((a.arg, "KEYWORD_ONLY") for a in args.kwonlyargs),
+        ]
+        if name != "self"
+    ]
+
+
+def runtime_signature(f: object) -> list[tuple[str, str]]:
+    """Each parameter of `f` but `self`, which a native method takes
+    positional-only, with its kind."""
+    assert callable(f)
+    parameters = inspect.signature(f).parameters.values()
+    return [(p.name, p.kind.name) for p in parameters if p.name != "self"]
+
+
+# [spec:cg3:req:python.typed/test]
+def test_the_stubs_signatures_are_the_runtimes() -> None:
+    for name, node in stub_names().items():
+        if isinstance(node, ast.FunctionDef):
+            assert stub_signature(node) == runtime_signature(getattr(cg3._cg3, name)), name
+    for node in stub_class("Grammar").body:
+        if isinstance(node, ast.FunctionDef):
+            runtime = runtime_signature(getattr(cg3.Grammar, node.name))
+            assert stub_signature(node) == runtime, f"Grammar.{node.name}"
 
 
 # [spec:cg3:req:python.typed/test]

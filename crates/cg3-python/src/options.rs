@@ -1,26 +1,58 @@
-//! A run's options and a load's, as the fields of `cg3.RunOptions` and
-//! `cg3.LoadOptions`, the dataclasses in `python/cg3/_options.py`.
+//! A run's options, a load's, cg-conv's and cg-proc's, as the fields of
+//! `cg3.RunOptions`, `cg3.LoadOptions`, `cg3.ConvertOptions` and
+//! `cg3.ProcOptions`, the dataclasses in `python/cg3/_options.py`.
 
-use cg3::embed::{Format, LoadOptions, RunOptions};
+use cg3::ConvertOptions;
+use cg3::embed::{Format, LoadOptions, ProcFormat, ProcOptions, RunOptions};
 use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
-use pyo3::types::{PyBool, PyString};
+use pyo3::types::{PyBool, PyFloat, PyInt, PyString};
 
 // [spec:cg3:req:python.apply+1]
 /// The options `Grammar.apply` was given: those of a `cg3.RunOptions`, or none.
 pub fn of_apply(options: Option<&Bound<'_, PyAny>>) -> PyResult<RunOptions> {
+    match given(options, "RunOptions", "apply")? {
+        Some(options) => run_options(options),
+        None => Ok(RunOptions::default()),
+    }
+}
+
+/// `options`, when it is an instance of the class `class` of `cg3._options`,
+/// or none when the call was given none. `function` is the call, for the
+/// error a value of another type raises.
+fn given<'a, 'py>(
+    options: Option<&'a Bound<'py, PyAny>>,
+    class: &str,
+    function: &str,
+) -> PyResult<Option<&'a Bound<'py, PyAny>>> {
     let Some(options) = options else {
-        return Ok(RunOptions::default());
+        return Ok(None);
     };
-    let class = options.py().import("cg3._options")?.getattr("RunOptions")?;
-    if !options.is_instance(&class)? {
+    let expected = options.py().import("cg3._options")?.getattr(class)?;
+    if !options.is_instance(&expected)? {
         let given = options.get_type().name()?;
         return Err(PyTypeError::new_err(format!(
-            "apply() argument 'options' must be RunOptions, not {given}"
+            "{function}() argument 'options' must be {class}, not {given}"
         )));
     }
-    run_options(options)
+    Ok(Some(options))
+}
+
+/// Each field of the dataclass `options`, by name, with its value.
+fn fields<'py>(options: &Bound<'py, PyAny>) -> PyResult<Vec<(PyBackedStr, Bound<'py, PyAny>)>> {
+    let fields = options
+        .py()
+        .import("dataclasses")?
+        .call_method1("fields", (options,))?;
+    fields
+        .try_iter()?
+        .map(|field| {
+            let name: PyBackedStr = field?.getattr("name")?.extract()?;
+            let value = options.getattr(&*name)?;
+            Ok((name, value))
+        })
+        .collect()
 }
 
 // [spec:cg3:req:python.apply+1]
@@ -31,15 +63,9 @@ pub fn of_apply(options: Option<&Bound<'_, PyAny>>) -> PyResult<RunOptions> {
 /// `RunOptions.__post_init__` reads its fields here, so options that were made
 /// are options a run can read.
 pub fn run_options(options: &Bound<'_, PyAny>) -> PyResult<RunOptions> {
-    let fields = options
-        .py()
-        .import("dataclasses")?
-        .call_method1("fields", (options,))?;
     let mut o = RunOptions::default();
-    for field in fields.try_iter()? {
-        let field_name: PyBackedStr = field?.getattr("name")?.extract()?;
+    for (field_name, value) in fields(options)? {
         let name: &str = &field_name;
-        let value = options.getattr(name)?;
         let v = Value {
             class: "RunOptions",
             name,
@@ -100,20 +126,10 @@ pub fn run_options(options: &Bound<'_, PyAny>) -> PyResult<RunOptions> {
 /// The options a load was given: those of a `cg3.LoadOptions`, or none.
 /// `function` is the loader, for the error a value of another type raises.
 pub fn of_load(options: Option<&Bound<'_, PyAny>>, function: &str) -> PyResult<LoadOptions> {
-    let Some(options) = options else {
-        return Ok(LoadOptions::default());
-    };
-    let class = options
-        .py()
-        .import("cg3._options")?
-        .getattr("LoadOptions")?;
-    if !options.is_instance(&class)? {
-        let given = options.get_type().name()?;
-        return Err(PyTypeError::new_err(format!(
-            "{function}() argument 'options' must be LoadOptions, not {given}"
-        )));
+    match given(options, "LoadOptions", function)? {
+        Some(options) => load_options(options),
+        None => Ok(LoadOptions::default()),
     }
-    load_options(options)
 }
 
 // [spec:cg3:req:python.load-options]
@@ -122,15 +138,9 @@ pub fn of_load(options: Option<&Bound<'_, PyAny>>, function: &str) -> PyResult<L
 /// type raises `TypeError`, and a `prefix` that is not one character or a rule
 /// filter that does not compile `ValueError`.
 pub fn load_options(options: &Bound<'_, PyAny>) -> PyResult<LoadOptions> {
-    let fields = options
-        .py()
-        .import("dataclasses")?
-        .call_method1("fields", (options,))?;
     let mut o = LoadOptions::default();
-    for field in fields.try_iter()? {
-        let field_name: PyBackedStr = field?.getattr("name")?.extract()?;
+    for (field_name, value) in fields(options)? {
         let name: &str = &field_name;
-        let value = options.getattr(name)?;
         let v = Value {
             class: "LoadOptions",
             name,
@@ -149,6 +159,121 @@ pub fn load_options(options: &Bound<'_, PyAny>) -> PyResult<LoadOptions> {
         }
     }
     Ok(o)
+}
+
+// [spec:cg3:req:python.tools]
+/// The options `convert` was given: those of a `cg3.ConvertOptions`, or none.
+pub fn of_convert(options: Option<&Bound<'_, PyAny>>) -> PyResult<ConvertOptions> {
+    match given(options, "ConvertOptions", "convert")? {
+        Some(options) => convert_options(options),
+        None => Ok(ConvertOptions::default()),
+    }
+}
+
+// [spec:cg3:req:python.tools]
+/// Reads each field of a `cg3.ConvertOptions`, named after its cg-conv long
+/// option in snake_case, into the option it stands for, with `input_format`
+/// and `output_format` standing for `--in-*` and `--out-*`. `rtl` is
+/// cg-conv's default, which `ltr` overrides, so it is read and does nothing,
+/// as it does in cg-conv. `dep_delimit=True` is `--dep-delimit` without a
+/// value, which cg-conv reads as 10.
+pub fn convert_options(options: &Bound<'_, PyAny>) -> PyResult<ConvertOptions> {
+    let mut o = ConvertOptions::default();
+    for (field_name, value) in fields(options)? {
+        let name: &str = &field_name;
+        let v = Value {
+            class: "ConvertOptions",
+            name,
+            value: &value,
+        };
+        match name {
+            "input_format" => o.input = v.format()?,
+            "in_auto" => o.in_auto = v.flag()?,
+            "add_tags" => o.add_tags = v.flag()?,
+            "output_format" => o.output = v.format()?,
+            "prefix" => o.prefix = v.character()?,
+            "wfactor" => o.wfactor = v.number()?,
+            "wtag" => o.wtag = v.text()?,
+            "sub_delim" => o.sub_delim = v.text()?,
+            "rtl" => {
+                v.flag()?;
+            }
+            "ltr" => o.ltr = v.flag()?,
+            "ordered" => o.ordered = v.flag()?,
+            "parse_dep" => o.parse_dep = v.flag()?,
+            "dep_delimit" => o.dep_delimit = v.flag_or_count(10)?,
+            "unicode_tags" => o.unicode_tags = v.flag()?,
+            "deleted" => o.deleted = v.flag()?,
+            "no_break" => o.no_break = v.flag()?,
+            _ => {
+                return Err(PyTypeError::new_err(format!(
+                    "ConvertOptions has a field '{name}' no conversion reads"
+                )));
+            }
+        }
+    }
+    Ok(o)
+}
+
+// [spec:cg3:req:python.tools]
+/// The options `proc` was given: those of a `cg3.ProcOptions`, or none.
+pub fn of_proc(options: Option<&Bound<'_, PyAny>>) -> PyResult<ProcOptions> {
+    match given(options, "ProcOptions", "proc")? {
+        Some(options) => proc_options(options),
+        None => Ok(ProcOptions::default()),
+    }
+}
+
+// [spec:cg3:req:python.tools]
+/// Reads each field of a `cg3.ProcOptions`, named after its cg-proc long
+/// option in snake_case, into the option it stands for. Disambiguation is all
+/// cg-proc does and it always flushes on a null byte, so `disambiguation` and
+/// `null_flush` are read and do nothing, as `-d` and `-z` do in cg-proc.
+pub fn proc_options(options: &Bound<'_, PyAny>) -> PyResult<ProcOptions> {
+    let mut o = ProcOptions::default();
+    for (field_name, value) in fields(options)? {
+        let name: &str = &field_name;
+        let v = Value {
+            class: "ProcOptions",
+            name,
+            value: &value,
+        };
+        match name {
+            "stream_format" => o.stream_format = v.proc_format()?,
+            "sections" => o.sections = v.count()?,
+            "rule" => o.rule = v.text()?,
+            "trace" => o.trace = v.flag()?,
+            "wordform_case" => o.wordform_case = v.flag()?,
+            "no_word_forms" => o.no_word_forms = v.flag()?,
+            "generation" => o.generation = v.flag()?,
+            "first" => o.first = v.flag()?,
+            "disambiguation" | "null_flush" => {
+                v.flag()?;
+            }
+            _ => {
+                return Err(PyTypeError::new_err(format!(
+                    "ProcOptions has a field '{name}' no cg-proc run reads"
+                )));
+            }
+        }
+    }
+    Ok(o)
+}
+
+/// Checks a `cg3.ConvertOptions` as it is made, raising what a conversion
+/// reading its fields would raise.
+#[pyfunction]
+#[pyo3(name = "_check_convert_options")]
+pub fn check_convert_options(options: &Bound<'_, PyAny>) -> PyResult<()> {
+    convert_options(options).map(drop)
+}
+
+/// Checks a `cg3.ProcOptions` as it is made, raising what a cg-proc run
+/// reading its fields would raise.
+#[pyfunction]
+#[pyo3(name = "_check_proc_options")]
+pub fn check_proc_options(options: &Bound<'_, PyAny>) -> PyResult<()> {
+    proc_options(options).map(drop)
 }
 
 /// Checks a `cg3.LoadOptions` as it is made, raising what a load reading its
@@ -182,6 +307,19 @@ const FORMATS: [(&str, Format); 6] = [
 /// The names `input_format` and `output_format` take.
 pub fn format_names() -> impl ExactSizeIterator<Item = &'static str> {
     FORMATS.iter().map(|(name, _)| *name)
+}
+
+/// The streams `ProcOptions.stream_format` names, as cg-proc's
+/// `--stream-format` numbers them 0, 1 and 2. The binary format, 3, is left
+/// out: a string cannot carry it.
+const PROC_FORMATS: [(&str, ProcFormat); 3] = [
+    ("cg", ProcFormat::Cg),
+    ("apertium", ProcFormat::Apertium),
+    ("matxin", ProcFormat::Matxin),
+];
+
+pub fn proc_format_names() -> impl ExactSizeIterator<Item = &'static str> {
+    PROC_FORMATS.iter().map(|(name, _)| *name)
 }
 
 /// One field's value, named, with its class, for the errors it raises. Each
@@ -260,6 +398,33 @@ impl Value<'_, '_> {
         })
     }
 
+    /// An option whose value the tool makes optional and reads as a whole
+    /// number: `True` gives it without one, which the tool reads as
+    /// `without`, and `False` leaves it off.
+    fn flag_or_count(&self, without: u32) -> PyResult<Option<u32>> {
+        if let Ok(b) = self.value.cast::<PyBool>() {
+            return Ok(b.is_true().then_some(without));
+        }
+        if self.value.is_none() || self.value.is_instance_of::<PyInt>() {
+            return self.count();
+        }
+        Err(self.wrong_type("bool or int"))
+    }
+
+    /// A number, as a `float` or an `int`. A bool is refused although Python
+    /// counts it as an int.
+    fn number(&self) -> PyResult<Option<f64>> {
+        if self.value.is_none() {
+            return Ok(None);
+        }
+        if self.value.is_instance_of::<PyBool>()
+            || !(self.value.is_instance_of::<PyFloat>() || self.value.is_instance_of::<PyInt>())
+        {
+            return Err(self.wrong_type("float"));
+        }
+        self.value.extract::<f64>().map(Some)
+    }
+
     /// A rule-name pattern for `flag`, which must compile as vislcg3 compiles
     /// it.
     fn rule_filter(&self, flag: &'static str) -> PyResult<Option<String>> {
@@ -299,6 +464,26 @@ impl Value<'_, '_> {
             .map(|(_, format)| Some(*format))
             .ok_or_else(|| {
                 let names: Vec<String> = FORMATS.iter().map(|(n, _)| format!("'{n}'")).collect();
+                PyValueError::new_err(format!(
+                    "{}() argument '{}' must be one of {}, not '{text}'",
+                    self.class,
+                    self.name,
+                    names.join(", ")
+                ))
+            })
+    }
+
+    fn proc_format(&self) -> PyResult<ProcFormat> {
+        let Some(text) = self.text()? else {
+            return Ok(ProcFormat::default());
+        };
+        PROC_FORMATS
+            .iter()
+            .find(|(name, _)| *name == text)
+            .map(|(_, format)| *format)
+            .ok_or_else(|| {
+                let names: Vec<String> =
+                    PROC_FORMATS.iter().map(|(n, _)| format!("'{n}'")).collect();
                 PyValueError::new_err(format!(
                     "{}() argument '{}' must be one of {}, not '{text}'",
                     self.class,

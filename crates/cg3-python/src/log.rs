@@ -86,6 +86,17 @@ pub fn collecting<T>(threshold: LevelFilter, f: impl FnOnce() -> T) -> (T, Kept)
     (value, Kept { threshold, events })
 }
 
+// [spec:cg3:req:python.threads]
+// [spec:cg3:req:python.logging]
+/// Runs `f` without the GIL, keeping its events at the `cg3` logger's level as
+/// the call starts, and hands them to `logging` once the GIL is back.
+pub fn detached<T: Send>(py: Python<'_>, f: impl FnOnce() -> T + Send) -> PyResult<T> {
+    let threshold = threshold(py)?;
+    let (value, kept) = py.detach(|| collecting(threshold, f));
+    kept.hand_over(py)?;
+    Ok(value)
+}
+
 impl Kept {
     // [spec:cg3:req:python.logging]
     /// Logs each kept event at the threshold or above, in order, on the logger
