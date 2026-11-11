@@ -24,9 +24,12 @@ pub struct Compiled {
 }
 
 // [spec:cg3:req:wasm.compile]
+// [spec:cg3:req:wasm.compile-parity]
 /// Compiles `source`, called `name` in its diagnostics and in the companion
 /// file, through `CompiledGrammar::from_text` under `options`, with every
-/// `INCLUDE` read through `files`, and writes it as cg-comp does.
+/// `INCLUDE` read through `files`, and writes it through the writers cg-comp
+/// writes through, so the bytes are cg-comp's for the same files;
+/// js/test/tool-parity.ts checks that over the corpus.
 pub fn compile(
     source: &str,
     name: &str,
@@ -76,8 +79,9 @@ fn read_cg3b(bytes: &[u8]) -> Result<CompiledGrammar, GlueError> {
 }
 
 // [spec:cg3:req:wasm.compile]
+// [spec:cg3:req:wasm.compile-parity]
 /// What `to_text` writes for the grammar in the `.cg3b` `bytes`: what vislcg3
-/// `--grammar-out` writes for it.
+/// `--grammar-out` writes for it, since vislcg3 writes through `to_text`.
 #[wasm_bindgen(js_name = toText)]
 pub fn to_text(bytes: &[u8]) -> Result<String, GlueError> {
     let options = LoadOptions::default();
@@ -86,10 +90,12 @@ pub fn to_text(bytes: &[u8]) -> Result<String, GlueError> {
 }
 
 // [spec:cg3:req:wasm.compile]
+// [spec:cg3:req:wasm.compile-parity]
 /// The `.cg3b` of the grammar `CompiledGrammar::relabel` makes from the `.cg3b`
 /// `bytes` and the relabel rules in `relabels`, which are read as cg-relabel
 /// reads its rule file: as a `.cg3b` when they begin with its magic, and as a
-/// textual grammar otherwise.
+/// textual grammar otherwise. cg-relabel relabels and writes through the same
+/// functions, so the bytes are its.
 #[wasm_bindgen]
 pub fn relabel(bytes: &[u8], relabels: &[u8]) -> Result<Vec<u8>, CompileError> {
     let grammar = read_cg3b(bytes)?;

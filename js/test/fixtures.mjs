@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { buildParityFixtures } from "./parity-fixtures.mjs";
+import { buildToolFixtures } from "./tool-fixtures.mjs";
 
 /** Builds the cg3 tools with cargo and returns the directory they are in. */
 export function buildTools(root, run) {
@@ -22,7 +23,7 @@ function compile(bin, dir, out) {
 /**
  * Writes every fixture to `out`, with the tools in `bin` and the golden corpus
  * in `corpus`: contract/ holds the grammars contract.ts runs, parity/ the
- * parity check's.
+ * parity check's, and tools/ the tool parity check's.
  */
 export function buildFixtures(bin, corpus, out) {
   rmSync(out, { recursive: true, force: true });
@@ -38,5 +39,6 @@ export function buildFixtures(bin, corpus, out) {
     copyFileSync(join(corpus, "T_Include", name), join(contract, `include-${name}`));
   }
   const count = buildParityFixtures(bin, corpus, join(out, "parity"));
-  console.log(`fixtures: the contract grammars, and ${count} corpus tests for the parity check`);
+  const tools = buildToolFixtures(bin, corpus, join(out, "tools"));
+  console.log(`fixtures: the contract grammars, ${count} corpus tests for the parity check, and ${tools} for the tool parity check`);
 }

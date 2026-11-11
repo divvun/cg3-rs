@@ -1003,4 +1003,10 @@ impl_evidence (
         {impl_name target-impl, rule wasm.module}
         {impl_name target-impl, rule wasm.read-only-core}
     )}
+    {id tool-surface.wasm-parity, covered_rules (
+        wasm.compile-parity
+    ), covered_claims (
+        {impl_name js-impl, rule wasm.compile-parity}
+        {impl_name target-impl, rule wasm.compile-parity}
+    )}
 )

@@ -116,6 +116,9 @@ function compileArguments(options: unknown): { name: string | undefined; files: 
 }
 
 // [spec:cg3:req:wasm.compile]
+// [spec:cg3:req:wasm.compile-parity]
+// The source, the files and the bytes reach the module unchanged and come back
+// as the module wrote them, so a compile writes what cg-comp writes.
 /** A {@link Compiler} over the compile module instance `core`. */
 export function compiler(core: Core<CompileGlue>): Compiler {
   return {

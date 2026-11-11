@@ -91,6 +91,9 @@ export interface Tools {
 }
 
 // [spec:cg3:req:wasm.tools]
+// [spec:cg3:req:wasm.compile-parity]
+// The input and options reach the module unchanged and the output comes back
+// as the module wrote it, so a conversion writes what cg-conv writes.
 /** The {@link Tools} of the module instance `core`. */
 export function tools(core: Core): Tools {
   return {

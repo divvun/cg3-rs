@@ -1,14 +1,15 @@
-// The parity check (parity.ts) in a browser: on the page's main thread, or in
-// a module Web Worker the page starts, as the page's query says. The test
-// build compiles this to target/js-test/browser, and browser.mjs serves it
-// beside the package and the fixtures. The browser posts its report back to
-// browser.mjs, which has no other way to learn the outcome.
+// The parity checks (parity.ts and tool-parity.ts) in a browser: on the
+// page's main thread, or in a module Web Worker the page starts, as the page's
+// query says. The test build compiles this to target/js-test/browser, and
+// browser.mjs serves it beside the package and the fixtures. The browser posts
+// its report back to browser.mjs, which has no other way to learn the outcome.
 
 import { report, runParity } from "./parity.ts";
 import type { ParityArgs } from "./parity.ts";
+import { runToolParity, type ToolParityArgs } from "./tool-parity.ts";
 
 /** What browser.mjs puts in the page's query, as JSON under `args`. */
-interface BrowserArgs extends ParityArgs {
+interface BrowserArgs extends ParityArgs, ToolParityArgs {
   label: string;
   variant: "main-thread" | "worker";
   /** URL to post the report to. */
@@ -37,14 +38,16 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
 const place = typeof document === "undefined" ? "worker" : "main-thread";
 
 // [spec:cg3:req:wasm.parity+2/test]
+// [spec:cg3:req:wasm.compile-parity/test]
 async function run(): Promise<void> {
   if (place !== args.variant) {
     await send([`not ok - ${args.label}: asked to run as ${args.variant}, it ran as ${place}`], false);
     return;
   }
   try {
-    const { lines, passed } = report(args.label, await runParity(args, fetchBytes));
-    await send(lines, passed);
+    const vislcg3 = report(args.label, await runParity(args, fetchBytes));
+    const tools = report(`${args.label} tools`, await runToolParity(args, fetchBytes), "cases the same as the tools");
+    await send([...vislcg3.lines, ...tools.lines], vislcg3.passed && tools.passed);
   } catch (error) {
     const reason = error instanceof Error ? (error.stack ?? error.message) : String(error);
     await send([`not ok - ${args.label}: the check did not run`, reason], false);

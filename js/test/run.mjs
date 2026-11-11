@@ -1,7 +1,8 @@
 // Runs the JavaScript test suite against the built package: the unit and
-// package tests under Node and Bun, the scenarios (starting the package, the
-// API contract, poisoning, and the parity check) under Node, Bun and Deno,
-// and the parity check in a headless Chromium on a page and in a Web Worker.
+// package tests under Node and Bun, the scenarios (starting each entry point,
+// the API contracts, poisoning, and the parity checks with vislcg3 and with
+// the other tools) under Node, Bun and Deno, and both parity checks in a
+// headless Chromium on a page and in a Web Worker.
 //
 //   node js/build.mjs --test && node js/test/run.mjs [--runtime node|bun|deno|chromium]... [--require-all]
 //
@@ -44,6 +45,7 @@ const scenarios = [
   { file: "poison.ts", build: "test", variants: ["function", "method"] },
   { file: "poison-isolation.ts", build: "test", variants: ["main", "compile"] },
   { file: "parity-runtime.ts", build: "release", variants: ["main"] },
+  { file: "tool-parity-runtime.ts", build: "release", variants: ["main"] },
 ];
 
 const UNIT_RUNTIMES = ["node", "bun"];

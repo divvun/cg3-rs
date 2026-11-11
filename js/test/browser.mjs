@@ -206,6 +206,7 @@ export async function runInBrowser(browser, { packageDir, compiled, fixtures, la
     for (const variant of variants) {
       const args = {
         module: `${base}/package/index.js`,
+        compile: `${base}/package/compile.js`,
         fixtures: `${base}/fixtures/`,
         label: label(variant),
         variant,

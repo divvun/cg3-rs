@@ -8,8 +8,10 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use crate::options::parse_convert_options;
 
 // [spec:cg3:req:wasm.tools]
+// [spec:cg3:req:wasm.compile-parity]
 /// What cg-conv writes for `input` under the options in `options`, the JSON
-/// of a `ConvertOptions` object, through `cg3::convert`.
+/// of a `ConvertOptions` object, through `cg3::convert`, which cg-conv
+/// converts through; js/test/tool-parity.ts checks the bytes are the same.
 #[wasm_bindgen]
 pub fn convert(input: &str, options: &str) -> Result<String, GlueError> {
     let options = parse_convert_options(options)?;
@@ -18,7 +20,9 @@ pub fn convert(input: &str, options: &str) -> Result<String, GlueError> {
 }
 
 // [spec:cg3:req:wasm.tools]
-/// What cg-mwesplit writes for `input`, through `cg3::mwesplit`.
+// [spec:cg3:req:wasm.compile-parity]
+/// What cg-mwesplit writes for `input`, through `cg3::mwesplit`, which
+/// cg-mwesplit splits through.
 #[wasm_bindgen]
 pub fn mwesplit(input: &str) -> Result<String, GlueError> {
     let split = cg3::mwesplit(input.as_bytes()).map_err(run_failed)?;

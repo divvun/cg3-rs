@@ -54,9 +54,10 @@ impl Grammar {
     }
 
     // [spec:cg3:req:wasm.tools]
+    // [spec:cg3:req:wasm.compile-parity]
     /// What cg-proc writes for `input` with this grammar under the options in
     /// `options`, the JSON of a `ProcOptions` object, through
-    /// `CompiledGrammar::proc`.
+    /// `CompiledGrammar::proc`, which cg-proc runs through.
     pub fn proc(&self, input: &str, options: &str) -> Result<String, GlueError> {
         let options = parse_proc_options(options)?;
         let run = self.inner.proc(input.as_bytes(), &options);

@@ -4297,6 +4297,14 @@ children (
                     target-impl ([spec:cg3:req:wasm.compile-parity])
                 }
                 deps (tool-surface.wasm-compile tool-surface.wasm-tools)
+                log (
+                    {
+                        at 2026-11-11T15:52:16.004707Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

@@ -34,14 +34,17 @@ export interface ParityResult {
   differ: string[];
 }
 
-/** Where `actual` first differs from `expected`, or null when they are the same bytes. */
-function difference(actual: Uint8Array, expected: Uint8Array): string | null {
+/**
+ * Where `actual` first differs from `expected`, which `reference` wrote, or
+ * null when they are the same bytes.
+ */
+export function difference(actual: Uint8Array, expected: Uint8Array, reference = "vislcg3"): string | null {
   let i = 0;
   while (i < actual.length && i < expected.length && actual[i] === expected[i]) i += 1;
   if (i === actual.length && i === expected.length) return null;
   const decoder = new TextDecoder();
   const around = (bytes: Uint8Array) => JSON.stringify(decoder.decode(bytes.subarray(Math.max(0, i - 30), i + 50)));
-  return `byte ${i} of ${actual.length} differs from vislcg3's ${expected.length}: ${around(actual)}, vislcg3 ${around(expected)}`;
+  return `byte ${i} of ${actual.length} differs from ${reference}'s ${expected.length}: ${around(actual)}, ${reference} ${around(expected)}`;
 }
 
 /** The error a call threw, or null when it returned. */
@@ -112,13 +115,17 @@ export async function runParity(args: ParityArgs, read: ReadBytes): Promise<Pari
 
 /**
  * The lines that report `result` under `label`, and whether it passed: no
- * corpus test differs, and at least one was compared. Each exemption is named
- * with its reason.
+ * case differs, and at least one was compared. `cases` says what was compared
+ * with what. Each exemption is named with its reason.
  */
-export function report(label: string, result: ParityResult): { lines: string[]; passed: boolean } {
+export function report(
+  label: string,
+  result: ParityResult,
+  cases = "corpus tests the same as vislcg3",
+): { lines: string[]; passed: boolean } {
   const { same, exempt, differ } = result;
   const passed = differ.length === 0 && same.length > 0;
-  const counts = `${same.length} corpus tests the same as vislcg3, ${exempt.length} exempt, ${differ.length} different`;
+  const counts = `${same.length} ${cases}, ${exempt.length} exempt, ${differ.length} different`;
   const lines = [`${passed ? "ok" : "not ok"} - ${label}: ${counts}`];
   for (const line of exempt) lines.push(`# exempt ${line}`);
   for (const line of differ) lines.push(`  DIFFERS ${line}`);
