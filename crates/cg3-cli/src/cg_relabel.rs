@@ -1,17 +1,17 @@
 //! Port of `src/cg-relabel.cpp` — relabel a binary grammar using a relabelling
 //! file.
 //!
-//! Loads `input_grammar_file` (must be binary) and `relabel_rule_file`, runs the
-//! [`cg3::relabeller::Relabeller`], and writes the relabelled grammar back out
-//! in binary form. LIVE flow (binary parse → relabel → binary write).
+//! Loads `input_grammar_file` (must be binary) and `relabel_rule_file`,
+//! relabels through [`cg3::embed::CompiledGrammar::relabel`], and writes the
+//! relabelled grammar back out through `to_cg3b`.
 
 use std::fs::File;
 use std::io::{Read, Write};
 
 use cg3::binary_grammar::BinaryGrammar;
+use cg3::embed::CompiledGrammar;
 use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered};
 use cg3::inlines::is_cg3b;
-use cg3::relabeller::{RelabelRuleError, Relabeller};
 use cg3::textual_parser::TextualParser;
 
 use super::{EXIT_FAILURE, basename, divvun_version_line, emit, fail};
@@ -161,8 +161,6 @@ enum RelabelFailure {
     #[error(transparent)]
     Load(#[from] GrammarLoadError),
     #[error(transparent)]
-    Rule(#[from] RelabelRuleError),
-    #[error(transparent)]
     Relabel(#[from] cg3::error::Cg3Error),
 }
 
@@ -171,17 +169,16 @@ enum RelabelFailure {
 fn report_failure(e: &RelabelFailure) -> i32 {
     match e {
         RelabelFailure::Load(e) => report_load(e),
-        RelabelFailure::Rule(e) => {
-            tracing::error!("{e}");
-            EXIT_FAILURE
-        }
         RelabelFailure::Relabel(e) => fail(e),
     }
 }
 
 /// Load the grammar at `grammar_path` and relabel it by the rules at
 /// `relabel_path`.
-fn relabel_grammar(grammar_path: &str, relabel_path: &str) -> Result<GrammarCore, RelabelFailure> {
+fn relabel_grammar(
+    grammar_path: &str,
+    relabel_path: &str,
+) -> Result<CompiledGrammar, RelabelFailure> {
     // std::unique_ptr<Grammar> grammar{ cg3_grammar_load(argv[1], ..., true) };
     // std::unique_ptr<Grammar> relabel_grammar{ cg3_grammar_load(argv[2], ...) };
     //
@@ -192,9 +189,11 @@ fn relabel_grammar(grammar_path: &str, relabel_path: &str) -> Result<GrammarCore
     let grammar = cg3_grammar_load(grammar_path, true)?;
     let relabel_grammar = cg3_grammar_load(relabel_path, false)?;
 
+    // [spec:cg3:req:embed.relabel]
     // Relabeller relabeller(*grammar, *relabel_grammar, std::cerr);
     // relabeller.relabel();
-    Ok(Relabeller::new(grammar, &relabel_grammar, ())?.relabel()?)
+    let grammar = CompiledGrammar::from(grammar);
+    Ok(grammar.relabel(&CompiledGrammar::from(relabel_grammar))?)
 }
 
 // [spec:cg3:def:cg-relabel.main-fn+1]
@@ -216,8 +215,11 @@ pub fn main_relabel(args: &[String]) -> i32 {
     // std::ofstream gout(argv[3], ...); if (gout) { BinaryGrammar writer; writer.writeBinaryGrammar(gout); }
     match File::create(&args[3]) {
         Ok(mut gout) => {
-            if let Err(e) = cg3::binary_grammar::write_binary_grammar(&grammar, &mut gout) {
-                return fail(&e);
+            match grammar.to_cg3b() {
+                Ok(blob) => {
+                    let _ = gout.write_all(&blob);
+                }
+                Err(e) => return fail(&e),
             }
             let _ = gout.flush();
             drop(gout);

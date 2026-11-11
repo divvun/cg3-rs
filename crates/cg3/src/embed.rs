@@ -558,6 +558,27 @@ impl CompiledGrammar {
         )))
     }
 
+    // [spec:cg3:req:embed.relabel]
+    /// The grammar cg-relabel makes from this one and the relabel rules
+    /// `relabels` holds, as a new grammar; both are left as they were.
+    /// cg-relabel relabels a `.cg3b`, so a grammar loaded from text is
+    /// relabelled as the `.cg3b` [`to_cg3b`](Self::to_cg3b) returns for it.
+    pub fn relabel(&self, relabels: &CompiledGrammar) -> Result<CompiledGrammar, Cg3Error> {
+        // A grammar read from a `.cg3b` is copied rather than written and read
+        // back: a `.cg3b` does not always come back from that byte for byte,
+        // and cg-relabel relabels the grammar it read.
+        let grammar = if self.core.is_binary {
+            GrammarCore::clone(&self.core)
+        } else {
+            let mut parser = BinaryGrammar::new(GrammarNumbered::default());
+            parser.parse_grammar_buffer(&self.to_cg3b()?)?;
+            parser.grammar.finish()?
+        };
+        let relabeller = crate::relabeller::Relabeller::new(grammar, &relabels.core, ())
+            .map_err(crate::error::GrammarError::from)?;
+        Ok(CompiledGrammar::from(relabeller.relabel()?))
+    }
+
     // [spec:cg3:req:embed.write-text]
     /// The grammar as text, as vislcg3 `--grammar-out` writes it. The grammar
     /// is left as it was.

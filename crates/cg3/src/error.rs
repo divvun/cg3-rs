@@ -419,6 +419,10 @@ pub enum GrammarError {
     #[error("contextual test on line {line} has no hash - the grammar cannot be written")]
     ContextHashZero { line: u32 },
 
+    /// A relabel rule the relabeller has no way to apply.
+    #[error(transparent)]
+    RelabelRule(#[from] crate::relabeller::RelabelRuleError),
+
     // [spec:cg3:req:diagnostics.errors-carried]
     /// Recoverable parse errors, all of those found in one pass, together with
     /// the sources their spans index.

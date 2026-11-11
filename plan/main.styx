@@ -4166,6 +4166,14 @@ children (
                     target-impl ([spec:cg3:req:embed.relabel])
                 }
                 deps (tool-surface.writers)
+                log (
+                    {
+                        at 2026-11-11T12:43:28.656243Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

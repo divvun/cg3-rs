@@ -80,7 +80,7 @@ pub use crate::tag_trie::TagTrie;
 /// NOTE(lead): the C++ `static std::ostream* dump_hashes_out;` (a shared debug
 /// sink used by `rehash`) is a class static, not a per-instance field, and is
 /// not reproduced here; it is a method-pass / global-I/O concern.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Set {
     /// `uint16_t type = 0;` — stored as 32-bit in the binary format, so safe to
     /// bump when needed. (`type` is a Rust keyword → raw identifier.)

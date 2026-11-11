@@ -557,3 +557,59 @@ fn proc_runs_the_apertium_corpus_as_cg_proc() {
     }
     assert!(ran > 30, "only {ran} Apertium grammars");
 }
+
+/// A grammar relabelled through `CompiledGrammar::relabel` runs as the
+/// relabel fixtures expect, from text or from its `.cg3b`, and relabelling
+/// leaves both grammars as they were.
+// [spec:cg3:req:embed.relabel/test]
+#[test]
+fn relabel_makes_a_new_grammar_from_two() {
+    for name in ["T_RelabelList", "T_RelabelSet"] {
+        let read = |file: &str| std::fs::read(corpus(name).join(file)).unwrap();
+        let text =
+            CompiledGrammar::from_text(&read("grammar.cg3"), "grammar.cg3", FileResolver).unwrap();
+        let binary = CompiledGrammar::from_cg3b(&text.to_cg3b().unwrap()).unwrap();
+        let relabels =
+            CompiledGrammar::from_text(&read("relabel.cg3r"), "relabel.cg3r", FileResolver)
+                .unwrap();
+        let expected = String::from_utf8(read("expected.txt")).unwrap();
+        let unchanged = |g: &CompiledGrammar| (g.to_cg3b().unwrap(), g.to_text());
+        for grammar in [&text, &binary] {
+            let before = (unchanged(grammar), unchanged(&relabels));
+            let relabelled = grammar.relabel(&relabels).unwrap();
+            assert!(
+                (unchanged(grammar), unchanged(&relabels)) == before,
+                "{name}"
+            );
+            let got = relabelled
+                .run(&read("input.txt"), &RunOptions::default())
+                .unwrap();
+            assert!(
+                same_output(&expected, &String::from_utf8(got).unwrap()),
+                "{name}"
+            );
+            let again = grammar.relabel(&relabels).unwrap();
+            assert!(
+                again.to_cg3b().unwrap() == relabelled.to_cg3b().unwrap(),
+                "{name}"
+            );
+        }
+    }
+    let rules = CompiledGrammar::from_text(
+        b"DELIMITERS = \"<.>\" ;\nREMOVE (x) ;\n",
+        "rules.cg3",
+        FileResolver,
+    )
+    .unwrap();
+    let refused = rules
+        .relabel(&rules)
+        .err()
+        .expect("a REMOVE rule relabels nothing");
+    assert!(
+        matches!(
+            refused,
+            cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::RelabelRule(_))
+        ),
+        "{refused}"
+    );
+}

@@ -117,17 +117,17 @@ pub trait Numbering: Phase {}
 /// A grammar as the textual parser, or a caller building one by hand, makes
 /// it: sets, rules and tests refer to sets by content hash, and the lookups
 /// by content hash exist only here.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Draft {}
 
 /// A grammar as the `.cg3b` reader makes it, or as an indexed grammar gives
 /// its indexes up to be edited: references are set numbers, and none of the
 /// indexes a run reads are built.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Numbered {}
 
 /// A finished grammar: numbered and indexed, ready to be written or run.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Indexed {}
 
 impl sealed::Sealed for Draft {}

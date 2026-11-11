@@ -531,3 +531,61 @@ fn cg_proc_writes_what_proc_returns() {
         let _ = std::fs::remove_file(cg3b);
     }
 }
+
+/// cg-relabel writes the `.cg3b` of the grammar `CompiledGrammar::relabel`
+/// makes from the `.cg3b` it reads and the relabel rules, for each relabel
+/// fixture's rules applied to each corpus grammar.
+// [spec:cg3:req:embed.relabel/test]
+#[test]
+fn cg_relabel_writes_what_relabel_returns() {
+    let root = common::repo_root().join("test");
+    for relabel in ["T_RelabelList", "T_RelabelSet", "T_RelabelList_Apertium"] {
+        let rules_path = root.join(relabel).join("relabel.cg3r");
+        let rules = CompiledGrammar::from_text(
+            &std::fs::read(&rules_path).unwrap(),
+            rules_path.to_str().unwrap(),
+            FileResolver,
+        )
+        .unwrap();
+        for grammar in corpus_grammars()
+            .iter()
+            .step_by(4)
+            .chain([&root.join(relabel).join("grammar.cg3")])
+        {
+            let text = CompiledGrammar::from_text(
+                &std::fs::read(grammar).unwrap(),
+                grammar.to_str().unwrap(),
+                FileResolver,
+            )
+            .unwrap();
+            let input = scratch(grammar, "relabel-in.cg3b");
+            std::fs::write(&input, text.to_cg3b().unwrap()).unwrap();
+            let out = scratch(grammar, "relabel-out.cg3b");
+            let status = Command::new(env!("CARGO_BIN_EXE_cg-relabel"))
+                .arg(&input)
+                .arg(&rules_path)
+                .arg(&out)
+                .stderr(Stdio::null())
+                .status()
+                .expect("spawn cg-relabel");
+            let expected = CompiledGrammar::from_cg3b(&std::fs::read(&input).unwrap())
+                .unwrap()
+                .relabel(&rules)
+                .and_then(|g| g.to_cg3b());
+            assert_eq!(
+                status.success(),
+                expected.is_ok(),
+                "{} by {relabel}",
+                grammar.display()
+            );
+            if let Ok(expected) = expected {
+                assert!(
+                    take_written(&out).0 == expected,
+                    "{} by {relabel}",
+                    grammar.display()
+                );
+            }
+            let _ = std::fs::remove_file(input);
+        }
+    }
+}

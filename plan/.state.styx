@@ -965,4 +965,9 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule embed.proc}
     )}
+    {id tool-surface.relabel, covered_rules (
+        embed.relabel
+    ), covered_claims (
+        {impl_name target-impl, rule embed.relabel}
+    )}
 )

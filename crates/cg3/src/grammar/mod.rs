@@ -185,6 +185,10 @@ pub type Parentheses = BTreeMap<u32, u32>;
 /// copies, which for a real grammar is hundreds of megabytes of sets, rules and
 /// contexts per pipeline. Everything a run needs to change lives beside it in
 /// [`Grammar`]'s overlay instead.
+///
+/// `Clone` is a deep copy, for the rare operation that makes a new grammar
+/// out of a loaded one (`CompiledGrammar::relabel`); runs share one core.
+#[derive(Clone)]
 pub struct GrammarCore<P: Phase = Indexed> {
     /// Wave-4 grammar-owned PRNG state for `Set::set_name`'s `to == 0`
     /// fallback (the C++ used the process-global libc `rand()`). Non-zero

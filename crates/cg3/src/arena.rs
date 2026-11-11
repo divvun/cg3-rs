@@ -26,6 +26,7 @@ use std::ops::{Index, IndexMut};
 ///
 /// Not a manifest symbol — port infrastructure standing in for the C++ object
 /// pools + the implicit `T*` address space.
+#[derive(Clone)]
 pub struct Arena<T> {
     slots: Vec<Option<T>>,
     free: Vec<u32>,

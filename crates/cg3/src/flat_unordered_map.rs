@@ -55,6 +55,7 @@ impl Sentinel for u32 {
 /// tombstoned slots), `deleted` counts tombstones, `elements` is the physical
 /// slot table (a slot's key is `Sentinel::EMPTY`, `Sentinel::DEL`, or a live
 /// key).
+#[derive(Clone)]
 pub struct FlatUnorderedMap<K, V> {
     size_: usize,
     deleted: usize,
