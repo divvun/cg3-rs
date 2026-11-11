@@ -103,6 +103,48 @@ test("an option the package does not know throws invalid-argument, and the gramm
   assertEqual(grammar.apply(input).warnings.length, 0, "the next run");
 });
 
+// [spec:cg3:req:wasm.tools/test]
+test("convert, mwesplit and grammar.proc write what cg-conv, cg-mwesplit and cg-proc write", () => {
+  const apertium = "^w/a<n>+b<v>$\n";
+  assertEqual(pkg.convert(apertium, { input: "apertium" }), '"<w>"\n\t"b" v\n\t\t"a" n\n\n', "convert");
+  assertEqual(
+    pkg.convert(apertium, { input: "apertium", ltr: true }),
+    '"<w>"\n\t"a" n\n\t\t"b" v\n\n',
+    "convert with ltr",
+  );
+  const multiword = '"<dalle go>"\n\t"go" CS <W:0> "<go>"\n\t\t"dalle" Adv <W:0> "<dalle >"\n';
+  assertEqual(pkg.mwesplit(multiword), '"<dalle>"\n\t"dalle" Adv <W:0>\n: \n"<go>"\n\t"go" CS <W:0>\n\n', "mwesplit");
+  using grammar = pkg.readGrammar(select);
+  const word = '"<word>"\n\t"word" notwanted\n\t"word" wanted\n';
+  assertEqual(grammar.proc(word, { streamFormat: "cg" }), '"<word>"\n\t"word" wanted\n', "proc in CG");
+  const lexical = "^word/word<notwanted>/word<wanted>$\n";
+  assertEqual(grammar.proc(lexical), "^word/word<wanted>$\n", "proc in Apertium");
+  assertEqual(
+    grammar.proc(lexical, { trace: true }),
+    "^word/word<wanted><SELECT:11>/\u00acword<notwanted><SELECT:11>$\n",
+    "proc with trace",
+  );
+});
+
+// [spec:cg3:req:wasm.tools/test]
+// [spec:cg3:req:wasm.errors+1/test]
+test("a tool the library fails throws run-failed with its message, and an unknown option invalid-argument", () => {
+  const reserved = '{"w": "a", "rs": [{"l": "a", "ts": ["n"]}], "ds": 4294967295}\n';
+  const failed = thrown(() => pkg.convert(reserved, { input: "jsonl" }));
+  assert(failed instanceof pkg.Cg3Error && failed.code === "run-failed", `run-failed: ${String(failed)}`);
+  assert(failed.message.length > 0, "the library's message");
+  using grammar = pkg.readGrammar(external);
+  const error = thrown(() => grammar.proc(input, { streamFormat: "cg" }));
+  assert(error instanceof pkg.Cg3Error && error.code === "run-failed", "run-failed from proc");
+  assert(/EXTERNAL on line \d+ could not be started/.test(error.message), `the library's message: ${error.message}`);
+  const misspelt = { wordFormCase: true } as unknown as Parameters<typeof grammar.proc>[1];
+  assertEqual(thrownCode(pkg.Cg3Error, () => grammar.proc(input, misspelt)), "invalid-argument", "proc");
+  const binary = { output: "binary" } as unknown as Parameters<typeof pkg.convert>[1];
+  assertEqual(thrownCode(pkg.Cg3Error, () => pkg.convert(input, binary)), "invalid-argument", "a binary stream");
+  using other = pkg.readGrammar(select);
+  assert(other.proc(input, { streamFormat: "cg" }).length > 0, "the module still runs");
+});
+
 // [spec:cg3:req:wasm.handle-lifetime/test]
 test("a freed grammar throws freed, and freeing it again does nothing", () => {
   const grammar = pkg.readGrammar(select);

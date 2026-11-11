@@ -3,7 +3,8 @@
 [VISL CG-3](https://visl.sdu.dk/cg3.html) for JavaScript. It loads compiled
 Constraint Grammars (`.cg3b`) and runs them on text, and a run gives the
 output `vislcg3` gives for the same grammar, input and options, byte for
-byte. It is the [cg3-rs](https://github.com/divvun/cg3-rs) library, written
+byte. It converts and splits streams as `cg-conv` and `cg-mwesplit` do, and
+runs grammars as `cg-proc` does. It is the [cg3-rs](https://github.com/divvun/cg3-rs) library, written
 in Rust and built as WebAssembly. It runs in browsers, Web Workers, Deno,
 Node 20 and later, and Bun, as one ES module and one `.wasm` file.
 
@@ -74,6 +75,34 @@ know throws `Cg3Error` with code `invalid-argument`, and the message lists the
 ones it does. The options a grammar sets with `CMDARGS` apply as they do in
 `vislcg3`. An `EXTERNAL` rule fails its run, since there is no process to
 start.
+
+## The other tools
+
+`convert(input, options?)` converts a stream from one format to another and
+returns what `cg-conv` writes, `mwesplit(input)` splits each multi-word
+cohort into one cohort per word as `cg-mwesplit` does, and
+`grammar.proc(input, options?)` runs a grammar as `cg-proc` does, on an
+Apertium stream unless `streamFormat` says otherwise:
+
+```js
+import { convert, mwesplit } from "@divvun/cg3";
+
+convert("^w/a<n>+b<v>$\n", { input: "apertium", ltr: true });
+// "<w>"
+// 	"a" n
+// 		"b" v
+
+grammar.proc("^word/word<notwanted>/word<wanted>$\n", { trace: true });
+// ^word/word<wanted><SELECT:11>/¬word<notwanted><SELECT:11>$
+```
+
+Their options are named after the tools' long options, in camelCase:
+`--sub-delim "#"` is `{ subDelim: "#" }` and `--wordform-case` is
+`{ wordformCase: true }`. `convert` reads and writes every format `apply`
+does, and detects the input's format when `input` is left out, as `cg-conv`
+does. `streamFormat` is `"apertium"` (the default), `"cg"` or `"matxin"`. A
+conversion or run the library fails throws `Cg3Error` with code `run-failed`,
+and an option the package does not know throws `invalid-argument`.
 
 ## Grammar information
 

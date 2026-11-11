@@ -2,7 +2,8 @@
  * `@divvun/cg3`: VISL CG-3 for JavaScript. It loads compiled Constraint
  * Grammars (`.cg3b`) and runs them, in browsers, Web Workers, Deno, Node and
  * Bun, giving the output vislcg3 gives for the same grammar, input and
- * options. It does not read textual grammars: compile them with `cg-comp`.
+ * options, and converts and splits streams as cg-conv and cg-mwesplit do. It
+ * does not read textual grammars: compile them with `cg-comp`.
  *
  * @module
  */
@@ -10,6 +11,7 @@ import { core } from "./binding.ts";
 import type { InitSource } from "./core.ts";
 import { grammarReader } from "./grammar.ts";
 import type { Logger, LogLevel } from "./logging.ts";
+import { tools } from "./tools.ts";
 
 // [spec:cg3:req:wasm.typed-surface]
 // This module declares the whole public API. Results are plain values, and
@@ -49,8 +51,10 @@ export function setLogLevel(level: LogLevel): void {
 }
 
 export const { readGrammar } = grammarReader(core);
+export const { convert, mwesplit } = tools(core);
 export { Grammar } from "./grammar.ts";
 export type { ApplyOptions, ApplyResult, Format, GrammarInfo, LoadOptions } from "./grammar.ts";
+export type { ConvertOptions, ProcFormat, ProcOptions } from "./tools.ts";
 export { Cg3Error } from "./errors.ts";
 export type { Cg3ErrorCode } from "./errors.ts";
 export type { InitSource } from "./core.ts";

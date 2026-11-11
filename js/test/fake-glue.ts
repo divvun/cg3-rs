@@ -58,6 +58,24 @@ export class FakeGlue implements Glue {
     return grammar;
   }
 
+  /** The arguments of every convert and mwesplit call, in order. */
+  readonly conversions: string[] = [];
+
+  /** Answers every input with the input itself; an input of "fail" fails as the library does. */
+  convert(input: string, options: string): string {
+    this.entered += 1;
+    this.conversions.push(`convert ${input} ${options}`);
+    if (input === "fail") this.fail("run-failed", "the conversion failed");
+    return input;
+  }
+
+  mwesplit(input: string): string {
+    this.entered += 1;
+    this.conversions.push(`mwesplit ${input}`);
+    if (input === "fail") this.fail("run-failed", "the split failed");
+    return input;
+  }
+
   /** Logs as the module does: only at or above the level set. */
   log(level: number, message: string): void {
     this.entered += 1;
@@ -135,5 +153,13 @@ export class FakeGrammar extends FakeObject implements GrammarGlue {
     this.runs.push([input, options]);
     if (this.failure !== null) this.glue.fail("run-failed", this.failure);
     return { output: input, warnings: [...this.warnings] };
+  }
+
+  /** Answers every input with the input itself. */
+  proc(input: string, options: string): string {
+    this.glue.entered += 1;
+    this.runs.push([input, options]);
+    if (this.failure !== null) this.glue.fail("run-failed", this.failure);
+    return input;
   }
 }

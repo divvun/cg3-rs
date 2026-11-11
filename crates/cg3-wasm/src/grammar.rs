@@ -6,7 +6,8 @@ use cg3::embed::{CompiledGrammar, GrammarInfo, RunOptions};
 use wasm_bindgen::prelude::*;
 
 use crate::error::{ErrorCode, GlueError, set};
-use crate::options::{ApplyOptions, parse_load_options, parse_options};
+use crate::options::{ApplyOptions, parse_load_options, parse_options, parse_proc_options};
+use crate::tools::run_failed;
 
 /// A compiled grammar, loaded once and applied any number of times.
 #[wasm_bindgen]
@@ -50,6 +51,16 @@ impl Grammar {
             .collect();
         set(&object, "warnings", &warnings);
         Ok(object.into())
+    }
+
+    // [spec:cg3:req:wasm.tools]
+    /// What cg-proc writes for `input` with this grammar under the options in
+    /// `options`, the JSON of a `ProcOptions` object, through
+    /// `CompiledGrammar::proc`.
+    pub fn proc(&self, input: &str, options: &str) -> Result<String, GlueError> {
+        let options = parse_proc_options(options)?;
+        let run = self.inner.proc(input.as_bytes(), &options);
+        String::from_utf8(run.map_err(run_failed)?).map_err(run_failed)
     }
 }
 

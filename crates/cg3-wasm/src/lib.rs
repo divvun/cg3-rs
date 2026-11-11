@@ -13,14 +13,19 @@ mod options;
 mod sink;
 #[cfg(feature = "test-hooks")]
 mod test_hooks;
+mod tools;
 
 pub use error::{ErrorCode, GlueError};
 pub use grammar::{Applied, Grammar, apply, read_grammar};
 pub use log::set_level;
-pub use options::{ApplyOptions, FlagOrValue, JsFormat, parse_load_options, parse_options};
+pub use options::{
+    ApplyOptions, FlagOrValue, JsFormat, parse_convert_options, parse_load_options, parse_options,
+    parse_proc_options,
+};
 pub use sink::install;
 #[cfg(feature = "test-hooks")]
 pub use test_hooks::{TestObject, test_log, test_panic};
+pub use tools::{convert, mwesplit};
 
 // [spec:cg3:req:wasm.module+2]
 /// The version of the npm package, which this crate carries as its own.

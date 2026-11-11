@@ -43,6 +43,11 @@ export interface GrammarGlue extends GlueObject {
    * result is a plain object the module builds.
    */
   apply(input: string, options: string): ApplyResult;
+  /**
+   * Runs the grammar on `input` as cg-proc does. `options` is the JSON text of
+   * a `ProcOptions` object; the module refuses a key it does not know.
+   */
+  proc(input: string, options: string): string;
 }
 
 /** The exports of `crates/cg3-wasm`. */
@@ -59,4 +64,11 @@ export interface Glue {
    * the module refuses a key it does not know.
    */
   readGrammar(bytes: Uint8Array, options: string): GrammarGlue;
+  /**
+   * Converts a stream as cg-conv does. `options` is the JSON text of a
+   * `ConvertOptions` object; the module refuses a key it does not know.
+   */
+  convert(input: string, options: string): string;
+  /** Splits multi-word cohorts as cg-mwesplit does. */
+  mwesplit(input: string): string;
 }

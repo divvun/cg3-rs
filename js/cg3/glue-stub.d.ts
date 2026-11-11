@@ -10,3 +10,5 @@ export declare const install: Glue["install"];
 export declare const setLogLevel: Glue["setLogLevel"];
 export declare const version: Glue["version"];
 export declare const readGrammar: Glue["readGrammar"];
+export declare const convert: Glue["convert"];
+export declare const mwesplit: Glue["mwesplit"];

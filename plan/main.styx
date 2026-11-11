@@ -2098,6 +2098,14 @@ children (
                         kind @status
                         text "Todo → Doing (nplan start)"
                     }
+
+                    {
+                        at 2026-11-11T13:15:30.096986Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Spec conflict found while delivering tool-surface.includes (af8fba9): diagnostics.source-lazy says a loaded grammar MUST keep only the path and never the text, but embed.include-resolver says a grammar loaded through CompiledGrammar::from_text MUST keep the text of every source it parsed, since it may have no files behind it. The code keeps text only for from_text grammars and for vislcg3 --grammar-bin (grammar_sources.rs:306-340, vislcg3.rs:327-333); vislcg3's other loads keep only names. source-lazy needs narrowing to grammars the library reads from files. Not bumped yet because this node and runtime-diagnostics.sidecar are mid-flight in another workstream; whoever next touches source-lazy should make the +1."
+                        after_done true
+                    }
                 )
             }
 
@@ -4235,6 +4243,14 @@ children (
                     target-impl ([spec:cg3:req:wasm.tools])
                 }
                 deps (tool-surface.convert tool-surface.mwesplit tool-surface.proc)
+                log (
+                    {
+                        at 2026-11-11T13:21:41.231509Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

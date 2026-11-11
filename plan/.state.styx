@@ -979,4 +979,10 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule embed.relabel}
     )}
+    {id tool-surface.wasm-tools, covered_rules (
+        wasm.tools
+    ), covered_claims (
+        {impl_name js-impl, rule wasm.tools}
+        {impl_name target-impl, rule wasm.tools}
+    )}
 )

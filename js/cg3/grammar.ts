@@ -2,6 +2,7 @@ import type { Core } from "./core.ts";
 import { Cg3Error, messageOf } from "./errors.ts";
 import type { GrammarGlue } from "./glue.ts";
 import { Handle } from "./handle.ts";
+import type { ProcOptions } from "./tools.ts";
 
 /**
  * A stream format, as vislcg3's `--in-*` and `--out-*` options name it. The
@@ -131,19 +132,31 @@ export class Grammar extends Handle<GrammarGlue> {
    * An option it does not know throws `invalid-argument`.
    */
   apply(input: string, options?: ApplyOptions): ApplyResult {
-    return this.use((glue) => glue.apply(checkedInput(input), optionsJson("apply", options)));
+    return this.use((glue) => glue.apply(checkedInput("apply", input), optionsJson("apply", options)));
+  }
+
+  // [spec:cg3:req:wasm.tools]
+  /**
+   * Runs the grammar on `input` as cg-proc does, and returns what cg-proc
+   * writes. A run the library reports as failed throws `run-failed` with its
+   * message, and the grammar stays usable. An option it does not know throws
+   * `invalid-argument`.
+   */
+  proc(input: string, options?: ProcOptions): string {
+    return this.use((glue) => glue.proc(checkedInput("proc", input), optionsJson("proc", options)));
   }
 }
 
-function checkedInput(input: unknown): string {
+/** `input`, or `invalid-argument` naming `call` when it is not a string. */
+export function checkedInput(call: string, input: unknown): string {
   if (typeof input !== "string") {
-    throw new Cg3Error("invalid-argument", `apply takes the input as a string, not ${typeof input}`);
+    throw new Cg3Error("invalid-argument", `${call} takes the input as a string, not ${typeof input}`);
   }
   return input;
 }
 
 /** The JSON text of the options `call` takes, which the module reads and checks key by key. */
-function optionsJson(call: string, options: unknown): string {
+export function optionsJson(call: string, options: unknown): string {
   if (options === undefined) return "{}";
   if (typeof options !== "object" || options === null || Array.isArray(options)) {
     throw new Cg3Error("invalid-argument", `${call} takes its options as an object`);

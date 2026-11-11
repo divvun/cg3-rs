@@ -1,7 +1,9 @@
-//! The run and load options JavaScript passes, as `ApplyOptions` and
-//! `LoadOptions` in `js/cg3/grammar.ts` declare them.
+//! The options JavaScript passes: `ApplyOptions` and `LoadOptions` as
+//! `js/cg3/grammar.ts` declares them, and `ConvertOptions` and `ProcOptions`
+//! as `js/cg3/tools.ts` does.
 
-use cg3::embed::{Format, LoadOptions, RunOptions};
+use cg3::ConvertOptions;
+use cg3::embed::{Format, LoadOptions, ProcFormat, ProcOptions, RunOptions};
 use serde::Deserialize;
 
 use crate::error::{ErrorCode, GlueError};
@@ -174,18 +176,142 @@ pub fn parse_load_options(json: &str) -> Result<LoadOptions, GlueError> {
             cg3::embed::rule_filter(pattern, flag).map_err(|e| invalid(e.to_string()))?;
         }
     }
-    let prefix = match js.prefix.as_deref().map(|p| {
-        let mut chars = p.chars();
-        (chars.next(), chars.next())
-    }) {
-        None => None,
-        Some((Some(c), None)) => Some(c),
-        Some(_) => return Err(invalid("prefix must be one character".to_owned())),
-    };
     Ok(LoadOptions {
+        prefix: prefix(js.prefix.as_deref())?,
         nrules: js.nrules,
         nrules_v: js.nrules_v,
         vislcg_compat: js.vislcg_compat,
-        prefix,
+    })
+}
+
+/// A mapping prefix, which JavaScript gives as a string of one character.
+fn prefix(given: Option<&str>) -> Result<Option<char>, GlueError> {
+    let Some(given) = given else {
+        return Ok(None);
+    };
+    let mut chars = given.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => Ok(Some(c)),
+        _ => Err(GlueError::new(
+            ErrorCode::InvalidArgument,
+            "prefix must be one character",
+        )),
+    }
+}
+
+/// An option whose value cg-conv makes optional and reads as a number: `true`
+/// gives it without one.
+#[derive(Deserialize, Clone, Copy, Debug)]
+#[serde(untagged)]
+enum FlagOrNumber {
+    Flag(bool),
+    Number(u32),
+}
+
+// [spec:cg3:req:wasm.tools]
+/// `ConvertOptions` from JavaScript: each cg-conv option in camelCase, the
+/// `--in-*` and `--out-*` options as `input` and `output`. An option it does
+/// not know is an error, so a misspelt one is not silently ignored.
+#[derive(Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+struct JsConvertOptions {
+    input: Option<JsFormat>,
+    in_auto: bool,
+    add_tags: bool,
+    output: Option<JsFormat>,
+    prefix: Option<String>,
+    wfactor: Option<f64>,
+    wtag: Option<String>,
+    sub_delim: Option<String>,
+    /// cg-conv's default, which `ltr` overrides, so cg-conv does nothing with it.
+    rtl: bool,
+    ltr: bool,
+    ordered: bool,
+    parse_dep: bool,
+    dep_delimit: Option<FlagOrNumber>,
+    unicode_tags: bool,
+    deleted: bool,
+    no_break: bool,
+}
+
+// [spec:cg3:req:wasm.tools]
+/// Reads the library's `ConvertOptions` from the JSON of the `ConvertOptions`
+/// object JavaScript passed. `depDelimit: true` is `--dep-delimit` without a
+/// value, which cg-conv reads as 10.
+pub fn parse_convert_options(json: &str) -> Result<ConvertOptions, GlueError> {
+    let js: JsConvertOptions = serde_json::from_str(json)
+        .map_err(|e| GlueError::new(ErrorCode::InvalidArgument, e.to_string()))?;
+    Ok(ConvertOptions {
+        input: js.input.map(Format::from),
+        in_auto: js.in_auto,
+        add_tags: js.add_tags,
+        output: js.output.map(Format::from),
+        prefix: prefix(js.prefix.as_deref())?,
+        wfactor: js.wfactor,
+        wtag: js.wtag,
+        sub_delim: js.sub_delim,
+        ltr: js.ltr,
+        ordered: js.ordered,
+        parse_dep: js.parse_dep,
+        dep_delimit: match js.dep_delimit {
+            None | Some(FlagOrNumber::Flag(false)) => None,
+            Some(FlagOrNumber::Flag(true)) => Some(10),
+            Some(FlagOrNumber::Number(n)) => Some(n),
+        },
+        unicode_tags: js.unicode_tags,
+        deleted: js.deleted,
+        no_break: js.no_break,
+    })
+}
+
+/// cg-proc's stream formats but the binary one, by name rather than by the
+/// number `--stream-format` takes.
+#[derive(Deserialize, Clone, Copy, Debug)]
+#[serde(rename_all = "lowercase")]
+enum JsProcFormat {
+    Cg,
+    Apertium,
+    Matxin,
+}
+
+// [spec:cg3:req:wasm.tools]
+/// `ProcOptions` from JavaScript: each cg-proc option in camelCase. An option
+/// it does not know is an error, so a misspelt one is not silently ignored.
+#[derive(Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+struct JsProcOptions {
+    stream_format: Option<JsProcFormat>,
+    sections: Option<u32>,
+    rule: Option<String>,
+    trace: bool,
+    wordform_case: bool,
+    no_word_forms: bool,
+    generation: bool,
+    first: bool,
+    /// Disambiguation is all cg-proc does, so it does nothing with `-d`.
+    disambiguation: bool,
+    /// cg-proc always flushes on a null byte, so it does nothing with `-z`.
+    null_flush: bool,
+}
+
+// [spec:cg3:req:wasm.tools]
+/// Reads the library's `ProcOptions` from the JSON of the `ProcOptions` object
+/// JavaScript passed.
+pub fn parse_proc_options(json: &str) -> Result<ProcOptions, GlueError> {
+    let js: JsProcOptions = serde_json::from_str(json)
+        .map_err(|e| GlueError::new(ErrorCode::InvalidArgument, e.to_string()))?;
+    Ok(ProcOptions {
+        stream_format: match js.stream_format {
+            Some(JsProcFormat::Cg) => ProcFormat::Cg,
+            None | Some(JsProcFormat::Apertium) => ProcFormat::Apertium,
+            Some(JsProcFormat::Matxin) => ProcFormat::Matxin,
+        },
+        sections: js.sections,
+        rule: js.rule,
+        trace: js.trace,
+        wordform_case: js.wordform_case,
+        no_word_forms: js.no_word_forms,
+        generation: js.generation,
+        first: js.first,
     })
 }
