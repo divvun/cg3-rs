@@ -1,9 +1,8 @@
 //! Port of `src/cg-mwesplit.cpp` — the MWE (multi-word expression) splitter.
 //!
 //! Reads a CG stream on stdin, splits multi-word cohorts into their component
-//! words via [`cg3::mwesplit_applicator::MweSplitApplicator`], and writes the
-//! result to stdout. No grammar file: the applicator builds its own minimal
-//! dummy grammar in its constructor.
+//! words through [`cg3::embed::mwesplit_into`], which [`cg3::mwesplit`] is
+//! made of, and writes the result to stdout.
 
 use cg3::arg_parser::parse_args;
 use cg3::options::{ArgOption, HasArg};
@@ -83,28 +82,15 @@ pub fn main_mwesplit(args: &[String]) -> i32 {
         return emit_usage(&out, argc < 0);
     }
 
-    // MweSplitApplicator applicator(std::cerr);
-    // The port's applicator OWNS its GrammarApplicator base (which owns a fresh
-    // Grammar); the ctor builds+installs the minimal dummy grammar.
-    let base = cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
-    let mut applicator = match cg3::mwesplit_applicator::MweSplitApplicator::new(base) {
-        Ok(a) => a,
-        Err(e) => return fail(&e),
-    };
-
-    // applicator.verbosity_level = 0;
-    applicator.base.cfg.verbosity_level = 0;
-
-    // applicator.runGrammarOnText(std::cin, std::cout);
-    //
     // The ported driver needs `R: Read + Seek`; stdin is not seekable, so the
-    // whole stream is buffered into a Cursor first (faithful for the
-    // line-by-line CG state machine the driver runs).
-    let mut input_bytes = Vec::new();
-    let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut input_bytes);
-    let mut cursor = std::io::Cursor::new(input_bytes);
-    let mut stdout = std::io::stdout();
-    if let Err(e) = applicator.run_grammar_on_text(&mut cursor, &mut stdout) {
+    // whole stream is buffered first (faithful for the line-by-line CG state
+    // machine the driver runs).
+    let mut input = Vec::new();
+    let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut input);
+
+    // [spec:cg3:req:embed.mwesplit]
+    // MweSplitApplicator applicator(std::cerr); applicator.runGrammarOnText(std::cin, std::cout);
+    if let Err(e) = cg3::embed::mwesplit_into(&input, &mut std::io::stdout()) {
         return fail(&e);
     }
 

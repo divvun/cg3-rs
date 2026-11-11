@@ -396,3 +396,33 @@ fn memory_includes_compile_as_cg_comp_does() {
     let expected = (grammar.to_cg3b().unwrap(), grammar.companion().unwrap());
     assert!(take_written(&out) == expected);
 }
+
+/// cg-mwesplit writes what `cg3::mwesplit` returns, for every corpus input.
+// [spec:cg3:req:embed.mwesplit/test]
+#[test]
+fn cg_mwesplit_writes_what_mwesplit_returns() {
+    let root = common::repo_root().join("test");
+    let mut inputs = 0;
+    for dir in std::fs::read_dir(&root).unwrap() {
+        let path = dir.unwrap().path().join("input.txt");
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        inputs += 1;
+        let out = common::run_output(
+            env!("CARGO_BIN_EXE_cg-mwesplit"),
+            &[],
+            &root,
+            &bytes,
+            Stdio::null(),
+        );
+        let expected = cg3::mwesplit(&bytes).map_err(|e| e.to_string());
+        assert_eq!(out.status.success(), expected.is_ok(), "{}", path.display());
+        assert!(
+            expected.is_err() || out.stdout == expected.unwrap(),
+            "{}",
+            path.display()
+        );
+    }
+    assert!(inputs > 50, "only {inputs} corpus inputs");
+}

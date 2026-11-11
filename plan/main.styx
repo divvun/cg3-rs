@@ -4149,6 +4149,14 @@ children (
                     target-impl ([spec:cg3:req:embed.mwesplit])
                 }
                 deps (tool-surface.spec)
+                log (
+                    {
+                        at 2026-11-11T12:30:03.520468Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

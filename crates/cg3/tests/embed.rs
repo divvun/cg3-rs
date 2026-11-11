@@ -510,3 +510,13 @@ fn a_runtime_failure_quotes_the_kept_sources() {
             .any(|s| s.name == "lists.cg3" && s.text == lists)
     );
 }
+
+/// `cg3::mwesplit` splits T_MweSplit's multi-word cohorts as its expected
+/// output says cg-mwesplit does.
+// [spec:cg3:req:embed.mwesplit/test]
+#[test]
+fn mwesplit_splits_the_corpus_multiwords() {
+    let got = cg3::mwesplit(&input("T_MweSplit")).unwrap();
+    let expected = std::fs::read_to_string(corpus("T_MweSplit").join("expected.txt")).unwrap();
+    assert!(same_output(&expected, &String::from_utf8(got).unwrap()));
+}

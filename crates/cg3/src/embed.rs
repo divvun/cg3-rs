@@ -346,6 +346,25 @@ pub fn convert_into<W: Write>(
     applicator.run_grammar_on_text(&mut instream, output)
 }
 
+// [spec:cg3:req:embed.mwesplit]
+/// What cg-mwesplit writes for `input`: each cohort whose wordform tags give
+/// its words split into one cohort per word.
+pub fn mwesplit(input: &[u8]) -> Result<Vec<u8>, Cg3Error> {
+    let mut output = Vec::new();
+    mwesplit_into(input, &mut output)?;
+    Ok(output)
+}
+
+// [spec:cg3:req:embed.mwesplit]
+/// [`mwesplit`], writing the output as it goes: what cg-mwesplit calls, so a
+/// split that fails part-way has written what it had.
+pub fn mwesplit_into<W: Write>(input: &[u8], output: &mut W) -> Result<(), Cg3Error> {
+    let base = GrammarApplicator::new(Grammar::default());
+    let mut applicator = crate::mwesplit_applicator::MweSplitApplicator::new(base)?;
+    applicator.base.cfg.verbosity_level = 0;
+    applicator.run_grammar_on_text(&mut std::io::Cursor::new(input), output)
+}
+
 /// What a run is given beside its options.
 #[derive(Default)]
 pub struct RunContext {

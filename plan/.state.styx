@@ -955,4 +955,9 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule embed.include-resolver}
     )}
+    {id tool-surface.mwesplit, covered_rules (
+        embed.mwesplit
+    ), covered_claims (
+        {impl_name target-impl, rule embed.mwesplit}
+    )}
 )

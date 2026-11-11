@@ -95,7 +95,7 @@ pub mod grammar_applicator;
 
 // --- Loading and running a grammar from a program ---
 pub mod embed;
-pub use embed::{ConvertOptions, convert};
+pub use embed::{ConvertOptions, convert, mwesplit};
 
 // --- Wave 2 output/format applicators + profiler + relabeller ---
 pub mod apertium_applicator;
