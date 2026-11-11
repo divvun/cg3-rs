@@ -1,6 +1,6 @@
 schema_version 7
 
-last_sync_at 2026-11-11T11:28:16.925413Z
+last_sync_at 2026-11-11T11:31:28.636283Z
 
 rule_versions (
     {id cg-comp.end-program-fn, version 3}
@@ -27,15 +27,23 @@ rule_versions (
     {id diagnostics.source-retained, version 0}
     {id diagnostics.span, version 0}
     {id diagnostics.wire-frozen, version 0}
+    {id embed.cli-compiles-through, version 0}
     {id embed.cli-runs-through, version 1}
+    {id embed.convert, version 0}
     {id embed.grammar-options, version 0}
+    {id embed.include-resolver, version 0}
     {id embed.info, version 0}
     {id embed.load, version 0}
     {id embed.load-options, version 0}
     {id embed.load-text, version 0}
+    {id embed.mwesplit, version 0}
+    {id embed.proc, version 0}
+    {id embed.relabel, version 0}
     {id embed.run, version 0}
     {id embed.run-options, version 0}
     {id embed.runs-independent, version 0}
+    {id embed.write-binary, version 0}
+    {id embed.write-text, version 0}
     {id errors.context, version 0}
     {id errors.exit-codes-at-cli, version 0}
     {id errors.layered, version 0}
@@ -77,12 +85,17 @@ rule_versions (
     {id python.apply, version 1}
     {id python.errors, version 0}
     {id python.grammar-load, version 0}
+    {id python.includes, version 0}
     {id python.load-options, version 0}
     {id python.logging, version 0}
     {id python.module, version 1}
     {id python.parity, version 0}
     {id python.threads, version 0}
+    {id python.tools, version 0}
+    {id python.tools-parity, version 0}
     {id python.typed, version 0}
+    {id python.write, version 0}
+    {id python.write-parity, version 0}
     {id relabeller.cg3.relabeller.relabel-fn, version 1}
     {id relabeller.cg3.trie-copy-fn, version 0}
     {id robustness.accepted-grammars-run, version 0}
@@ -117,6 +130,10 @@ rule_versions (
     {id tools.build-provenance, version 0}
     {id tools.divvun-version-banner, version 2}
     {id wasm.apply, version 1}
+    {id wasm.compile, version 0}
+    {id wasm.compile-errors, version 0}
+    {id wasm.compile-includes, version 0}
+    {id wasm.compile-parity, version 0}
     {id wasm.errors, version 1}
     {id wasm.grammar-load, version 1}
     {id wasm.handle-lifetime, version 0}
@@ -127,6 +144,8 @@ rule_versions (
     {id wasm.module, version 3}
     {id wasm.no-process, version 0}
     {id wasm.parity, version 2}
+    {id wasm.read-only-core, version 0}
+    {id wasm.tools, version 0}
     {id wasm.typed-surface, version 0}
     {id wasm.width-independent, version 0}
 )
@@ -177,7 +196,19 @@ derived_priorities (
     {id relabel-tags-and-order, priority 0, derived_at 2026-10-29T14:05:48.252065Z}
     {id release-0-5-0, priority 0, derived_at 2026-11-11T11:28:16.925413Z}
     {id test-paths-with-spaces, priority 0, derived_at 2026-11-05T22:35:35.691859Z}
+    {id tool-surface.convert, priority 1, derived_at 2026-11-11T11:31:28.636283Z}
+    {id tool-surface.includes, priority 1, derived_at 2026-11-11T11:31:28.636283Z}
+    {id tool-surface.mwesplit, priority 1, derived_at 2026-11-11T11:31:28.636283Z}
+    {id tool-surface.proc, priority 1, derived_at 2026-11-11T11:31:28.636283Z}
+    {id tool-surface.python, priority 3, derived_at 2026-11-11T11:31:28.636283Z}
+    {id tool-surface.python-parity, priority 3, derived_at 2026-11-11T11:31:28.636283Z}
+    {id tool-surface.relabel, priority 2, derived_at 2026-11-11T11:31:28.636283Z}
+    {id tool-surface.release, priority 3, derived_at 2026-11-11T11:31:28.636283Z}
     {id tool-surface.spec, priority 0, derived_at 2026-11-11T11:28:16.925413Z}
+    {id tool-surface.wasm-compile, priority 3, derived_at 2026-11-11T11:31:28.636283Z}
+    {id tool-surface.wasm-parity, priority 3, derived_at 2026-11-11T11:31:28.636283Z}
+    {id tool-surface.wasm-tools, priority 2, derived_at 2026-11-11T11:31:28.636283Z}
+    {id tool-surface.writers, priority 1, derived_at 2026-11-11T11:31:28.636283Z}
     {id upstream-1-7-0.baseline, priority 3, derived_at 2026-11-05T22:35:35.691859Z}
     {id upstream-1-7-0.flush-reset, priority 0, derived_at 2026-11-05T22:35:35.691859Z}
     {id upstream-1-7-0.help-text, priority 2, derived_at 2026-11-05T22:35:35.691859Z}
@@ -529,7 +560,6 @@ impl_evidence (
         {id wasm.handle-lifetime, version 0}
         {id wasm.init, version 0}
         {id wasm.logging, version 0}
-        {id wasm.module, version 1}
         {id wasm.typed-surface, version 0}
     )}
     {id no-panic.arithmetic, covered_rules (
@@ -660,9 +690,6 @@ impl_evidence (
     ), covered_claims (
         {impl_name py-impl, rule python.module}
         {impl_name py-impl, rule python.typed}
-    ), rule_versions_seen (
-        {id python.module, version 0}
-        {id python.typed, version 0}
     )}
     {id python.parity, covered_rules (
         python.parity
