@@ -15,19 +15,17 @@
 //! argument consumed) the handler is fed a NULL-analogue that triggers the same
 //! faulty `atoi` path (marked at the site).
 //!
-//! All four stream formats run LIVE: 0 (base `GrammarApplicator`), 1
-//! (Apertium), 2 (Matxin), and 3 (`BinaryApplicator`), each via its ported
-//! `run_grammar_on_text` driver.
+//! The command line becomes the library's [`cg3::embed::ProcOptions`], and the
+//! grammar runs through [`cg3::embed::CompiledGrammar::prepare_proc`] and
+//! [`cg3::embed::PreparedProc::run`], the two steps
+//! [`cg3::embed::CompiledGrammar::proc`] is made of, so that stdin streams.
 
 use std::io::Read;
 
-use cg3::apertium_applicator::ApertiumApplicator;
-use cg3::binary_applicator::BinaryApplicator;
 use cg3::binary_grammar::BinaryGrammar;
-use cg3::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered};
-use cg3::grammar_applicator::GrammarApplicator;
+use cg3::embed::{CompiledGrammar, ProcFormat, ProcOptions};
+use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered};
 use cg3::inlines::is_cg3b;
-use cg3::matxin_applicator::MatxinApplicator;
 use cg3::options::{options, options_default, options_override};
 use cg3::options_parser::{merge_grammar_options, merge_options};
 use cg3::textual_parser::TextualParser;
@@ -321,16 +319,8 @@ fn load_grammar(grammar_path: &str, head: [u8; 4]) -> Result<GrammarCore, i32> {
 // [spec:cg3:sem:cg-proc.main-fn+1]
 /// C++ `int main(int argc, char* argv[])`.
 pub fn main_proc(args: &[String]) -> i32 {
-    let mut trace = false;
-    let mut wordform_case = false;
-    let mut print_word_forms = true;
-    let mut delimit_lexical_units = true;
-    let mut surface_readings = false;
-    let mut only_first = false;
+    let mut proc = ProcOptions::default();
     let mut cmd: char = '\0';
-    let mut sections: i32 = 0;
-    let mut stream_format: i32 = 1;
-    let mut single_rule = String::new();
 
     let prog = args.first().map(|s| s.as_str()).unwrap_or("cg-proc");
 
@@ -343,26 +333,28 @@ pub fn main_proc(args: &[String]) -> i32 {
             'd' if cmd == '\0' => cmd = 'd',
             'd' => return end_program(prog),
             'f' => {
-                stream_format = atoi(optarg.as_deref());
+                proc.stream_format = match atoi(optarg.as_deref()) {
+                    0 => ProcFormat::Cg,
+                    2 => ProcFormat::Matxin,
+                    3 => ProcFormat::Binary,
+                    _ => ProcFormat::Apertium,
+                };
             }
-            't' => trace = true,
+            't' => proc.trace = true,
             'r' => {
                 // single_rule = optarg (strdup). For the long `--rule` no_argument
                 // form optarg is NULL → empty; the short `-r X` supplies it.
-                single_rule = optarg.clone().unwrap_or_default();
+                proc.rule = optarg.clone();
             }
             's' => {
                 // BUG (reproduced): for `--sections` (long, no_argument) optarg is
                 // NULL → atoi(NULL) is UB. The short `-s N` supplies a value.
-                sections = atoi(optarg.as_deref());
+                proc.sections = u32::try_from(atoi(optarg.as_deref())).ok();
             }
-            'n' => print_word_forms = false,
-            'g' => {
-                delimit_lexical_units = false;
-                surface_readings = true;
-            }
-            '1' => only_first = true,
-            'w' => wordform_case = true,
+            'n' => proc.no_word_forms = true,
+            'g' => proc.generation = true,
+            '1' => proc.first = true,
+            'w' => proc.wordform_case = true,
             'v' => {
                 emit(std::io::stdout(), &divvun_version("Disambiguator"));
                 // C++ exit(EXIT_SUCCESS) — returned to the wrapper in src/bin,
@@ -412,96 +404,23 @@ pub fn main_proc(args: &[String]) -> i32 {
     let output_path: Option<&String> = args.get(optind + 2);
 
     let grammar = match load_grammar(grammar_path, head) {
-        Ok(g) => g,
+        Ok(g) => CompiledGrammar::from(g),
         Err(code) => return code,
     };
 
     merge_grammar_options(
         &mut options,
-        &grammar.cmdargs,
-        &grammar.cmdargs_override,
+        &grammar.core().cmdargs,
+        &grammar.core().cmdargs_override,
         Some(&options_override),
     );
 
-    // Build the applicator for the chosen stream format over the loaded grammar,
-    // now shared and immutable; set_grammar() then seeds the begin/end/subst
-    // tags.
-    let grammar = Grammar::from_core(std::sync::Arc::new(grammar));
-    enum Applicator {
-        Base(GrammarApplicator),
-        Apertium(ApertiumApplicator),
-        Matxin(MatxinApplicator),
-        /// The binary applicator borrows the base for the run (wave 4), so the
-        /// enum holds the base and the wrapper is built at the run site.
-        Binary(GrammarApplicator),
-    }
-
-    let mut app = if stream_format == 0 {
-        Applicator::Base(GrammarApplicator::new(grammar))
-    } else if stream_format == 2 {
-        let base = GrammarApplicator::new(grammar);
-        let mut m = MatxinApplicator::new(base);
-        m.set_null_flush(true);
-        m.wordform_case = wordform_case;
-        m.print_word_forms = print_word_forms;
-        m.print_only_first = only_first;
-        Applicator::Matxin(m)
-    } else if stream_format == 3 {
-        Applicator::Binary(GrammarApplicator::new(grammar))
-    } else {
-        let base = GrammarApplicator::new(grammar);
-        let mut a = ApertiumApplicator::new(base);
-        a.wordform_case = wordform_case;
-        a.print_word_forms = print_word_forms;
-        a.print_only_first = only_first;
-        a.delimit_lexical_units = delimit_lexical_units;
-        a.surface_readings = surface_readings;
-        Applicator::Apertium(a)
-    };
-
+    // [spec:cg3:req:embed.proc]
     // applicator->setGrammar(&grammar); setOptions(); sections; trace; unicode_tags; unique_tags.
-    let base: &mut GrammarApplicator = match &mut app {
-        Applicator::Base(b) => b,
-        Applicator::Apertium(a) => &mut a.base,
-        Applicator::Matxin(m) => &mut m.base,
-        Applicator::Binary(b) => b,
+    let run = match grammar.prepare_proc(&proc, &options, input_path.cloned()) {
+        Ok(run) => run,
+        Err(e) => return fail(&e),
     };
-    if let Err(e) = base.set_grammar() {
-        return fail(&e);
-    }
-    // setOptions() (C++ default conv=nullptr) reads the `options` table.
-    if let Err(e) = base.set_options(&options) {
-        return fail(&e);
-    }
-    // [spec:cg3:req:robustness.allocation-bounded]
-    // DIVERGENCE: sections past the grammar's own select nothing, so `-s`
-    // expands only as far as the grammar goes; the C++ pushes every number.
-    let last = i32::try_from(base.grammar.sections.len()).unwrap_or(i32::MAX);
-    for i in 1..=sections.min(last.max(1)) {
-        base.cfg.sections.push(i as u32);
-    }
-    base.cfg.trace = trace;
-    base.cfg.unicode_tags = true;
-    base.cfg.unique_tags = false;
-    // [spec:cg3:req:diagnostics.runtime-input-named]
-    // `argv[optind+1]` when one was given; otherwise the run really is reading
-    // stdin, and a diagnostic should say so rather than claim a name.
-    base.cfg.input_name = input_path
-        .cloned()
-        .unwrap_or_else(|| cg3::grammar_applicator::STDIN_SOURCE_NAME.to_string());
-
-    // -r single rule: match rule name and push its number into valid_rules.
-    if !single_rule.is_empty() {
-        let n = base.grammar.rule_by_number.capacity();
-        for i in 0..n {
-            if let Some(rule) = base.grammar.rule_by_number.try_get(i)
-                && rule.name == single_rule
-            {
-                let number = rule.number;
-                base.cfg.valid_rules.insert_sorted(number);
-            }
-        }
-    }
 
     // Input stream. Files are slurped into a seekable Cursor. Stdin must stay
     // STREAMING (the C++ reads std::cin incrementally; null-flush clients expect
@@ -525,17 +444,7 @@ pub fn main_proc(args: &[String]) -> i32 {
     };
 
     // try { switch (cmd) { case 'd': default: runGrammarOnText(...); } }
-    let run_result = match app {
-        Applicator::Apertium(mut a) => a.run_grammar_on_text(&mut cursor, &mut out),
-        Applicator::Matxin(mut m) => m.run_grammar_on_text(&mut cursor, &mut out),
-        Applicator::Base(mut b) => b.run_grammar_on_text(&mut cursor, &mut out),
-        Applicator::Binary(mut b) => {
-            // Most-derived object is the BinaryApplicator: binary print vtable.
-            let mut fmt = cg3::binary_applicator::BinaryFormat::default();
-            BinaryApplicator::new(&mut b).run_grammar_on_text(&mut fmt, &mut cursor, &mut out)
-        }
-    };
-    if let Err(e) = run_result {
+    if let Err(e) = run.run(&mut cursor, &mut out) {
         return fail(&e);
     }
 

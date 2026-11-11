@@ -426,3 +426,108 @@ fn cg_mwesplit_writes_what_mwesplit_returns() {
     }
     assert!(inputs > 50, "only {inputs} corpus inputs");
 }
+
+/// cg-proc writes what `CompiledGrammar::proc` returns for the same grammar,
+/// input and options, in each stream format.
+// [spec:cg3:req:embed.proc/test]
+#[test]
+fn cg_proc_writes_what_proc_returns() {
+    use cg3::embed::{ProcFormat, ProcOptions};
+    let o = ProcOptions::default;
+    let apertium: Vec<(&[&str], ProcOptions)> = vec![
+        (&[], o()),
+        (
+            &["-t", "-w"],
+            ProcOptions {
+                trace: true,
+                wordform_case: true,
+                ..o()
+            },
+        ),
+        (
+            &["-n", "-1"],
+            ProcOptions {
+                no_word_forms: true,
+                first: true,
+                ..o()
+            },
+        ),
+        (
+            &["--generation"],
+            ProcOptions {
+                generation: true,
+                ..o()
+            },
+        ),
+        (
+            &["-s", "1", "-r", "r1"],
+            ProcOptions {
+                sections: Some(1),
+                rule: Some("r1".into()),
+                ..o()
+            },
+        ),
+        (
+            &["-f", "2"],
+            ProcOptions {
+                stream_format: ProcFormat::Matxin,
+                ..o()
+            },
+        ),
+    ];
+    let cg: Vec<(&[&str], ProcOptions)> = vec![
+        (
+            &["-f", "0"],
+            ProcOptions {
+                stream_format: ProcFormat::Cg,
+                ..o()
+            },
+        ),
+        (
+            &["-f", "0", "-t", "-s", "2"],
+            ProcOptions {
+                stream_format: ProcFormat::Cg,
+                trace: true,
+                sections: Some(2),
+                ..o()
+            },
+        ),
+    ];
+    let root = common::repo_root().join("test");
+    for (dir, cases) in [
+        ("Apertium/T_Select", &apertium),
+        ("Apertium/T_MultiWords", &apertium),
+        ("Apertium/T_Sections", &apertium),
+        ("T_Sections", &cg),
+        ("T_Dependency", &cg),
+    ] {
+        let path = root.join(dir).join("grammar.cg3");
+        let grammar = CompiledGrammar::from_text(
+            &std::fs::read(&path).unwrap(),
+            path.to_str().unwrap(),
+            FileResolver,
+        )
+        .unwrap();
+        let cg3b = scratch(&path, "proc.cg3b");
+        std::fs::write(&cg3b, grammar.to_cg3b().unwrap()).unwrap();
+        let input = std::fs::read(root.join(dir).join("input.txt")).unwrap();
+        for (args, options) in cases {
+            let mut argv = args.to_vec();
+            argv.push(cg3b.to_str().unwrap());
+            let out = common::run_output(
+                env!("CARGO_BIN_EXE_cg-proc"),
+                &argv,
+                &root,
+                &input,
+                Stdio::null(),
+            );
+            let expected = grammar.proc(&input, options).map_err(|e| e.to_string());
+            assert_eq!(out.status.success(), expected.is_ok(), "{dir} {args:?}");
+            assert!(
+                expected.is_err() || out.stdout == expected.unwrap(),
+                "{dir} {args:?}"
+            );
+        }
+        let _ = std::fs::remove_file(cg3b);
+    }
+}

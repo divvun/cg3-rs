@@ -24,7 +24,7 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
-use std::io::Write;
+use std::io::{Read, Seek, Write};
 use std::sync::Arc;
 
 use crate::binary_grammar::BinaryGrammar;
@@ -365,6 +365,114 @@ pub fn mwesplit_into<W: Write>(input: &[u8], output: &mut W) -> Result<(), Cg3Er
     applicator.run_grammar_on_text(&mut std::io::Cursor::new(input), output)
 }
 
+/// A stream format cg-proc reads and writes, as its `--stream-format` numbers
+/// them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProcFormat {
+    Cg = 0,
+    /// Also what cg-proc takes any number it does not know as.
+    #[default]
+    Apertium = 1,
+    Matxin = 2,
+    Binary = 3,
+}
+
+// [spec:cg3:req:embed.proc]
+/// cg-proc's options, one field per option that changes what it writes, named
+/// after its long form. A flag left `false`, or a value left `None`, is that
+/// option left off cg-proc's command line.
+#[derive(Clone, Debug, Default)]
+pub struct ProcOptions {
+    pub stream_format: ProcFormat,
+    /// `--sections`: run only the first this many sections.
+    pub sections: Option<u32>,
+    /// `--rule`: run only the rules of this name.
+    pub rule: Option<String>,
+    pub trace: bool,
+    /// `--wordform-case`: give each baseform the case of its wordform.
+    pub wordform_case: bool,
+    /// `--no-word-forms`: print no cohort's wordform.
+    pub no_word_forms: bool,
+    /// `--generation`: no `^`/`$` around lexical units, and readings as
+    /// surface forms.
+    pub generation: bool,
+    /// `--first`: print only the first of the readings left.
+    pub first: bool,
+}
+
+/// The applicator cg-proc runs for a stream format.
+enum ProcApplicator {
+    Base(GrammarApplicator),
+    Apertium(crate::apertium_applicator::ApertiumApplicator),
+    Matxin(crate::matxin_applicator::MatxinApplicator),
+    /// The binary applicator borrows its base for the run, so the base waits
+    /// here and the applicator is built when the run starts.
+    Binary(GrammarApplicator),
+}
+
+impl ProcApplicator {
+    fn new(grammar: Grammar, options: &ProcOptions) -> ProcApplicator {
+        let base = GrammarApplicator::new(grammar);
+        match options.stream_format {
+            ProcFormat::Cg => ProcApplicator::Base(base),
+            ProcFormat::Binary => ProcApplicator::Binary(base),
+            ProcFormat::Matxin => {
+                let mut m = crate::matxin_applicator::MatxinApplicator::new(base);
+                m.set_null_flush(true);
+                m.wordform_case = options.wordform_case;
+                m.print_word_forms = !options.no_word_forms;
+                m.print_only_first = options.first;
+                ProcApplicator::Matxin(m)
+            }
+            ProcFormat::Apertium => {
+                let mut a = crate::apertium_applicator::ApertiumApplicator::new(base);
+                a.wordform_case = options.wordform_case;
+                a.print_word_forms = !options.no_word_forms;
+                a.print_only_first = options.first;
+                a.delimit_lexical_units = !options.generation;
+                a.surface_readings = options.generation;
+                ProcApplicator::Apertium(a)
+            }
+        }
+    }
+
+    fn base(&mut self) -> &mut GrammarApplicator {
+        match self {
+            ProcApplicator::Base(b) | ProcApplicator::Binary(b) => b,
+            ProcApplicator::Apertium(a) => &mut a.base,
+            ProcApplicator::Matxin(m) => &mut m.base,
+        }
+    }
+}
+
+// [spec:cg3:req:embed.proc]
+/// A cg-proc run set up over a grammar and its options, waiting for its input.
+pub struct PreparedProc {
+    applicator: ProcApplicator,
+}
+
+impl PreparedProc {
+    // [spec:cg3:req:embed.proc]
+    /// Runs on one input, reading it and writing the output as it goes, so a
+    /// client that flushes on `\0` gets each answer while its stream is open.
+    pub fn run<R: Read + Seek, W: Write>(
+        self,
+        input: &mut R,
+        output: &mut W,
+    ) -> Result<(), Cg3Error> {
+        match self.applicator {
+            ProcApplicator::Apertium(mut a) => a.run_grammar_on_text(input, output),
+            ProcApplicator::Matxin(mut m) => m.run_grammar_on_text(input, output),
+            ProcApplicator::Base(mut b) => b.run_grammar_on_text(input, output),
+            ProcApplicator::Binary(mut b) => {
+                let mut fmt = crate::binary_applicator::BinaryFormat::default();
+                crate::binary_applicator::BinaryApplicator::new(&mut b)
+                    .run_grammar_on_text(&mut fmt, input, output)
+            }
+        }
+    }
+}
+
 /// What a run is given beside its options.
 #[derive(Default)]
 pub struct RunContext {
@@ -493,6 +601,66 @@ impl CompiledGrammar {
         self.prepare(&table, RunContext::default())?
             .run(input, &mut output)?;
         Ok(output)
+    }
+
+    // [spec:cg3:req:embed.proc]
+    /// What cg-proc writes for `input` under `options`, with the options the
+    /// grammar carries merged as cg-proc merges them.
+    pub fn proc(&self, input: &[u8], options: &ProcOptions) -> Result<Vec<u8>, Cg3Error> {
+        let mut table = crate::options::options();
+        crate::options_parser::merge_grammar_options(
+            &mut table,
+            &self.core.cmdargs,
+            &self.core.cmdargs_override,
+            None,
+        );
+        let mut output = Vec::new();
+        self.prepare_proc(options, &table, None)?
+            .run(&mut std::io::Cursor::new(input), &mut output)?;
+        Ok(output)
+    }
+
+    // [spec:cg3:req:embed.proc]
+    /// Sets a cg-proc run up as cg-proc does, from `options` and an option
+    /// table that has already been merged: [`proc`](Self::proc) is made of
+    /// this and [`PreparedProc::run`], and cg-proc calls them with the table it
+    /// merged with its environment. `input_name` is what runtime errors call
+    /// the input; `None` is a stream with no file behind it.
+    pub fn prepare_proc(
+        &self,
+        options: &ProcOptions,
+        table: &OptionsTable,
+        input_name: Option<String>,
+    ) -> Result<PreparedProc, Cg3Error> {
+        let mut applicator =
+            ProcApplicator::new(Grammar::from_core(Arc::clone(&self.core)), options);
+        let base = applicator.base();
+        base.set_grammar()?;
+        base.set_options(table)?;
+        // [spec:cg3:req:robustness.allocation-bounded]
+        // DIVERGENCE: sections past the grammar's own select nothing, so
+        // `--sections` expands only as far as the grammar goes; the C++ pushes
+        // every number.
+        let last = u32::try_from(base.grammar.sections.len()).unwrap_or(u32::MAX);
+        for i in 1..=options.sections.unwrap_or(0).min(last.max(1)) {
+            base.cfg.sections.push(i);
+        }
+        base.cfg.trace = options.trace;
+        base.cfg.unicode_tags = true;
+        base.cfg.unique_tags = false;
+        // [spec:cg3:req:diagnostics.runtime-input-named]
+        base.cfg.input_name = input_name.unwrap_or_else(|| STDIN_SOURCE_NAME.to_string());
+        if let Some(rule) = options.rule.as_deref().filter(|r| !r.is_empty()) {
+            for i in 0..base.grammar.rule_by_number.capacity() {
+                if let Some(r) = base.grammar.rule_by_number.try_get(i)
+                    && *r.name == *rule
+                {
+                    let number = r.number;
+                    base.cfg.valid_rules.insert_sorted(number);
+                }
+            }
+        }
+        Ok(PreparedProc { applicator })
     }
 
     // [spec:cg3:req:embed.cli-runs-through+1]

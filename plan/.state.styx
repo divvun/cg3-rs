@@ -960,4 +960,9 @@ impl_evidence (
     ), covered_claims (
         {impl_name target-impl, rule embed.mwesplit}
     )}
+    {id tool-surface.proc, covered_rules (
+        embed.proc
+    ), covered_claims (
+        {impl_name target-impl, rule embed.proc}
+    )}
 )

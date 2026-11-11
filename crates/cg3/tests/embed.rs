@@ -520,3 +520,40 @@ fn mwesplit_splits_the_corpus_multiwords() {
     let expected = std::fs::read_to_string(corpus("T_MweSplit").join("expected.txt")).unwrap();
     assert!(same_output(&expected, &String::from_utf8(got).unwrap()));
 }
+
+/// Every Apertium corpus grammar run through `CompiledGrammar::proc` gives the
+/// output its expectations say cg-proc gives, T_Generate in generation mode.
+// [spec:cg3:req:embed.proc/test]
+#[test]
+fn proc_runs_the_apertium_corpus_as_cg_proc() {
+    use cg3::embed::ProcOptions;
+    let root = corpus("Apertium");
+    let mut ran = 0;
+    for dir in std::fs::read_dir(&root).unwrap() {
+        let dir = dir.unwrap().path();
+        let Ok(source) = std::fs::read(dir.join("grammar.cg3")) else {
+            continue;
+        };
+        let generate = dir.ends_with("T_Generate");
+        let options = ProcOptions {
+            generation: generate,
+            first: generate,
+            no_word_forms: generate,
+            ..Default::default()
+        };
+        let path = dir.join("grammar.cg3");
+        let grammar =
+            CompiledGrammar::from_text(&source, path.to_str().unwrap(), FileResolver).unwrap();
+        let got = grammar
+            .proc(&std::fs::read(dir.join("input.txt")).unwrap(), &options)
+            .unwrap();
+        let expected = std::fs::read_to_string(dir.join("expected.txt")).unwrap();
+        assert!(
+            same_output(&expected, &String::from_utf8(got).unwrap()),
+            "{}",
+            dir.display()
+        );
+        ran += 1;
+    }
+    assert!(ran > 30, "only {ran} Apertium grammars");
+}
