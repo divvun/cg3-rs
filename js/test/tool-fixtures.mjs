@@ -10,10 +10,19 @@
 // test), jsonl_corpus.rs (cg-conv over T_Jsonl), and the cg-conv and cg-proc
 // cases of applicators.rs and tools_cli.rs. A tool reads each on its standard
 // input, as those tests feed it.
+//
+// The Python package's tool parity check (python/tests/test_tool_parity.py)
+// reads the same fixtures, written by running this module:
+//
+//   node js/test/tool-fixtures.mjs <out>
+//
+// with the tools in the directory CG3_BIN names, or else in the debug build
+// cargo makes of them.
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, normalize, relative } from "node:path";
+import { dirname, join, normalize, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const camel = (long) => long.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
 
@@ -450,4 +459,17 @@ export function buildToolFixtures(bin, corpus, out) {
 
   writeFileSync(join(out, "tools.json"), `${JSON.stringify({ compile, tools }, null, 1)}\n`);
   return compile.length + tools.length;
+}
+
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const out = process.argv[2];
+  if (out === undefined) throw new Error("usage: node js/test/tool-fixtures.mjs <out>");
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  let bin = process.env.CG3_BIN;
+  if (!bin) {
+    execFileSync("cargo", ["build", "-p", "cg3-cli"], { cwd: root, stdio: ["ignore", "inherit", "inherit"] });
+    bin = join(root, "target", "debug");
+  }
+  const count = buildToolFixtures(resolve(bin), join(root, "test"), resolve(out));
+  console.log(`tool fixtures: ${count} cases in ${out}`);
 }

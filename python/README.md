@@ -200,10 +200,19 @@ Whatever the logging setup, `apply` still returns its run's warnings.
 
 The suite runs every grammar of cg3-rs's golden corpus through the built
 package twice, loaded from its textual source and from the `.cg3b` `cg-comp`
-writes for it, and compares each output with `vislcg3`'s byte for byte. 67 of
-the 69 tests match both ways, the `EXTERNAL` rule's included. Two are exempt,
-because they pass an option the package does not offer (`--nrules`,
-`--vislcg-compat`); none differ.
+writes for it, and compares each output with `vislcg3`'s byte for byte. All 69
+tests match both ways, the `EXTERNAL` rule's included, with the options their
+command lines give read as a `LoadOptions` and a `RunOptions`; none is exempt.
+
+It holds the package to the other tools the same way. Every corpus grammar,
+loaded from disk and from memory, writes the `.cg3b` and companion file
+`cg-comp` writes for it, and its `to_text` is what `vislcg3 --grammar-out`
+writes. Every input cg3-rs's tests give `cg-conv`, `cg-mwesplit`, `cg-proc`
+and `cg-relabel` gives the tool's bytes through `convert`, `mwesplit`,
+`proc` and `relabel`, with the tool's command line read into a
+`ConvertOptions` or `ProcOptions`: 255 cases, the JavaScript package's, which
+`js/test/tool-fixtures.mjs` lists. Four are exempt, because they ask `cg-conv`
+for the binary stream; none differ.
 
 ## Types
 
@@ -226,7 +235,9 @@ uv run --no-sync maturin build --release
 ```
 
 The tests build the cg3 tools and the program the corpus's `EXTERNAL` rule
-runs with cargo, or take them from the directory `CG3_BIN` names. They
+runs with cargo, or take them from the directory `CG3_BIN` names. The tool
+parity check writes its fixtures with `node js/test/tool-fixtures.mjs`, or
+reads the directory `CG3_TOOL_FIXTURES` names, which that command wrote. They
 check the wheel `CG3_WHEEL` names, or build one.
 
 The package's version is the one `crates/cg3-python/Cargo.toml` carries. A

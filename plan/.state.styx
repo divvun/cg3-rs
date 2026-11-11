@@ -1018,4 +1018,11 @@ impl_evidence (
         {impl_name target-impl, rule python.tools}
         {impl_name target-impl, rule python.write}
     )}
+    {id tool-surface.python-parity, covered_rules (
+        python.tools-parity
+        python.write-parity
+    ), covered_claims (
+        {impl_name target-impl, rule python.tools-parity}
+        {impl_name target-impl, rule python.write-parity}
+    )}
 )

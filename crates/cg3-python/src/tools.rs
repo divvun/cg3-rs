@@ -9,6 +9,10 @@ use crate::log;
 use crate::options;
 
 // [spec:cg3:req:python.tools]
+// [spec:cg3:req:python.tools-parity]
+// The input and options reach `cg3::convert`, which cg-conv converts through,
+// unchanged, and the output comes back as it wrote it;
+// python/tests/test_tool_parity.py checks the bytes are cg-conv's.
 /// Converts `input` from one stream format to another, as cg-conv does, with
 /// the options a ConvertOptions gives, and returns what cg-conv writes. A
 /// conversion that fails raises RunError.
@@ -26,6 +30,7 @@ pub fn convert(
 }
 
 // [spec:cg3:req:python.tools]
+// [spec:cg3:req:python.tools-parity]
 /// Splits each cohort whose wordform tags give its words into one cohort per
 /// word, as cg-mwesplit does, and returns what cg-mwesplit writes. A split
 /// that fails raises RunError.

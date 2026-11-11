@@ -134,6 +134,11 @@ impl Grammar {
     }
 
     // [spec:cg3:req:python.tools]
+    // [spec:cg3:req:python.tools-parity]
+    // The input and options reach `CompiledGrammar::proc`, which cg-proc runs
+    // through, unchanged, and the output comes back as it wrote it, so a run
+    // gives what cg-proc gives; python/tests/test_tool_parity.py checks that
+    // over every case the repository's tests give cg-proc.
     /// Runs the grammar on `input` as cg-proc does, with the options a
     /// ProcOptions gives, and returns what cg-proc writes. The options the
     /// grammar sets with CMDARGS apply as they do in cg-proc. A run that fails
@@ -153,6 +158,10 @@ impl Grammar {
     }
 
     // [spec:cg3:req:python.tools]
+    // [spec:cg3:req:python.tools-parity]
+    // cg-relabel relabels through `CompiledGrammar::relabel` and writes through
+    // `to_cg3b`, so the relabelled grammar's `.cg3b` is cg-relabel's;
+    // python/tests/test_tool_parity.py checks that.
     /// The grammar cg-relabel makes of this one and the relabel rules in
     /// `relabels`, as a new grammar; both are left as they were. cg-relabel
     /// relabels a `.cg3b`, so a grammar loaded from text is relabelled as the
@@ -168,6 +177,9 @@ impl Grammar {
     }
 
     // [spec:cg3:req:python.write]
+    // [spec:cg3:req:python.write-parity]
+    // cg-comp and vislcg3 write through the same writers, so the bytes are
+    // theirs; python/tests/test_write_parity.py checks that over the corpus.
     /// The `.cg3b` holding the grammar: what cg-comp writes for a grammar
     /// loaded from text, and vislcg3 --grammar-bin for one loaded from a
     /// `.cg3b`. The grammar is left as it was.
@@ -178,6 +190,7 @@ impl Grammar {
     }
 
     // [spec:cg3:req:python.write]
+    // [spec:cg3:req:python.write-parity]
     /// The grammar as text, as vislcg3 --grammar-out writes it. The grammar
     /// is left as it was.
     fn to_text(&self, py: Python<'_>) -> PyResult<String> {
@@ -186,6 +199,7 @@ impl Grammar {
     }
 
     // [spec:cg3:req:python.write]
+    // [spec:cg3:req:python.write-parity]
     /// Writes the `.cg3b` to_cg3b returns to the file at `path`, and, as
     /// cg-comp does, the companion file beside it, at `path` with `.cg3src`
     /// added, which holds the grammar's sources so that a runtime error can

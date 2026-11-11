@@ -4241,6 +4241,14 @@ children (
                     target-impl ([spec:cg3:req:python.write-parity] [spec:cg3:req:python.tools-parity])
                 }
                 deps (tool-surface.python)
+                log (
+                    {
+                        at 2026-11-11T16:23:41.936161Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {
