@@ -4,7 +4,7 @@ import { FakeGlue } from "../test/fake-glue.ts";
 import { assert, assertEqual, runTests, test, thrownCode } from "../test/harness.ts";
 import { Core } from "./core.ts";
 import { Cg3Error } from "./errors.ts";
-import { type ApplyOptions, grammarReader } from "./grammar.ts";
+import { type ApplyOptions, grammarReader, type LoadOptions } from "./grammar.ts";
 
 async function started() {
   const glue = new FakeGlue();
@@ -36,6 +36,25 @@ test("bytes the module refuses throw invalid-grammar, and bytes that are not a U
   for (const notBytes of [[1, 2, 3], "grammar", new ArrayBuffer(3), null]) {
     const code = thrownCode(Cg3Error, () => readGrammar(notBytes as unknown as Uint8Array));
     assertEqual(code, "invalid-argument", String(notBytes));
+  }
+  assertEqual(glue.entered, before, "calls into the module");
+});
+
+// [spec:cg3:req:wasm.load-options/test]
+test("readGrammar sends its load options as JSON, and refuses options that are not an object", async () => {
+  const { glue, readGrammar } = await started();
+  const options: LoadOptions = { nrules: "pick", nrulesV: "X", vislcgCompat: true, prefix: "%" };
+  readGrammar(new Uint8Array([1]), options);
+  readGrammar(new Uint8Array([1]));
+  assertEqual(
+    glue.loads.join("; "),
+    '{"nrules":"pick","nrulesV":"X","vislcgCompat":true,"prefix":"%"}; {}',
+    "loads",
+  );
+  const before = glue.entered;
+  for (const notOptions of [null, [], "nrules"]) {
+    const code = thrownCode(Cg3Error, () => readGrammar(new Uint8Array([1]), notOptions as unknown as LoadOptions));
+    assertEqual(code, "invalid-argument", String(notOptions));
   }
   assertEqual(glue.entered, before, "calls into the module");
 });

@@ -17,7 +17,7 @@ mod test_hooks;
 pub use error::{ErrorCode, GlueError};
 pub use grammar::{Applied, Grammar, apply, read_grammar};
 pub use log::set_level;
-pub use options::{ApplyOptions, FlagOrValue, JsFormat, parse_options};
+pub use options::{ApplyOptions, FlagOrValue, JsFormat, parse_load_options, parse_options};
 pub use sink::install;
 #[cfg(feature = "test-hooks")]
 pub use test_hooks::{TestObject, test_log, test_panic};

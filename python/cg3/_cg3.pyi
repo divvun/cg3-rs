@@ -6,7 +6,7 @@ package re-exports. Every public name is declared here, and nothing uses Any.
 from os import PathLike
 from typing import ClassVar, Final, Literal, TypeAlias, final
 
-from cg3._options import RunOptions
+from cg3._options import LoadOptions, RunOptions
 
 __version__: Final[str]
 
@@ -71,20 +71,29 @@ class Grammar:
         every warning and non-fatal error the run logged. A run that fails
         raises RunError, and the grammar stays usable."""
 
-def read_grammar(data: bytes | bytearray) -> Grammar:
+def read_grammar(data: bytes | bytearray, *, options: LoadOptions | None = None) -> Grammar:
     """Loads a compiled grammar from the bytes of a `.cg3b`, as cg-comp writes
-    it. Bytes that are not one raise GrammarError."""
+    it, under the load options a LoadOptions gives. Bytes that are not one
+    raise GrammarError."""
 
-def parse_grammar(source: str, name: str | None = None) -> Grammar:
+def parse_grammar(
+    source: str, name: str | None = None, *, options: LoadOptions | None = None
+) -> Grammar:
     """Parses a textual grammar from `source`, calling it `name` in its
-    diagnostics. A relative INCLUDE resolves against the directory of the file
-    `name` names, or the current directory without one. A grammar that does
-    not parse raises GrammarError, quoting every error."""
+    diagnostics, under the load options a LoadOptions gives. A relative
+    INCLUDE resolves against the directory of the file `name` names, or the
+    current directory without one. A grammar that does not parse raises
+    GrammarError, quoting every error."""
 
-def load_grammar(path: str | PathLike[str]) -> Grammar:
+def load_grammar(path: str | PathLike[str], *, options: LoadOptions | None = None) -> Grammar:
     """Loads the grammar in the file at `path`: compiled when it begins with
     the `.cg3b` magic, as vislcg3 decides, and textual otherwise, with relative
-    INCLUDEs resolved against its directory."""
+    INCLUDEs resolved against its directory, under the load options a
+    LoadOptions gives."""
+
+def _check_load_options(options: LoadOptions) -> None:
+    """Checks a LoadOptions as it is made, raising what a load reading its
+    fields would raise."""
 
 def _check_run_options(options: RunOptions) -> None:
     """Checks a RunOptions as it is made, raising what a run reading its

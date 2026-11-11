@@ -512,7 +512,16 @@ impl_evidence (
         {id tag-regex.silent-divergence, version 0}
         {id tag-regex.single-seam, version 1}
     )}
-    {id idioms.load-options}
+    {id idioms.load-options, covered_rules (
+        embed.load-options
+        python.load-options
+        wasm.load-options
+    ), covered_claims (
+        {impl_name js-impl, rule wasm.load-options}
+        {impl_name target-impl, rule embed.load-options}
+        {impl_name target-impl, rule python.load-options}
+        {impl_name target-impl, rule wasm.load-options}
+    )}
     {id issue-2-main-rule-repin, covered_rules (
         main.main-fn
     ), covered_claims (

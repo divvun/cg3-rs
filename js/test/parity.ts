@@ -7,7 +7,7 @@
 // parity-browser.ts in a browser, on a page and in a Web Worker.
 
 import type * as Cg3 from "../cg3/index.ts";
-import type { ApplyOptions } from "../cg3/index.ts";
+import type { ApplyOptions, LoadOptions } from "../cg3/index.ts";
 
 type Package = typeof Cg3;
 
@@ -25,7 +25,7 @@ export type ReadBytes = (url: string) => Promise<Uint8Array>;
 type Fixture =
   | { name: string; exempt: string }
   | { name: string; args: string[]; compileError: string }
-  | { name: string; args: string[]; options: ApplyOptions; nativeFailed: boolean };
+  | { name: string; args: string[]; options: ApplyOptions; load: LoadOptions; nativeFailed: boolean };
 
 /** Every corpus test by outcome, each as its name and what happened. */
 export interface ParityResult {
@@ -55,6 +55,7 @@ function thrown(f: () => void): unknown {
 }
 
 // [spec:cg3:req:wasm.parity+2/test]
+// [spec:cg3:req:wasm.load-options/test]
 /**
  * Starts the package at `args.module` from the `.wasm` file beside it, as a
  * caller who passes init nothing does, and runs every corpus test in
@@ -85,7 +86,7 @@ export async function runParity(args: ParityArgs, read: ReadBytes): Promise<Pari
     if (bytes === undefined || input === undefined || expected === undefined) throw new Error(`${name}: missing fixtures`);
     const ran: { output?: string } = {};
     const failure = thrown(() => {
-      const grammar = pkg.readGrammar(bytes);
+      const grammar = pkg.readGrammar(bytes, test.load);
       try {
         ran.output = grammar.apply(new TextDecoder().decode(input), test.options).output;
       } finally {

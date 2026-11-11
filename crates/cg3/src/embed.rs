@@ -3,7 +3,8 @@
 //!
 //! [`CompiledGrammar::from_cg3b`] loads a `.cg3b` from bytes into a core that
 //! every run of it shares, and [`CompiledGrammar::from_text`] parses a textual
-//! grammar into one; [`CompiledGrammar::run`] runs it on one input, from
+//! grammar into one, each under the [`LoadOptions`] vislcg3 applies while it
+//! loads a grammar; [`CompiledGrammar::run`] runs it on one input, from
 //! bytes to bytes, as vislcg3 runs it on one standard input. The typed
 //! [`RunOptions`] are turned into vislcg3's option table and merged with the
 //! options the grammar carries in `CMDARGS` and `CMDARGS-OVERRIDE`, so a run
@@ -14,10 +15,11 @@
 //! grammar out as cg-comp and vislcg3 do, and leave it as it was.
 //!
 //! ```
-//! use cg3::embed::{CompiledGrammar, RunOptions};
+//! use cg3::embed::{CompiledGrammar, LoadOptions, RunOptions};
 //! # use cg3::embed::FileResolver;
-//! # let cg3b = CompiledGrammar::from_text(b"DELIMITERS = \"<.>\" ; SELECT (n) ;", "n.cg3", FileResolver)?.to_cg3b()?;
-//! let grammar = CompiledGrammar::from_cg3b(&cg3b)?;
+//! # let text = b"DELIMITERS = \"<.>\" ; SELECT (n) ;";
+//! # let cg3b = CompiledGrammar::from_text(text, "n.cg3", FileResolver, &LoadOptions::default())?.to_cg3b()?;
+//! let grammar = CompiledGrammar::from_cg3b(&cg3b, &LoadOptions::default())?;
 //! let input = b"\"<word>\"\n\t\"word\" n\n\t\"word\" v\n";
 //! let output = grammar.run(input, &RunOptions::default())?;
 //! assert_eq!(String::from_utf8(output)?, "\"<word>\"\n\t\"word\" n\n");
@@ -28,13 +30,15 @@ use std::io::{Read, Seek, Write};
 use std::sync::Arc;
 
 use crate::binary_grammar::BinaryGrammar;
-use crate::error::Cg3Error;
+use crate::error::{Cg3Error, GrammarError};
 use crate::format_converter::FormatConverter;
-use crate::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered};
+use crate::grammar::{Grammar, GrammarCore, GrammarDraft, GrammarNumbered, Phase};
 use crate::grammar_applicator::{GrammarApplicator, STDIN_SOURCE_NAME, StreamFormatKind};
 use crate::grammar_writer::GrammarWriter;
+use crate::igrammar_parser::IGrammarParser;
 use crate::options::{Opt, OptionsTable};
 use crate::profiler::Profiler;
+use crate::tag_regex::{TagRegex, compile_tag_regex};
 use crate::textual_parser::TextualParser;
 pub use crate::textual_parser::includes::{
     FileResolver, IncludeResolver, Included, MemoryResolver, UnreadableInclude,
@@ -60,6 +64,96 @@ pub struct GrammarInfo {
     pub rules_any: usize,
     pub has_dependency_rules: bool,
     pub has_relation_rules: bool,
+}
+
+// [spec:cg3:req:embed.load-options]
+/// The options vislcg3 applies to a grammar while it loads it, one field per
+/// option, named after its long form. A flag left `false`, or a value left
+/// `None`, is that option left off vislcg3's command line.
+#[derive(Clone, Debug, Default)]
+pub struct LoadOptions {
+    /// `--nrules`: keep only the rules whose names this pattern matches.
+    pub nrules: Option<String>,
+    /// `--nrules-v`: leave out the rules whose names this pattern matches.
+    pub nrules_v: Option<String>,
+    /// `--vislcg-compat`: read a textual grammar as VISLCG2 did.
+    pub vislcg_compat: bool,
+    /// `--prefix`: the mapping prefix. A `.cg3b` must have been compiled with
+    /// the one it names.
+    pub prefix: Option<char>,
+}
+
+impl LoadOptions {
+    fn rule_filters(&self) -> Result<[Option<TagRegex>; 2], GrammarError> {
+        let compile = |pattern: &Option<String>, flag| {
+            pattern.as_deref().map(|p| rule_filter(p, flag)).transpose()
+        };
+        Ok([
+            compile(&self.nrules, "--nrules")?,
+            compile(&self.nrules_v, "--nrules-v")?,
+        ])
+    }
+
+    /// The vislcg3 option table `--prefix` is in, where the grammar's own
+    /// options are merged before it applies.
+    fn prefix_table(&self) -> OptionsTable {
+        let mut table = crate::options::options();
+        if let Some(prefix) = self.prefix {
+            let option = &mut table[Opt::MappingPrefix as usize];
+            option.does_occur = true;
+            option.value = prefix.to_string();
+        }
+        table
+    }
+}
+
+// [spec:cg3:req:embed.load-options]
+// [spec:cg3:req:tag-regex.single-seam+1]
+/// A `--nrules` or `--nrules-v` pattern, named by `flag`, compiled as vislcg3
+/// compiles it.
+///
+/// Through the tag-regex seam, not `regex::Regex::new`. The C++ compiled these
+/// with the same ICU regex engine as every tag pattern, so a filter and a
+/// grammar tag spelled identically meant identically. Compiling the filter with
+/// a different engine reintroduces exactly the divergences the seam exists to
+/// close, on a pattern the same person authored: no `\Q...\E`, ICU's `\Z`/`$`
+/// misread as end-of-haystack, `[:script=Greek:]` silently read as a literal
+/// character set, and possessive quantifiers taken as ordinary ones so the
+/// filter selects MORE rules than asked for.
+pub fn rule_filter(pattern: &str, flag: &'static str) -> Result<TagRegex, GrammarError> {
+    // Case-sensitive: the C++ compiles it with no flags.
+    compile_tag_regex(pattern, false).map_err(|source| GrammarError::RuleFilter {
+        flag,
+        pattern: pattern.to_string(),
+        source,
+    })
+}
+
+// [spec:cg3:req:embed.load-options]
+/// What vislcg3 does with a grammar between loading and finishing it, in
+/// either phase a loader returns: merges the options the grammar carries into
+/// `options`, as it merges them with its command line, and applies the
+/// `--prefix` either gives. A `.cg3b` keeps the prefix it was compiled with.
+pub fn merge_load_options<P: Phase>(
+    grammar: &mut GrammarCore<P>,
+    options: &mut OptionsTable,
+    already_forced: Option<&OptionsTable>,
+) -> Result<(), GrammarError> {
+    crate::options_parser::merge_grammar_options(
+        options,
+        &grammar.cmdargs,
+        &grammar.cmdargs_override,
+        already_forced,
+    );
+    let prefix = &options[Opt::MappingPrefix as usize];
+    if prefix.does_occur {
+        let prefix = prefix.value.chars().next().unwrap_or('@');
+        if grammar.is_binary && grammar.mapping_prefix != prefix {
+            return Err(GrammarError::PrefixMismatch);
+        }
+        grammar.mapping_prefix = prefix;
+    }
+    Ok(())
 }
 
 /// A stream format, as vislcg3's `--in-*` and `--out-*` options name them.
@@ -500,10 +594,16 @@ pub struct PreparedRun {
 }
 
 impl CompiledGrammar {
-    /// Loads a `.cg3b` and finishes it.
-    pub fn from_cg3b(bytes: &[u8]) -> Result<CompiledGrammar, Cg3Error> {
+    // [spec:cg3:req:embed.load-options]
+    /// Loads a `.cg3b` under `options` and finishes it.
+    pub fn from_cg3b(bytes: &[u8], options: &LoadOptions) -> Result<CompiledGrammar, Cg3Error> {
+        let [nrules, nrules_inv] = options.rule_filters()?;
         let mut parser = BinaryGrammar::new(GrammarNumbered::default());
+        parser.set_compatible(options.vislcg_compat);
+        parser.nrules = nrules;
+        parser.nrules_inv = nrules_inv;
         parser.parse_grammar_buffer(bytes)?;
+        merge_load_options(&mut parser.grammar, &mut options.prefix_table(), None)?;
         Ok(CompiledGrammar::from(parser.grammar.finish()?))
     }
 
@@ -518,15 +618,22 @@ impl CompiledGrammar {
     ///
     /// The grammar keeps the text of every source it parsed, so an error that
     /// quotes it at run time reads no file.
+    // [spec:cg3:req:embed.load-options]
     pub fn from_text(
         source: &[u8],
         name: &str,
         includes: impl IncludeResolver + 'static,
+        options: &LoadOptions,
     ) -> Result<CompiledGrammar, Cg3Error> {
+        let [nrules, nrules_inv] = options.rule_filters()?;
         let mut parser = TextualParser::new(GrammarDraft::default(), false);
+        parser.set_compatible(options.vislcg_compat);
+        parser.nrules = nrules;
+        parser.nrules_inv = nrules_inv;
         parser.include_resolver = Box::new(includes);
         parser.parse_grammar_named(source, name)?;
         parser.grammar.sources = parser.sources();
+        merge_load_options(&mut parser.grammar, &mut options.prefix_table(), None)?;
         Ok(CompiledGrammar::from(parser.grammar.finish()?))
     }
 

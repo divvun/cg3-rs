@@ -22,9 +22,9 @@ use cg3::grammar::{GrammarCore, GrammarDraft, GrammarNumbered, Phase};
 use cg3::igrammar_parser::IGrammarParser;
 use cg3::inlines::is_cg3b;
 use cg3::options::{Opt, OptionsTable, options, options_default, options_override};
-use cg3::options_parser::{merge_grammar_options, merge_options};
+use cg3::options_parser::merge_options;
 use cg3::profiler::Profiler;
-use cg3::tag_regex::{TagRegex, TagRegexError, compile_tag_regex};
+use cg3::tag_regex::TagRegex;
 use cg3::textual_parser::TextualParser;
 
 use super::{
@@ -32,50 +32,18 @@ use super::{
     parse_opts_env, to_argv,
 };
 
-/// A `--nrules` / `--nrules-v` pattern that would not compile.
-///
-/// The message keeps the C++ layout (cause, then flag and pattern), and the
-/// cause is reachable underneath it rather than only as text. Only the failure
-/// `kind` is spliced into the message: `TagRegexError`'s own `Display` opens
-/// with "cannot compile regex for tag", which a rule-name filter is not.
-#[derive(Debug, thiserror::Error)]
-#[error("Error: invalid regex ({}) in {flag} {pattern}", .source.kind)]
-struct NrulesError {
-    flag: &'static str,
-    pattern: String,
-    #[source]
-    source: Box<TagRegexError>,
-}
-
 /// Compile the `--nrules` / `--nrules-v` pattern held in `options`, or `None`
 /// when the flag was not given.
-///
-/// Through the tag-regex seam, not `regex::Regex::new`. The C++ compiled these
-/// with the same ICU regex engine as every tag pattern, so a filter and a
-/// grammar tag spelled identically meant identically. Compiling the filter with
-/// a different engine reintroduces exactly the divergences the seam exists to
-/// close, on a pattern the same person authored: no `\Q...\E`, ICU's `\Z`/`$`
-/// misread as end-of-haystack, `[:script=Greek:]` silently read as a literal
-/// character set, and possessive quantifiers taken as ordinary ones so the
-/// filter selects MORE rules than asked for.
-// [spec:cg3:req:tag-regex.single-seam+1]
 fn nrules_pattern(
     options: &cg3::options::OptionsTable,
     opt: Opt,
     flag: &'static str,
-) -> Result<Option<TagRegex>, NrulesError> {
-    if !options[opt as usize].does_occur {
-        return Ok(None);
-    }
-    let pattern = &options[opt as usize].value;
-    // Case-sensitive: the C++ compiles it with no flags.
-    compile_tag_regex(pattern, false)
-        .map(Some)
-        .map_err(|source| NrulesError {
-            flag,
-            pattern: pattern.clone(),
-            source,
-        })
+) -> Result<Option<TagRegex>, cg3::error::GrammarError> {
+    let option = &options[opt as usize];
+    option
+        .does_occur
+        .then(|| cg3::embed::rule_filter(&option.value, flag))
+        .transpose()
 }
 
 // [spec:cg3:def:main.main-fn+3]
@@ -496,37 +464,14 @@ fn input_name(options: &cg3::options::OptionsTable) -> String {
     cg3::grammar_applicator::STDIN_SOURCE_NAME.to_string()
 }
 
-/// What vislcg3 does with a grammar between loading and finishing it, in
-/// either phase a loader returns: merges the options the grammar carries into
-/// `options`, and applies `--prefix`. `Err` is the exit code.
+/// [`cg3::embed::merge_load_options`] for `main_run`. `Err` is the exit code.
 fn apply_grammar_options<P: Phase>(
     grammar: &mut GrammarCore<P>,
     options: &mut OptionsTable,
     options_override: &OptionsTable,
 ) -> Result<(), i32> {
-    merge_grammar_options(
-        options,
-        &grammar.cmdargs,
-        &grammar.cmdargs_override,
-        Some(options_override),
-    );
-
-    // --prefix: override the mapping prefix (must match a binary grammar's).
-    if options[Opt::MappingPrefix as usize].does_occur {
-        let mp = options[Opt::MappingPrefix as usize]
-            .value
-            .chars()
-            .next()
-            .unwrap_or('@');
-        if grammar.is_binary && grammar.mapping_prefix != mp {
-            tracing::error!(
-                "Error: Mapping prefix must match the one used for compiling the binary grammar!"
-            );
-            return Err(EXIT_FAILURE);
-        }
-        grammar.mapping_prefix = mp;
-    }
-    Ok(())
+    cg3::embed::merge_load_options(grammar, options, Some(options_override))
+        .map_err(|e| fail(&e.into()))
 }
 
 // [spec:cg3:req:embed.cli-compiles-through]

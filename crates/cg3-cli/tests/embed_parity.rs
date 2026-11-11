@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use cg3::embed::{CompiledGrammar, FileResolver, GrammarInfo};
+use cg3::embed::{CompiledGrammar, FileResolver, GrammarInfo, LoadOptions};
 
 #[expect(
     dead_code,
@@ -81,9 +81,10 @@ fn info_is_what_vislcg3_reports() {
         "T_Relations",
     ] {
         let path = compiled(name);
-        let info = CompiledGrammar::from_cg3b(&std::fs::read(&path).unwrap())
-            .expect("the .cg3b loads")
-            .info();
+        let info =
+            CompiledGrammar::from_cg3b(&std::fs::read(&path).unwrap(), &LoadOptions::default())
+                .expect("the .cg3b loads")
+                .info();
         let reported = verbose_summary(&path);
         let _ = std::fs::remove_file(&path);
         assert_eq!(info, reported, "{name}");
@@ -189,6 +190,7 @@ fn cg_comp_writes_what_to_cg3b_returns() {
             &std::fs::read(&grammar).unwrap(),
             grammar.to_str().unwrap(),
             FileResolver,
+            &LoadOptions::default(),
         )
         .unwrap();
         let expected = (loaded.to_cg3b().unwrap(), loaded.companion().unwrap());
@@ -209,11 +211,13 @@ fn vislcg3_writes_what_the_library_writers_return() {
             &std::fs::read(&grammar).unwrap(),
             grammar.to_str().unwrap(),
             FileResolver,
+            &LoadOptions::default(),
         )
         .unwrap();
         let cg3b = scratch(&grammar, "in.cg3b");
         std::fs::write(&cg3b, text.to_cg3b().unwrap()).unwrap();
-        let binary = CompiledGrammar::from_cg3b(&text.to_cg3b().unwrap()).unwrap();
+        let binary =
+            CompiledGrammar::from_cg3b(&text.to_cg3b().unwrap(), &LoadOptions::default()).unwrap();
         for (path, loaded) in [(grammar.as_path(), &text), (cg3b.as_path(), &binary)] {
             let (text_out, binary_out) =
                 (scratch(&grammar, "out.cg3"), scratch(&grammar, "out.cg3b"));
@@ -382,7 +386,8 @@ fn memory_includes_compile_as_cg_comp_does() {
         .map(|name| (name, std::fs::read(dir.join(name)).unwrap()))
         .collect();
     let source = std::fs::read(dir.join("grammar.cg3")).unwrap();
-    let grammar = CompiledGrammar::from_text(&source, "grammar.cg3", files).unwrap();
+    let grammar =
+        CompiledGrammar::from_text(&source, "grammar.cg3", files, &LoadOptions::default()).unwrap();
 
     let out = scratch(&dir.join("grammar.cg3"), "memory.cg3b");
     let status = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
@@ -506,6 +511,7 @@ fn cg_proc_writes_what_proc_returns() {
             &std::fs::read(&path).unwrap(),
             path.to_str().unwrap(),
             FileResolver,
+            &LoadOptions::default(),
         )
         .unwrap();
         let cg3b = scratch(&path, "proc.cg3b");
@@ -545,6 +551,7 @@ fn cg_relabel_writes_what_relabel_returns() {
             &std::fs::read(&rules_path).unwrap(),
             rules_path.to_str().unwrap(),
             FileResolver,
+            &LoadOptions::default(),
         )
         .unwrap();
         for grammar in corpus_grammars()
@@ -556,6 +563,7 @@ fn cg_relabel_writes_what_relabel_returns() {
                 &std::fs::read(grammar).unwrap(),
                 grammar.to_str().unwrap(),
                 FileResolver,
+                &LoadOptions::default(),
             )
             .unwrap();
             let input = scratch(grammar, "relabel-in.cg3b");
@@ -568,10 +576,13 @@ fn cg_relabel_writes_what_relabel_returns() {
                 .stderr(Stdio::null())
                 .status()
                 .expect("spawn cg-relabel");
-            let expected = CompiledGrammar::from_cg3b(&std::fs::read(&input).unwrap())
-                .unwrap()
-                .relabel(&rules)
-                .and_then(|g| g.to_cg3b());
+            let expected = CompiledGrammar::from_cg3b(
+                &std::fs::read(&input).unwrap(),
+                &LoadOptions::default(),
+            )
+            .unwrap()
+            .relabel(&rules)
+            .and_then(|g| g.to_cg3b());
             assert_eq!(
                 status.success(),
                 expected.is_ok(),
@@ -588,4 +599,46 @@ fn cg_relabel_writes_what_relabel_returns() {
             let _ = std::fs::remove_file(input);
         }
     }
+}
+
+/// A grammar whose CMDARGS give `--prefix` compiles with that prefix, so
+/// vislcg3 loads the `.cg3b` cg-comp writes for it and runs it as it runs the
+/// text, where the C++ cg-comp's `.cg3b` was refused for its prefix.
+// [spec:cg3:req:embed.load-options/test]
+#[test]
+fn cg_comp_compiles_with_a_cmdargs_prefix() {
+    let dir = std::env::temp_dir().join(format!("cg3-cmdargs-prefix-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let text = dir.join("prefix.cg3");
+    std::fs::write(
+        &text,
+        "DELIMITERS = \"<.>\" ;\nCMDARGS += --prefix % ;\nMAP (%b) (w) ;\n",
+    )
+    .unwrap();
+    let cg3b = dir.join("prefix.cg3b");
+    let status = Command::new(env!("CARGO_BIN_EXE_cg-comp"))
+        .arg(&text)
+        .arg(&cg3b)
+        .stderr(Stdio::null())
+        .status()
+        .expect("spawn cg-comp");
+    assert!(status.success());
+    let input = b"\"<a>\"\n\t\"a\" w %x\n";
+    for grammar in [&text, &cg3b] {
+        let grammar = grammar.to_str().unwrap();
+        let out = common::run_output(
+            env!("CARGO_BIN_EXE_vislcg3"),
+            &["-g", grammar],
+            &dir,
+            input,
+            Stdio::null(),
+        );
+        assert!(out.status.success(), "{grammar}");
+        assert_eq!(
+            String::from_utf8(out.stdout).unwrap(),
+            "\"<a>\"\n\t\"a\" w %x\n",
+            "{grammar}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(dir);
 }

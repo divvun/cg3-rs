@@ -1,7 +1,7 @@
 //! The binding against vislcg3 on the host, over the golden corpus: each
 //! grammar compiled to `.cg3b` by cg-comp, run by vislcg3 with its args.txt
-//! and by `apply` with the same options read as JavaScript would pass them,
-//! must give the same bytes or fail in both. Both tools run in this process.
+//! and by `readGrammar` and `apply` with the same options read as JavaScript
+//! would pass them, must give the same bytes or fail in both. Both tools run in this process.
 //! js/test/parity.ts makes the same comparison through the built package in
 //! every runtime.
 #![cfg(not(target_arch = "wasm32"))]
@@ -11,14 +11,18 @@ use std::path::{Path, PathBuf};
 use cg3::arg_parser::parse_args;
 use cg3::options::{HasArg, Opt, OptionsTable, options};
 use cg3_cli::{cg_comp::main_comp, vislcg3::main_run};
-use cg3_wasm::{ErrorCode, apply, parse_options, read_grammar};
+use cg3_wasm::{ErrorCode, apply, parse_load_options, parse_options, read_grammar};
 use serde_json::{Map, Value};
 
 /// The run options vislcg3 reads as numbers, which `ApplyOptions` takes as numbers too.
 const NUMERIC: [&str; 4] = ["max-runs", "num-windows", "soft-limit", "hard-limit"];
 
 /// The tests the binding cannot run, as the JavaScript check names them.
-const EXEMPT: [&str; 3] = ["T_External", "T_NRules", "T_CG2Compat"];
+const EXEMPT: [&str; 1] = ["T_External"];
+
+/// The options vislcg3 applies while it loads a grammar, which `readGrammar`
+/// takes rather than `apply`.
+const LOAD: [&str; 4] = ["nrules", "nrules-v", "vislcg-compat", "prefix"];
 
 fn corpus() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test")
@@ -44,11 +48,12 @@ fn vislcg3_options(args: &[String]) -> OptionsTable {
     table
 }
 
-/// The `ApplyOptions` JSON for `args`: each long option in camelCase, the
-/// `--in-*` and `--out-*` options as `input` and `output`. None for a binary
-/// stream, which a string cannot carry.
-fn apply_options(args: &[String]) -> Option<String> {
+/// The `ApplyOptions` and `LoadOptions` JSON for `args`: each long option in
+/// camelCase, the `--in-*` and `--out-*` options as `input` and `output`. None
+/// for a binary stream, which a string cannot carry.
+fn apply_options(args: &[String]) -> Option<(String, String)> {
     let mut json = Map::new();
+    let mut load = Map::new();
     for option in vislcg3_options(args).iter().filter(|o| o.does_occur) {
         let long = option.long_name.expect("every option has a long name");
         if long.ends_with("-binary") {
@@ -71,9 +76,17 @@ fn apply_options(args: &[String]) -> Option<String> {
             ),
             (_, text) => Value::from(text),
         };
-        json.insert(camel(long), value);
+        let options = if LOAD.contains(&long) {
+            &mut load
+        } else {
+            &mut json
+        };
+        options.insert(camel(long), value);
     }
-    Some(Value::Object(json).to_string())
+    Some((
+        Value::Object(json).to_string(),
+        Value::Object(load).to_string(),
+    ))
 }
 
 fn camel(long: &str) -> String {
@@ -105,7 +118,7 @@ fn compare(dir: &Path, work: &Path) -> Outcome {
     let args: Vec<String> = std::fs::read_to_string(dir.join("args.txt"))
         .map(|text| text.split_whitespace().map(str::to_owned).collect())
         .unwrap_or_default();
-    let Some(json) = apply_options(&args) else {
+    let Some((json, load)) = apply_options(&args) else {
         return Outcome::Exempt("a binary stream".into());
     };
     let options = match parse_options(&json) {
@@ -137,7 +150,10 @@ fn compare(dir: &Path, work: &Path) -> Outcome {
     let native_ok = main_run(&argv) == 0;
     let native = std::fs::read(&out).unwrap_or_default();
 
-    let grammar = read_grammar(&std::fs::read(&cg3b).expect("the .cg3b")).expect("loads");
+    if let Err(e) = parse_load_options(&load) {
+        return Outcome::Differs(format!("{load} is refused: {}", e.message()));
+    }
+    let grammar = read_grammar(&std::fs::read(&cg3b).expect("the .cg3b"), &load).expect("loads");
     let input = String::from_utf8_lossy(&std::fs::read(dir.join("input.txt")).expect("input.txt"))
         .into_owned();
     match apply(grammar.compiled(), &input, &options) {
@@ -150,6 +166,7 @@ fn compare(dir: &Path, work: &Path) -> Outcome {
 }
 
 // [spec:cg3:req:wasm.parity+2/test]
+// [spec:cg3:req:wasm.load-options/test]
 #[test]
 fn every_corpus_grammar_gives_vislcg3s_bytes() {
     let work = std::env::temp_dir().join(format!("cg3-wasm-parity-{}", std::process::id()));

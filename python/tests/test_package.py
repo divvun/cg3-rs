@@ -126,7 +126,7 @@ def test_one_wheel_serves_cpython_311_on(wheel: Path) -> None:
 # [spec:cg3:req:python.typed/test]
 def test_the_stub_declares_the_whole_api() -> None:
     assert (PACKAGE / "py.typed").is_file()
-    assert set(cg3.__all__) <= set(stub_names()) | {"RunOptions"}
+    assert set(cg3.__all__) <= set(stub_names()) | {"LoadOptions", "RunOptions"}
     declared = {n for n in stub_names() if not n.startswith("_")} | {"__version__"}
     native = {n for n in dir(cg3._cg3) if not n.startswith("_")} | {"__version__"}
     assert declared == native

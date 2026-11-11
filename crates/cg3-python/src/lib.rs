@@ -22,7 +22,7 @@ mod module {
         ApplyResult, Grammar, GrammarInfo, load_grammar, parse_grammar, read_grammar,
     };
     #[pymodule_export]
-    use crate::options::check_run_options;
+    use crate::options::{check_load_options, check_run_options};
 
     #[pymodule_init]
     fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {

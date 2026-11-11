@@ -16,7 +16,7 @@ fn cg3b(src: &str) -> Vec<u8> {
 }
 
 fn compile(src: &str) -> Grammar {
-    read_grammar(&cg3b(src)).expect("loads")
+    read_grammar(&cg3b(src), "{}").expect("loads")
 }
 
 fn options(json: &str) -> Result<ApplyOptions, GlueError> {
@@ -63,14 +63,14 @@ fn unknown_options_and_binary_streams_are_invalid_arguments() {
 #[test]
 fn bytes_that_are_no_grammar_are_invalid_grammars() {
     let blob = cg3b(r#"DELIMITERS = "<.>" ; SELECT (n) ;"#);
-    let grammar = read_grammar(&blob).expect("loads");
+    let grammar = read_grammar(&blob, "{}").expect("loads");
     assert_eq!(grammar.compiled().info().rules, 1);
     for bytes in [&blob[..blob.len() / 2], &[1, 2, 3][..], &[][..]] {
-        let refused = read_grammar(bytes).err().expect("refused");
+        let refused = read_grammar(bytes, "{}").err().expect("refused");
         assert_eq!(refused.code(), ErrorCode::InvalidGrammar);
         assert!(!refused.message().is_empty());
     }
-    let truncated = read_grammar(&blob[..blob.len() / 2])
+    let truncated = read_grammar(&blob[..blob.len() / 2], "{}")
         .err()
         .expect("refused");
     assert!(
@@ -119,5 +119,44 @@ fn a_failed_run_keeps_the_grammar_usable() {
     assert_eq!(
         ok.expect("the grammar runs again").output,
         "\"<word>\"\n\t\"word\" n\n"
+    );
+}
+
+/// `readGrammar`'s options are vislcg3's load options in camelCase: T_NRules
+/// runs as vislcg3 runs it with `--nrules pick --nrules-v X`, and an option
+/// that is unknown, a prefix of more than one character, or a pattern that
+/// does not compile is refused before anything loads.
+// [spec:cg3:req:wasm.load-options/test]
+#[test]
+fn read_grammar_takes_vislcg3s_load_options() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/T_NRules");
+    let source = std::fs::read_to_string(dir.join("grammar.cg3")).unwrap();
+    let input = std::fs::read_to_string(dir.join("input.txt")).unwrap();
+    let expected = std::fs::read_to_string(dir.join("expected.txt")).unwrap();
+    let grammar =
+        read_grammar(&cg3b(&source), r#"{"nrules":"pick","nrulesV":"X"}"#).expect("loads");
+    let output = apply(grammar.compiled(), &input, &ApplyOptions::default())
+        .unwrap()
+        .output;
+    let words = |s: &str| s.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    assert_eq!(words(&output), words(&expected));
+
+    for json in [
+        r#"{"nRules":"x"}"#,
+        r#"{"prefix":"%%"}"#,
+        r#"{"nrulesV":"("}"#,
+        r#"{"vislcgCompat":1}"#,
+    ] {
+        let refused = read_grammar(&cg3b(&source), json).err().expect("refused");
+        assert_eq!(refused.code(), ErrorCode::InvalidArgument, "{json}");
+    }
+    let refused = read_grammar(&cg3b(&source), r#"{"prefix":"%"}"#)
+        .err()
+        .expect("refused");
+    assert_eq!(refused.code(), ErrorCode::InvalidGrammar);
+    assert!(
+        refused.message().contains("Mapping prefix must match"),
+        "{}",
+        refused.message()
     );
 }

@@ -73,3 +73,37 @@ def test_info_reports_the_grammars_summary() -> None:
 def test_a_grammar_comes_only_from_a_loader() -> None:
     with pytest.raises(TypeError):
         cg3.Grammar()
+
+
+# [spec:cg3:req:python.load-options/test]
+def test_load_options_reach_every_loader(tools: Tools, tmp_path: Path) -> None:
+    textual = corpus("T_NRules") / "grammar.cg3"
+    compiled = tmp_path / "nrules.cg3b"
+    data = tools.compile(textual, compiled)
+    options = cg3.LoadOptions(nrules="pick", nrules_v="X")
+    for grammar in (
+        cg3.read_grammar(data, options=options),
+        cg3.parse_grammar(read(textual), str(textual), options=options),
+        cg3.load_grammar(textual, options=options),
+        cg3.load_grammar(compiled, options=options),
+    ):
+        assert runs_as_expected(grammar, "T_NRules")
+    assert not runs_as_expected(cg3.load_grammar(textual), "T_NRules")
+
+
+# [spec:cg3:req:python.load-options/test]
+def test_load_options_are_checked_when_made(tools: Tools, tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="LoadOptions"):
+        cg3.LoadOptions(nrules=1)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="vislcg_compat"):
+        cg3.LoadOptions(vislcg_compat="yes")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="one character"):
+        cg3.LoadOptions(prefix="ab")
+    with pytest.raises(ValueError, match="--nrules-v"):
+        cg3.LoadOptions(nrules_v="(")
+    with pytest.raises(TypeError, match="must be LoadOptions"):
+        cg3.parse_grammar("SELECT (x) ;", options=cg3.RunOptions())  # type: ignore[arg-type]
+    assert repr(cg3.LoadOptions(prefix="%")) == "LoadOptions(prefix='%')"
+    data = tools.compile(corpus("T_Barrier") / "grammar.cg3", tmp_path / "g.cg3b")
+    with pytest.raises(cg3.GrammarError, match="Mapping prefix must match"):
+        cg3.read_grammar(data, options=cg3.LoadOptions(prefix="%"))

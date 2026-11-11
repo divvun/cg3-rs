@@ -50,7 +50,7 @@ export function setLogLevel(level: LogLevel): void {
 
 export const { readGrammar } = grammarReader(core);
 export { Grammar } from "./grammar.ts";
-export type { ApplyOptions, ApplyResult, Format, GrammarInfo } from "./grammar.ts";
+export type { ApplyOptions, ApplyResult, Format, GrammarInfo, LoadOptions } from "./grammar.ts";
 export { Cg3Error } from "./errors.ts";
 export type { Cg3ErrorCode } from "./errors.ts";
 export type { InitSource } from "./core.ts";

@@ -1,7 +1,7 @@
-//! A run's options, as the fields of `cg3.RunOptions`, the dataclass in
-//! `python/cg3/_options.py`.
+//! A run's options and a load's, as the fields of `cg3.RunOptions` and
+//! `cg3.LoadOptions`, the dataclasses in `python/cg3/_options.py`.
 
-use cg3::embed::{Format, RunOptions};
+use cg3::embed::{Format, LoadOptions, RunOptions};
 use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
@@ -41,6 +41,7 @@ pub fn run_options(options: &Bound<'_, PyAny>) -> PyResult<RunOptions> {
         let name: &str = &field_name;
         let value = options.getattr(name)?;
         let v = Value {
+            class: "RunOptions",
             name,
             value: &value,
         };
@@ -95,6 +96,69 @@ pub fn run_options(options: &Bound<'_, PyAny>) -> PyResult<RunOptions> {
     Ok(o)
 }
 
+// [spec:cg3:req:python.load-options]
+/// The options a load was given: those of a `cg3.LoadOptions`, or none.
+/// `function` is the loader, for the error a value of another type raises.
+pub fn of_load(options: Option<&Bound<'_, PyAny>>, function: &str) -> PyResult<LoadOptions> {
+    let Some(options) = options else {
+        return Ok(LoadOptions::default());
+    };
+    let class = options
+        .py()
+        .import("cg3._options")?
+        .getattr("LoadOptions")?;
+    if !options.is_instance(&class)? {
+        let given = options.get_type().name()?;
+        return Err(PyTypeError::new_err(format!(
+            "{function}() argument 'options' must be LoadOptions, not {given}"
+        )));
+    }
+    load_options(options)
+}
+
+// [spec:cg3:req:python.load-options]
+/// Reads each field of a `cg3.LoadOptions`, named after its vislcg3 long
+/// option in snake_case, into the option it stands for. A value of the wrong
+/// type raises `TypeError`, and a `prefix` that is not one character or a rule
+/// filter that does not compile `ValueError`.
+pub fn load_options(options: &Bound<'_, PyAny>) -> PyResult<LoadOptions> {
+    let fields = options
+        .py()
+        .import("dataclasses")?
+        .call_method1("fields", (options,))?;
+    let mut o = LoadOptions::default();
+    for field in fields.try_iter()? {
+        let field_name: PyBackedStr = field?.getattr("name")?.extract()?;
+        let name: &str = &field_name;
+        let value = options.getattr(name)?;
+        let v = Value {
+            class: "LoadOptions",
+            name,
+            value: &value,
+        };
+        match name {
+            "nrules" => o.nrules = v.rule_filter("--nrules")?,
+            "nrules_v" => o.nrules_v = v.rule_filter("--nrules-v")?,
+            "vislcg_compat" => o.vislcg_compat = v.flag()?,
+            "prefix" => o.prefix = v.character()?,
+            _ => {
+                return Err(PyTypeError::new_err(format!(
+                    "LoadOptions has a field '{name}' no load reads"
+                )));
+            }
+        }
+    }
+    Ok(o)
+}
+
+/// Checks a `cg3.LoadOptions` as it is made, raising what a load reading its
+/// fields would raise.
+#[pyfunction]
+#[pyo3(name = "_check_load_options")]
+pub fn check_load_options(options: &Bound<'_, PyAny>) -> PyResult<()> {
+    load_options(options).map(drop)
+}
+
 /// Checks a `cg3.RunOptions` as it is made, raising what a run reading its
 /// fields would raise.
 #[pyfunction]
@@ -120,9 +184,10 @@ pub fn format_names() -> impl ExactSizeIterator<Item = &'static str> {
     FORMATS.iter().map(|(name, _)| *name)
 }
 
-/// One field's value, named for the errors it raises. Each reader takes `None`
-/// for the option left off.
+/// One field's value, named, with its class, for the errors it raises. Each
+/// reader takes `None` for the option left off.
 struct Value<'a, 'py> {
+    class: &'static str,
     name: &'a str,
     value: &'a Bound<'py, PyAny>,
 }
@@ -135,8 +200,8 @@ impl Value<'_, '_> {
             .name()
             .map_or_else(|_| "object".to_owned(), |n| n.to_string());
         PyTypeError::new_err(format!(
-            "RunOptions() argument '{}' must be {expected}, not {given}",
-            self.name
+            "{}() argument '{}' must be {expected}, not {given}",
+            self.class, self.name
         ))
     }
 
@@ -188,11 +253,40 @@ impl Value<'_, '_> {
                 self.wrong_type("int")
             } else {
                 PyOverflowError::new_err(format!(
-                    "RunOptions() argument '{}' must be from 0 to 4294967295, not {}",
-                    self.name, self.value
+                    "{}() argument '{}' must be from 0 to 4294967295, not {}",
+                    self.class, self.name, self.value
                 ))
             }
         })
+    }
+
+    /// A rule-name pattern for `flag`, which must compile as vislcg3 compiles
+    /// it.
+    fn rule_filter(&self, flag: &'static str) -> PyResult<Option<String>> {
+        let Some(pattern) = self.text()? else {
+            return Ok(None);
+        };
+        cg3::embed::rule_filter(&pattern, flag).map_err(|e| {
+            PyValueError::new_err(format!(
+                "{}() argument '{}' is not a pattern vislcg3 reads: {e}",
+                self.class, self.name
+            ))
+        })?;
+        Ok(Some(pattern))
+    }
+
+    fn character(&self) -> PyResult<Option<char>> {
+        let Some(text) = self.text()? else {
+            return Ok(None);
+        };
+        let mut chars = text.chars();
+        match (chars.next(), chars.next()) {
+            (Some(c), None) => Ok(Some(c)),
+            _ => Err(PyValueError::new_err(format!(
+                "{}() argument '{}' must be one character, not {:?}",
+                self.class, self.name, text
+            ))),
+        }
     }
 
     fn format(&self) -> PyResult<Option<Format>> {
@@ -206,7 +300,8 @@ impl Value<'_, '_> {
             .ok_or_else(|| {
                 let names: Vec<String> = FORMATS.iter().map(|(n, _)| format!("'{n}'")).collect();
                 PyValueError::new_err(format!(
-                    "RunOptions() argument '{}' must be one of {}, not '{text}'",
+                    "{}() argument '{}' must be one of {}, not '{text}'",
+                    self.class,
                     self.name,
                     names.join(", ")
                 ))

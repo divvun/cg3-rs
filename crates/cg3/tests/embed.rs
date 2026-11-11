@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cg3::embed::{CompiledGrammar, FileResolver, Format, RunContext, RunOptions};
+use cg3::embed::{CompiledGrammar, FileResolver, Format, LoadOptions, RunContext, RunOptions};
 
 fn corpus(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -18,10 +18,15 @@ fn corpus(name: &str) -> PathBuf {
 fn cg3b(name: &str) -> Vec<u8> {
     let path = corpus(name).join("grammar.cg3");
     let text = std::fs::read(&path).unwrap();
-    CompiledGrammar::from_text(&text, path.to_str().unwrap(), FileResolver)
-        .expect("corpus grammar loads")
-        .to_cg3b()
-        .expect("corpus grammar writes")
+    CompiledGrammar::from_text(
+        &text,
+        path.to_str().unwrap(),
+        FileResolver,
+        &LoadOptions::default(),
+    )
+    .expect("corpus grammar loads")
+    .to_cg3b()
+    .expect("corpus grammar writes")
 }
 
 fn input(name: &str) -> Vec<u8> {
@@ -40,7 +45,8 @@ fn same_output(expected: &str, got: &str) -> bool {
 }
 
 fn assert_runs_as_expected(name: &str, options: &RunOptions) {
-    let grammar = CompiledGrammar::from_cg3b(&cg3b(name)).expect("the .cg3b loads");
+    let grammar =
+        CompiledGrammar::from_cg3b(&cg3b(name), &LoadOptions::default()).expect("the .cg3b loads");
     let got = grammar
         .run(&input(name), options)
         .expect("the grammar runs");
@@ -165,7 +171,7 @@ fn a_grammars_cmdargs_reach_its_run() {
     // output depends on it.
     assert_runs_as_expected("T_CmdArgs", &RunOptions::default());
 
-    let grammar = CompiledGrammar::from_cg3b(&cg3b("T_CmdArgs")).unwrap();
+    let grammar = CompiledGrammar::from_cg3b(&cg3b("T_CmdArgs"), &LoadOptions::default()).unwrap();
     let unmerged = RunOptions::default().to_table();
     let mut without = Vec::new();
     grammar
@@ -191,7 +197,8 @@ fn a_grammars_cmdargs_reach_its_run() {
 // [spec:cg3:req:embed.runs-independent/test]
 #[test]
 fn runs_share_nothing_but_the_grammar() {
-    let grammar = CompiledGrammar::from_cg3b(&cg3b("T_Variables")).unwrap();
+    let grammar =
+        CompiledGrammar::from_cg3b(&cg3b("T_Variables"), &LoadOptions::default()).unwrap();
     let options = RunOptions::default();
     let first = grammar.run(&input("T_Variables"), &options).unwrap();
     let other = grammar.run(&input("T_Barrier"), &options).unwrap();
@@ -221,14 +228,14 @@ fn runs_share_nothing_but_the_grammar() {
 #[test]
 fn partial_or_foreign_bytes_fail_to_load() {
     let blob = cg3b("T_Barrier");
-    let truncated = CompiledGrammar::from_cg3b(&blob[..blob.len() / 2]);
+    let truncated = CompiledGrammar::from_cg3b(&blob[..blob.len() / 2], &LoadOptions::default());
     let message = truncated
         .err()
         .expect("half a .cg3b is refused")
         .to_string();
     assert!(message.contains("ends early"), "{message}");
-    assert!(CompiledGrammar::from_cg3b(b"CG3B").is_err());
-    assert!(CompiledGrammar::from_cg3b(b"not a grammar").is_err());
+    assert!(CompiledGrammar::from_cg3b(b"CG3B", &LoadOptions::default()).is_err());
+    assert!(CompiledGrammar::from_cg3b(b"not a grammar", &LoadOptions::default()).is_err());
 }
 
 // [spec:cg3:req:embed.run-options/test]
@@ -292,9 +299,15 @@ fn a_textual_grammar_runs_as_its_cg3b_does() {
     assert!(corpus.len() > 50, "only {} corpus grammars", corpus.len());
     let options = RunOptions::default();
     for (name, path, source) in &corpus {
-        let text = CompiledGrammar::from_text(source, path.to_str().unwrap(), FileResolver)
-            .unwrap_or_else(|e| panic!("{name}: the textual grammar loads: {e}"));
-        let binary = CompiledGrammar::from_cg3b(&cg3b(name)).expect("the .cg3b loads");
+        let text = CompiledGrammar::from_text(
+            source,
+            path.to_str().unwrap(),
+            FileResolver,
+            &LoadOptions::default(),
+        )
+        .unwrap_or_else(|e| panic!("{name}: the textual grammar loads: {e}"));
+        let binary = CompiledGrammar::from_cg3b(&cg3b(name), &LoadOptions::default())
+            .expect("the .cg3b loads");
         let input = input(name);
         match (text.run(&input, &options), binary.run(&input, &options)) {
             (Ok(a), Ok(b)) => assert!(a == b, "{name}: the outputs differ"),
@@ -310,8 +323,13 @@ fn a_textual_grammar_runs_as_its_cg3b_does() {
 fn a_relative_include_resolves_against_the_named_file() {
     let path = corpus("T_Include").join("grammar.cg3");
     let source = std::fs::read(&path).unwrap();
-    let grammar = CompiledGrammar::from_text(&source, path.to_str().unwrap(), FileResolver)
-        .expect("T_Include's includes are found beside it");
+    let grammar = CompiledGrammar::from_text(
+        &source,
+        path.to_str().unwrap(),
+        FileResolver,
+        &LoadOptions::default(),
+    )
+    .expect("T_Include's includes are found beside it");
     let got = grammar
         .run(&input("T_Include"), &RunOptions::default())
         .unwrap();
@@ -319,9 +337,14 @@ fn a_relative_include_resolves_against_the_named_file() {
     assert!(same_output(&expected, &String::from_utf8(got).unwrap()));
 
     let elsewhere = corpus("T_Active").join("grammar.cg3");
-    let refused = CompiledGrammar::from_text(&source, elsewhere.to_str().unwrap(), FileResolver)
-        .err()
-        .expect("T_Active's directory has no sets.cg3");
+    let refused = CompiledGrammar::from_text(
+        &source,
+        elsewhere.to_str().unwrap(),
+        FileResolver,
+        &LoadOptions::default(),
+    )
+    .err()
+    .expect("T_Active's directory has no sets.cg3");
     let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { errors, .. }) = refused
     else {
         panic!("a parse failure, not {refused}");
@@ -334,9 +357,10 @@ fn a_relative_include_resolves_against_the_named_file() {
 fn a_failed_parse_carries_its_errors_and_source() {
     use cg3::error::{Cg3Error, GrammarError};
     let source = b"DELIMITERS = \"<.>\" ;\nSELECT NoSuchSet ;\nREMOVE AlsoMissing ;\n";
-    let error = CompiledGrammar::from_text(source, "broken.cg3", FileResolver)
-        .err()
-        .expect("undefined sets are refused");
+    let error =
+        CompiledGrammar::from_text(source, "broken.cg3", FileResolver, &LoadOptions::default())
+            .err()
+            .expect("undefined sets are refused");
     let Cg3Error::Grammar(GrammarError::Parse { errors, sources }) = error else {
         panic!("a parse failure, not {error}");
     };
@@ -355,10 +379,15 @@ fn a_failed_parse_carries_its_errors_and_source() {
 fn writing_a_grammar_leaves_it_unchanged() {
     let options = RunOptions::default();
     for (name, path, source) in &textual_corpus() {
-        let text =
-            CompiledGrammar::from_text(source, path.to_str().unwrap(), FileResolver).unwrap();
+        let text = CompiledGrammar::from_text(
+            source,
+            path.to_str().unwrap(),
+            FileResolver,
+            &LoadOptions::default(),
+        )
+        .unwrap();
         let cg3b = text.to_cg3b().unwrap();
-        let binary = CompiledGrammar::from_cg3b(&cg3b).unwrap();
+        let binary = CompiledGrammar::from_cg3b(&cg3b, &LoadOptions::default()).unwrap();
         assert_eq!(
             binary.companion().unwrap(),
             None,
@@ -443,9 +472,20 @@ fn include_files() -> cg3::embed::MemoryResolver {
 fn includes_resolve_from_files_held_in_memory() {
     let path = corpus("T_Include").join("grammar.cg3");
     let source = std::fs::read(&path).unwrap();
-    let from_memory = CompiledGrammar::from_text(&source, "grammar.cg3", include_files()).unwrap();
-    let from_disk =
-        CompiledGrammar::from_text(&source, path.to_str().unwrap(), FileResolver).unwrap();
+    let from_memory = CompiledGrammar::from_text(
+        &source,
+        "grammar.cg3",
+        include_files(),
+        &LoadOptions::default(),
+    )
+    .unwrap();
+    let from_disk = CompiledGrammar::from_text(
+        &source,
+        path.to_str().unwrap(),
+        FileResolver,
+        &LoadOptions::default(),
+    )
+    .unwrap();
     assert!(from_memory.to_cg3b().unwrap() == from_disk.to_cg3b().unwrap());
     let options = RunOptions::default();
     let input = input("T_Include");
@@ -467,9 +507,10 @@ fn includes_resolve_from_files_held_in_memory() {
     )]
     .into_iter()
     .collect();
-    let refused = CompiledGrammar::from_text(&source, "grammar.cg3", only_sets)
-        .err()
-        .expect("rules.cg3 is not among the files");
+    let refused =
+        CompiledGrammar::from_text(&source, "grammar.cg3", only_sets, &LoadOptions::default())
+            .err()
+            .expect("rules.cg3 is not among the files");
     let cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::Parse { errors, .. }) = refused
     else {
         panic!("a parse failure, not {refused}");
@@ -492,6 +533,7 @@ fn a_runtime_failure_quotes_the_kept_sources() {
         b"DELIMITERS = \"<$.>\" ;\nINCLUDE lists.cg3 ;\n",
         "nowhere/nb.cg3",
         files,
+        &LoadOptions::default(),
     )
     .unwrap();
     let error = grammar
@@ -542,8 +584,13 @@ fn proc_runs_the_apertium_corpus_as_cg_proc() {
             ..Default::default()
         };
         let path = dir.join("grammar.cg3");
-        let grammar =
-            CompiledGrammar::from_text(&source, path.to_str().unwrap(), FileResolver).unwrap();
+        let grammar = CompiledGrammar::from_text(
+            &source,
+            path.to_str().unwrap(),
+            FileResolver,
+            &LoadOptions::default(),
+        )
+        .unwrap();
         let got = grammar
             .proc(&std::fs::read(dir.join("input.txt")).unwrap(), &options)
             .unwrap();
@@ -566,12 +613,22 @@ fn proc_runs_the_apertium_corpus_as_cg_proc() {
 fn relabel_makes_a_new_grammar_from_two() {
     for name in ["T_RelabelList", "T_RelabelSet"] {
         let read = |file: &str| std::fs::read(corpus(name).join(file)).unwrap();
-        let text =
-            CompiledGrammar::from_text(&read("grammar.cg3"), "grammar.cg3", FileResolver).unwrap();
-        let binary = CompiledGrammar::from_cg3b(&text.to_cg3b().unwrap()).unwrap();
-        let relabels =
-            CompiledGrammar::from_text(&read("relabel.cg3r"), "relabel.cg3r", FileResolver)
-                .unwrap();
+        let text = CompiledGrammar::from_text(
+            &read("grammar.cg3"),
+            "grammar.cg3",
+            FileResolver,
+            &LoadOptions::default(),
+        )
+        .unwrap();
+        let binary =
+            CompiledGrammar::from_cg3b(&text.to_cg3b().unwrap(), &LoadOptions::default()).unwrap();
+        let relabels = CompiledGrammar::from_text(
+            &read("relabel.cg3r"),
+            "relabel.cg3r",
+            FileResolver,
+            &LoadOptions::default(),
+        )
+        .unwrap();
         let expected = String::from_utf8(read("expected.txt")).unwrap();
         let unchanged = |g: &CompiledGrammar| (g.to_cg3b().unwrap(), g.to_text());
         for grammar in [&text, &binary] {
@@ -599,6 +656,7 @@ fn relabel_makes_a_new_grammar_from_two() {
         b"DELIMITERS = \"<.>\" ;\nREMOVE (x) ;\n",
         "rules.cg3",
         FileResolver,
+        &LoadOptions::default(),
     )
     .unwrap();
     let refused = rules
@@ -612,4 +670,93 @@ fn relabel_makes_a_new_grammar_from_two() {
         ),
         "{refused}"
     );
+}
+
+/// `LoadOptions` act as vislcg3's load-time flags: T_NRules's rule filters and
+/// T_CG2Compat's compatibility mode give their expected output, a `.cg3b`
+/// keeps the prefix it was compiled with, and a `--prefix` in a grammar's
+/// `CMDARGS` sets the prefix its mappings are read with.
+// [spec:cg3:req:embed.load-options/test]
+#[test]
+fn load_options_act_as_vislcg3s_load_flags() {
+    let text = |name: &str, options: &LoadOptions| {
+        let path = corpus(name).join("grammar.cg3");
+        CompiledGrammar::from_text(
+            &std::fs::read(&path).unwrap(),
+            path.to_str().unwrap(),
+            FileResolver,
+            options,
+        )
+    };
+    let expected = |name: &str| std::fs::read_to_string(corpus(name).join("expected.txt")).unwrap();
+    let runs = |grammar: &CompiledGrammar, name: &str, options: &RunOptions| {
+        let got = grammar.run(&input(name), options).unwrap();
+        same_output(&expected(name), &String::from_utf8(got).unwrap())
+    };
+
+    let nrules = LoadOptions {
+        nrules: Some("pick".into()),
+        nrules_v: Some("X".into()),
+        ..Default::default()
+    };
+    let run = RunOptions::default();
+    let filtered = CompiledGrammar::from_cg3b(&cg3b("T_NRules"), &nrules).unwrap();
+    assert!(runs(&text("T_NRules", &nrules).unwrap(), "T_NRules", &run));
+    assert!(runs(&filtered, "T_NRules", &run));
+    assert!(!runs(
+        &text("T_NRules", &LoadOptions::default()).unwrap(),
+        "T_NRules",
+        &run
+    ));
+
+    let compat = LoadOptions {
+        vislcg_compat: true,
+        ..Default::default()
+    };
+    let ordered = RunOptions {
+        ordered: true,
+        ..Default::default()
+    };
+    assert!(runs(
+        &text("T_CG2Compat", &compat).unwrap(),
+        "T_CG2Compat",
+        &ordered
+    ));
+
+    let prefix = |c| LoadOptions {
+        prefix: Some(c),
+        ..Default::default()
+    };
+    assert!(CompiledGrammar::from_cg3b(&cg3b("T_Select"), &prefix('@')).is_ok());
+    let refused = CompiledGrammar::from_cg3b(&cg3b("T_Select"), &prefix('%'))
+        .err()
+        .expect("another prefix");
+    assert!(matches!(
+        refused,
+        cg3::error::Cg3Error::Grammar(cg3::error::GrammarError::PrefixMismatch)
+    ));
+    let bad = LoadOptions {
+        nrules_v: Some("(".into()),
+        ..Default::default()
+    };
+    let refused = text("T_NRules", &bad)
+        .err()
+        .expect("a pattern that does not compile");
+    assert!(refused.to_string().contains("in --nrules-v ("), "{refused}");
+
+    // An input reading tagged %x is mapped only under the prefix %, and a
+    // MAP rule passes a mapped reading by.
+    let map = |cmdargs: &str| {
+        let source = format!("DELIMITERS = \"<.>\" ;\n{cmdargs}MAP (%b) (w) ;\n");
+        let grammar = CompiledGrammar::from_text(
+            source.as_bytes(),
+            "map.cg3",
+            FileResolver,
+            &LoadOptions::default(),
+        )
+        .unwrap();
+        String::from_utf8(grammar.run(b"\"<a>\"\n\t\"a\" w %x\n", &run).unwrap()).unwrap()
+    };
+    assert_eq!(map("CMDARGS += --prefix % ;\n"), "\"<a>\"\n\t\"a\" w %x\n");
+    assert_eq!(map(""), "\"<a>\"\n\t\"a\" w %x %b\n");
 }

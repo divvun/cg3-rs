@@ -62,6 +62,23 @@ export interface ApplyOptions {
   noBreak?: boolean;
 }
 
+// [spec:cg3:req:wasm.load-options]
+/**
+ * The options vislcg3 applies to a grammar while it loads it, each named after
+ * its vislcg3 long option in camelCase: `--nrules-v X` is `{ nrulesV: "X" }`.
+ * A `--prefix` in the grammar's `CMDARGS` applies as it does in vislcg3.
+ */
+export interface LoadOptions {
+  /** Keep only the rules whose names this pattern matches. */
+  nrules?: string;
+  /** Leave out the rules whose names this pattern matches. */
+  nrulesV?: string;
+  /** Read the grammar as VISLCG2 did; a `.cg3b` reads the same either way. */
+  vislcgCompat?: boolean;
+  /** The mapping prefix, one character, which the `.cg3b` must have been compiled with. */
+  prefix?: string;
+}
+
 /** A run's output, and every warning and non-fatal error it logged, in order. */
 export interface ApplyResult {
   output: string;
@@ -114,7 +131,7 @@ export class Grammar extends Handle<GrammarGlue> {
    * An option it does not know throws `invalid-argument`.
    */
   apply(input: string, options?: ApplyOptions): ApplyResult {
-    return this.use((glue) => glue.apply(checkedInput(input), optionsJson(options)));
+    return this.use((glue) => glue.apply(checkedInput(input), optionsJson("apply", options)));
   }
 }
 
@@ -125,11 +142,11 @@ function checkedInput(input: unknown): string {
   return input;
 }
 
-/** The JSON text of `options`, which the module reads and checks key by key. */
-function optionsJson(options: unknown): string {
+/** The JSON text of the options `call` takes, which the module reads and checks key by key. */
+function optionsJson(call: string, options: unknown): string {
   if (options === undefined) return "{}";
   if (typeof options !== "object" || options === null || Array.isArray(options)) {
-    throw new Cg3Error("invalid-argument", "apply takes its options as an object");
+    throw new Cg3Error("invalid-argument", `${call} takes its options as an object`);
   }
   try {
     return JSON.stringify(options);
@@ -143,23 +160,26 @@ function optionsJson(options: unknown): string {
 export interface GrammarReader {
   /**
    * Loads a compiled grammar from the bytes of a `.cg3b`, as `cg-comp`
-   * writes it. The bytes are copied into the module and not kept. Bytes that
-   * are not a `.cg3b` the library reads throw `invalid-grammar`, with the
-   * library's message.
+   * writes it, under the load options `options` gives. The bytes are copied
+   * into the module and not kept. Bytes that are not a `.cg3b` the library
+   * reads throw `invalid-grammar`, with the library's message. An option it
+   * does not know, a `prefix` that is not one character or a pattern that
+   * does not compile throws `invalid-argument`.
    */
-  readGrammar(bytes: Uint8Array): Grammar;
+  readGrammar(bytes: Uint8Array, options?: LoadOptions): Grammar;
 }
 
 // [spec:cg3:req:wasm.grammar-load+1]
+// [spec:cg3:req:wasm.load-options]
 /** A {@link GrammarReader} that loads into the module instance `core`. */
 export function grammarReader(core: Core): GrammarReader {
   return {
-    readGrammar: (bytes) =>
+    readGrammar: (bytes, options) =>
       core.call((glue) => {
         if (!(bytes instanceof Uint8Array)) {
           throw new Cg3Error("invalid-argument", "a grammar loads from the bytes of a .cg3b, as a Uint8Array");
         }
-        return wrap(core, glue.readGrammar(bytes));
+        return wrap(core, glue.readGrammar(bytes, optionsJson("readGrammar", options)));
       }),
   };
 }

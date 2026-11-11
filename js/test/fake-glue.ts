@@ -19,6 +19,8 @@ export class FakeGlue implements Glue {
   freed: string[] = [];
   /** Every grammar handed out, in order. */
   readonly made: FakeGrammar[] = [];
+  /** The load options of every readGrammar call, in order. */
+  readonly loads: string[] = [];
 
   default(options: { module_or_path: GlueInitInput }): Promise<unknown> {
     this.inputs.push(options.module_or_path);
@@ -47,8 +49,9 @@ export class FakeGlue implements Glue {
   }
 
   /** Bytes that start with 0 are no grammar, as the module would say. */
-  readGrammar(bytes: Uint8Array): GrammarGlue {
+  readGrammar(bytes: Uint8Array, options: string): GrammarGlue {
     this.entered += 1;
+    this.loads.push(options);
     if (bytes[0] === 0) this.fail("invalid-grammar", "not a binary grammar");
     const grammar = new FakeGrammar(this, `grammar ${this.made.length}`);
     this.made.push(grammar);

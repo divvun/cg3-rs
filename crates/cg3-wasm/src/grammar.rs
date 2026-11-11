@@ -6,7 +6,7 @@ use cg3::embed::{CompiledGrammar, GrammarInfo, RunOptions};
 use wasm_bindgen::prelude::*;
 
 use crate::error::{ErrorCode, GlueError, set};
-use crate::options::{ApplyOptions, parse_options};
+use crate::options::{ApplyOptions, parse_load_options, parse_options};
 
 /// A compiled grammar, loaded once and applied any number of times.
 #[wasm_bindgen]
@@ -16,9 +16,12 @@ pub struct Grammar {
 
 // [spec:cg3:req:wasm.grammar-load+1]
 // [spec:cg3:req:wasm.errors+1]
+// [spec:cg3:req:wasm.load-options]
+/// Loads a `.cg3b` under the options in `options`, the JSON of a
+/// `LoadOptions` object.
 #[wasm_bindgen(js_name = readGrammar)]
-pub fn read_grammar(bytes: &[u8]) -> Result<Grammar, GlueError> {
-    CompiledGrammar::from_cg3b(bytes)
+pub fn read_grammar(bytes: &[u8], options: &str) -> Result<Grammar, GlueError> {
+    CompiledGrammar::from_cg3b(bytes, &parse_load_options(options)?)
         .map(|inner| Grammar { inner })
         .map_err(|e| GlueError::new(ErrorCode::InvalidGrammar, e.to_string()))
 }

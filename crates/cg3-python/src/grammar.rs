@@ -154,36 +154,60 @@ fn load(
 
 // [spec:cg3:req:python.grammar-load]
 // [spec:cg3:req:python.threads]
+// [spec:cg3:req:python.load-options]
 /// Loads a compiled grammar from the bytes of a `.cg3b`, as cg-comp writes
-/// it. Bytes that are not one raise GrammarError.
+/// it, under the load options a LoadOptions gives. Bytes that are not one
+/// raise GrammarError.
 #[pyfunction]
-pub fn read_grammar(py: Python<'_>, data: PyBackedBytes) -> PyResult<Grammar> {
+#[pyo3(signature = (data, *, options = None))]
+pub fn read_grammar(
+    py: Python<'_>,
+    data: PyBackedBytes,
+    options: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Grammar> {
+    let options = options::of_load(options, "read_grammar")?;
     let data: &[u8] = &data;
-    load(py, || CompiledGrammar::from_cg3b(data))
+    load(py, || CompiledGrammar::from_cg3b(data, &options))
 }
 
 // [spec:cg3:req:python.grammar-load]
 // [spec:cg3:req:python.threads]
+// [spec:cg3:req:python.load-options]
 /// Parses a textual grammar from `source`, calling it `name` in its
-/// diagnostics. A relative INCLUDE resolves against the directory of the file
-/// `name` names, or the current directory without one. A grammar that does not
-/// parse raises GrammarError, quoting every error.
+/// diagnostics, under the load options a LoadOptions gives. A relative INCLUDE
+/// resolves against the directory of the file `name` names, or the current
+/// directory without one. A grammar that does not parse raises GrammarError,
+/// quoting every error.
 #[pyfunction]
-#[pyo3(signature = (source, name = None))]
-pub fn parse_grammar(py: Python<'_>, source: &str, name: Option<&str>) -> PyResult<Grammar> {
+#[pyo3(signature = (source, name = None, *, options = None))]
+pub fn parse_grammar(
+    py: Python<'_>,
+    source: &str,
+    name: Option<&str>,
+    options: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Grammar> {
+    let options = options::of_load(options, "parse_grammar")?;
     let name = name.unwrap_or(MEMORY_SOURCE_NAME);
     load(py, || {
-        CompiledGrammar::from_text(source.as_bytes(), name, FileResolver)
+        CompiledGrammar::from_text(source.as_bytes(), name, FileResolver, &options)
     })
 }
 
 // [spec:cg3:req:python.grammar-load]
 // [spec:cg3:req:python.threads]
+// [spec:cg3:req:python.load-options]
 /// Loads the grammar in the file at `path`: compiled when it begins with the
 /// `.cg3b` magic, as vislcg3 decides, and textual otherwise, with relative
-/// INCLUDEs resolved against its directory.
+/// INCLUDEs resolved against its directory, under the load options a
+/// LoadOptions gives.
 #[pyfunction]
-pub fn load_grammar(py: Python<'_>, path: PathBuf) -> PyResult<Grammar> {
+#[pyo3(signature = (path, *, options = None))]
+pub fn load_grammar(
+    py: Python<'_>,
+    path: PathBuf,
+    options: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Grammar> {
+    let options = options::of_load(options, "load_grammar")?;
     let name = path
         .to_str()
         .ok_or_else(|| PyValueError::new_err(format!("the grammar path {path:?} is not UTF-8")))?;
@@ -191,10 +215,10 @@ pub fn load_grammar(py: Python<'_>, path: PathBuf) -> PyResult<Grammar> {
         .detach(|| std::fs::read(&path))
         .map_err(|e| os_error(py, e, name))?;
     if is_cg3b(&bytes) {
-        load(py, || CompiledGrammar::from_cg3b(&bytes))
+        load(py, || CompiledGrammar::from_cg3b(&bytes, &options))
     } else {
         load(py, || {
-            CompiledGrammar::from_text(&bytes, name, FileResolver)
+            CompiledGrammar::from_text(&bytes, name, FileResolver, &options)
         })
     }
 }

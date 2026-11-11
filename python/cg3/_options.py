@@ -1,10 +1,44 @@
-"""The options a run reads, as one immutable value."""
+"""The options a run reads, and those a load applies, each as one immutable
+value."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
 
-from cg3._cg3 import Format, _check_run_options
+from cg3._cg3 import Format, _check_load_options, _check_run_options
+
+
+# [spec:cg3:req:python.load-options]
+@dataclass(frozen=True, kw_only=True, slots=True, repr=False)
+class LoadOptions:
+    """The options vislcg3 applies to a grammar while it loads it, each named
+    after its vislcg3 long option in snake_case: ``--nrules-v X`` is
+    ``nrules_v="X"``. ``nrules`` keeps only the rules whose names its pattern
+    matches and ``nrules_v`` leaves out those whose names its pattern matches;
+    ``vislcg_compat`` reads a textual grammar as VISLCG2 did; ``prefix`` is the
+    mapping prefix, one character, which a ``.cg3b`` must have been compiled
+    with. A ``--prefix`` in the grammar's CMDARGS applies as it does in vislcg3.
+
+    The fields are checked when the options are made: a pattern must compile
+    as vislcg3 compiles it.
+    """
+
+    nrules: str | None = None
+    nrules_v: str | None = None
+    vislcg_compat: bool = False
+    prefix: str | None = None
+
+    def __post_init__(self) -> None:
+        _check_load_options(self)
+
+    def __repr__(self) -> str:
+        """Names only the options given, as a call that makes them would."""
+        given = ", ".join(
+            f"{f.name}={getattr(self, f.name)!r}"
+            for f in fields(self)
+            if getattr(self, f.name) != f.default
+        )
+        return f"LoadOptions({given})"
 
 
 # [spec:cg3:req:python.apply+1]

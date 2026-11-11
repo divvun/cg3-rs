@@ -4028,6 +4028,13 @@ children (
                         kind @note
                         text "vislcg3 sets these on the parser before it reads the grammar, for textual and binary grammars alike (crates/cg3-cli/src/vislcg3.rs: parser.nrules, parser.nrules_inv, parser.set_compatible). RunOptions holds only what GrammarApplicator::set_options reads, so a loaded grammar has no place for them. The spec needs a rule beside embed.load and embed.load-text, and python.parity and wasm.parity name the two exemptions they would drop. T_CG2Compat also passes --ordered, which RunOptions already has."
                     }
+
+                    {
+                        at 2026-11-11T12:52:17.546422Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
                 )
             }
         )

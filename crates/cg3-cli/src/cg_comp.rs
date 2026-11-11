@@ -8,7 +8,7 @@
 use std::fs::File;
 use std::io::{Read, Write};
 
-use cg3::embed::{CompiledGrammar, FileResolver};
+use cg3::embed::{CompiledGrammar, FileResolver, LoadOptions};
 use cg3::inlines::is_cg3b;
 
 use super::{EXIT_FAILURE, basename, divvun_version_line, emit, fail};
@@ -80,7 +80,16 @@ pub fn main_comp(args: &[String]) -> i32 {
     // [spec:cg3:req:embed.cli-compiles-through]
     // [spec:cg3:req:diagnostics.source-named]
     // parser->parse_grammar(argv[1]); grammar.reindex();
-    let grammar = match CompiledGrammar::from_text(&buffer, &args[1], FileResolver) {
+    //
+    // DIVERGENCE: a `--prefix` in the grammar's CMDARGS applies, as vislcg3
+    // applies it when it loads the text. The C++ cg-comp left it out, and
+    // wrote a `.cg3b` vislcg3 then refused for a prefix that did not match.
+    let grammar = match CompiledGrammar::from_text(
+        &buffer,
+        &args[1],
+        FileResolver,
+        &LoadOptions::default(),
+    ) {
         Ok(g) => g,
         Err(e) => return fail(&e),
     };

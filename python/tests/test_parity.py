@@ -2,9 +2,10 @@
 
 Every test/T_* grammar runs through the built package twice, loaded from its
 textual source and from the `.cg3b` cg-comp writes for it, with the options its
-args.txt gives vislcg3 read as a RunOptions. Each output must be the bytes
-vislcg3 writes for the same grammar, or both must fail. A test whose options the
-package cannot take is skipped with the reason, and the exempt set is checked.
+args.txt gives vislcg3 read as a LoadOptions and a RunOptions. Each output must
+be the bytes vislcg3 writes for the same grammar, or both must fail. A test
+whose options the package cannot take is skipped with the reason, and the
+exempt set is checked.
 
 Both run in a scratch directory holding the program the corpus's EXTERNAL rule
 names as `./cg3-external-example`, so that rule runs as it does under vislcg3.
@@ -26,10 +27,7 @@ import pytest
 import cg3
 from conftest import CORPUS, Tools
 
-EXEMPT = {
-    "T_CG2Compat": "an option the package does not offer (--vislcg-compat)",
-    "T_NRules": "an option the package does not offer (--nrules)",
-}
+EXEMPT: dict[str, str] = {}
 
 
 def corpus_tests() -> list[Path]:
@@ -40,17 +38,23 @@ def corpus_tests() -> list[Path]:
     )
 
 
-def option_kinds() -> dict[str, str]:
-    """Each field of `RunOptions`, with its annotation."""
-    return {f.name: str(f.type) for f in dataclasses.fields(cg3.RunOptions)}
+def option_kinds() -> dict[str, tuple[str, str]]:
+    """Each field of `LoadOptions` and `RunOptions`, with its class and
+    annotation."""
+    return {
+        f.name: (options.__name__, str(f.type))
+        for options in (cg3.LoadOptions, cg3.RunOptions)
+        for f in dataclasses.fields(options)
+    }
 
 
 @dataclass
 class Options:
-    """What a test's args.txt is to the package: the fields of a RunOptions,
-    or why there are none."""
+    """What a test's args.txt is to the package: the fields of a LoadOptions
+    and a RunOptions, or why there are none."""
 
     kwargs: dict[str, Any]
+    load: dict[str, Any] = dataclasses.field(default_factory=dict)
     exempt: str | None = None
 
 
@@ -65,6 +69,7 @@ def short_options(tools: Tools) -> dict[str, str]:
 def apply_options(args: list[str], short: dict[str, str]) -> Options:
     kinds = option_kinds()
     kwargs: dict[str, Any] = {}
+    load: dict[str, Any] = {}
     words = iter(args)
     for word in words:
         if word.startswith("--"):
@@ -72,9 +77,9 @@ def apply_options(args: list[str], short: dict[str, str]) -> Options:
         elif len(word) == 2 and word[0] == "-" and word[1] in short:
             name, attached = short[word[1]], ""
         else:
-            return Options({}, f"an argument the check cannot read ({word})")
+            return Options({}, exempt=f"an argument the check cannot read ({word})")
         if name in ("in-binary", "out-binary"):
-            return Options({}, "a binary stream")
+            return Options({}, exempt="a binary stream")
         if name.startswith("in-"):
             kwargs["input_format"] = name.removeprefix("in-")
             continue
@@ -82,17 +87,18 @@ def apply_options(args: list[str], short: dict[str, str]) -> Options:
             kwargs["output_format"] = name.removeprefix("out-")
             continue
         key = name.replace("-", "_")
-        kind = kinds.get(key)
-        if kind is None:
-            return Options({}, f"an option the package does not offer (--{name})")
+        if key not in kinds:
+            return Options({}, exempt=f"an option the package does not offer (--{name})")
+        options, kind = kinds[key]
+        given = load if options == "LoadOptions" else kwargs
         if kind == "bool":
-            kwargs[key] = True
+            given[key] = True
         elif kind == "bool | str":
-            kwargs[key] = attached or True
+            given[key] = attached or True
         else:
             value = attached or next(words)
-            kwargs[key] = int(value) if kind == "int | None" else value
-    return Options(kwargs)
+            given[key] = int(value) if kind == "int | None" else value
+    return Options(kwargs, load)
 
 
 @pytest.fixture(scope="module")
@@ -163,6 +169,7 @@ def args_of(test: Path) -> list[str]:
 
 
 # [spec:cg3:req:python.parity/test]
+# [spec:cg3:req:python.load-options/test]
 @pytest.mark.parametrize("test", corpus_tests(), ids=lambda d: d.name)
 def test_the_package_gives_vislcg3s_bytes(
     test: Path,
@@ -176,6 +183,7 @@ def test_the_package_gives_vislcg3s_bytes(
     if options.exempt is not None:
         pytest.skip(f"exempt: {options.exempt}")
     run_options = cg3.RunOptions(**options.kwargs)
+    load_options = cg3.LoadOptions(**options.load)
     textual = test / "grammar.cg3"
     compiled = scratch / f"{test.name}.cg3b"
     tools.compile(textual, compiled)
@@ -183,11 +191,15 @@ def test_the_package_gives_vislcg3s_bytes(
     runs = {
         "textual": (
             vislcg3(tools, args, textual, test, scratch),
-            package(lambda: cg3.load_grammar(textual), run_options, test),
+            package(lambda: cg3.load_grammar(textual, options=load_options), run_options, test),
         ),
         ".cg3b": (
             vislcg3(tools, args, compiled, test, scratch),
-            package(lambda: cg3.read_grammar(compiled.read_bytes()), run_options, test),
+            package(
+                lambda: cg3.read_grammar(compiled.read_bytes(), options=load_options),
+                run_options,
+                test,
+            ),
         ),
     }
     if test.name == "T_External":

@@ -54,5 +54,9 @@ export interface Glue {
   /** Sends events at `level` and above from here on, and nothing below it. */
   setLogLevel(level: number): void;
   version(): string;
-  readGrammar(bytes: Uint8Array): GrammarGlue;
+  /**
+   * Loads a `.cg3b`. `options` is the JSON text of a `LoadOptions` object;
+   * the module refuses a key it does not know.
+   */
+  readGrammar(bytes: Uint8Array, options: string): GrammarGlue;
 }

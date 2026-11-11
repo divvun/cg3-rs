@@ -423,6 +423,24 @@ pub enum GrammarError {
     #[error(transparent)]
     RelabelRule(#[from] crate::relabeller::RelabelRuleError),
 
+    /// A `--nrules` or `--nrules-v` pattern that would not compile.
+    ///
+    /// The message keeps the C++ layout (cause, then flag and pattern), and the
+    /// cause is reachable underneath it rather than only as text. Only the
+    /// failure `kind` is spliced into the message: `TagRegexError`'s own
+    /// `Display` opens with "cannot compile regex for tag", which a rule-name
+    /// filter is not.
+    #[error("Error: invalid regex ({}) in {flag} {pattern}", .source.kind)]
+    RuleFilter {
+        flag: &'static str,
+        pattern: String,
+        #[source]
+        source: Box<crate::tag_regex::TagRegexError>,
+    },
+
+    #[error("Error: Mapping prefix must match the one used for compiling the binary grammar!")]
+    PrefixMismatch,
+
     // [spec:cg3:req:diagnostics.errors-carried]
     /// Recoverable parse errors, all of those found in one pass, together with
     /// the sources their spans index.

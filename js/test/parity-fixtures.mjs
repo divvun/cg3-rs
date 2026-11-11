@@ -36,16 +36,19 @@ const REQUIRED = new Set([
   "prefix",
 ]);
 const NUMERIC = new Set(["max-runs", "num-windows", "soft-limit", "hard-limit"]);
+// The options vislcg3 applies while it loads a grammar, which readGrammar takes.
+const LOAD = new Set(["nrules", "nrules-v", "vislcg-compat", "prefix"]);
 const BINARY = new Set(["in-binary", "out-binary"]);
 const camel = (long) => long.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
 
 /**
- * The ApplyOptions an args.txt names, or the reason it names none. An option
- * the package does not offer still becomes a key here: the package refusing
- * it is what makes the test exempt.
+ * The ApplyOptions and LoadOptions an args.txt names, or the reason it names
+ * none. An option the package does not offer still becomes a key of the
+ * ApplyOptions here: the package refusing it is what makes the test exempt.
  */
 export function toOptions(args) {
   const options = {};
+  const load = {};
   for (let i = 0; i < args.length; i += 1) {
     const [flag, attached] = args[i].split(/=(.*)/s, 2);
     let long;
@@ -62,9 +65,10 @@ export function toOptions(args) {
       i += 1;
       value = args[i];
     }
-    options[camel(long)] = value === undefined ? true : NUMERIC.has(long) ? Number(value) : value;
+    const given = LOAD.has(long) ? load : options;
+    given[camel(long)] = value === undefined ? true : NUMERIC.has(long) ? Number(value) : value;
   }
-  return { options };
+  return { options, load };
 }
 
 /**
@@ -86,7 +90,7 @@ export function buildParityFixtures(bin, corpus, out) {
     }
     const argsFile = join(dir, "args.txt");
     const args = existsSync(argsFile) ? readFileSync(argsFile, "utf8").split(/\s+/).filter(Boolean) : [];
-    const { options, exempt } = toOptions(args);
+    const { options, load, exempt } = toOptions(args);
     if (exempt !== undefined) {
       tests.push({ name, exempt });
       continue;
@@ -104,7 +108,7 @@ export function buildParityFixtures(bin, corpus, out) {
     });
     if (native.error !== undefined) throw native.error;
     writeFileSync(join(out, `${name}.expected`), native.stdout);
-    tests.push({ name, args, options, nativeFailed: native.status !== 0 });
+    tests.push({ name, args, options, load, nativeFailed: native.status !== 0 });
   }
   writeFileSync(join(out, "parity.json"), `${JSON.stringify({ tests }, null, 1)}\n`);
   return tests.length;

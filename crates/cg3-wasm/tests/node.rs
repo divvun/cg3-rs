@@ -34,13 +34,13 @@ fn thrown(error: GlueError) -> (String, String) {
 #[wasm_bindgen_test]
 fn loading_reports_what_the_library_says() {
     let blob = cg3b(r#"DELIMITERS = "<.>" ; SELECT (n) ;"#);
-    let grammar = read_grammar(&blob).expect("loads");
+    let grammar = read_grammar(&blob, "{}").expect("loads");
     let info = grammar.info();
     assert_eq!(field(&info, "rules").as_f64(), Some(1.0));
     assert_eq!(field(&info, "hasDependencyRules").as_bool(), Some(false));
     drop(grammar);
 
-    let truncated = read_grammar(&blob[..blob.len() / 2])
+    let truncated = read_grammar(&blob[..blob.len() / 2], "{}")
         .err()
         .expect("refused");
     let (code, message) = thrown(truncated);
@@ -52,7 +52,7 @@ fn loading_reports_what_the_library_says() {
 // [spec:cg3:req:wasm.errors+1/test]
 #[wasm_bindgen_test]
 fn apply_takes_and_returns_javascript_values() {
-    let grammar = read_grammar(&cg3b(r#"DELIMITERS = "<.>" ; SELECT (n) ;"#)).expect("loads");
+    let grammar = read_grammar(&cg3b(r#"DELIMITERS = "<.>" ; SELECT (n) ;"#), "{}").expect("loads");
     let applied = grammar
         .apply("\"<word>\"\n\t\"word\" n\n\t\"word\" v\n", "{}")
         .expect("runs");
@@ -75,9 +75,10 @@ fn apply_takes_and_returns_javascript_values() {
 // [spec:cg3:req:wasm.errors+1/test]
 #[wasm_bindgen_test]
 fn an_external_rule_fails_its_run_without_trapping() {
-    let grammar = read_grammar(&cg3b(
-        "DELIMITERS = \"<.>\" ;\nSECTION\nEXTERNAL ONCE ./external (*) ;\n",
-    ))
+    let grammar = read_grammar(
+        &cg3b("DELIMITERS = \"<.>\" ;\nSECTION\nEXTERNAL ONCE ./external (*) ;\n"),
+        "{}",
+    )
     .expect("loads");
     let failed = grammar
         .apply("\"<word>\"\n\t\"word\" n\n", "{}")
@@ -89,7 +90,7 @@ fn an_external_rule_fails_its_run_without_trapping() {
         "{message}"
     );
 
-    let applied = read_grammar(&cg3b(r#"DELIMITERS = "<.>" ; SELECT (n) ;"#))
+    let applied = read_grammar(&cg3b(r#"DELIMITERS = "<.>" ; SELECT (n) ;"#), "{}")
         .expect("loads")
         .apply("\"<word>\"\n\t\"word\" n\n", "{}");
     assert!(applied.is_ok(), "the module still runs after a failed run");
