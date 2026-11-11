@@ -945,4 +945,9 @@ impl_evidence (
         {impl_name target-impl, rule embed.write-binary}
         {impl_name target-impl, rule embed.write-text}
     )}
+    {id tool-surface.convert, covered_rules (
+        embed.convert
+    ), covered_claims (
+        {impl_name target-impl, rule embed.convert}
+    )}
 )

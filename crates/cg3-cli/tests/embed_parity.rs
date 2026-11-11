@@ -8,6 +8,12 @@ use std::time::{Duration, Instant};
 
 use cg3::embed::{CompiledGrammar, GrammarInfo};
 
+#[expect(
+    dead_code,
+    reason = "the conversions compare bytes exactly, so diff_b_equal and run_capture go unused here"
+)]
+mod common;
+
 fn corpus(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../test")
@@ -148,17 +154,20 @@ fn take_written(path: &Path) -> (Vec<u8>, Option<Vec<u8>>) {
     written
 }
 
-fn vislcg3_writes(grammar: &Path, flag: &str, out: &Path) {
+/// `vislcg3 --grammar-only` loading `grammar`, writing it to `text` and `binary`.
+fn vislcg3_writes(grammar: &Path, text: &Path, binary: &Path) {
     let status = Command::new(env!("CARGO_BIN_EXE_vislcg3"))
         .args(["--grammar-only", "-g"])
         .arg(grammar)
-        .arg(flag)
-        .arg(out)
+        .arg("--grammar-out")
+        .arg(text)
+        .arg("--grammar-bin")
+        .arg(binary)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .expect("spawn vislcg3");
-    assert!(status.success(), "vislcg3 {flag} {}", grammar.display());
+    assert!(status.success(), "vislcg3 {}", grammar.display());
 }
 
 /// cg-comp writes, for every corpus grammar, the `.cg3b` and companion file
@@ -204,20 +213,157 @@ fn vislcg3_writes_what_the_library_writers_return() {
         std::fs::write(&cg3b, text.to_cg3b().unwrap()).unwrap();
         let binary = CompiledGrammar::from_cg3b(&text.to_cg3b().unwrap()).unwrap();
         for (path, loaded) in [(grammar.as_path(), &text), (cg3b.as_path(), &binary)] {
-            let out = scratch(&grammar, "out.cg3");
-            vislcg3_writes(path, "--grammar-out", &out);
-            let written = take_written(&out);
+            let (text_out, binary_out) =
+                (scratch(&grammar, "out.cg3"), scratch(&grammar, "out.cg3b"));
+            vislcg3_writes(path, &text_out, &binary_out);
+            let written = take_written(&text_out);
             assert!(
                 written == (loaded.to_text().into_bytes(), None),
                 "{}",
                 path.display()
             );
-
-            let out = scratch(&grammar, "out.cg3b");
-            vislcg3_writes(path, "--grammar-bin", &out);
             let expected = (loaded.to_cg3b().unwrap(), loaded.companion().unwrap());
-            assert!(take_written(&out) == expected, "{}", path.display());
+            assert!(take_written(&binary_out) == expected, "{}", path.display());
         }
         let _ = std::fs::remove_file(cg3b);
+    }
+}
+
+/// cg-conv writes what `cg3::convert` returns for the same input and options,
+/// for inputs in each format and the options that change its output.
+// [spec:cg3:req:embed.convert/test]
+#[test]
+fn cg_conv_writes_what_convert_returns() {
+    use cg3::embed::Format;
+    use cg3::{ConvertOptions, convert};
+    let o = ConvertOptions::default;
+    let cases: Vec<(&[&str], ConvertOptions)> = vec![
+        (&[], o()),
+        (
+            &["--in-cg", "--out-apertium"],
+            ConvertOptions {
+                input: Some(Format::Cg),
+                output: Some(Format::Apertium),
+                ..o()
+            },
+        ),
+        (
+            &["--out-fst", "-W", "2", "--wtag", "X", "-S", "#"],
+            ConvertOptions {
+                output: Some(Format::Fst),
+                wfactor: Some(2.0),
+                wtag: Some("X".into()),
+                sub_delim: Some("#".into()),
+                ..o()
+            },
+        ),
+        (
+            &["--out-niceline", "--deleted"],
+            ConvertOptions {
+                output: Some(Format::Niceline),
+                deleted: true,
+                ..o()
+            },
+        ),
+        (
+            &["--out-plain", "--no-break"],
+            ConvertOptions {
+                output: Some(Format::Plain),
+                no_break: true,
+                ..o()
+            },
+        ),
+        (
+            &["--out-jsonl", "--unicode-tags"],
+            ConvertOptions {
+                output: Some(Format::Jsonl),
+                unicode_tags: true,
+                ..o()
+            },
+        ),
+        (
+            &["--out-binary"],
+            ConvertOptions {
+                output: Some(Format::Binary),
+                ..o()
+            },
+        ),
+        (
+            &["--add-tags"],
+            ConvertOptions {
+                add_tags: true,
+                ..o()
+            },
+        ),
+        (
+            &["--add-tags", "--in-auto"],
+            ConvertOptions {
+                add_tags: true,
+                in_auto: true,
+                ..o()
+            },
+        ),
+        (
+            &["--in-plain", "--in-jsonl"],
+            ConvertOptions {
+                input: Some(Format::Plain),
+                ..o()
+            },
+        ),
+        (
+            &["--out-apertium", "--ordered", "--ltr", "--prefix", "%"],
+            ConvertOptions {
+                output: Some(Format::Apertium),
+                ordered: true,
+                ltr: true,
+                prefix: Some('%'),
+                ..o()
+            },
+        ),
+        (
+            &["--parse-dep"],
+            ConvertOptions {
+                parse_dep: true,
+                ..o()
+            },
+        ),
+        (
+            &["--dep-delimit", "3"],
+            ConvertOptions {
+                dep_delimit: Some(3),
+                ..o()
+            },
+        ),
+        (
+            &["--in-apertium"],
+            ConvertOptions {
+                input: Some(Format::Apertium),
+                ..o()
+            },
+        ),
+    ];
+    let root = common::repo_root().join("test");
+    for input in [
+        "T_Jsonl/input.txt",
+        "T_Jsonl/input-rules.jsonl",
+        "T_Dependency/input.txt",
+        "Apertium/T_MultiWords/input.txt",
+    ] {
+        let bytes = std::fs::read(root.join(input)).unwrap();
+        for (args, options) in &cases {
+            let out = common::run_output(
+                env!("CARGO_BIN_EXE_cg-conv"),
+                args,
+                &root,
+                &bytes,
+                Stdio::null(),
+            );
+            let expected = convert(&bytes, options).map_err(|e| e.to_string());
+            assert_eq!(out.status.success(), expected.is_ok(), "{input} {args:?}");
+            assert!(
+                expected.is_err() || out.stdout == expected.unwrap(),
+                "{input} {args:?}"
+            );
+        }
     }
 }

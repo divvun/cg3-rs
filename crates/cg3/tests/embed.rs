@@ -385,3 +385,42 @@ fn writing_a_grammar_leaves_it_unchanged() {
         );
     }
 }
+
+/// `cg3::convert` converts T_Jsonl's stream to JSONL and back as its upstream
+/// expectations say cg-conv does, detects the format when none is named, and
+/// reads plain text for `add_tags`.
+// [spec:cg3:req:embed.convert/test]
+#[test]
+fn convert_gives_cg_convs_expected_streams() {
+    use cg3::{ConvertOptions, convert};
+    let dir = corpus("T_Jsonl");
+    let read = |name: &str| std::fs::read(dir.join(name)).unwrap();
+    let options = |input, output| ConvertOptions {
+        input,
+        output: Some(output),
+        parse_dep: true,
+        deleted: true,
+        ..Default::default()
+    };
+    let jsonl = convert(
+        &read("input.txt"),
+        &options(Some(Format::Cg), Format::Jsonl),
+    )
+    .unwrap();
+    assert!(jsonl == read("expected.cg-to-jsonl.txt"), "CG to JSONL");
+    for named in [Some(Format::Jsonl), None] {
+        let cg = convert(&jsonl, &options(named, Format::Cg)).unwrap();
+        assert!(
+            cg == read("expected.jsonl-to-cg.txt"),
+            "JSONL to CG, {named:?}"
+        );
+    }
+
+    let tagged = ConvertOptions {
+        add_tags: true,
+        ..Default::default()
+    };
+    let words = String::from_utf8(convert(b"Two words\n", &tagged).unwrap()).unwrap();
+    assert!(words.contains("\"<Two>\""), "{words}");
+    assert!(words.contains("\t\"two\""), "{words}");
+}

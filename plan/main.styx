@@ -4124,6 +4124,14 @@ children (
                     target-impl ([spec:cg3:req:embed.convert])
                 }
                 deps (tool-surface.spec)
+                log (
+                    {
+                        at 2026-11-11T12:11:36.114408Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

@@ -211,6 +211,137 @@ fn output_option(f: Format) -> Option<Opt> {
     }
 }
 
+fn stream_kind(f: Format) -> StreamFormatKind {
+    match f {
+        Format::Cg => StreamFormatKind::Cg,
+        Format::Niceline => StreamFormatKind::Niceline,
+        Format::Apertium => StreamFormatKind::Apertium,
+        Format::Fst => StreamFormatKind::Fst,
+        Format::Plain => StreamFormatKind::Plain,
+        Format::Jsonl => StreamFormatKind::Jsonl,
+        Format::Binary => StreamFormatKind::Binary,
+    }
+}
+
+// [spec:cg3:req:embed.convert]
+/// cg-conv's options, one field per option that changes what it writes, named
+/// after its long form. A flag left `false`, or a value left `None`, is that
+/// option left off cg-conv's command line.
+#[derive(Clone, Debug, Default)]
+pub struct ConvertOptions {
+    /// `--in-*`; `None` detects the format from the input, as cg-conv does
+    /// when none is named.
+    pub input: Option<Format>,
+    /// `--in-auto`: detect the format even where `input` or `add_tags` names
+    /// one.
+    pub in_auto: bool,
+    /// `--add-tags`: give each word of plain text a minimal reading. Like
+    /// cg-conv, it reads plain text unless `input` names CG, Niceline,
+    /// Apertium or FST.
+    pub add_tags: bool,
+    /// `--out-*`; `None` writes CG.
+    pub output: Option<Format>,
+    /// `--prefix`: the mapping prefix, `@` when unset.
+    pub prefix: Option<char>,
+    /// `--wfactor`: what FST weights are multiplied by, 1.0 when unset.
+    pub wfactor: Option<f64>,
+    /// `--wtag`: the tag FST weights are written as, `W` when unset.
+    pub wtag: Option<String>,
+    /// `--sub-delim`: the characters that separate FST sub-readings.
+    pub sub_delim: Option<String>,
+    /// `--ltr`: sub-readings run left to right.
+    pub ltr: bool,
+    pub ordered: bool,
+    pub parse_dep: bool,
+    /// `--dep-delimit`; cg-conv takes it without a value as 10.
+    pub dep_delimit: Option<u32>,
+    pub unicode_tags: bool,
+    pub deleted: bool,
+    pub no_break: bool,
+}
+
+// [spec:cg3:req:embed.convert]
+/// What cg-conv writes for `input` under `options`.
+pub fn convert(input: &[u8], options: &ConvertOptions) -> Result<Vec<u8>, Cg3Error> {
+    let mut output = Vec::new();
+    convert_into(input, options, &mut output)?;
+    Ok(output)
+}
+
+// [spec:cg3:req:embed.convert]
+/// [`convert`], writing the output as it goes: what cg-conv calls, so a
+/// conversion that fails part-way has written what it had.
+pub fn convert_into<W: Write>(
+    input: &[u8],
+    options: &ConvertOptions,
+    output: &mut W,
+) -> Result<(), Cg3Error> {
+    let base = GrammarApplicator::new(Grammar::default());
+    let mut applicator = FormatConverter::with_conv_grammar(base, |grammar| {
+        grammar.ordered |= options.ordered;
+        grammar.sub_readings_ltr |= options.ltr;
+        if let Some(prefix) = options.prefix {
+            grammar.mapping_prefix = prefix;
+        }
+    })?;
+    let mut instream = std::io::Cursor::new(input);
+    crate::uextras::strip_bom(&mut instream);
+
+    if options.add_tags {
+        applicator.set_plaintext_add_tags(true);
+    }
+    // cg-conv's chain of `--in-*` checks reaches `--in-plain`, which
+    // `--add-tags` implies, before `--in-jsonl` and `--in-binary`.
+    let named = match options.input {
+        None | Some(Format::Plain | Format::Jsonl | Format::Binary) if options.add_tags => {
+            Some(Format::Plain)
+        }
+        named => named,
+    };
+    match named {
+        Some(format) if !options.in_auto => {
+            applicator.base_mut().cfg.fmt_input = stream_kind(format);
+        }
+        // The C++ replays the sniffed prefix through a wrapping reader; the
+        // input is all in memory here, so a seek back replays it.
+        _ => {
+            let at = instream.position();
+            drop(applicator.detect_format(&mut instream));
+            instream.set_position(at);
+        }
+    }
+
+    if let Some(sub_delim) = &options.sub_delim {
+        applicator.set_fst_sub_delims(format!("{sub_delim}+"));
+    }
+    if let Some(wtag) = &options.wtag {
+        applicator.set_fst_wtag(wtag.clone());
+    }
+    if let Some(wfactor) = options.wfactor {
+        applicator.set_fst_wfactor(wfactor);
+    }
+
+    let cfg = &mut applicator.base_mut().cfg;
+    cfg.fmt_output = options.output.map_or(StreamFormatKind::Cg, stream_kind);
+    cfg.unicode_tags |= options.unicode_tags || cfg.fmt_output == StreamFormatKind::Apertium;
+    cfg.pipe_deleted |= options.deleted;
+    if options.no_break {
+        cfg.add_spacing = false;
+    }
+    cfg.parse_dep |= options.parse_dep || options.dep_delimit.is_some();
+    if let Some(dep_delimit) = options.dep_delimit {
+        cfg.dep_delimit = dep_delimit;
+    }
+    cfg.is_conv = true;
+    cfg.trace = true;
+    cfg.verbosity_level = 0;
+    if options.parse_dep {
+        applicator.base_mut().doc.deps.has_dep = true;
+    }
+
+    applicator.run_grammar_on_text(&mut instream, output)
+}
+
 /// What a run is given beside its options.
 #[derive(Default)]
 pub struct RunContext {

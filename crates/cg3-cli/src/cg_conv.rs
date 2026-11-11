@@ -1,11 +1,8 @@
 //! Port of `src/cg-conv.cpp` — the stream format converter.
 //!
-//! Parses cg-conv options, configures a
-//! [`cg3::format_converter::FormatConverter`] (via its public shared-base
-//! accessors — the composition analogue of the C++ public inheritance), and
-//! runs it over stdin→stdout. stdin is buffered into a seekable Cursor because
-//! the ported drivers need `R: Read + Seek`. FST/plaintext-only options are
-//! stored on the converter's persistent format strategies.
+//! Parses cg-conv options into the library's [`cg3::ConvertOptions`] and
+//! converts stdin to stdout through [`cg3::embed::convert_into`], which
+//! [`cg3::convert`] is made of.
 //!
 //! DIVERGENCE: `-M` / `--out-matxin` is not offered. The C++ output-format
 //! switch had no `case OUT_MATXIN`, so `-M` silently emitted CG (neither
@@ -14,7 +11,9 @@
 
 use super::parse_opts_env;
 use crate::options_conv::{Opt, options_conv, options_default, options_override};
+use cg3::ConvertOptions;
 use cg3::arg_parser::parse_args;
+use cg3::embed::Format;
 
 use super::{EXIT_FAILURE, EXIT_SUCCESS, emit_usage, fail, to_argv};
 
@@ -126,158 +125,78 @@ pub fn main_conv(args: &[String]) -> i32 {
             return EXIT_FAILURE;
         }
     };
+    let options = convert_options(&options_conv, numbers);
 
-    // in-cg2 → in-cg; out-cg2 → out-cg.
-    if occ(&options_conv, Opt::InCg2) {
-        options_conv[Opt::InCg as usize].does_occur = true;
-    }
-    if occ(&options_conv, Opt::OutCg2) {
-        options_conv[Opt::OutCg as usize].does_occur = true;
-    }
-
-    // FormatConverter applicator(std::cerr); Grammar& grammar = applicator.conv_grammar;
-    // The C++ sets ORDERED, SUB_LTR and MAPPING_PREFIX on `grammar` further
-    // down, after the ctor installed it. An installed grammar is immutable
-    // here, so all three are applied as the conv grammar is built instead.
-    //
-    // DIVERGENCE: `_MPREFIX` is seeded at install time, so it now reports the
-    // `--prefix` in effect (as vislcg3's always has) rather than the default.
-    let ordered = occ(&options_conv, Opt::Ordered);
-    let sub_ltr = occ(&options_conv, Opt::SubLtr);
-    // C++ converts the option value and takes buf[0]; UTF-8 port: first char,
-    // and buf[0] of an empty conversion is its NUL terminator.
-    let mapping_prefix = occ(&options_conv, Opt::MappingPrefix).then(|| {
-        options_conv[Opt::MappingPrefix as usize]
-            .value
-            .chars()
-            .next()
-            .unwrap_or('\0')
-    });
-    let base = cg3::grammar_applicator::GrammarApplicator::new(cg3::grammar::Grammar::default());
-    let conv = cg3::format_converter::FormatConverter::with_conv_grammar(base, |grammar| {
-        if ordered {
-            grammar.ordered = true;
-        }
-        if sub_ltr {
-            grammar.sub_readings_ltr = true;
-        }
-        if let Some(mp) = mapping_prefix {
-            grammar.mapping_prefix = mp;
-        }
-    });
-    let mut applicator = match conv {
-        Ok(a) => a,
-        Err(e) => return fail(&e),
-    };
-
-    // The C++ strips a BOM from stdin here. The ported drivers need
-    // `R: Read + Seek`, and stdin is not seekable, so the whole stream is
-    // buffered into a Cursor first (faithful for the char-by-char state
+    // The ported drivers need `R: Read + Seek`, and stdin is not seekable, so
+    // the whole stream is buffered first (faithful for the char-by-char state
     // machines the applicators run).
-    let mut input_bytes = Vec::new();
-    let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut input_bytes);
-    let mut instream = std::io::Cursor::new(input_bytes);
-    cg3::uextras::strip_bom(&mut instream);
+    let mut input = Vec::new();
+    let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut input);
 
-    // cg3_sformat fmt = CG3SF_INVALID;
-    use cg3::grammar_applicator::StreamFormatKind;
-    let mut fmt = StreamFormatKind::Invalid;
-
-    // if (ADD_TAGS) { options_conv[IN_PLAIN].doesOccur = true; ...add_tags = true; }
-    if occ(&options_conv, Opt::AddTags) {
-        options_conv[Opt::InPlain as usize].does_occur = true;
-        applicator.set_plaintext_add_tags(true);
-    }
-
-    if occ(&options_conv, Opt::InCg) {
-        fmt = StreamFormatKind::Cg;
-    } else if occ(&options_conv, Opt::InNiceline) {
-        fmt = StreamFormatKind::Niceline;
-    } else if occ(&options_conv, Opt::InApertium) {
-        fmt = StreamFormatKind::Apertium;
-    } else if occ(&options_conv, Opt::InFst) {
-        fmt = StreamFormatKind::Fst;
-    } else if occ(&options_conv, Opt::InPlain) {
-        fmt = StreamFormatKind::Plain;
-    } else if occ(&options_conv, Opt::InJsonl) {
-        fmt = StreamFormatKind::Jsonl;
-    } else if occ(&options_conv, Opt::InBinary) {
-        fmt = StreamFormatKind::Binary;
-    }
-
-    if occ(&options_conv, Opt::InAuto) || fmt == StreamFormatKind::Invalid {
-        // _instream = applicator.detectFormat(std::cin); fmt = applicator.fmt_input;
-        //
-        // The C++ wraps the peeked prefix in a replaying bstreambuf and reads on
-        // from THAT. Here the input is already a fully-buffered seekable Cursor,
-        // so the replay is a seek back to the pre-peek (post-BOM) position —
-        // downstream sees the identical stream.
-        let pos = instream.position();
-        let _wrapped = applicator.detect_format(&mut instream);
-        drop(_wrapped);
-        instream.set_position(pos);
-        fmt = applicator.base().cfg.fmt_input;
-    }
-    applicator.base_mut().cfg.fmt_input = fmt;
-
-    if occ(&options_conv, Opt::SubDelimiter) {
-        let mut sub_delims = options_conv[Opt::SubDelimiter as usize].value.clone();
-        sub_delims.push('+');
-        applicator.set_fst_sub_delims(sub_delims);
-    }
-    if occ(&options_conv, Opt::FstWtag) {
-        applicator.set_fst_wtag(options_conv[Opt::FstWtag as usize].value.clone());
-    }
-    if let Some(wfactor) = numbers.wfactor {
-        applicator.set_fst_wfactor(wfactor);
-    }
-
-    // fmt_output selection.
-    applicator.base_mut().cfg.fmt_output = StreamFormatKind::Cg;
-    if occ(&options_conv, Opt::OutApertium) {
-        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Apertium;
-        applicator.base_mut().cfg.unicode_tags = true;
-    } else if occ(&options_conv, Opt::OutFst) {
-        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Fst;
-    } else if occ(&options_conv, Opt::OutNiceline) {
-        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Niceline;
-    } else if occ(&options_conv, Opt::OutPlain) {
-        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Plain;
-    } else if occ(&options_conv, Opt::OutJsonl) {
-        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Jsonl;
-    } else if occ(&options_conv, Opt::OutBinary) {
-        applicator.base_mut().cfg.fmt_output = StreamFormatKind::Binary;
-    }
-
-    if occ(&options_conv, Opt::UnicodeTags) {
-        applicator.base_mut().cfg.unicode_tags = true;
-    }
-    if occ(&options_conv, Opt::PipeDeleted) {
-        applicator.base_mut().cfg.pipe_deleted = true;
-    }
-    if occ(&options_conv, Opt::NoBreak) {
-        applicator.base_mut().cfg.add_spacing = false;
-    }
-    if occ(&options_conv, Opt::ParseDep) {
-        applicator.base_mut().cfg.parse_dep = true;
-        applicator.base_mut().doc.deps.has_dep = true;
-    }
-    if let Some(dep_delimit) = numbers.dep_delimit {
-        applicator.base_mut().cfg.dep_delimit = dep_delimit;
-        applicator.base_mut().cfg.parse_dep = true;
-    }
-    applicator.base_mut().cfg.is_conv = true;
-    applicator.base_mut().cfg.trace = true;
-    applicator.base_mut().cfg.verbosity_level = 0;
-
+    // [spec:cg3:req:embed.convert]
     // applicator.runGrammarOnText(*instream, std::cout);
-    let mut stdout = std::io::stdout();
-    if let Err(e) = applicator.run_grammar_on_text(&mut instream, &mut stdout) {
+    if let Err(e) = cg3::embed::convert_into(&input, &options, &mut std::io::stdout()) {
         return fail(&e);
     }
 
     // C++ main returns nothing on this path (implicit 0).
     EXIT_SUCCESS
+}
+
+/// The library's options for the cg-conv command line in `table`.
+///
+/// Of several `--in-*` or `--out-*` options, the first cg-conv checks wins:
+/// `--in-cg` (or `--in-cg2`), `--in-niceline`, `--in-apertium`, `--in-fst`,
+/// `--in-plain`, `--in-jsonl`, `--in-binary`; `--out-apertium`, `--out-fst`,
+/// `--out-niceline`, `--out-plain`, `--out-jsonl`, `--out-binary`, with CG
+/// when none is given.
+fn convert_options(
+    table: &crate::options_conv::ConvOptionsTable,
+    numbers: NumericOptions,
+) -> ConvertOptions {
+    let occ = |o: Opt| table[o as usize].does_occur;
+    let first = |formats: &[(Opt, Format)]| formats.iter().find(|&&(o, _)| occ(o)).map(|&(_, f)| f);
+    let input = if occ(Opt::InCg2) {
+        Some(Format::Cg)
+    } else {
+        first(&[
+            (Opt::InCg, Format::Cg),
+            (Opt::InNiceline, Format::Niceline),
+            (Opt::InApertium, Format::Apertium),
+            (Opt::InFst, Format::Fst),
+            (Opt::InPlain, Format::Plain),
+            (Opt::InJsonl, Format::Jsonl),
+            (Opt::InBinary, Format::Binary),
+        ])
+    };
+    let output = first(&[
+        (Opt::OutApertium, Format::Apertium),
+        (Opt::OutFst, Format::Fst),
+        (Opt::OutNiceline, Format::Niceline),
+        (Opt::OutPlain, Format::Plain),
+        (Opt::OutJsonl, Format::Jsonl),
+        (Opt::OutBinary, Format::Binary),
+    ]);
+    let value = |o: Opt| occ(o).then(|| table[o as usize].value.clone());
+    ConvertOptions {
+        input,
+        in_auto: occ(Opt::InAuto),
+        add_tags: occ(Opt::AddTags),
+        output,
+        // C++ converts the option value and takes buf[0]; UTF-8 port: first
+        // char, and buf[0] of an empty conversion is its NUL terminator.
+        prefix: value(Opt::MappingPrefix).map(|p| p.chars().next().unwrap_or('\0')),
+        wfactor: numbers.wfactor,
+        wtag: value(Opt::FstWtag),
+        sub_delim: value(Opt::SubDelimiter),
+        ltr: occ(Opt::SubLtr),
+        ordered: occ(Opt::Ordered),
+        parse_dep: occ(Opt::ParseDep),
+        dep_delimit: numbers.dep_delimit,
+        unicode_tags: occ(Opt::UnicodeTags),
+        deleted: occ(Opt::PipeDeleted),
+        no_break: occ(Opt::NoBreak),
+    }
 }
 
 /// The cg-conv options whose values are numbers, read before the run starts.
