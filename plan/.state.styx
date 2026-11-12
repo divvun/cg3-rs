@@ -361,6 +361,7 @@ assertions (
     {id python.publish, kind @complete, author "brendan@necessary.nu", at 2026-11-10T21:01:28.905708Z}
     {id package-versions, kind @complete, author "brendan@necessary.nu", at 2026-11-10T21:01:16.475006Z}
     {id tool-surface.spec, kind @complete, author "brendan@necessary.nu", at 2026-11-11T11:30:58.008027Z}
+    {id tool-surface.release, kind @doing, author "brendan@necessary.nu", at 2026-11-12T15:24:35.993925Z}
 )
 
 impl_evidence (

@@ -4328,6 +4328,14 @@ children (
                 title "Release the surface: divvun-cg3 0.2.0 and @divvun/cg3 0.6.0 with READMEs covering compiling and the tools, the npm tarball carrying the compile entry, and the python/v0.2.0 and wasm/v0.6.0 tags"
                 kind @chore
                 deps (tool-surface.python-parity tool-surface.wasm-parity)
+                log (
+                    {
+                        at 2026-11-12T15:24:35.993925Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
         )
     }

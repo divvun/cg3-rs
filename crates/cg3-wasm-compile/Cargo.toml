@@ -2,7 +2,7 @@
 name = "cg3-wasm-compile"
 # The version of @divvun/cg3, which crates/cg3-wasm carries; this module's
 # version() reports it too, and a test holds the two equal.
-version = "0.5.0"
+version = "0.6.0"
 edition.workspace = true
 description = "wasm-bindgen glue behind @divvun/cg3/compile, which compiles and writes VISL CG-3 grammars in JavaScript"
 license.workspace = true
