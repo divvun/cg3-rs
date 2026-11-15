@@ -4,6 +4,7 @@
 
 // [spec:cg3:req:swift.one-library]
 pub use cg3_swift;
+pub use cg3_swift_compile;
 
 #[cfg(test)]
 mod tests {

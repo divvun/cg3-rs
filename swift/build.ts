@@ -7,8 +7,8 @@
 //   node swift/build.ts          the macOS slice, for `swift test` in swift/
 //   node swift/build.ts --test   that, and the fixtures the tests read
 //
-// It writes swift/CG3FFI.xcframework and swift/Sources/CG3Bindings, which
-// git ignores, and works in target/swift. The fixtures are those
+// It writes swift/CG3FFI.xcframework, swift/Sources/CG3Bindings and
+// swift/Sources/CG3CompileBindings, which git ignores, and works in target/swift. The fixtures are those
 // js/test/fixtures.mjs writes for @divvun/cg3's tests, with this checkout's
 // tools, in target/swift/fixtures.
 
@@ -26,7 +26,10 @@ const work = join(root, "target", "swift");
 const LIBRARY = { crate: "cg3-swift-ffi", file: "libcg3_swift_ffi.a" };
 
 /** Each UniFFI crate the library holds: the Swift module its bindings are compiled into. */
-const MODULES = [{ crate: "cg3-swift", module: "CG3Bindings" }];
+const MODULES = [
+  { crate: "cg3-swift", module: "CG3Bindings" },
+  { crate: "cg3-swift-compile", module: "CG3CompileBindings" },
+];
 
 /** The XCFramework. */
 const FRAMEWORK = "CG3FFI";

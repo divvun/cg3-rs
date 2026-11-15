@@ -10,11 +10,14 @@ let package = Package(
     platforms: [.iOS(.v13), .macOS(.v11)],
     products: [
         .library(name: "CG3", targets: ["CG3"]),
+        .library(name: "CG3Compile", targets: ["CG3Compile"]),
     ],
     targets: [
         .binaryTarget(name: "CG3FFI", path: "CG3FFI.xcframework"),
         .target(name: "CG3Bindings", dependencies: ["CG3FFI"]),
         .target(name: "CG3", dependencies: ["CG3Bindings"]),
-        .testTarget(name: "CG3Tests", dependencies: ["CG3"]),
+        .target(name: "CG3CompileBindings", dependencies: ["CG3FFI"]),
+        .target(name: "CG3Compile", dependencies: ["CG3", "CG3CompileBindings"]),
+        .testTarget(name: "CG3Tests", dependencies: ["CG3", "CG3Compile"]),
     ]
 )

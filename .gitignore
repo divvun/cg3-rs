@@ -23,6 +23,7 @@
 # What swift/build.ts builds, and what SwiftPM builds in swift/.
 /swift/CG3FFI.xcframework/
 /swift/Sources/CG3Bindings/
+/swift/Sources/CG3CompileBindings/
 /swift/.build/
 /swift/.swiftpm/
 /swift/link-probe/target/

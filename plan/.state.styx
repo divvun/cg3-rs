@@ -1057,4 +1057,16 @@ impl_evidence (
         {impl_name target-impl, rule swift.one-library}
         {impl_name target-impl, rule swift.tools}
     )}
+    {id swift-package.compile, covered_rules (
+        swift.compile
+        swift.compile-errors
+        swift.compile-includes
+    ), covered_claims (
+        {impl_name swift-impl, rule swift.compile}
+        {impl_name swift-impl, rule swift.compile-errors}
+        {impl_name swift-impl, rule swift.compile-includes}
+        {impl_name target-impl, rule swift.compile}
+        {impl_name target-impl, rule swift.compile-errors}
+        {impl_name target-impl, rule swift.compile-includes}
+    )}
 )

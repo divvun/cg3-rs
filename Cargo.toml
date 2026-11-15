@@ -8,6 +8,7 @@ members = [
     "crates/cg3-wasm-shared",
     "crates/cg3-python",
     "crates/cg3-swift",
+    "crates/cg3-swift-compile",
     "crates/cg3-swift-ffi",
 ]
 

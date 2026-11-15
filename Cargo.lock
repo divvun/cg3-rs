@@ -162,10 +162,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cg3-swift-compile"
+version = "0.1.0"
+dependencies = [
+ "cg3",
+ "cg3-swift",
+ "uniffi",
+]
+
+[[package]]
 name = "cg3-swift-ffi"
 version = "0.1.0"
 dependencies = [
  "cg3-swift",
+ "cg3-swift-compile",
 ]
 
 [[package]]

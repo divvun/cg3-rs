@@ -59,6 +59,7 @@ public struct CG3Error: Error, Sendable, Hashable, CustomStringConvertible, Loca
     }
 }
 
+// [spec:cg3:req:swift.compile-errors]
 /// One error a failed parse found.
 public struct Diagnostic: Sendable, Hashable {
     /// What went wrong, in the library's words.

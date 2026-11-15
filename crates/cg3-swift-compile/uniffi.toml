@@ -1,0 +1,4 @@
+[bindings.swift]
+module_name = "CG3CompileBindings"
+ffi_module_name = "CG3CompileBindingsFFI"
+ffi_module_filename = "CG3CompileBindingsFFI"

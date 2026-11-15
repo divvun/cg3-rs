@@ -4427,6 +4427,14 @@ children (
                     target-impl ([spec:cg3:req:swift.compile] [spec:cg3:req:swift.compile-includes] [spec:cg3:req:swift.compile-errors])
                 }
                 deps (swift-package.runtime)
+                log (
+                    {
+                        at 2026-11-15T14:20:08.687591Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

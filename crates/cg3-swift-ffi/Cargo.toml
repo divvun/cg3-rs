@@ -17,4 +17,5 @@ crate-type = ["staticlib"]
 
 [dependencies]
 cg3-swift = { path = "../cg3-swift" }
+cg3-swift-compile = { path = "../cg3-swift-compile" }
 

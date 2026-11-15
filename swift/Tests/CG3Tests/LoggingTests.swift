@@ -1,4 +1,5 @@
 import CG3
+import CG3Compile
 import Foundation
 import OSLog
 import Testing
@@ -121,5 +122,18 @@ struct LoggingTests {
         let entry = try #require(entries.last)
         #expect(entry.category == "cg3::apertium_applicator")
         #expect(entry.level == .error)
+    }
+
+    // [spec:cg3:req:swift.logging/test]
+    @Test func compilingLogsThroughTheSameSettings() throws {
+        let unnamedRule = "DELIMITERS = \"<.>\" ;\nSELECT: (a) ;\n"
+        let events = try capturing(at: .warning) {
+            _ = try compileGrammar(unnamedRule)
+        }
+        #expect(events.contains { $0.level == .warning && $0.message.contains("Rule had : but no name") })
+        let none = try capturing(at: nil) {
+            _ = try compileGrammar(unnamedRule)
+        }
+        #expect(none.isEmpty)
     }
 }

@@ -66,7 +66,7 @@ public var logHandler: (@Sendable (LogEvent) -> Void)? {
 }
 
 /// The logging settings, and the sink the library sends its events to.
-enum Logging {
+package enum Logging {
     /// The unified logging system's subsystem for the package.
     static let subsystem = "no.divvun.cg3"
 
