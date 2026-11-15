@@ -468,7 +468,7 @@ export function packageMetadata(version: string): Record<string, unknown> {
   const repository = "https://github.com/divvun/cg3-rs";
   const tree = `${repository}/blob/swift/v${version}`;
   return {
-    author: { name: "UiT The Arctic University of Norway", url: "https://divvun.no" },
+    author: { name: "UiT The Arctic University of Norway", url: repository },
     description:
       "VISL CG-3 (Constraint Grammar) for Swift on iOS and macOS: runs compiled .cg3b grammars and gives the output vislcg3 gives, and compiles and writes them as cg-comp does.",
     licenseURL: `${tree}/COPYING`,

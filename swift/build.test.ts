@@ -119,6 +119,7 @@ test("the compiler's functions are text symbols naming the parser, the writer or
 test("package-metadata.json has the fields SwiftPM's publishing reads, at the version's tag", () => {
   const metadata = packageMetadata("1.2.3");
   assert.deepEqual(Object.keys(metadata).sort(), ["author", "description", "licenseURL", "readmeURL", "repositoryURLs"]);
+  assert.deepEqual(metadata.author, { name: "UiT The Arctic University of Norway", url: "https://github.com/divvun/cg3-rs" });
   assert.equal(metadata.licenseURL, "https://github.com/divvun/cg3-rs/blob/swift/v1.2.3/COPYING");
   assert.equal(metadata.readmeURL, "https://github.com/divvun/cg3-rs/blob/swift/v1.2.3/swift/README.md");
 });
