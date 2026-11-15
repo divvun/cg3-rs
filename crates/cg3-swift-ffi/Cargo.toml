@@ -1,0 +1,20 @@
+[package]
+name = "cg3-swift-ffi"
+# Versioned with divvun.cg3, whose XCFramework holds this library.
+version = "0.1.0"
+edition.workspace = true
+description = "The one static library divvun.cg3's products link, which holds the UniFFI glue of each"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+cg3-swift = { path = "../cg3-swift" }
+

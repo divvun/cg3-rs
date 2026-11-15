@@ -1027,4 +1027,34 @@ impl_evidence (
         {impl_name target-impl, rule python.tools-parity}
         {impl_name target-impl, rule python.write-parity}
     )}
+    {id swift-package.runtime, covered_rules (
+        swift.apply
+        swift.concurrency
+        swift.errors
+        swift.external
+        swift.grammar-load
+        swift.load-options
+        swift.logging
+        swift.one-library
+        swift.surface
+        swift.tools
+    ), covered_claims (
+        {impl_name swift-impl, rule swift.apply}
+        {impl_name swift-impl, rule swift.concurrency}
+        {impl_name swift-impl, rule swift.errors}
+        {impl_name swift-impl, rule swift.grammar-load}
+        {impl_name swift-impl, rule swift.load-options}
+        {impl_name swift-impl, rule swift.logging}
+        {impl_name swift-impl, rule swift.surface}
+        {impl_name swift-impl, rule swift.tools}
+        {impl_name target-impl, rule swift.apply}
+        {impl_name target-impl, rule swift.concurrency}
+        {impl_name target-impl, rule swift.errors}
+        {impl_name target-impl, rule swift.external}
+        {impl_name target-impl, rule swift.grammar-load}
+        {impl_name target-impl, rule swift.load-options}
+        {impl_name target-impl, rule swift.logging}
+        {impl_name target-impl, rule swift.one-library}
+        {impl_name target-impl, rule swift.tools}
+    )}
 )

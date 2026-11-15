@@ -49,6 +49,21 @@ platforms (
             }
         }
     }
+
+    // The Swift package is tested through SwiftPM, against the XCFramework
+    // swift/build.ts builds and the fixtures js/test/fixtures.mjs writes.
+    {
+        platform swift
+        files (crates/cg3-swift/** crates/cg3-swift-ffi/** swift/Package.swift swift/build.ts swift/deno.json swift/Sources/CG3/** swift/Tests/**)
+        checks {
+            test {
+                cmd "node swift/build.ts --test && cd swift && swift test"
+            }
+            typecheck {
+                cmd "cd swift && deno check"
+            }
+        }
+    }
 )
 
 quality {

@@ -19,3 +19,10 @@
 /python/.pytest_cache/
 /python/.mypy_cache/
 /python/uv.lock
+
+# What swift/build.ts builds, and what SwiftPM builds in swift/.
+/swift/CG3FFI.xcframework/
+/swift/Sources/CG3Bindings/
+/swift/.build/
+/swift/.swiftpm/
+/swift/link-probe/target/

@@ -4409,6 +4409,14 @@ children (
                     )
                 }
                 deps (swift-package.spec)
+                log (
+                    {
+                        at 2026-11-15T13:44:56.286202Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+                )
             }
 
             {

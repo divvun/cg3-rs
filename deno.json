@@ -1,5 +1,5 @@
 {
-  "workspace": ["./js"],
+  "workspace": ["./js", "./swift"],
   "exclude": ["target/"],
   "lock": false,
   "imports": {

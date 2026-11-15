@@ -1,0 +1,6 @@
+# The Swift module the generated bindings are compiled into, and the Clang
+# module of their C header, which crates/cg3-swift-ffi's XCFramework carries.
+[bindings.swift]
+module_name = "CG3Bindings"
+ffi_module_name = "CG3BindingsFFI"
+ffi_module_filename = "CG3BindingsFFI"

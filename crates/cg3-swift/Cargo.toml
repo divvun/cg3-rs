@@ -1,0 +1,22 @@
+[package]
+name = "cg3-swift"
+# The version of divvun.cg3, the Swift package, which is versioned on its own
+# and released from a `swift/v<version>` tag; the library it binds keeps the
+# workspace version.
+version = "0.1.0"
+edition.workspace = true
+description = "UniFFI glue behind CG3, divvun.cg3's product that loads and runs VISL CG-3 grammars in Swift"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+# The glue reaches users only through the Swift package under swift/, inside
+# the static library crates/cg3-swift-ffi builds.
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+cg3 = { path = "../cg3", version = "0.5.0" }
+uniffi = { version = "0.32", default-features = false }
+tracing = "0.1"
