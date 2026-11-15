@@ -4450,6 +4450,21 @@ children (
                     )
                 }
                 deps (swift-package.runtime)
+                log (
+                    {
+                        at 2026-11-15T14:37:41.871721Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-11-15T14:57:23.594561Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Release build measured 2026-11-15 (node swift/build.ts --release): XCFramework 25 MB on disk (ios-arm64 6.39 MB, ios-arm64-simulator 6.39 MB, macos-arm64_x86_64 13.1 MB); archive cg3-0.1.0.zip 8.78 MB (26.2 MB unpacked, 47 files). Read-only-core check on macOS arm64, unstripped: all of CG3's glue 4.02 MB, with CG3Compile's 4.72 MB. From the unpacked archive, stripped: macOS programs 3.55 MB (CG3) and 4.22 MB (CG3Compile); iOS device Release frameworks 3.43 MB (CG3) and 4.06 MB (CG3Compile). The local pahkat CLI (debug build) attested the archive and package-metadata.json with a throwaway key as swift:divvun.cg3 0.1.0. Two findings changed the prelink from the decision's first form: (1) the macOS and iOS-device libraries carry ~100 compiler-rt members built from C and assembly without MH_SUBSECTIONS_VIA_SYMBOLS, so ld -r would drop the flag; they, and aarch64.o which defines what they need, stay out of the prelink as plain archive members, all their symbols private. (2) A dynamic framework exports every global, so CG3Compile's C functions kept the compiler inside a framework using only CG3 (4.04 vs 4.13 MB); a second ld -r with -keep_private_externs -unexported_symbols_list makes the C interface private to the image, and frameworks export none of it. The simulator slice is arm64 only, so a generic-simulator build needs ARCHS=arm64 (README says so)."
+                    }
+                )
             }
 
             {

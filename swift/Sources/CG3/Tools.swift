@@ -1,5 +1,6 @@
 internal import CG3Bindings
 
+// [spec:cg3:req:swift.package]
 /// The package's version. The package is versioned on its own, apart from
 /// the cg3 library it carries.
 public var version: String {

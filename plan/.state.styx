@@ -1069,4 +1069,15 @@ impl_evidence (
         {impl_name target-impl, rule swift.compile-errors}
         {impl_name target-impl, rule swift.compile-includes}
     )}
+    {id swift-package.build, covered_rules (
+        swift.linking
+        swift.package
+        swift.platforms
+        swift.read-only-core
+    ), covered_claims (
+        {impl_name swift-impl, rule swift.linking}
+        {impl_name swift-impl, rule swift.package}
+        {impl_name swift-impl, rule swift.platforms}
+        {impl_name swift-impl, rule swift.read-only-core}
+    )}
 )

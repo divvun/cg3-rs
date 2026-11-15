@@ -1,8 +1,8 @@
 // swift-tools-version:6.0
-// The package as it is developed and tested. The build writes the manifest
-// each version's source archive carries from Package.release.swift; this one
-// adds the tests. `node swift/build.ts` builds CG3FFI.xcframework and the
-// generated bindings these targets compile.
+// The package as it is developed and tested: Package.release.swift, the
+// manifest each version's source archive carries, and the tests.
+// `node swift/build.ts` builds CG3FFI.xcframework and the generated bindings
+// these targets compile.
 import PackageDescription
 
 let package = Package(
