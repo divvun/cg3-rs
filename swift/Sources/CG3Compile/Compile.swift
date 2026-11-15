@@ -26,6 +26,9 @@ public struct CompileResult: Sendable, Hashable {
 
 // [spec:cg3:req:swift.compile]
 // [spec:cg3:req:swift.compile-includes]
+// [spec:cg3:req:swift.compile-parity]
+// The source and files reach `CompiledGrammar::from_text` unchanged, and
+// the bytes come back as cg-comp's writers wrote them.
 /// Compiles the textual grammar `source` and writes it as cg-comp does.
 ///
 /// - Parameters:
@@ -84,6 +87,7 @@ public func compileGrammar(
 }
 
 // [spec:cg3:req:swift.compile]
+// [spec:cg3:req:swift.compile-parity]
 /// The grammar in the `.cg3b` `cg3b` as text, as vislcg3 `--grammar-out`
 /// writes it.
 ///
@@ -105,6 +109,7 @@ public func relabelGrammar(_ cg3b: Data, with relabels: String) throws -> Data {
 }
 
 // [spec:cg3:req:swift.compile]
+// [spec:cg3:req:swift.compile-parity]
 /// The `.cg3b` of the grammar in `cg3b` relabelled by the relabel rules in
 /// `relabels`, read as cg-relabel reads its rule file: a `.cg3b`, or a
 /// textual grammar in UTF-8. A diagnostic of rules given as bytes has no

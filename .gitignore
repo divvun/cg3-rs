@@ -27,3 +27,5 @@
 /swift/.build/
 /swift/.swiftpm/
 /swift/link-probe/target/
+/swift/LinkProbeFFI.xcframework/
+/swift/Tests/LinkProbe/

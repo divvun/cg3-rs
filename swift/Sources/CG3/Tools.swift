@@ -8,6 +8,7 @@ public var version: String {
 }
 
 // [spec:cg3:req:swift.tools]
+// [spec:cg3:req:swift.compile-parity]
 /// Converts `input` from one stream format to another, as cg-conv does, and
 /// returns what cg-conv writes.
 ///
@@ -18,6 +19,7 @@ public func convert(_ input: String, options: ConvertOptions = ConvertOptions())
 }
 
 // [spec:cg3:req:swift.tools]
+// [spec:cg3:req:swift.compile-parity]
 /// Splits each cohort whose wordform tags give its words into one cohort per
 /// word, as cg-mwesplit does, and returns what cg-mwesplit writes.
 ///

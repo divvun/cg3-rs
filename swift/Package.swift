@@ -18,6 +18,10 @@ let package = Package(
         .target(name: "CG3", dependencies: ["CG3Bindings"]),
         .target(name: "CG3CompileBindings", dependencies: ["CG3FFI"]),
         .target(name: "CG3Compile", dependencies: ["CG3", "CG3CompileBindings"]),
-        .testTarget(name: "CG3Tests", dependencies: ["CG3", "CG3Compile"]),
+        // The linking test's second Rust library, which build.ts builds
+        // from link-probe on its own.
+        .binaryTarget(name: "LinkProbeFFI", path: "LinkProbeFFI.xcframework"),
+        .target(name: "LinkProbe", dependencies: ["LinkProbeFFI"], path: "Tests/LinkProbe"),
+        .testTarget(name: "CG3Tests", dependencies: ["CG3", "CG3Compile", "LinkProbe"]),
     ]
 )

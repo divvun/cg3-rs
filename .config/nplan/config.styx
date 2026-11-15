@@ -52,15 +52,18 @@ platforms (
 
     // The Swift package is tested through SwiftPM, against the XCFramework
     // swift/build.ts builds and the fixtures js/test/fixtures.mjs writes.
+    // A check's command is not run by a shell, so swift/check.sh holds the
+    // steps: an `&&` or a `cd` here would reach the first program as
+    // arguments.
     {
         platform swift
-        files (crates/cg3-swift/** crates/cg3-swift-compile/** crates/cg3-swift-ffi/** swift/Package.swift swift/Package.release.swift swift/build.ts swift/build.test.ts swift/deno.json swift/Sources/CG3/** swift/Sources/CG3Compile/** swift/Tests/**)
+        files (crates/cg3-swift/** crates/cg3-swift-compile/** crates/cg3-swift-ffi/** swift/Package.swift swift/Package.release.swift swift/build.ts swift/build.test.ts swift/check.sh swift/deno.json swift/Sources/CG3/** swift/Sources/CG3Compile/** swift/Tests/** swift/link-probe/Cargo.toml swift/link-probe/Cargo.lock swift/link-probe/src/**)
         checks {
             test {
-                cmd "node --test swift/build.test.ts && node swift/build.ts --test && cd swift && swift test"
+                cmd "swift/check.sh test"
             }
             typecheck {
-                cmd "cd swift && deno check"
+                cmd "swift/check.sh typecheck"
             }
         }
     }

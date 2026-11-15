@@ -4416,6 +4416,14 @@ children (
                         kind @status
                         text "Todo → Doing (nplan start)"
                     }
+
+                    {
+                        at 2026-11-15T15:15:24.237751Z
+                        author "brendan@necessary.nu"
+                        kind @errata
+                        text "nplan check runs a platform check's cmd without a shell, splitting it on whitespace without honouring quotes. So the swift checks this node's commit added (\"node swift/build.ts --test && cd swift && swift test\", \"cd swift && deno check\"), kept through swift-package.compile and swift-package.build, never ran swift test or deno check: node got the rest as arguments, /usr/bin/cd ran nothing, and both still passed. The Swift suite was run by hand for each of those commits, and passed. swift-package.parity's commit moves the steps into swift/check.sh, which the checks call with one argument; a run there shows the probe's cargo test, the build script's tests and \"Test run with 35 tests in 7 suites passed\". The repository's other checks of that shape are vacuous the same way and are left as they are: python test and typecheck (\"cd python && ...\") and typescript typecheck (\"cd js && deno check\")."
+                        after_done true
+                    }
                 )
             }
 
@@ -4475,6 +4483,21 @@ children (
                     swift-impl ([spec:cg3:req:swift.parity] [spec:cg3:req:swift.compile-parity])
                 }
                 deps (swift-package.compile swift-package.build)
+                log (
+                    {
+                        at 2026-11-15T15:00:14.7546Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-11-15T15:07:19.910882Z
+                        author "brendan@necessary.nu"
+                        kind @note
+                        text "Run 2026-11-15. macOS (swift test, macOS 27.2, arm64): 35 tests in 7 suites pass, among them parameterized cg3GivesVislcg3sBytes (68 corpus cases), compilingWritesWhatCGCompAndGrammarOutWrite (69 corpus grammars: .cg3b, companion and --grammar-out text) and eachToolsCaseGivesTheToolsBytes (255 cg-conv/cg-mwesplit/cg-proc/cg-relabel cases); a deliberately corrupted expected file fails both suites. iOS simulator (xcodebuild test -scheme cg3-Package, iPhone 17 Pro, iOS 26.5, with TEST_RUNNER_CG3_SWIFT_FIXTURES): the same 35 tests and case counts pass. Exemptions are the fixtures' own: T_External (EXTERNAL, as js/test/parity-fixtures.mjs exempts it) and the tool cases of a binary stream or non-UTF-8 input. The linking test links CG3, CG3Compile and swift/link-probe (its own cargo workspace, same uniffi 0.32.2 and tracing, fat LTO, not prelinked, setting its own global tracing subscriber) into one test bundle; a panic in the probe unwinds and is thrown, and cg3's warnings never reach the probe's subscriber. On the simulator an EXTERNAL rule fails with runFailed (the shell starts, but finds no program); the test accepts any runFailed naming EXTERNAL and demands \"could not be started\" only on a device."
+                    }
+                )
             }
 
             {

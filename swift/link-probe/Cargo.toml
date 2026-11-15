@@ -1,0 +1,24 @@
+# A Rust static library unrelated to cg3, built on its own with the same
+# toolchain and the same uniffi and tracing, as another package's library is,
+# such as hfst's. The linking test links it into one binary beside CG3 and
+# CG3Compile, where any std, uniffi or tracing symbol both define would clash.
+[package]
+name = "cg3-link-probe"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+uniffi = { version = "0.32", default-features = false }
+tracing = "0.1"
+
+# Its own workspace, apart from cg3's, as another package's build is.
+[workspace]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1

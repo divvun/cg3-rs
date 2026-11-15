@@ -1080,4 +1080,11 @@ impl_evidence (
         {impl_name swift-impl, rule swift.platforms}
         {impl_name swift-impl, rule swift.read-only-core}
     )}
+    {id swift-package.parity, covered_rules (
+        swift.compile-parity
+        swift.parity
+    ), covered_claims (
+        {impl_name swift-impl, rule swift.compile-parity}
+        {impl_name swift-impl, rule swift.parity}
+    )}
 )

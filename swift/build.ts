@@ -19,8 +19,9 @@
 // compiler.
 //
 // It writes swift/CG3FFI.xcframework, swift/Sources/CG3Bindings and
-// swift/Sources/CG3CompileBindings, which git ignores, and works in
-// target/swift. The fixtures are those js/test/fixtures.mjs writes for
+// swift/Sources/CG3CompileBindings, and the linking test's
+// swift/LinkProbeFFI.xcframework and swift/Tests/LinkProbe, which git
+// ignores, and works in target/swift. The fixtures are those js/test/fixtures.mjs writes for
 // @divvun/cg3's tests, with this checkout's tools, in target/swift/fixtures.
 // It installs uniffi-bindgen-swift at the version of uniffi in Cargo.lock.
 
@@ -64,6 +65,13 @@ const PROFILE = "swift-release";
 
 /** The package's name in its identifier, divvun.cg3, and its archive's. */
 const PACKAGE = "cg3";
+
+/**
+ * The linking test's second Rust library, swift/link-probe: its own cargo
+ * workspace, built with LTO by its own profile and not prelinked, as another
+ * package's library may be.
+ */
+const PROBE = { manifest: join(swift, "link-probe", "Cargo.toml"), file: "libcg3_link_probe.a", module: "LinkProbe" };
 
 /** A slice of the XCFramework: the Rust targets whose libraries it joins, and the least OS version they are built for. */
 type Slice = { name: string; targets: string[]; env: Record<string, string> };
@@ -278,32 +286,69 @@ function bindgenTool(): string {
 
 /**
  * Generates the bindings of `library`, as cargo built it, before the
- * prelink makes the metadata uniffi-bindgen-swift reads local: each module's
- * Swift into swift/Sources/<module>, and its C header with a module map into
- * a directory of the Clang module's name, under the directory it returns.
+ * prelink makes the metadata uniffi-bindgen-swift reads local: each of
+ * `modules`' Swift into `sources(module)`, and its C header with a module
+ * map into a directory of the Clang module's name, under the directory it
+ * returns, `headers`. `workspace` is the cargo workspace the library's
+ * crates are in.
  */
-function bindgen(library: string): string {
+function bindgen(
+  library: string,
+  modules: string[],
+  sources: (module: string) => string,
+  headers: string,
+  workspace = root,
+): string {
   const generated = join(work, "generated");
   rmSync(generated, { recursive: true, force: true });
   const tool = bindgenTool();
-  for (const kind of ["--swift-sources", "--headers"]) run(tool, [kind, library, generated]);
+  // It finds each crate's uniffi.toml through `cargo metadata` of `workspace`.
+  for (const kind of ["--swift-sources", "--headers"]) run(tool, [kind, library, generated], { cwd: workspace });
 
-  const headers = join(work, "headers");
   rmSync(headers, { recursive: true, force: true });
-  for (const { module } of MODULES) {
-    const sources = join(swift, "Sources", module);
-    rmSync(sources, { recursive: true, force: true });
-    mkdirSync(sources, { recursive: true });
-    copyFileSync(join(generated, `${module}.swift`), join(sources, `${module}.swift`));
+  for (const module of modules) {
+    const dir = sources(module);
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    copyFileSync(join(generated, `${module}.swift`), join(dir, `${module}.swift`));
     // Each Clang module in a directory of its name, where Clang looks for
     // `import <name>`, so no other package's module map shares its path.
     const clang = `${module}FFI`;
-    const dir = join(headers, clang);
-    mkdirSync(dir, { recursive: true });
-    copyFileSync(join(generated, `${clang}.h`), join(dir, `${clang}.h`));
-    writeFileSync(join(dir, "module.modulemap"), `module ${clang} {\n    header "${clang}.h"\n    export *\n}\n`);
+    const at = join(headers, clang);
+    mkdirSync(at, { recursive: true });
+    copyFileSync(join(generated, `${clang}.h`), join(at, `${clang}.h`));
+    writeFileSync(join(at, "module.modulemap"), `module ${clang} {\n    header "${clang}.h"\n    export *\n}\n`);
   }
   return headers;
+}
+
+// [spec:cg3:req:swift.linking]
+/**
+ * Builds the linking test's second library for each of `slices` and makes
+ * swift/LinkProbeFFI.xcframework of it, with its bindings in
+ * swift/Tests/LinkProbe. It is built as its own Cargo.toml says, with LTO,
+ * and is not prelinked: it stands for a library that keeps std's symbols
+ * global.
+ */
+function buildProbe(slices: Slice[]): void {
+  const targetDir = join(work, "link-probe");
+  const libraries = slices.map((slice) => {
+    const built = slice.targets.map((target) => {
+      const cargo = ["build", "--locked", "--release", "--manifest-path", PROBE.manifest, "--target", target];
+      run("cargo", [...cargo, "--target-dir", targetDir], { env: slice.env });
+      return join(targetDir, target, "release", PROBE.file);
+    });
+    if (built.length === 1) return built[0] ?? "";
+    const fat = join(work, "slices", `probe-${slice.name}`, PROBE.file);
+    mkdirSync(dirname(fat), { recursive: true });
+    run("xcrun", ["lipo", "-create", ...built, "-output", fat]);
+    return fat;
+  });
+  const [first] = libraries;
+  if (first === undefined) throw new Error("no slice to build the probe for");
+  const sources = () => join(swift, "Tests", PROBE.module);
+  const headers = bindgen(first, [PROBE.module], sources, join(work, "probe-headers"), dirname(PROBE.manifest));
+  xcframework(libraries, headers, join(swift, `${PROBE.module}FFI.xcframework`));
 }
 
 // [spec:cg3:req:swift.platforms]
@@ -546,13 +591,19 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   const built = slices.map(buildSlice);
   const [first] = built;
   if (first === undefined) throw new Error("no slice to build");
-  const headers = bindgen(first.built);
+  const headers = bindgen(
+    first.built,
+    MODULES.map((m) => m.module),
+    (module) => join(swift, "Sources", module),
+    join(work, "headers"),
+  );
   const framework = join(swift, `${FRAMEWORK}.xcframework`);
   xcframework(
     built.map((slice) => slice.library),
     headers,
     framework,
   );
+  buildProbe(slices);
   const core = checkReadOnlyCore(join(work, "prelink", host, LIBRARY.file), host, headers);
   console.log(
     `read-only core: a binary calling all of CG3's glue is ${megabytes(core.runtime)}, and one calling CG3Compile's too ${megabytes(core.compiler)}`,
@@ -567,6 +618,10 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
       );
     }
   }
+  // [spec:cg3:req:swift.parity]
+  // [spec:cg3:req:swift.compile-parity]
+  // The fixtures @divvun/cg3's tests read, which a simulator cannot write:
+  // it cannot start vislcg3 or the other tools.
   if (process.argv.includes("--test")) {
     buildFixtures(buildTools(root, run), join(root, "test"), join(work, "fixtures"));
   }

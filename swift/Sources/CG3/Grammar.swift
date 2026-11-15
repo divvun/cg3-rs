@@ -32,6 +32,10 @@ public final class Grammar: Sendable {
 
     // [spec:cg3:req:swift.apply]
     // [spec:cg3:req:swift.errors]
+    // [spec:cg3:req:swift.parity]
+    // The input and options reach `CompiledGrammar::run`, which vislcg3 runs
+    // every grammar through, unchanged, and the output comes back as it wrote
+    // it, so a run gives vislcg3's bytes.
     /// Runs the grammar on `input`, as vislcg3 runs it on one standard input,
     /// and returns the output with every warning and non-fatal error the run
     /// logged. Each call is a run of its own.
@@ -44,6 +48,7 @@ public final class Grammar: Sendable {
     }
 
     // [spec:cg3:req:swift.tools]
+    // [spec:cg3:req:swift.compile-parity]
     /// Runs the grammar on `input` as cg-proc does, and returns what cg-proc
     /// writes. The options the grammar sets with `CMDARGS` apply as they do
     /// in cg-proc.
