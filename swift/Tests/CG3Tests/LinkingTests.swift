@@ -6,7 +6,9 @@ import Testing
 
 /// CG3 and CG3Compile in one binary with a second Rust library, built on its
 /// own by the same toolchain with the same uniffi and tracing, with LTO and
-/// without the prelink, so std's symbols stay global in it.
+/// without the prelink, so std's symbols stay global in it. The tests run one
+/// at a time: each logs events to the probe, and the first counts them.
+@Suite(.serialized)
 struct LinkingTests {
     // [spec:cg3:req:swift.linking/test]
     @Test func cg3LinksBesideAnotherRustLibraryAndEachKeepsItsOwnState() throws {
