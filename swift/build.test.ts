@@ -10,7 +10,9 @@ import {
   isCInterface,
   leftOut,
   members,
+  oneFunction,
   packageMetadata,
+  withSubsections,
 } from "./build.ts";
 
 const NM = `
@@ -37,12 +39,14 @@ test("nm -m reads as each member's symbols, with their visibility", () => {
   const read = members(NM);
   assert.deepEqual([...read.keys()], ["cg3_swift_ffi.cgu.0.rcgu.o", "aarch64.o", "lse_cas16_acq.o", "builtins.o"]);
   const rust = read.get("cg3_swift_ffi.cgu.0.rcgu.o");
-  assert.deepEqual(rust?.defines, [
-    { name: "_uniffi_cg3_swift_fn_func_version", external: true },
-    { name: "_rust_eh_personality", external: true },
-  ]);
+  assert.deepEqual(
+    rust?.defines.map(({ name, external }) => [name, external]),
+    [["_uniffi_cg3_swift_fn_func_version", true], ["_rust_eh_personality", true]],
+  );
   assert.deepEqual(rust?.needs, ["__aarch64_cas16_acq", "_malloc"]);
-  assert.deepEqual(read.get("builtins.o")?.defines, [{ name: "___udivti3", external: false }]);
+  assert.deepEqual(read.get("builtins.o")?.defines, [
+    { name: "___udivti3", external: false, section: "__TEXT,__text", address: 0 },
+  ]);
   assert.equal(members("libcg3_swift_ffi.a(prelinked.o):\n").has("prelinked.o"), true, "the older header form");
 });
 
@@ -51,6 +55,26 @@ test("the members left out of the prelink are those without the flag and what th
   const out = leftOut(members(NM), new Set(["lse_cas16_acq.o"]));
   assert.deepEqual([...out].sort(), ["aarch64.o", "lse_cas16_acq.o"]);
   assert.deepEqual([...leftOut(members(NM), new Set())], []);
+});
+
+// [spec:cg3:req:swift.linking/test]
+test("a member of one function at the start of its text may take the flag", () => {
+  const read = members(NM);
+  assert.equal(oneFunction(read.get("lse_cas16_acq.o")!), true);
+  assert.equal(oneFunction(read.get("aarch64.o")!), false, "data");
+  assert.equal(oneFunction(read.get("cg3_swift_ffi.cgu.0.rcgu.o")!), false, "two symbols");
+  const header = new Uint8Array(32);
+  new DataView(header.buffer).setUint32(0, 0xfeedfacf, true);
+  new DataView(header.buffer).setUint32(24, 0x1, true);
+  const flagged = withSubsections(header);
+  assert.equal(new DataView(flagged.buffer).getUint32(24, true), 0x2001);
+  assert.equal(new DataView(header.buffer).getUint32(24, true), 0x1, "the original is left as it was");
+  assert.throws(() => withSubsections(new Uint8Array(32)));
+  const pool = new Uint8Array(96);
+  pool.set(header, 40);
+  const view = pool.subarray(40, 72);
+  assert.equal(new DataView(withSubsections(view).buffer).getUint32(24, true), 0x2001, "a view into a larger buffer");
+  assert.equal(new DataView(pool.buffer).getUint32(24, true), 0, "the larger buffer is left as it was");
 });
 
 // [spec:cg3:req:swift.linking/test]

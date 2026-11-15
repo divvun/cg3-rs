@@ -128,7 +128,10 @@ function arch(target: string): string {
  * prebuilt compiler_builtins objects embed bitcode of a newer LLVM than
  * Xcode's `nm` reads.
  */
-type Member = { defines: { name: string; external: boolean }[]; needs: string[] };
+type Member = { defines: Defined[]; needs: string[] };
+
+/** A symbol a member defines: its name, whether it is visible beyond its image, its section and its address there. */
+type Defined = { name: string; external: boolean; section: string; address: number };
 
 /**
  * Each member of an archive, by name, from `nm -m` of the archive: a symbol
@@ -146,11 +149,13 @@ export function members(nm: string): Map<string, Member> {
       found.set(header[1], current);
       continue;
     }
-    const symbol = /^(?:[0-9a-f]+ )?\(([^)]*)\) (.*?)(\S+)(?: \(.*\))?$/.exec(line.trim());
+    const symbol = /^(?:([0-9a-f]+) )?\(([^)]*)\) (.*?)(\S+)(?: \(.*\))?$/.exec(line.trim());
     if (current === undefined || symbol === null) continue;
-    const [, section, kind = "", name = ""] = symbol;
+    const [, address = "", section = "", kind = "", name = ""] = symbol;
     if (section === "undefined") current.needs.push(name);
-    else if (!kind.includes("non-external")) current.defines.push({ name, external: !kind.includes("private") });
+    else if (!kind.includes("non-external")) {
+      current.defines.push({ name, external: !kind.includes("private"), section, address: Number.parseInt(address, 16) });
+    }
   }
   return found;
 }
@@ -163,11 +168,40 @@ export function isCInterface(name: string): boolean {
 
 // [spec:cg3:req:swift.linking]
 /**
+ * Whether `member` defines one function, at the start of its text, and
+ * nothing else, as each of compiler-rt's outline-atomics helpers does: split
+ * at its symbols it is the same one piece, so it may carry
+ * `MH_SUBSECTIONS_VIA_SYMBOLS` though its assembler did not set it.
+ */
+export function oneFunction(member: Member): boolean {
+  const [only, ...rest] = member.defines;
+  return only !== undefined && rest.length === 0 && only.section === "__TEXT,__text" && only.address === 0;
+}
+
+/** `MH_SUBSECTIONS_VIA_SYMBOLS` in a Mach-O header's flags. */
+const SUBSECTIONS_VIA_SYMBOLS = 0x2000;
+
+// [spec:cg3:req:swift.linking]
+/** `object`, a 64-bit Mach-O object, with `MH_SUBSECTIONS_VIA_SYMBOLS` set in its header's flags. */
+export function withSubsections(object: Uint8Array): Uint8Array {
+  const header = new DataView(object.buffer, object.byteOffset, object.byteLength);
+  if (object.byteLength < 28 || header.getUint32(0, true) !== 0xfeedfacf) throw new Error("not a 64-bit Mach-O object");
+  // A copy of its own: a Buffer from readFileSync may be a view into a
+  // shared pool, whose slice() would not copy.
+  const flagged = new Uint8Array(object);
+  const view = new DataView(flagged.buffer, flagged.byteOffset, flagged.byteLength);
+  view.setUint32(24, view.getUint32(24, true) | SUBSECTIONS_VIA_SYMBOLS, true);
+  return flagged;
+}
+
+// [spec:cg3:req:swift.linking]
+/**
  * The members to leave out of the prelink: those without
  * `MH_SUBSECTIONS_VIA_SYMBOLS`, since `ld -r` drops the flag from an object
  * when any input lacks it, and those that define what they need, which the
- * prelink would make local. On macOS they are compiler-rt's objects built
- * from C and assembly, whose symbols are all private.
+ * prelink would make local. The members compiler-rt adds to each slice
+ * hold one function each and get the flag instead, so none is left out; one
+ * that held more would be, with its symbols private but global in the image.
  */
 export function leftOut(all: Map<string, Member>, unflagged: Set<string>): Set<string> {
   const out = new Set(unflagged);
@@ -190,8 +224,9 @@ export function leftOut(all: Map<string, Member>, unflagged: Set<string>): Set<s
  * global symbols are its C interface, as Xcode's single-object prelink does
  * with an exported symbols file: every other global, std's
  * `rust_eh_personality` among them, becomes local, so no other Rust library
- * in the same binary can clash with it. The members `leftOut` names stay
- * beside the object as they were. Fails when any symbol is visible beyond
+ * in the same binary can clash with it, even under `-all_load`. A member
+ * that lacks `MH_SUBSECTIONS_VIA_SYMBOLS` and holds one function is given
+ * the flag; the members `leftOut` names stay beside the object as they were. Fails when any symbol is visible beyond
  * the image that links the library, when the object holds a global beside
  * the C interface, when a member left out would hold the C interface, or
  * when the object loses `MH_SUBSECTIONS_VIA_SYMBOLS`, without which an app's
@@ -204,9 +239,14 @@ function prelink(target: string, library: string): string {
   mkdirSync(objects, { recursive: true });
   run("ar", ["x", library], { cwd: objects });
   const all = members(output("nm", ["-m", "--no-llvm-bc", library]));
-  const unflagged = new Set(
-    [...all.keys()].filter((name) => !output("otool", ["-hv", join(objects, name)]).includes("SUBSECTIONS_VIA_SYMBOLS")),
-  );
+  const unflagged = new Set<string>();
+  for (const name of all.keys()) {
+    const path = join(objects, name);
+    if (output("otool", ["-hv", path]).includes("SUBSECTIONS_VIA_SYMBOLS")) continue;
+    const member = all.get(name);
+    if (member !== undefined && oneFunction(member)) writeFileSync(path, withSubsections(readFileSync(path)));
+    else unflagged.add(name);
+  }
   const out = leftOut(all, unflagged);
   const kept = [...out].filter((name) => all.get(name)?.defines.some((symbol) => isCInterface(symbol.name)));
   if (kept.length > 0) throw new Error(`the ${target} library's C interface is in members the prelink leaves out: ${kept.join(", ")}`);
