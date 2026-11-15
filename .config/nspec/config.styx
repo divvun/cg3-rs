@@ -11,5 +11,6 @@ specs ({
         {name target-impl, languages (@rust), include (src/**/*.rs crates/**/*.rs), exclude (target/**), mode @both}
         {name js-impl, languages (@typescript), include (js/**/*.ts), exclude (js/**/node_modules/** js/**/pkg/** js/**/dist/**), mode @both}
         {name py-impl, languages (@python), include (python/**/*.py python/**/*.pyi), exclude (python/.venv/** python/build/**), mode @both}
+        {name swift-impl, languages (@swift @typescript), include (swift/**/*.swift swift/**/*.ts), exclude (swift/.build/** swift/Sources/CG3Bindings/** swift/Sources/CG3CompileBindings/** swift/Tests/LinkProbe/**), mode @both}
     )
 })

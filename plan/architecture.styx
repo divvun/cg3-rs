@@ -213,11 +213,12 @@ elements (
             "crates/cg3/src/embed/**"
         )
         depends_on ([arch:cg3:error-model] [arch:cg3:grammar-model] [arch:cg3:binary-format])
-        decisions ([dec:cg3:wasm-package] [dec:cg3:python-package] [dec:cg3:tool-surface])
+        decisions ([dec:cg3:wasm-package] [dec:cg3:python-package] [dec:cg3:tool-surface] [dec:cg3:swift-package])
         log (
             {at "2026-10-29T00:00:00Z", kind @established, by "[dec:cg3:wasm-package]"}
             {at "2026-11-10T00:00:00Z", kind @modified, by "[dec:cg3:python-package]"}
             {at "2026-11-11T00:00:00Z", kind @modified, by "[dec:cg3:tool-surface]"}
+            {at "2026-11-15T00:00:00Z", kind @modified, by "[dec:cg3:swift-package]"}
         )
     }
 
@@ -287,6 +288,45 @@ elements (
             {at "2026-11-10T00:00:00Z", kind @established, by "[dec:cg3:python-package]"}
             {at "2026-11-10T00:00:00Z", kind @modified, by "[dec:cg3:package-versions]"}
             {at "2026-11-11T00:00:00Z", kind @modified, by "[dec:cg3:tool-surface]"}
+        )
+    }
+
+    {
+        id [arch:cg3:swift-package]
+        name "Swift package"
+        kind @boundary
+        lifecycle @provisional
+        owns (
+            [spec:cg3:req:swift.package]
+            [spec:cg3:req:swift.platforms]
+            [spec:cg3:req:swift.one-library]
+            [spec:cg3:req:swift.linking]
+            [spec:cg3:req:swift.read-only-core]
+            [spec:cg3:req:swift.surface]
+            [spec:cg3:req:swift.grammar-load]
+            [spec:cg3:req:swift.load-options]
+            [spec:cg3:req:swift.apply]
+            [spec:cg3:req:swift.tools]
+            [spec:cg3:req:swift.errors]
+            [spec:cg3:req:swift.concurrency]
+            [spec:cg3:req:swift.logging]
+            [spec:cg3:req:swift.external]
+            [spec:cg3:req:swift.compile]
+            [spec:cg3:req:swift.compile-includes]
+            [spec:cg3:req:swift.compile-errors]
+            [spec:cg3:req:swift.parity]
+            [spec:cg3:req:swift.compile-parity]
+        )
+        exposes (
+            "crates/cg3-swift/**"
+            "crates/cg3-swift-compile/**"
+            "crates/cg3-swift-ffi/**"
+            "swift/**"
+        )
+        depends_on ([arch:cg3:embedding])
+        decisions ([dec:cg3:swift-package])
+        log (
+            {at "2026-11-15T00:00:00Z", kind @established, by "[dec:cg3:swift-package]"}
         )
     }
 )

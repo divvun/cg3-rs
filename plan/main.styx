@@ -4357,17 +4357,67 @@ children (
                 id swift-package.spec
                 title "State the Swift package in the spec and the AKM: docs/spec/port/src/swift.md beside python.md and wasm.md (the package and its registry archive, the platforms, linking beside other Rust libraries, the CG3 and CG3Compile surfaces, errors, concurrency, logging, parity), the swift-package decision with the linking choice and its evidence, its architecture element, and a Swift impl in .config/nspec"
                 kind @docs
+                sealed true
+                log (
+                    {
+                        at 2026-11-15T13:43:39.014695Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Todo → Doing (nplan start)"
+                    }
+
+                    {
+                        at 2026-11-15T13:43:49.52657Z
+                        author "brendan@necessary.nu"
+                        kind @decision
+                        text "Written: docs/spec/port/src/swift.md with swift.package, swift.platforms, swift.one-library, swift.linking, swift.read-only-core, swift.surface, swift.grammar-load, swift.load-options, swift.apply, swift.tools, swift.errors, swift.concurrency, swift.logging, swift.external, swift.compile, swift.compile-includes, swift.compile-errors, swift.parity and swift.compile-parity; [dec:cg3:swift-package]; [arch:cg3:swift-package]; and swift-impl in .config/nspec (Swift and the TypeScript build script under swift/). Interpretations: (1) CG3Error's codes are @divvun/cg3's that a native library can raise (invalidArgument, invalidGrammar, runFailed, compileFailed, raw values the JS strings), plus panicked for a caught Rust panic; not-initialised, init-failed, freed and poisoned have no native counterpart, as [dec:cg3:python-package] says of Python. (2) Nothing in cg3's Swift surface changes in place and there is no copy(): the library's relabel returns a new grammar and neither Python's nor JS's Grammar has copy(), so Grammar needs no lock; only the logging settings are guarded by one. (3) Logging goes through os_log, not os.Logger, because Logger needs iOS 14 and the package supports iOS 13; it reaches the same unified log. (4) The build script is swift/build.ts, run by Node, so nspec's swift-impl covers TypeScript under swift/ as well as Swift. Linking evidence (clang link of a C main on the iOS simulator, rustc 1.99.0, Xcode 27.2): no-LTO+no-LTO links by sharing one std/uniffi_core/tracing; any LTO side gives 2 duplicate symbols (_rust_eh_personality, std::panicking::EMPTY_PANIC); LTO + ld -r prelink with an exported symbols list links with anything in either order (144 globals, all C interface). Sizes, dead-stripped and stripped: 3.23 MB calling all of CG3's glue, 3.78 MB with CG3Compile's."
+                    }
+
+                    {
+                        at 2026-11-15T13:43:49.720539Z
+                        author "brendan@necessary.nu"
+                        kind @status
+                        text "Doing → Done (nplan complete)"
+                    }
+                )
             }
 
             {
                 id swift-package.runtime
                 title "The UniFFI crates and the CG3 product, equal to @divvun/cg3's main entry: Grammar(cg3b:options:) with LoadOptions, info, apply(to:options:) with ApplyOptions and its warnings, proc, convert and mwesplit, CG3Error, logging to the unified log and an optional handler, and the static library both products link"
+                implements {
+                    swift-impl (
+                        [spec:cg3:req:swift.surface]
+                        [spec:cg3:req:swift.grammar-load]
+                        [spec:cg3:req:swift.load-options]
+                        [spec:cg3:req:swift.apply]
+                        [spec:cg3:req:swift.tools]
+                        [spec:cg3:req:swift.errors]
+                        [spec:cg3:req:swift.concurrency]
+                        [spec:cg3:req:swift.logging]
+                    )
+                    target-impl (
+                        [spec:cg3:req:swift.one-library]
+                        [spec:cg3:req:swift.grammar-load]
+                        [spec:cg3:req:swift.load-options]
+                        [spec:cg3:req:swift.apply]
+                        [spec:cg3:req:swift.tools]
+                        [spec:cg3:req:swift.errors]
+                        [spec:cg3:req:swift.concurrency]
+                        [spec:cg3:req:swift.logging]
+                        [spec:cg3:req:swift.external]
+                    )
+                }
                 deps (swift-package.spec)
             }
 
             {
                 id swift-package.compile
                 title "The CG3Compile product, equal to @divvun/cg3/compile: compileGrammar with LoadOptions and INCLUDE files from a dictionary or a closure, the .cg3b, companion and warnings it returns, the grammar as text, relabelling, and compileFailed errors whose diagnostics place each error in the caller's strings"
+                implements {
+                    swift-impl ([spec:cg3:req:swift.compile] [spec:cg3:req:swift.compile-includes] [spec:cg3:req:swift.compile-errors])
+                    target-impl ([spec:cg3:req:swift.compile] [spec:cg3:req:swift.compile-includes] [spec:cg3:req:swift.compile-errors])
+                }
                 deps (swift-package.runtime)
             }
 
@@ -4375,6 +4425,14 @@ children (
                 id swift-package.build
                 title "The build script: each Rust slice (macOS arm64 and x86_64 as one fat slice, iOS arm64, the iOS simulator arm64), uniffi-bindgen, the XCFramework from xcodebuild -create-xcframework, the release manifest and the source archive from swift package archive-source with package-metadata.json, and the checks that only the C interface is global and that an app linking only CG3 carries no compiler"
                 kind @build
+                implements {
+                    swift-impl (
+                        [spec:cg3:req:swift.package]
+                        [spec:cg3:req:swift.platforms]
+                        [spec:cg3:req:swift.linking]
+                        [spec:cg3:req:swift.read-only-core]
+                    )
+                }
                 deps (swift-package.runtime)
             }
 
@@ -4382,6 +4440,9 @@ children (
                 id swift-package.parity
                 title "The Swift test suite on macOS with swift test and on the iOS simulator with xcodebuild test: the golden corpus and the cg-* tool fixtures js/test/fixtures.mjs writes, held to the bytes vislcg3, cg-comp and the tools write, and CG3 and CG3Compile linked beside an unrelated Rust static library"
                 kind @test
+                implements {
+                    swift-impl ([spec:cg3:req:swift.parity] [spec:cg3:req:swift.compile-parity])
+                }
                 deps (swift-package.compile swift-package.build)
             }
 
